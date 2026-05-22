@@ -1,0 +1,1 @@
+ALTER TABLE `invoices` ADD `accentColor` varchar(16) DEFAULT '#1a56db';

@@ -1,0 +1,18 @@
+{
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    {
+      "source": "/inventory/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/knowledge",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/showcase",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `chat_knowledge` MODIFY COLUMN `content` mediumtext NOT NULL;
