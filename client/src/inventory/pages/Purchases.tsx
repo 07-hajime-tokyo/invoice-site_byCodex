@@ -462,7 +462,8 @@ export default function Purchases() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     localStorage.removeItem(LEGACY_PURCHASE_STATUS_FILTER_KEY);
-    return localStorage.getItem(PURCHASE_STATUS_FILTER_KEY) ?? null;
+    const stored = localStorage.getItem(PURCHASE_STATUS_FILTER_KEY);
+    return stored === "ordered" || stored === "shipped" ? stored : null;
   });
   const handleSetStatusFilter = useCallback((status: string | null) => {
     setSelectedStatusFilter(prev => {
@@ -517,7 +518,7 @@ export default function Purchases() {
   const today = new Date().toISOString().split("T")[0];
 
   const activePurchases = useMemo(() => {
-    return (purchases ?? []) as Purchase[];
+    return ((purchases ?? []) as Purchase[]).filter((purchase) => purchase.status !== "purchased");
   }, [purchases]);
 
   // 発注済み登録: 在庫検索フィルター
@@ -1169,7 +1170,7 @@ export default function Purchases() {
             </button>
             <button
               onClick={() => handleSetStatusFilter('purchased')}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              className={`hidden px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                 selectedStatusFilter === 'purchased'
                   ? 'bg-green-600 text-white border-green-600'
                   : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
