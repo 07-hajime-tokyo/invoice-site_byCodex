@@ -308,6 +308,176 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
     .sort((a, b) => Number(a.invoiceNo) - Number(b.invoiceNo));
 }
 
+const CATEGORY_SETTINGS_KEY = "inventory_categories";
+const ALL_CATEGORY_LABEL = "すべて";
+const UNCATEGORIZED_LABEL = "未分類";
+
+function normalizeCategoryName(value?: string | null): string {
+  return (value ?? "").trim();
+}
+
+function uniqueSortedCategories(values: Array<string | null | undefined>): string[] {
+  const categories = new Set<string>();
+  for (const value of values) {
+    const name = normalizeCategoryName(value);
+    if (!name || name === ALL_CATEGORY_LABEL || name === UNCATEGORIZED_LABEL) continue;
+    categories.add(name);
+  }
+  return Array.from(categories).sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+async function getStoredCategories(): Promise<string[]> {
+  const raw = await getSystemSetting(CATEGORY_SETTINGS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return uniqueSortedCategories(parsed.filter((value): value is string => typeof value === "string"));
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+async function setStoredCategories(categories: Array<string | null | undefined>): Promise<string[]> {
+  const next = uniqueSortedCategories(categories);
+  await setSystemSetting(CATEGORY_SETTINGS_KEY, JSON.stringify(next));
+  return next;
+}
+
+function extractCategoriesFromItemsJson(itemsJson?: string | null): string[] {
+  if (!itemsJson) return [];
+  try {
+    const items = JSON.parse(itemsJson) as unknown;
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const category = (item as { category?: unknown }).category;
+        return typeof category === "string" ? category : "";
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function getInventoryCategoryList(): Promise<string[]> {
+  const storedCategories = await getStoredCategories();
+  const zaicoEnabled = await isZaicoEnabled();
+  const categories: Array<string | null | undefined> = [...storedCategories];
+
+  if (!zaicoEnabled) {
+    const [localInvs, localPurchaseRows] = await Promise.all([
+      getLocalInventories(),
+      getLocalPurchases(),
+    ]);
+    categories.push(...localInvs.map((inv) => inv.category));
+    for (const purchase of localPurchaseRows) {
+      categories.push(purchase.category);
+      categories.push(...extractCategoriesFromItemsJson(purchase.itemsJson));
+    }
+    return uniqueSortedCategories(categories);
+  }
+
+  const inventories = await getInventories();
+  categories.push(...inventories.map((inv) => inv.categories?.[0] ?? inv.category));
+  return uniqueSortedCategories(categories);
+}
+
+async function clearLocalCategory(categoryName: string, replacementCategory: string | null): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const { localInventories: liTbl, localPurchases: lpTbl } = await import("../../drizzle/schema");
+
+  await db.update(liTbl).set({ category: replacementCategory }).where(eq(liTbl.category, categoryName));
+
+  const localPurchaseRows = await getLocalPurchases();
+  const relatedPurchases = localPurchaseRows.filter((purchase) => {
+    if (purchase.category === categoryName) return true;
+    return extractCategoriesFromItemsJson(purchase.itemsJson).some((category) => category === categoryName);
+  });
+
+  await db.update(lpTbl).set({ category: replacementCategory }).where(eq(lpTbl.category, categoryName));
+
+  await Promise.all(
+    relatedPurchases.map(async (purchase) => {
+      try {
+        const items = JSON.parse(purchase.itemsJson ?? "[]") as unknown;
+        if (!Array.isArray(items)) return;
+        let changed = false;
+        const nextItems = items.map((item) => {
+          if (!item || typeof item !== "object") return item;
+          const row = item as Record<string, unknown>;
+          if (normalizeCategoryName(typeof row.category === "string" ? row.category : "") !== categoryName) return item;
+          changed = true;
+          return { ...row, category: replacementCategory };
+        });
+        if (changed) {
+          await db.update(lpTbl).set({ itemsJson: JSON.stringify(nextItems) }).where(eq(lpTbl.id, purchase.id));
+        }
+      } catch {
+        // Broken snapshots should not block category cleanup.
+      }
+    })
+  );
+}
+
+type ShipmentDisplayItem = {
+  productNameJa: string;
+  productNameEn: string;
+  quantity: number;
+};
+
+function deliveryHistoryItemsToShipmentItems(itemsJson: string): ShipmentDisplayItem[] {
+  let items: Array<{ title?: string; productNameJa?: string; productNameEn?: string; quantity?: unknown }> = [];
+  try {
+    const parsed = JSON.parse(itemsJson || "[]");
+    items = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    items = [];
+  }
+  return items
+    .map((item) => {
+      const name = String(item.title ?? item.productNameJa ?? item.productNameEn ?? "").trim();
+      const quantity = Number(item.quantity ?? 0);
+      return { productNameJa: name, productNameEn: name, quantity };
+    })
+    .filter((item) => item.productNameJa && item.quantity > 0);
+}
+
+async function alignShipmentItemsWithDeliveryHistories<
+  T extends { deliveryNo: string; itemsJson: string; historyId?: number | null; isManual?: boolean },
+>(shipments: T[]): Promise<T[]> {
+  if (shipments.length === 0) return shipments;
+
+  const histories = await getAllDeliveryHistories().catch(() => []);
+  const latestHistories = [...histories]
+    .filter((history) => history.status === "success")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const historyById = new Map<number, (typeof latestHistories)[number]>();
+  const historyByDeliveryNo = new Map<string, (typeof latestHistories)[number]>();
+  for (const history of latestHistories) {
+    historyById.set(history.id, history);
+    if (!historyByDeliveryNo.has(history.deliveryNo)) {
+      historyByDeliveryNo.set(history.deliveryNo, history);
+    }
+  }
+
+  return shipments.map((shipment) => {
+    if (shipment.isManual) return shipment;
+    const history = (shipment.historyId ? historyById.get(shipment.historyId) : undefined)
+      ?? historyByDeliveryNo.get(shipment.deliveryNo);
+    if (!history) return shipment;
+
+    const historyItems = deliveryHistoryItemsToShipmentItems(history.itemsJson);
+    if (historyItems.length === 0) return shipment;
+    return { ...shipment, itemsJson: JSON.stringify(historyItems) };
+  });
+}
+
 function resolveOperatorToken(_operatorKey?: string): string | undefined {
   return undefined;
 }
@@ -585,6 +755,44 @@ export const inventoryRouter = router({
         };
       });
     }),
+
+    getCategories: publicProcedure.query(async () => {
+      return getInventoryCategoryList();
+    }),
+
+    addCategory: publicProcedure
+      .input(z.object({ name: z.string().max(200) }))
+      .mutation(async ({ input }) => {
+        const name = normalizeCategoryName(input.name);
+        if (!name || name === ALL_CATEGORY_LABEL || name === UNCATEGORIZED_LABEL) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "カテゴリ名を入力してください" });
+        }
+        const storedCategories = await getStoredCategories();
+        await setStoredCategories([...storedCategories, name]);
+        return getInventoryCategoryList();
+      }),
+
+    deleteCategory: publicProcedure
+      .input(z.object({
+        name: z.string().max(200),
+        replacement: z.string().max(200).nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const name = normalizeCategoryName(input.name);
+        const replacementName = normalizeCategoryName(input.replacement);
+        const replacementCategory = replacementName && replacementName !== ALL_CATEGORY_LABEL && replacementName !== UNCATEGORIZED_LABEL
+          ? replacementName
+          : null;
+        if (!name || name === ALL_CATEGORY_LABEL || name === UNCATEGORIZED_LABEL) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "削除できないカテゴリです" });
+        }
+        const storedCategories = await getStoredCategories();
+        await setStoredCategories(storedCategories.filter((category) => category !== name));
+        if (!(await isZaicoEnabled())) {
+          await clearLocalCategory(name, replacementCategory);
+        }
+        return getInventoryCategoryList();
+      }),
 
     /**
      * 入庫予定一覧（在庫カテゴリをマッピングして返す）
@@ -917,6 +1125,7 @@ export const inventoryRouter = router({
           quantity: z.number().optional(),
           estimatedPurchaseDate: z.string().optional(),
           etc: z.string().optional(),
+          category: z.string().max(200).nullable().optional(),
         })).optional(),
       }))
       .mutation(async ({ input }) => {
@@ -939,6 +1148,21 @@ export const inventoryRouter = router({
             // purchaseItemsの先頭要素からunitPrice・etcを取得
             const firstItem = input.purchaseItems?.[0];
             const lpUpdateData: Partial<typeof lpTbl.$inferInsert> = {};
+            let itemsJsonCache: Array<Record<string, unknown>> | null = null;
+            const updateFirstItemJson = (changes: Record<string, unknown>) => {
+              try {
+                if (!itemsJsonCache) {
+                  const parsed = JSON.parse(lp.itemsJson ?? "[]");
+                  itemsJsonCache = Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : [];
+                }
+                if (itemsJsonCache.length > 0) {
+                  itemsJsonCache[0] = { ...itemsJsonCache[0], ...changes };
+                  lpUpdateData.itemsJson = JSON.stringify(itemsJsonCache);
+                }
+              } catch {
+                // Snapshot updates are best-effort.
+              }
+            };
             if (firstItem?.unitPrice !== undefined) {
               // decimal型は数値をそのまま渡せる
               (lpUpdateData as Record<string, unknown>).unitPrice = firstItem.unitPrice;
@@ -949,14 +1173,15 @@ export const inventoryRouter = router({
             }
             if (firstItem?.etc !== undefined) {
               lpUpdateData.managementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
-              // itemsJsonも更新
-              try {
-                const items = JSON.parse(lp.itemsJson ?? "[]");
-                if (Array.isArray(items) && items.length > 0) {
-                  items[0] = { ...items[0], etc: firstItem.etc };
-                  lpUpdateData.itemsJson = JSON.stringify(items);
-                }
-              } catch { /* ignore */ }
+              updateFirstItemJson({ etc: firstItem.etc });
+            }
+            if (firstItem?.category !== undefined) {
+              const nextCategory = normalizeCategoryName(firstItem.category) || null;
+              (lpUpdateData as Record<string, unknown>).category = nextCategory;
+              updateFirstItemJson({ category: nextCategory });
+              if (lp.localInventoryId) {
+                await db.update(liTbl).set({ category: nextCategory }).where(eq(liTbl.id, lp.localInventoryId));
+              }
             }
             if (Object.keys(lpUpdateData).length > 0) {
               await db.update(lpTbl).set(lpUpdateData).where(eq(lpTbl.id, lp.id));
@@ -984,24 +1209,24 @@ export const inventoryRouter = router({
           }));
         }
         await updatePurchase(input.purchaseId, payload, operatorToken);
-        // 入庫管理での単価変更をZaico在庫にも反映
         if (input.purchaseItems) {
-          const itemsWithPrice = input.purchaseItems.filter((item) => item.unitPrice !== undefined);
+          const itemsWithInventoryChanges = input.purchaseItems.filter((item) => item.unitPrice !== undefined || item.category !== undefined);
           await Promise.all(
-            itemsWithPrice.map(async (item) => {
+            itemsWithInventoryChanges.map(async (item) => {
               try {
                 const inv = await getInventory(item.inventoryId);
-                // 現在の在庫情報を取得して単価のみ更新
                 await updateInventory(
                   item.inventoryId,
                   {
                     title: inv.title,
                     quantity: String(inv.quantity ?? 0),
                     unit: inv.unit ?? undefined,
-                    category: inv.categories?.[0] ?? inv.category ?? undefined,
+                    category: item.category !== undefined
+                      ? (normalizeCategoryName(item.category) || undefined)
+                      : inv.categories?.[0] ?? inv.category ?? undefined,
                     place: inv.place ?? undefined,
                     etc: inv.etc ?? undefined,
-                    purchase_unit_price: item.unitPrice,
+                    purchase_unit_price: item.unitPrice ?? inv.purchase_unit_price ?? undefined,
                   },
                   operatorToken
                 );
@@ -1308,6 +1533,91 @@ export const inventoryRouter = router({
             supplierUrl: normalizedSupplierUrl ?? existing?.supplierUrl ?? null,
           }).catch(() => {});
         }
+        return { success: true };
+      }),
+
+    updateCategoryOnly: publicProcedure
+      .input(
+        z.object({
+          inventoryId: z.number().int().positive(),
+          category: z.string().max(250).nullable(),
+          operatorKey: z.enum(["default", "A", "B"]).optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const zaicoEnabled = await isZaicoEnabled();
+        const operatorToken = resolveOperatorToken(input.operatorKey);
+        const nextCategory = normalizeCategoryName(input.category);
+        const localCategory = nextCategory || null;
+
+        if (!zaicoEnabled) {
+          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
+          if (localInv) {
+            await updateLocalInventory(localInv.id, { category: localCategory });
+          }
+
+          const db = await getDb();
+          if (db) {
+            const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+            const purchaseRows = await getLocalPurchases();
+            const inventoryIds = new Set(
+              [input.inventoryId, localInv?.id, localInv?.zaicoId]
+                .filter((id): id is number => typeof id === "number")
+                .map((id) => Number(id))
+            );
+            const targets = purchaseRows.filter((purchase) => {
+              if (localInv?.id && purchase.localInventoryId === localInv.id) return true;
+              try {
+                const items = JSON.parse(purchase.itemsJson ?? "[]");
+                return Array.isArray(items) && items.some((item) => inventoryIds.has(Number(item.inventory_id ?? item.inventoryId)));
+              } catch {
+                return false;
+              }
+            });
+
+            await Promise.all(
+              targets.map(async (purchase) => {
+                const updateData: Partial<typeof lpTbl.$inferInsert> = { category: localCategory };
+                try {
+                  const items = JSON.parse(purchase.itemsJson ?? "[]");
+                  if (Array.isArray(items)) {
+                    let changed = false;
+                    const nextItems = items.map((item) => {
+                      if (!item || typeof item !== "object") return item;
+                      const row = item as Record<string, unknown>;
+                      const itemInventoryId = Number(row.inventory_id ?? row.inventoryId);
+                      const matchesItem = inventoryIds.has(itemInventoryId);
+                      const matchesSingleLocalPurchase = Boolean(localInv?.id && purchase.localInventoryId === localInv.id && items.length === 1);
+                      if (!matchesItem && !matchesSingleLocalPurchase) return item;
+                      changed = true;
+                      return { ...row, category: localCategory };
+                    });
+                    if (changed) updateData.itemsJson = JSON.stringify(nextItems);
+                  }
+                } catch {
+                  // Snapshot updates are best-effort; the row category remains authoritative.
+                }
+                await db.update(lpTbl).set(updateData).where(eq(lpTbl.id, purchase.id));
+              })
+            );
+          }
+          return { success: true };
+        }
+
+        const inv = await getInventory(input.inventoryId);
+        await updateInventory(
+          input.inventoryId,
+          {
+            title: inv.title,
+            quantity: String(inv.quantity ?? 0),
+            unit: inv.unit ?? undefined,
+            category: nextCategory,
+            place: inv.place ?? undefined,
+            etc: inv.etc ?? undefined,
+            purchase_unit_price: inv.purchase_unit_price ?? undefined,
+          },
+          operatorToken
+        );
         return { success: true };
       }),
 
@@ -2761,7 +3071,7 @@ export const inventoryRouter = router({
           const etc = inventoryEtcMap.get(item.inventoryId) ?? "";
           const rawMgmt = etc.split(",")[0]?.trim() ?? "";
           // 管理番号として有効な形式: 「在庫」始まり、または3、4桁の数字始まり（例: 371_ルカ_1/5、在庫0408_1）
-          const isValidMgmt = /^在庫/.test(rawMgmt) || /^\d{3,4}[^\d]/.test(rawMgmt) || /^\d{3,4}$/.test(rawMgmt);
+          const isValidMgmt = /^在庫/.test(rawMgmt) || /^ebay/i.test(rawMgmt) || /^\d{3,4}[^\d]/.test(rawMgmt) || /^\d{3,4}$/.test(rawMgmt);
           const managementNo = isValidMgmt ? rawMgmt : "";
           const pInfo3 = purchaseInfoMap.get(item.inventoryId) ?? { unitPrice: "", trackingNumber: "", supplierUrl: "", supplierName: "" };
           g.deliveryItems.push({
@@ -4533,7 +4843,9 @@ export const inventoryRouter = router({
       }
       // 対応するFedEx発送記録を取得
       const allShipments = await getAllFedexShipments();
-      const myShipments = allShipments.filter((s) => s.sheetName === sheetName);
+      const myShipments = await alignShipmentItemsWithDeliveryHistories(
+        allShipments.filter((s) => s.sheetName === sheetName),
+      );
       // 手動発送データも取得して統合
       const allManual = await getAllManualShipments();
       const myManual = allManual.filter((m) => m.sheetName === sheetName);
@@ -4880,7 +5192,7 @@ export const inventoryRouter = router({
      * 管理者向け: 全FedEx発送記録とCSV情報を取得（海外発送ページ用）
      */
     getAdminShipments: protectedProcedure.query(async () => {
-      const allShipments = await getAllFedexShipments();
+      const allShipments = await alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
       const manualShipmentsList = await getAllManualShipments();
       // 手動発送データをFedexShipment形式に変換して統合
       const manualAsFedex = manualShipmentsList.map((m) => ({

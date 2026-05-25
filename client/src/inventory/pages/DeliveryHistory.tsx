@@ -217,7 +217,7 @@ function buildGroupDeliveredSummary(
 function getManagementNo(etc: string | undefined): string {
   if (!etc) return "";
   const raw = etc.split(",")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw)) return raw;
+  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw)) return raw;
   return "";
 }
 

@@ -88,7 +88,7 @@ function getManagementNo(etc: string | null | undefined): string {
   if (!etc) return "";
   const firstPart = etc.split(",")[0].trim();
   const raw = firstPart.split(" ")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw)) return raw;
+  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw)) return raw;
   return "";
 }
 

@@ -217,6 +217,22 @@ export function toEnglishProductName(jaName: string): string {
   return modelEn;
 }
 
+export function toShipmentDisplayName(productNameJa?: string | null, productNameEn?: string | null): string {
+  const normalizedJa = normalizeProductName(productNameJa ?? "");
+  const normalizedEn = normalizeProductName(productNameEn ?? "");
+  const source = normalizedJa || normalizedEn;
+  if (!source) return "";
+  const english = toEnglishProductName(source);
+  return english || normalizedEn || normalizedJa;
+}
+
+export function toShipmentProductKey(productNameJa?: string | null, productNameEn?: string | null): string {
+  return toShipmentDisplayName(productNameJa, productNameEn)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * 商品名からcanonical機種IDを抽出する
  * 例: "toynet PS Vita2000 カーキ・ブラック" → "vita2000"

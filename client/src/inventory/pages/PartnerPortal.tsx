@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Globe, Lock, CheckCircle2, MessageSquare, Send, LogOut, Package, Trash2, Reply, ChevronDown, ChevronUp, Eye, EyeOff, Search } from "lucide-react";
 import { toast } from "sonner";
-import { toEnglishProductName, normalizeProductName, isReturnProduct, matchesCsvProductName, extractCanonicalModel, getModelEnByCanonical } from "@/inventory/lib/productNameUtils";
+import { toEnglishProductName, normalizeProductName, matchesCsvProductName, toShipmentProductKey } from "@/inventory/lib/productNameUtils";
 
 type ShipmentItem = {
   productNameJa: string;
@@ -204,33 +204,13 @@ export default function PartnerPortal() {
           productNameEn: baseEn,
         };
 
-        // 英語変換後の商品名で結合判定（日本語・英語混在を統一）
-        // 同一機種名（canonical）の場合は色違いでも合算し、表示名を「機種名 Random Color」にする
-        const itemEnKey = toEnglishProductName(baseJa || baseEn);
-        const itemCanonical = extractCanonicalModel(baseJa || baseEn);
+        const itemKey = toShipmentProductKey(baseJa, baseEn);
         const existingRow = group.rows.find(r => {
-          const rEnKey = toEnglishProductName(r.item.productNameJa || r.item.productNameEn || "");
-          const rCanonical = extractCanonicalModel(r.item.productNameJa || r.item.productNameEn || "");
           if (r.invoiceNo !== invoiceNo) return false;
-          // 完全一致の場合は通常合算
-          if (rEnKey === itemEnKey && itemEnKey !== "") return true;
-          // 同一機種名で色違いの場合も合算（Random Color扱い）
-          if (itemCanonical && rCanonical && itemCanonical === rCanonical) return true;
-          return false;
+          return toShipmentProductKey(r.item.productNameJa, r.item.productNameEn) === itemKey;
         });
         if (existingRow) {
-          // 既存行に数量を合算し、表示名を「機種名 Random Color」に更新
-          const existingCanonical = extractCanonicalModel(existingRow.item.productNameJa || existingRow.item.productNameEn || "");
-          const existingEnKey = toEnglishProductName(existingRow.item.productNameJa || existingRow.item.productNameEn || "");
-          // 色が異なる場合はRandom Color表示に変更
-          if (existingEnKey !== itemEnKey && existingCanonical) {
-            // canonical IDから英語機種名を取得してRandom Color付きに変更
-            const modelEn = getModelEnByCanonical(existingCanonical);
-            const randomColorName = modelEn ? `${modelEn} Random Color` : "Random Color";
-            existingRow.item = { ...existingRow.item, productNameEn: randomColorName, productNameJa: randomColorName, quantity: existingRow.item.quantity + normalizedItem.quantity };
-          } else {
-            existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + normalizedItem.quantity };
-          }
+          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + normalizedItem.quantity };
         } else {
           group.rows.push({ shipment: s, item: normalizedItem, itemIndex: idx, invoiceNo });
         }

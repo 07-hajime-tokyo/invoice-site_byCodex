@@ -95,8 +95,8 @@ interface EditState {
   note: string;
   supplierName: string;
   supplierUrl: string;
-  // 商品別編集: inventory_id -> { unitPrice, managementNo, estimatedDate }
-  itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string }>;
+  // 商品別編集: inventory_id -> { unitPrice, managementNo, estimatedDate, category }
+  itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string; category: string }>;
 }
 
 const CARRIER_OPTIONS = [
@@ -441,6 +441,7 @@ export default function Purchases() {
   const createOrderedPurchaseMutation = trpc.inventory.zaico.createOrderedPurchase.useMutation();
   const { data: operators } = trpc.inventory.zaico.getOperators.useQuery();
   const { data: currentUser } = trpc.auth.me.useQuery();
+  const { data: managedCategories } = trpc.inventory.zaico.getCategories.useQuery();
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editState, setEditState] = useState<EditState>({ shipDate: "", trackingNumber: "", carrier: "auto", note: "", supplierName: "", supplierUrl: "", itemEdits: {} });
@@ -465,21 +466,6 @@ export default function Purchases() {
         localStorage.removeItem('purchases-statusFilter');
       } else {
         localStorage.setItem('purchases-statusFilter', next);
-      }
-      return next;
-    });
-  }, []);
-  // 入庫済みを表示するか（デフォルトは非表示）
-  const [showPurchased, setShowPurchased] = useState<boolean>(() => {
-    return typeof window !== 'undefined' ? (localStorage.getItem('purchases-showPurchased') === 'true') : false;
-  });
-  const handleToggleShowPurchased = useCallback(() => {
-    setShowPurchased(prev => {
-      const next = !prev;
-      if (next) {
-        localStorage.setItem('purchases-showPurchased', 'true');
-      } else {
-        localStorage.removeItem('purchases-showPurchased');
       }
       return next;
     });
@@ -524,6 +510,10 @@ export default function Purchases() {
   const selectedOperatorName = operators?.find((o) => o.key === selectedOperatorKey)?.name ?? "野田";
 
   const today = new Date().toISOString().split("T")[0];
+
+  const activePurchases = useMemo(() => {
+    return ((purchases ?? []) as Purchase[]).filter((p) => p.status !== "purchased");
+  }, [purchases]);
 
   // 発注済み登録: 在庫検索フィルター
   const filteredInventoriesForOrder = useMemo(() => {
@@ -590,9 +580,8 @@ export default function Purchases() {
 
   // カテゴリ別合計金額
   const categoryTotals = useMemo(() => {
-    if (!purchases) return new Map<string, number>();
     const totals = new Map<string, number>();
-    for (const p of purchases as Purchase[]) {
+    for (const p of activePurchases) {
       for (const item of p.purchase_items) {
         const price = Number(item.unit_price) || 0;
         const qty = Number(item.quantity) || 0;
@@ -602,7 +591,7 @@ export default function Purchases() {
       }
     }
     return totals;
-  }, [purchases]);
+  }, [activePurchases]);
 
   const grandTotal = useMemo(() => {
     let total = 0;
@@ -610,28 +599,28 @@ export default function Purchases() {
     return total;
   }, [categoryTotals]);
 
-  const categories = useMemo(() => {
-    if (!purchases) return ["すべて"];
+  const categoryOptions = useMemo(() => {
     const cats = new Set<string>();
-    for (const p of purchases as Purchase[]) {
+    for (const cat of managedCategories ?? []) {
+      if (cat && cat !== "すべて" && cat !== "未分類") cats.add(cat);
+    }
+    for (const p of activePurchases) {
       for (const item of p.purchase_items) {
-        cats.add(item.category || "未分類");
+        const cat = (item.category || "").trim();
+        if (cat && cat !== "未分類") cats.add(cat);
       }
     }
-    return ["すべて", ...Array.from(cats).sort()];
-  }, [purchases]);
+    return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
+  }, [activePurchases, managedCategories]);
+
+  const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
   const filteredPurchases = useMemo(() => {
-    if (!purchases) return [];
-    let result = purchases as Purchase[];
+    let result = activePurchases;
     if (selectedCategory !== "すべて") {
       result = result.filter((p) =>
         p.purchase_items.some((item) => (item.category || "未分類") === selectedCategory)
       );
-    }
-    // 入庫済み非表示（showPurchased=falseの時はpurchasedを除外）
-    if (!showPurchased) {
-      result = result.filter((p) => p.status !== "purchased");
     }
     // ステータスフィルター
     if (selectedStatusFilter) {
@@ -660,7 +649,7 @@ export default function Purchases() {
       });
     }
     return result;
-  }, [purchases, selectedCategory, searchQuery, selectedStatusFilter, showPurchased]);
+  }, [activePurchases, selectedCategory, searchQuery, selectedStatusFilter]);
 
   // 入庫管理ページネーション
   const {
@@ -675,13 +664,14 @@ export default function Purchases() {
 
   function startEdit(purchase: Purchase) {
     setEditingId(purchase.id);
-    const itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string }> = {};
+    const itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string; category: string }> = {};
     for (const item of purchase.purchase_items) {
       const { managementNo } = parseEtc(item.etc);
       itemEdits[item.inventory_id] = {
         unitPrice: item.unit_price ? String(item.unit_price) : "",
         managementNo,
         estimatedDate: item.estimated_purchase_date ?? "",
+        category: item.category ?? "",
       };
     }
     // 発送日が未設定の場合は当日日付を自動セット
@@ -724,12 +714,15 @@ export default function Purchases() {
           const newEtc = newManagementNo
             ? [newManagementNo, parts[1] ?? "", parts[2] ?? ""].join(", ")
             : item.etc ?? "";
+          const nextCategory = edit.category.trim();
+          const currentCategory = item.category || "";
           return {
             ...(item.id > 0 && { id: item.id }),
             inventoryId: item.inventory_id,
             ...(edit.unitPrice !== "" && { unitPrice: parseFloat(edit.unitPrice) }),
             ...(edit.estimatedDate !== "" && { estimatedPurchaseDate: edit.estimatedDate }),
             ...(newManagementNo !== parseEtc(item.etc).managementNo && { etc: newEtc }),
+            ...(nextCategory !== currentCategory && { category: nextCategory || null }),
           };
         }).filter((x): x is NonNullable<typeof x> => x !== null);
         if (purchaseItems.length > 0) {
@@ -768,6 +761,11 @@ export default function Purchases() {
       }
       toast.success("保存しました");
       setEditingId(null);
+      await Promise.all([
+        utils.inventory.zaico.getCategories.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+      ]);
       refetch();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "保存に失敗しました";
@@ -1115,10 +1113,10 @@ export default function Purchases() {
             <SelectContent>
               {categories.map((cat) => {
                 const count = cat === "すべて"
-                  ? (purchases as Purchase[] | undefined)?.length ?? 0
-                  : (purchases as Purchase[] | undefined)?.filter((p) =>
+                  ? activePurchases.length
+                  : activePurchases.filter((p) =>
                       p.purchase_items.some((item) => (item.category || "未分類") === cat)
-                    ).length ?? 0;
+                    ).length;
                 return (
                   <SelectItem key={cat} value={cat}>
                     {cat} ({count})
@@ -1163,17 +1161,6 @@ export default function Purchases() {
               {selectedStatusFilter === 'shipped' && (
                 <span className="ml-1 opacity-70">×</span>
               )}
-            </button>
-            {/* 入庫済み表示トグル */}
-            <button
-              onClick={handleToggleShowPurchased}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                showPurchased
-                  ? 'bg-green-600 text-white border-green-600'
-                  : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100 dark:bg-gray-900/20 dark:text-gray-400 dark:border-gray-700'
-              }`}
-            >
-              {showPurchased ? '入庫済みを表示中' : '入庫済みを表示'}
             </button>
           </div>
         </div>
@@ -1337,9 +1324,32 @@ export default function Purchases() {
                               )}
                             </td>
                             <td data-label="カテゴリ" className="px-4 py-2">
-                              <Badge variant="outline" className="text-xs">
-                                {item.category || "未分類"}
-                              </Badge>
+                              {isEditing && itemEdit ? (
+                                <Select
+                                  value={itemEdit.category || "__none__"}
+                                  onValueChange={(v) => setEditState((s) => ({
+                                    ...s,
+                                    itemEdits: {
+                                      ...s.itemEdits,
+                                      [item.inventory_id]: { ...itemEdit, category: v === "__none__" ? "" : v }
+                                    }
+                                  }))}
+                                >
+                                  <SelectTrigger className="h-7 min-w-[140px] text-xs">
+                                    <SelectValue placeholder="カテゴリ" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">未分類</SelectItem>
+                                    {categoryOptions.map((cat) => (
+                                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">
+                                  {item.category || "未分類"}
+                                </Badge>
+                              )}
                             </td>
                             <td data-label="仕入単価" className="px-4 py-2 text-right">
                               {isEditing && itemEdit ? (

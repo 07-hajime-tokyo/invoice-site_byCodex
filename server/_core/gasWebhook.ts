@@ -93,6 +93,52 @@ function todayJst() {
   }).format(new Date());
 }
 
+function getCategoryFromProductContext(productName: string, ...context: Array<string | null | undefined>): string {
+  const targetText = [productName, ...context].filter(Boolean).join(" ");
+  if (!targetText) return "未分類";
+
+  if (/(ゴルフ|golf|ゴルフパートナー|テーラーメイド|taylormade|キャロウェイ|callaway|タイトリスト|titleist|ピン(?!ク)|ping|ミズノ|mizuno|ダンロップ|dunlop|スリクソン|srixon|ゼクシオ|xxio|ブリヂストン|bridgestone|コブラ|cobra|クリーブランド|cleveland|ホンマ|honma|ツアーステージ|tourstage|オノフ|onoff|プロギア|prgr|マルマン|maruman|シャフト|ドライバー|アイアン|ウェッジ|パター|ユーティリティ|フェアウェイ|クラブ|ヘッド|ロフト|フレックス|tour\s*spec|speeder|スピーダー|diamana|ディアマナ|modus|モーダス|ns\s*pro|ventus|ベンタス|tensei|テンセイ)/i.test(targetText)) return "ゴルフ";
+  if (/\b(sim|stealth|qi10|m[1-6])\b.*(\d{1,2}(?:\.\d)?\s*[°度]|driver|shaft|fw|ut)/i.test(targetText)) return "ゴルフ";
+  if (/(\d{1,2}(?:\.\d)?\s*[°度]).*(シャフト|ドライバー|ヘッド|テーラーメイド|キャロウェイ|タイトリスト|ピン)/i.test(targetText)) return "ゴルフ";
+
+  if (/switch\s*lite|スイッチ\s*ライト|switchlite/i.test(productName)) return "スイッチライト";
+  if (/switch|スイッチ/i.test(productName)) return "スイッチ";
+  if (/vita\s*2000|vita2000|pch-2/i.test(productName)) return "Vita2000";
+  if (/vita\s*1000|vita1000|pch-1/i.test(productName)) return "Vita1000";
+  if (/new\s*3ds\s*ll|new3dsll|new\s*3ds\s*xl/i.test(productName)) return "New3DSLL";
+  if (/new\s*3ds(?!\s*ll|\s*xl)/i.test(productName)) return "New3DS";
+  if (/new\s*2ds\s*ll|new2dsll/i.test(productName)) return "New2DSLL";
+  if (/3ds\s*ll|3dsll|3ds\s*xl/i.test(productName)) return "3DSLL";
+  if (/3ds(?!\s*ll|\s*xl)/i.test(productName)) return "3DS";
+  if (/ds\s*lite|dslite/i.test(productName)) return "DS lite";
+  if (/dsi\s*ll|dsi\s*xl/i.test(productName)) return "DSi LL";
+  if (/dsi(?!\s*ll|\s*xl)/i.test(productName)) return "DSi";
+  if (/psp/i.test(productName)) return "PSP";
+  return "未分類";
+}
+
+function resolveSupplierName(supplier?: string | null, supplierDetail?: string | null): string | null {
+  const base = supplier?.trim() ?? "";
+  const detail = supplierDetail?.trim() ?? "";
+  if (base && detail) {
+    if (base.includes(detail)) return base;
+    if (detail.includes(base)) return detail;
+    return `${base} ${detail}`;
+  }
+  return base || detail || null;
+}
+
+function resolveWebhookCategory(
+  productName: string,
+  incomingCategory: string,
+  ...context: Array<string | null | undefined>
+): string | null {
+  const incoming = incomingCategory.trim();
+  const detected = getCategoryFromProductContext(productName, ...context);
+  if (!incoming || incoming === "ゲーム" || incoming === "未分類") return detected;
+  return incoming;
+}
+
 function combineOr(conditions: SQL<unknown>[]) {
   if (conditions.length === 0) return undefined;
   if (conditions.length === 1) return conditions[0];
@@ -175,13 +221,21 @@ export function registerGasWebhookRoutes(app: Express) {
         return;
       }
 
-      const category = textField(payload, stringKeys.category) || null;
       const place = textField(payload, stringKeys.place) || null;
       const unit = textField(payload, stringKeys.unit) || "個";
       const unitPriceNumber = numberField(payload, numberKeys.unitPrice, null);
       const unitPrice = unitPriceNumber == null ? null : String(unitPriceNumber);
       const supplierUrl = textField(payload, stringKeys.supplierUrl) || null;
-      const supplierName = textField(payload, stringKeys.supplierName) || null;
+      const supplierBase = textField(payload, ["supplierName", "supplier_name", "supplier", "仕入先", "仕入先名"]);
+      const supplierDetail = textField(payload, ["supplierDetail", "supplier_detail", "仕入先詳細", "仕入先詳細名"]);
+      const supplierName = resolveSupplierName(supplierBase, supplierDetail);
+      const category = resolveWebhookCategory(
+        title,
+        textField(payload, stringKeys.category),
+        supplierName,
+        supplierDetail,
+        supplierUrl,
+      );
       const purchaseNum = textField(payload, stringKeys.purchaseNum);
       const receivedDate = textField(payload, stringKeys.receivedDate) || todayJst();
       const purchaseDate = textField(payload, stringKeys.purchaseDate) || receivedDate;
@@ -214,6 +268,7 @@ export function registerGasWebhookRoutes(app: Express) {
             managementNo,
             purchaseNum,
             purchaseDate,
+            category,
             supplierName,
             supplierUrl,
             markPurchased,
@@ -293,6 +348,7 @@ export function registerGasWebhookRoutes(app: Express) {
         etc: managementNo,
         status: markPurchased ? "purchased" : "ordered",
         inventory_id: inventoryId,
+        category,
       }]);
 
       const purchaseConditions: SQL<unknown>[] = [];
