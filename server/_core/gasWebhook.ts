@@ -16,21 +16,21 @@ const gasPayloadSchema = z.object({
 const stringKeys = {
   sourceKey: ["sourceKey", "source_key", "idempotencyKey", "idempotency_key"],
   sheetName: ["sheetName", "sheet_name", "シート名"],
-  rowNumber: ["rowNumber", "row_number", "row", "行番号"],
+  rowNumber: ["rowNumber", "row_number", "rowIndex", "row_index", "row", "行番号"],
   title: ["title", "productName", "product_name", "name", "商品名", "タイトル"],
   category: ["category", "カテゴリ", "カテゴリー"],
   place: ["place", "保管場所"],
   unit: ["unit", "単位"],
-  managementNo: ["managementNo", "management_no", "kanriNo", "kanri_no", "etc", "管理番号", "管理No"],
+  managementNo: ["managementNo", "management_no", "kanriNo", "kanri_no", "srnNumber", "srn_number", "etc", "etcText", "etc_text", "管理番号", "管理No"],
   purchaseNum: ["purchaseNum", "purchase_num", "発注No", "発注番号"],
   purchaseDate: ["purchaseDate", "purchase_date", "発注日"],
   receivedDate: ["receivedDate", "received_date", "purchaseDateReceived", "入庫日"],
   shipDate: ["shipDate", "ship_date", "発送日"],
   trackingNumber: ["trackingNumber", "tracking_number", "追跡番号"],
   carrier: ["carrier", "配送業者"],
-  note: ["note", "memo", "備考", "メモ"],
+  note: ["note", "memo", "etcText", "etc_text", "備考", "メモ"],
   supplierUrl: ["supplierUrl", "supplier_url", "仕入先URL", "URL"],
-  supplierName: ["supplierName", "supplier_name", "supplier", "仕入先", "仕入先名"],
+  supplierName: ["supplierName", "supplier_name", "supplier", "supplierDetail", "supplier_detail", "仕入先", "仕入先名"],
   operatorName: ["operatorName", "operator_name", "担当者", "作業者"],
 } as const;
 
@@ -38,12 +38,14 @@ const numberKeys = {
   inventoryId: ["inventoryId", "inventory_id", "在庫ID"],
   inventoryQuantity: ["inventoryQuantity", "inventory_quantity", "initialInventoryQuantity", "初期在庫数", "在庫数"],
   quantity: ["quantity", "qty", "数量", "入庫数", "発注数"],
-  unitPrice: ["unitPrice", "unit_price", "price", "仕入単価", "単価"],
+  orderQuantity: ["orderQuantity", "order_quantity", "orderedQuantity", "ordered_quantity", "発注数量", "発注数"],
+  unitPrice: ["unitPrice", "unit_price", "purchasePrice", "purchase_price", "price", "仕入単価", "単価"],
 } as const;
 
 const booleanKeys = {
   createInventory: ["createInventory", "create_inventory", "在庫登録"],
   markPurchased: ["markPurchased", "mark_purchased", "入庫済みにする"],
+  dryRun: ["dryRun", "dry_run"],
 } as const;
 
 function getCandidate(payload: Record<string, unknown>, keys: readonly string[]) {
@@ -140,29 +142,38 @@ function requireGasSecret(req: Request) {
   return { ok: true as const };
 }
 
+function sendError(res: Response, status: number, message: string, extra: Record<string, unknown> = {}) {
+  res.status(status).json({ success: false, message, error: message, ...extra });
+}
+
 export function registerGasWebhookRoutes(app: Express) {
   async function handlePurchaseWebhook(req: Request, res: Response, defaultMarkPurchased: boolean) {
     const auth = requireGasSecret(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ success: false, message: auth.message });
+      sendError(res, auth.status, auth.message);
       return;
     }
 
     try {
       const payload = gasPayloadSchema.parse(req.body) as Record<string, unknown>;
       const title = textField(payload, stringKeys.title);
-      const quantity = numberField(payload, numberKeys.quantity, 1);
+      const rawQuantity = numberField(payload, numberKeys.quantity, null);
+      const orderQuantity = numberField(payload, numberKeys.orderQuantity, null);
+      const quantity = orderQuantity ?? (rawQuantity != null && rawQuantity > 0 ? rawQuantity : 1);
       if (!title) {
-        res.status(400).json({ success: false, message: "title is required" });
+        const row = typeof payload.row === "object" && payload.row !== null
+          ? (payload.row as Record<string, unknown>)
+          : {};
+        sendError(res, 400, "商品名が取得できませんでした。GAS payload の title または productName を確認してください。", {
+          receivedKeys: Object.keys(payload).filter((key) => key !== "secret").slice(0, 40),
+          rowKeys: Object.keys(row).slice(0, 40),
+        });
         return;
       }
       if (!quantity || quantity <= 0) {
-        res.status(400).json({ success: false, message: "quantity must be greater than 0" });
+        sendError(res, 400, "発注数量が取得できませんでした。GAS payload の orderQuantity または quantity を確認してください。");
         return;
       }
-
-      const db = await getDb();
-      if (!db) throw new Error("Database not available");
 
       const category = textField(payload, stringKeys.category) || null;
       const place = textField(payload, stringKeys.place) || null;
@@ -182,11 +193,38 @@ export function registerGasWebhookRoutes(app: Express) {
       const explicitInventoryId = numberField(payload, numberKeys.inventoryId, null);
       const markPurchased = booleanField(payload, booleanKeys.markPurchased, defaultMarkPurchased);
       const createInventory = booleanField(payload, booleanKeys.createInventory, true);
-      const inventoryQuantity = numberField(payload, numberKeys.inventoryQuantity, markPurchased ? quantity : 0) ?? 0;
+      const inventoryQuantity = numberField(payload, numberKeys.inventoryQuantity, null)
+        ?? (rawQuantity != null && rawQuantity >= 0 && orderQuantity != null ? rawQuantity : markPurchased ? quantity : 0);
+      const dryRun = booleanField(payload, booleanKeys.dryRun, false);
       const sourceManagementNo = textField(payload, stringKeys.managementNo);
       const sourceKey = makeSourceKey(payload, sourceManagementNo, purchaseNum);
       const managementNo = sourceManagementNo || `gas:${sourceKey}`;
       const gasZaicoId = syntheticZaicoId(sourceKey);
+
+      if (dryRun) {
+        res.json({
+          success: true,
+          dryRun: true,
+          normalized: {
+            sourceKey,
+            title,
+            quantity,
+            inventoryQuantity,
+            unitPrice,
+            managementNo,
+            purchaseNum,
+            purchaseDate,
+            supplierName,
+            supplierUrl,
+            markPurchased,
+            createInventory,
+          },
+        });
+        return;
+      }
+
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
 
       const existingHistory = await db
         .select({ id: purchaseHistories.id })
@@ -346,17 +384,22 @@ export function registerGasWebhookRoutes(app: Express) {
         purchaseHistoryZaicoId: gasZaicoId,
         historyInserted,
         alreadyReceived,
+        results: {
+          inventory: inventoryId == null ? null : { id: inventoryId },
+          purchase: purchaseId == null ? null : { id: purchaseId },
+        },
       });
     } catch (error) {
-      console.error("[GAS purchase receive] failed", error);
-      res.status(500).json({
-        success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      console.error("[GAS purchase webhook] failed", error);
+      sendError(res, 500, error instanceof Error ? error.message : "Unknown error");
     }
   }
 
   app.post("/api/gas/purchase-order", (req, res) => {
+    void handlePurchaseWebhook(req, res, false);
+  });
+
+  app.post("/api/gas-webhook/register-product", (req, res) => {
     void handlePurchaseWebhook(req, res, false);
   });
 
