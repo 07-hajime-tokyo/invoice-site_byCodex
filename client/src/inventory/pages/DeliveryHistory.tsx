@@ -213,7 +213,7 @@ function buildGroupDeliveredSummary(
 }
 // ===== サマリー用精密照合ロジック END =====
 
-/** etc フィールドから管理番号を取得する（数字始まり・在庫始まりのみ） */
+/** etc フィールドから管理番号を取得する（数字・在庫・ebay始まりのみ） */
 function getManagementNo(etc: string | undefined): string {
   if (!etc) return "";
   const raw = etc.split(",")[0].trim();

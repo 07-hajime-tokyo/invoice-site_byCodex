@@ -29,7 +29,7 @@ export default function DeletedItems() {
 
   const restoreMutation = trpc.inventory.deletedItems.restore.useMutation({
     onSuccess: () => {
-      toast.success(`${restoreTarget?.title} をサイト内DBに復元しました。`);
+      toast.success(`${restoreTarget?.title} を在庫一覧に復元しました。`);
       setRestoreTarget(null);
       utils.inventory.deletedItems.list.invalidate();
       refetch();
@@ -90,7 +90,7 @@ export default function DeletedItems() {
         <div>
           <h1 className="text-2xl font-bold">削除済み商品</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            在庫一覧から削除した商品の履歴です。復元するとサイト内DBに戻ります。
+            在庫一覧から削除した商品の履歴です。復元すると在庫一覧に戻ります。
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -218,7 +218,7 @@ export default function DeletedItems() {
           <AlertDialogHeader>
             <AlertDialogTitle>商品を復元しますか？</AlertDialogTitle>
             <AlertDialogDescription>
-              <span className="font-semibold">{restoreTarget?.title}</span> をサイト内DBに復元します。
+              <span className="font-semibold">{restoreTarget?.title}</span> を在庫一覧に復元します。
               在庫一覧に表示されるようになります。
             </AlertDialogDescription>
           </AlertDialogHeader>

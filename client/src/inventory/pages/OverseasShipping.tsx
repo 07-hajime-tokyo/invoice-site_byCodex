@@ -934,7 +934,7 @@ export default function OverseasShipping() {
                         {/* 発注商品一覧 */}
                         {entry.products.length > 0 && (
                           <div className="px-4 py-3">
-                            <div className="text-xs font-medium text-muted-foreground mb-2">発注商品（CSV）</div>
+                            <div className="text-xs font-medium text-muted-foreground mb-2">取引データ発注商品</div>
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="text-muted-foreground text-xs border-b">
@@ -1301,7 +1301,7 @@ export default function OverseasShipping() {
                             rel="noopener noreferrer"
                             className="text-xs font-mono text-sky-600 hover:text-sky-700 hover:underline flex items-center gap-1"
                           >
-                            {siteOrigin}/partner/{portal.partnerCode}
+                            {siteOrigin}/inventory/partner/{portal.partnerCode}
                             <ExternalLink className="h-3 w-3 flex-shrink-0" />
                           </a>
                         </div>

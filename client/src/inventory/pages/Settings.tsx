@@ -165,7 +165,7 @@ export default function Settings() {
     });
   };
 
-  // 外部API連携は無効化し、サイト内DBのみで運用する
+  // 外部API連携ON/OFF
   const { data: zaicoEnabledData, refetch: refetchEnabled } = trpc.inventory.migration.getZaicoEnabled.useQuery();
   const setZaicoEnabledMutation = trpc.inventory.migration.setZaicoEnabled.useMutation();
 
@@ -231,7 +231,7 @@ export default function Settings() {
       const result = await testMutation.mutateAsync({ token: testToken.trim() || "__use_env__" });
       setTestResult(result);
       if (result.success) {
-        toast.success("外部APIは無効です");
+        toast.success("外部APIへの接続に成功しました");
       } else {
         toast.error(result.message);
       }
@@ -247,7 +247,7 @@ export default function Settings() {
     try {
       await setZaicoEnabledMutation.mutateAsync({ enabled: newValue });
       await refetchEnabled();
-      toast.success("外部APIは無効です。サイト内DBで運用します");
+      toast.success(newValue ? "外部API連携をONにしました" : "外部API連携をOFFにしました");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "設定の変更に失敗しました";
       toast.error(msg);
@@ -257,7 +257,7 @@ export default function Settings() {
   async function handleImport() {
     setImportResult(null);
     try {
-      toast.info("外部APIインポートは無効です。CSVインポートを使用してください。");
+      toast.info("外部APIからデータをインポート中です。しばらくお待ちください...");
       const result = await importMutation.mutateAsync();
       setImportResult(result);
       await refetchStats();
@@ -304,11 +304,11 @@ export default function Settings() {
           設定
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          ローカルDB運用・CSVインポート・連携切り替え
+          サイト内DB運用・データ管理
         </p>
       </div>
 
-      {/* 在庫データ運用 */}
+      {/* 外部API連携 ON/OFF */}
       <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b bg-muted/20">
           <h2 className="font-semibold flex items-center gap-2">
@@ -317,7 +317,7 @@ export default function Settings() {
             ) : (
               <ToggleLeft className="h-4 w-4 text-muted-foreground" />
             )}
-            在庫データ運用
+            外部API連携
           </h2>
         </div>
         <div className="px-5 py-4 space-y-4">
@@ -326,23 +326,26 @@ export default function Settings() {
               <p className="text-sm font-medium">
                 現在の状態：
                 <span className={zaicoEnabled ? "text-green-600 ml-1" : "text-muted-foreground ml-1"}>
-                  サイト内DBのみ
+                  {zaicoEnabled ? "ON（外部APIと連携中）" : "OFF（サイト単独運用）"}
                 </span>
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                外部APIは使用せず、サイト内DBのみで運用しています。
+                {zaicoEnabled
+                  ? "在庫・発注データを外部APIから取得し、操作内容も外部APIへ反映しています。"
+                  : "外部APIは使用せず、サイト内DBのみで運用しています。"}
               </p>
             </div>
             <Button
-              variant="outline"
+              variant={zaicoEnabled ? "outline" : "default"}
               size="sm"
-              disabled
+              onClick={handleToggleZaico}
+              disabled={!zaicoEnabled || setZaicoEnabledMutation.isPending}
               className="ml-4 shrink-0"
             >
               {setZaicoEnabledMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
               ) : null}
-              外部APIは無効
+              {zaicoEnabled ? "OFFにする" : "サイト単独運用"}
             </Button>
           </div>
 
@@ -353,8 +356,8 @@ export default function Settings() {
               <div>
                 <p className="font-medium">OFFにする前に必ずデータインポートを実行してください</p>
                 <p className="text-xs mt-0.5">
-                  外部API連携は無効です。
-                  下記の「Zaicoデータインポート」でデータをサイトDBに取り込んでからOFFにしてください。
+                  外部API連携をOFFにすると、外部APIへのアクセスが停止します。
+                  下記の「外部APIデータインポート」でデータをサイトDBに取り込んでからOFFにしてください。
                 </p>
               </div>
             </div>
@@ -362,13 +365,13 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Zaicoデータインポート */}
+      {/* 外部APIデータインポート */}
       {zaicoEnabled && (
         <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b bg-muted/20">
           <h2 className="font-semibold flex items-center gap-2">
             <Download className="h-4 w-4 text-primary" />
-            Zaicoデータインポート
+            外部APIデータインポート
           </h2>
         </div>
         <div className="px-5 py-4 space-y-4">
@@ -391,7 +394,7 @@ export default function Settings() {
           </div>
 
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>ZaicoのAPIから在庫商品・発注データ（ordered/not_ordered）を全件取得してサイトDBに保存します。</p>
+            <p>外部APIから在庫商品・発注データ（ordered/not_ordered）を全件取得してサイトDBに保存します。</p>
             <p className="text-xs">既存データは上書き更新されます。何度実行しても安全です。</p>
           </div>
 
@@ -408,7 +411,7 @@ export default function Settings() {
             ) : (
               <>
                 <Download className="h-4 w-4 mr-1.5" />
-                外部APIインポートは無効
+                外部APIからデータをインポート
               </>
             )}
           </Button>
@@ -451,11 +454,11 @@ export default function Settings() {
             <Upload className="h-4 w-4 text-primary" />
             在庫CSVインポート
           </h2>
-          <p className="text-xs text-muted-foreground mt-1">在庫CSVファイルをアップロードして、サイト内DBへインポートします。</p>
+          <p className="text-xs text-muted-foreground mt-1">在庫CSVファイルをアップロードして在庫データをインポートします。</p>
         </div>
         <div className="px-5 py-4 space-y-4">
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>在庫CSVファイルを選択してインポートします。</p>
+            <p>在庫データのCSVファイルを選択してインポートします。</p>
             <p className="text-xs">在庫IDをキーに既存データを上書き更新、なければ新規登録します。Shift-JIS・ UTF-8 の両方に対応しています。</p>
           </div>
 
@@ -547,7 +550,7 @@ export default function Settings() {
           <div className="rounded-md bg-muted/30 p-3 text-sm space-y-1">
             <p className="font-medium text-foreground">現在の設定</p>
             <p className="text-muted-foreground">
-              外部APIトークンは使用しません。
+              APIトークンは環境変数で管理されています。
             </p>
             <p className="text-muted-foreground">
               トークンの変更はサーバーの環境変数を更新して反映してください。
@@ -566,7 +569,7 @@ export default function Settings() {
               <div className="flex gap-2">
                 <Input
                   type="password"
-                  placeholder="外部APIは無効です"
+                  placeholder="外部APIトークン（任意）"
                   value={testToken}
                   onChange={(e) => setTestToken(e.target.value)}
                   className="flex-1"
@@ -614,16 +617,16 @@ export default function Settings() {
         </div>
         <div className="px-5 py-4 space-y-3 text-sm text-muted-foreground">
           <p>
-            このシステムは外部APIを使用せず、サイト内DBで在庫データの入出庫管理を行います。
-            APIトークンはZaicoの管理画面から取得できます。
+            このシステムは現在、外部APIを使用せずサイト内DBで入出庫管理を行います。
+            旧API連携は停止しています。
           </p>
           <a
-            href="/inventory/settings"
+            href="https://zaicodev.github.io/zaico_api_doc/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-primary hover:underline"
           >
-            外部APIは無効
+            外部APIドキュメント
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
@@ -912,7 +915,7 @@ export default function Settings() {
         <div className="px-5 py-4 text-sm space-y-2">
           <div className="flex justify-between py-1 border-b">
             <span className="text-muted-foreground">システム名</span>
-            <span className="font-medium">サイト内 入出庫管理システム</span>
+            <span className="font-medium">入出庫管理システム</span>
           </div>
           <div className="flex justify-between py-1 border-b">
             <span className="text-muted-foreground">データベース</span>

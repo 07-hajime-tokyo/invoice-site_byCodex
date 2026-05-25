@@ -404,7 +404,7 @@ export function InvoiceStockSection({
 
       {isOpen && (
         <div className="px-4 pb-4 space-y-3">
-          {/* CSV発注商品の参照 */}
+          {/* 取引データ発注商品の参照 */}
           {csvProducts.length > 0 && (
             <div className="text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2 space-y-0.5">
               <div className="font-medium mb-1">発注商品（参照）</div>

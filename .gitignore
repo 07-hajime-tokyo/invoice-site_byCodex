@@ -110,3 +110,5 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+.env.local

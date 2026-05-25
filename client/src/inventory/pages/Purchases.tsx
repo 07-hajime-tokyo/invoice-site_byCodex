@@ -110,6 +110,9 @@ const CARRIER_OPTIONS = [
   { value: "fukuyama", label: "福山通運" },
 ];
 
+const PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter-v2";
+const LEGACY_PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter";
+
 /** 入庫管理CSVエクスポート */
 function exportPurchasesCSV(purchases: Purchase[]) {
   const rows: string[][] = [
@@ -455,17 +458,19 @@ export default function Purchases() {
     setSelectedCategory(cat);
     localStorage.setItem('purchases-selectedCategory', cat);
   }, []);
-  // ステータスフィルター（null=すべて, 'ordered'=発注済み, 'shipped'=発送済み）
+  // ステータスフィルター（null=すべて）
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string | null>(() => {
-    return typeof window !== 'undefined' ? (localStorage.getItem('purchases-statusFilter') ?? null) : null;
+    if (typeof window === "undefined") return null;
+    localStorage.removeItem(LEGACY_PURCHASE_STATUS_FILTER_KEY);
+    return localStorage.getItem(PURCHASE_STATUS_FILTER_KEY) ?? null;
   });
   const handleSetStatusFilter = useCallback((status: string | null) => {
     setSelectedStatusFilter(prev => {
       const next = prev === status ? null : status;
       if (next === null) {
-        localStorage.removeItem('purchases-statusFilter');
+        localStorage.removeItem(PURCHASE_STATUS_FILTER_KEY);
       } else {
-        localStorage.setItem('purchases-statusFilter', next);
+        localStorage.setItem(PURCHASE_STATUS_FILTER_KEY, next);
       }
       return next;
     });
@@ -512,7 +517,7 @@ export default function Purchases() {
   const today = new Date().toISOString().split("T")[0];
 
   const activePurchases = useMemo(() => {
-    return ((purchases ?? []) as Purchase[]).filter((p) => p.status !== "purchased");
+    return (purchases ?? []) as Purchase[];
   }, [purchases]);
 
   // 発注済み登録: 在庫検索フィルター
@@ -993,7 +998,7 @@ export default function Purchases() {
           <div>
             <h1 className="text-xl font-bold text-foreground">入庫管理</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              発注済みの入庫予定一覧 ({filteredPurchases.length}/{purchases?.length ?? 0} 件)
+              入庫データ一覧 ({filteredPurchases.length}/{purchases?.length ?? 0} 件)
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1162,6 +1167,19 @@ export default function Purchases() {
                 <span className="ml-1 opacity-70">×</span>
               )}
             </button>
+            <button
+              onClick={() => handleSetStatusFilter('purchased')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                selectedStatusFilter === 'purchased'
+                  ? 'bg-green-600 text-white border-green-600'
+                  : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
+              }`}
+            >
+              入庫済み
+              {selectedStatusFilter === 'purchased' && (
+                <span className="ml-1 opacity-70">×</span>
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -1170,9 +1188,9 @@ export default function Purchases() {
       {!filteredPurchases || filteredPurchases.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
           <PackageCheck className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">入庫予定はありません</p>
+          <p className="text-muted-foreground">入庫データはありません</p>
           <p className="text-sm text-muted-foreground mt-1">
-            サイト内DBに登録した入庫予定データが表示されます
+            サイト内DBに登録した入庫データが表示されます
           </p>
         </div>
       ) : (

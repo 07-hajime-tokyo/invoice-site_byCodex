@@ -160,7 +160,7 @@ function managementNoMatchesColor(managementNo: string, colorName: string): bool
 type ColorSummary = {
   colorName: string;
   csvQty: number;         // 取引データ発注数
-  zaicoCount: number;     // Zaico発注一覧に登録された数（status問わず）
+  zaicoCount: number;     // 発注一覧に登録された数（status問わず）
   purchasedCount: number; // 入庫済み数（status=purchased）
   stockCount: number;     // 在庫数
   deliveredCount: number; // 出庫済み数
@@ -339,7 +339,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     }
   }
 
-  // Zaico発注一覧からグループ別に発注数・入庫済み数を集計
+  // 発注一覧からグループ別に発注数・入庫済み数を集計
   for (const pi of item.purchaseItems) {
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
@@ -492,7 +492,7 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: number }) {
           target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-primary hover:underline"
         >
-          サイト内詳細
+          <ExternalLink className="h-3 w-3" />サイト内詳細
         </a>
       </div>
     </div>
@@ -603,7 +603,7 @@ function InventoryDetailPanel({ inventoryId, unitPrice: propUnitPrice, trackingN
           target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-primary hover:underline"
         >
-          サイト内詳細
+          <ExternalLink className="h-3 w-3" />サイト内詳細
         </a>
       </div>
     </div>
@@ -1081,7 +1081,7 @@ export default function OrderManagement() {
                       <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
                         <p className="text-xs font-semibold text-blue-700 flex items-center gap-1">
                           <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
-                          サイト内発注一覧（{item.purchaseItems.length}件）
+                          発注一覧（{item.purchaseItems.length}件）
                         </p>
                         {/* カラー別集計バッジ＋メモ欄 */}
                         {colorSummary.length > 0 && (
@@ -1090,7 +1090,7 @@ export default function OrderManagement() {
                               <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap">
                                 <div
                                   className="flex items-center gap-1 bg-white border border-blue-100 rounded-full px-2 py-0.5 text-xs"
-                                  title={`${cs.colorName}: 取引データ発注${cs.csvQty}個 / サイト内発注${cs.zaicoCount}個 / 入庫済${cs.purchasedCount}個 / 出庫${cs.deliveredCount}個 / 在庫${cs.stockCount}個`}
+                                  title={`${cs.colorName}: 取引データ発注${cs.csvQty}個 / 発注${cs.zaicoCount}個 / 入庫済${cs.purchasedCount}個 / 出庫${cs.deliveredCount}個 / 在庫${cs.stockCount}個`}
                                 >
                                   <span className="font-medium text-blue-800">{cs.colorName}</span>
                                   <span className="text-muted-foreground">

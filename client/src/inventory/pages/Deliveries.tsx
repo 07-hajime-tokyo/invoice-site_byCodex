@@ -145,7 +145,7 @@ function formatPrice(price: number | undefined | null): string {
   return `¥${price.toLocaleString()}`;
 }
 
-/** etc フィールドから管理番号を取得する（数字始まり・在庫始まりのみ表示） */
+/** etc フィールドから管理番号を取得する（数字・在庫・ebay始まりのみ表示） */
 function getManagementNo(etc: string | undefined): string {
   if (!etc) return "";
   // カンマ区切りまたはスペース区切りの先頭部分を管理番号として取得
@@ -323,7 +323,7 @@ export default function Deliveries() {
     setIsOrderedSubmitting(true);
     try {
       const managementNo = getManagementNo(orderedTargetInv.etc);
-      // 仕入先はUIのみで使用（Zaicoには送信しない）
+      // 仕入先はサイト内DBに保存する
       await createOrderedPurchaseMutation.mutateAsync({
         inventoryId: orderedTargetInv.id,
         title: orderedTargetInv.title,
@@ -516,17 +516,18 @@ export default function Deliveries() {
   }
 
   async function handleDeleteCategory() {
+    if (!categoryDeleteTarget) return;
     const name = categoryDeleteTarget;
-    if (!name) return;
     try {
-      await deleteCategoryMutation.mutateAsync({ name, replacement: null });
-      setCategoryDeleteTarget(null);
+      await deleteCategoryMutation.mutateAsync({ name });
       if (selectedCategory === name) handleSetSelectedCategory("すべて");
+      setCategoryDeleteTarget(null);
       await Promise.all([
         utils.inventory.zaico.getCategories.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
       ]);
+      refetch();
       toast.success(`「${name}」を削除しました`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "カテゴリの削除に失敗しました";
@@ -567,15 +568,15 @@ export default function Deliveries() {
     for (const cat of managedCategories ?? []) {
       if (cat && cat !== "すべて" && cat !== "未分類") cats.add(cat);
     }
-    if (!inventories) return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
-    for (const inv of inventories as InventoryItem[]) {
+    for (const inv of (inventories ?? []) as InventoryItem[]) {
       if (inv.quantity === null || inv.quantity === undefined) continue;
-      const cat = inv.categories?.[0] ?? inv.category ?? "";
+      const cat = (inv.categories?.[0] ?? inv.category ?? "").trim();
       if (cat && cat !== "未分類") cats.add(cat);
     }
     return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
   }, [inventories, managedCategories]);
 
+  // カテゴリ一覧を集計
   const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
   // カテゴリ + 検索フィルター
@@ -1214,6 +1215,10 @@ export default function Deliveries() {
               })}
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            カテゴリ管理
+          </Button>
           {selectedCategory !== "すべて" && (
             <button
               onClick={() => handleSetSelectedCategory("すべて")}
@@ -1223,10 +1228,6 @@ export default function Deliveries() {
               解除
             </button>
           )}
-          <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            カテゴリ管理
-          </Button>
         </div>
       )}
 
@@ -1498,7 +1499,7 @@ export default function Deliveries() {
                                       ))}
                                     </div>
                                   )}
-                                  {/* Zaicoリンク */}
+                                  {/* 詳細リンク */}
                                   <div className="pt-1 border-t border-blue-100">
                                     <a href="/inventory/deliveries"
                                       className="flex items-center gap-1 text-primary hover:underline"
@@ -2482,7 +2483,7 @@ export default function Deliveries() {
                 id="edit-etc"
                 value={editForm.etc}
                 onChange={(e) => setEditForm(f => ({ ...f, etc: e.target.value }))}
-                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会ZAICO）"
+                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会社ABC）"
                 rows={3}
               />
               <p className="text-xs text-muted-foreground">管理番号はカンマ区切りの先頭に記入（例: 368-1, ...）</p>
@@ -2770,7 +2771,7 @@ export default function Deliveries() {
                 id="create-etc"
                 value={createForm.etc}
                 onChange={(e) => setCreateForm(f => ({ ...f, etc: e.target.value }))}
-                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会ZAICO）"
+                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会社ABC）"
                 rows={3}
               />
               <p className="text-xs text-muted-foreground">管理番号はカンマ区切りの先頭に記入（例: 368-1, ...）</p>

@@ -204,6 +204,7 @@ export default function PartnerPortal() {
           productNameEn: baseEn,
         };
 
+        // 英語表示名で結合判定（日本語・英語混在やスペース有無を統一）
         const itemKey = toShipmentProductKey(baseJa, baseEn);
         const existingRow = group.rows.find(r => {
           if (r.invoiceNo !== invoiceNo) return false;

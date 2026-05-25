@@ -881,7 +881,7 @@ export default function MonthlyReport() {
 
                             {/* 商品一覧（CSV発注情報） */}
                             <div>
-                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">発注商品（CSV）</h4>
+                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">取引データ発注商品</h4>
                               <table className="w-full text-sm">
                                 <thead>
                                   <tr className="text-xs text-muted-foreground border-b">
@@ -1658,7 +1658,7 @@ export default function MonthlyReport() {
                                       {/* 発注商品 */}
                                       {inv.products.length > 0 && (
                                         <div>
-                                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">発注商品（CSV）</h4>
+                                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">取引データ発注商品</h4>
                                           <table className="w-full text-sm">
                                             <thead>
                                               <tr className="text-xs text-muted-foreground border-b">
