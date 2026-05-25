@@ -26,6 +26,7 @@ GitHubリポジトリ上のCSVファイル（[rara-wq/csv-data-site](https://git
 ### 入出庫管理 タブ
 
 入出庫管理はこのアプリ内に統合され、ログイン後にサイト内DBの在庫・発注・出庫データを表示します。
+Google Apps Scriptから `POST /api/gas/purchase-order` に送信すると、スプレッドシートのA列チェックをこのサイトの発注済みデータとして反映できます。設定例は [references/gas-purchase-order.md](references/gas-purchase-order.md) を参照してください。
 
 ### インボイス タブ
 

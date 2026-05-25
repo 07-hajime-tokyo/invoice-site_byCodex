@@ -114,6 +114,9 @@ VITE_ANALYTICS_WEBSITE_ID=
 # =============================================================================
 # 外部Zaico/ManusアプリURLは使用しません。入出庫管理はサイト内DBで動作します。
 
+# 任意 | Google Apps Scriptから /api/gas/purchase-order にPOSTするための共有シークレット
+GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
+
 # =============================================================================
 # 移行時に追加が必要な環境変数（Manus OAuth置き換え後）
 # =============================================================================
@@ -151,3 +154,4 @@ VITE_ANALYTICS_WEBSITE_ID=
 | `VITE_APP_LOGO` | 任意 | ヘッダーロゴURL | 任意 |
 | `VITE_ANALYTICS_ENDPOINT` | 任意 | アナリティクスURL | Umami等 |
 | `VITE_ANALYTICS_WEBSITE_ID` | 任意 | アナリティクスID | Umami等 |
+| `GAS_WEBHOOK_SECRET` | 任意 | GASから発注済みデータを登録するWebhook認証 | 任意の長いランダム文字列 |
