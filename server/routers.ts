@@ -432,7 +432,7 @@ export const appRouter = router({
   trade: router({
     // ─── DB-backed procedures ─────────────────────────────────────────────────
     /** DB から全取引データを取得する（フィルター・検索対応） */
-    listFromDb: publicProcedure
+    listFromDb: protectedProcedure
       .input(z.object({
         search: z.string().optional().default(""),
         year: z.string().optional().default(""),
@@ -494,7 +494,7 @@ export const appRouter = router({
       }),
 
     /** DB の取引データを更新する */
-    updateInDb: publicProcedure
+    updateInDb: protectedProcedure
       .input(z.object({
         id: z.number(),
         month: z.string().optional(),
@@ -528,7 +528,7 @@ export const appRouter = router({
       }),
 
     /** DB の取引データを削除する */
-    deleteFromDb: publicProcedure
+    deleteFromDb: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -538,7 +538,7 @@ export const appRouter = router({
       }),
 
     /** DB のフィルター用ユニーク値を取得する */
-    getFilterOptions: publicProcedure.query(async () => {
+    getFilterOptions: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return { years: [], partners: [], currencies: [], statuses: [] };
       const rows = await db.select({
@@ -555,7 +555,7 @@ export const appRouter = router({
     }),
 
     // ─── Spreadsheet-backed procedures (kept for write-back) ─────────────────
-    getExchangeRates: publicProcedure.query(async () => {
+    getExchangeRates: protectedProcedure.query(async () => {
       const sheets = getSheetsClient();
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
@@ -567,7 +567,7 @@ export const appRouter = router({
       return { eur: eurRate, usd: usdRate };
     }),
 
-    getRateByDate: publicProcedure
+    getRateByDate: protectedProcedure
       .input(z.object({
         date: z.string(), // YYYY-MM-DD or "latest"
         currency: z.enum(["EUR", "USD"]),
@@ -584,7 +584,7 @@ export const appRouter = router({
         return { rate };
       }),
 
-    findRowByInvoiceNo: publicProcedure
+    findRowByInvoiceNo: protectedProcedure
       .input(z.object({ invoiceNo: z.string() }))
       .query(async ({ input }) => {
         const sheets = getSheetsClient();
@@ -602,7 +602,7 @@ export const appRouter = router({
         return { rowIndex: null };
       }),
 
-    updateRecord: publicProcedure
+    updateRecord: protectedProcedure
       .input(z.object({
         invoiceNo: z.string().min(1),
         month: z.number().min(1).max(12),
@@ -733,7 +733,7 @@ export const appRouter = router({
         return { success: true, updatedRow: targetRow };
       }),
 
-    addRecord: publicProcedure
+    addRecord: protectedProcedure
       .input(z.object({
         month: z.number().min(1).max(12),
         partner: z.string().min(1),
@@ -825,13 +825,13 @@ export const appRouter = router({
 
   // ─── Invoice clients (宛先管理) ───────────────────────────────────────────
   invoiceClients: router({
-    list: publicProcedure.query(async () => {
+    list: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       return await db.select().from(invoiceClients).orderBy(asc(invoiceClients.name));
     }),
 
-    get: publicProcedure
+    get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const db = await getDb();
@@ -840,7 +840,7 @@ export const appRouter = router({
         return rows[0] ?? null;
       }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(z.object({
         name: z.string().min(1),
         company: z.string().optional(),
@@ -869,7 +869,7 @@ export const appRouter = router({
         return { id: Number(result[0].insertId) };
       }),
 
-    update: publicProcedure
+    update: protectedProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1),
@@ -901,7 +901,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    delete: publicProcedure
+    delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -913,7 +913,7 @@ export const appRouter = router({
 
   // ─── Invoices (請求書) ────────────────────────────────────────────────────
   invoices: router({
-    list: publicProcedure.query(async () => {
+    list: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       const rows = await db.select().from(invoices)
@@ -933,7 +933,7 @@ export const appRouter = router({
       return result;
     }),
 
-    get: publicProcedure
+    get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const db = await getDb();
@@ -947,7 +947,7 @@ export const appRouter = router({
         return { ...inv, items };
       }),
 
-    parseWhatsApp: publicProcedure
+    parseWhatsApp: protectedProcedure
       .input(z.object({ chatText: z.string() }))
       .mutation(async ({ input }) => {
         const parsed = parseWhatsAppChat(input.chatText);
@@ -960,14 +960,14 @@ export const appRouter = router({
       }),
 
     // Detect payment from chat text and return matching invoice numbers
-    detectPayments: publicProcedure
+    detectPayments: protectedProcedure
       .input(z.object({ chatText: z.string() }))
       .mutation(async ({ input }) => {
         return detectPaymentsFromChat(input.chatText);
       }),
 
     // Analyze screenshot image to extract invoice line items using Forge API
-    analyzeScreenshot: publicProcedure
+    analyzeScreenshot: protectedProcedure
       .input(z.object({
         base64: z.string(),
         mimeType: z.string().default("image/png"),
@@ -1052,7 +1052,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
       }),
 
     // 過去の請求書番号から最大番号を取得し、次の番号を返す
-    getNextNumber: publicProcedure.query(async () => {
+    getNextNumber: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return generateInvoiceNumber();
       const rows = await db.select({ invoiceNumber: invoices.invoiceNumber }).from(invoices).orderBy(desc(invoices.createdAt));
@@ -1073,7 +1073,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
       return `INV-${y}${m}${d}-${String(next).padStart(3, "0")}`;
     }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(z.object({
         invoiceNumber: z.string().min(1),
         clientId: z.number().nullable().optional(),
@@ -1134,7 +1134,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { id: invoiceId };
       }),
 
-    update: publicProcedure
+    update: protectedProcedure
       .input(z.object({
         id: z.number(),
         invoiceNumber: z.string().min(1),
@@ -1197,7 +1197,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { success: true };
       }),
 
-    delete: publicProcedure
+    delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1209,7 +1209,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { success: true };
       }),
 
-    restore: publicProcedure
+    restore: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1220,7 +1220,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { success: true };
       }),
 
-    permanentDelete: publicProcedure
+    permanentDelete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1236,7 +1236,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { success: true, invoiceNumber: inv.invoiceNumber };
       }),
 
-    listDeleted: publicProcedure.query(async () => {
+    listDeleted: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       const rows = await db.select().from(invoices)
@@ -1256,7 +1256,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
       return result;
     }),
 
-    updateStatus: publicProcedure
+    updateStatus: protectedProcedure
       .input(z.object({
         id: z.number(),
         status: z.enum(["draft", "sent", "paid"]),
@@ -1270,7 +1270,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { success: true };
       }),
 
-    getLatest: publicProcedure.query(async () => {
+    getLatest: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return null;
       // 番号の最大値（末尾の数字が最大）のインボイスを取得
@@ -1295,7 +1295,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
       return { ...latestInvoice, items };
     }),
     // ─── リアルタイム為替レート取得 ─────────────────────────────────────────────
-    getExchangeRate: publicProcedure
+    getExchangeRate: protectedProcedure
       .input(z.object({ currency: z.string() }))
       .query(async ({ input }) => {
         const { currency } = input;
@@ -1314,7 +1314,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
 
     // ─── 分割インボイス一括作成 ───────────────────────────────────────────────
     // 1回の決済が100万円以下になるよう自動分割して複数インボイスを作成する
-    createSplit: publicProcedure
+    createSplit: protectedProcedure
       .input(z.object({
         baseInvoiceNumber: z.string().min(1), // 元のインボイス番号（連番の起点）
         clientId: z.number().nullable().optional(),
@@ -1385,7 +1385,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
         return { ids: createdIds, count: createdIds.length };
       }),
 
-    clone: publicProcedure
+    clone: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1446,14 +1446,14 @@ Return ONLY valid JSON, no markdown, no explanation.`
 
   // ─── Invoice Settings (差出人デフォルト設定) ───────────────────────────────────────
   invoiceSettings: router({
-    get: publicProcedure.query(async () => {
+    get: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return null;
       const rows = await db.select().from(invoiceSettings).limit(1);
       return rows[0] ?? null;
     }),
 
-    save: publicProcedure
+    save: protectedProcedure
       .input(z.object({
         senderName: z.string().optional(),
         senderCompany: z.string().optional(),
@@ -1493,7 +1493,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
       }),
 
     // ロゴ画像をS3にアップロードしてURLを返す
-    uploadLogo: publicProcedure
+    uploadLogo: protectedProcedure
       .input(z.object({
         base64: z.string(), // base64 encoded image
         mimeType: z.string().default("image/png"),
@@ -1513,7 +1513,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
      * Upload WhatsApp export files (PDFs + _chat.txt) and extract invoice numbers.
      * Files are sent as base64. Returns all extracted numbers and the next invoice number.
      */
-    extractNumbers: publicProcedure
+    extractNumbers: protectedProcedure
       .input(z.object({
         files: z.array(z.object({
           name: z.string(),
@@ -1635,7 +1635,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
     /**
      * Get the current max invoice number from DB and return the next one.
      */
-    getNextNumber: publicProcedure.query(async () => {
+    getNextNumber: protectedProcedure.query(async () => {
       const dbConn = await getDb();
       if (!dbConn) throw new Error("DB connection failed");
       const db = dbConn;
@@ -1664,7 +1664,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
     /**
      * Save a chat history item (screenshot or text) to DB/S3 for future re-analysis.
      */
-    saveHistory: publicProcedure
+    saveHistory: protectedProcedure
       .input(z.object({
         label: z.string().min(1),
         type: z.enum(["screenshot", "chat_text"]),
@@ -1702,7 +1702,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
     /**
      * List all saved chat history items.
      */
-    listHistory: publicProcedure.query(async () => {
+    listHistory: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       return await db.select().from(whatsappChatHistory).orderBy(desc(whatsappChatHistory.createdAt));
@@ -1711,7 +1711,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
     /**
      * Delete a saved chat history item.
      */
-    deleteHistory: publicProcedure
+    deleteHistory: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1724,7 +1724,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
      * Analyze a saved screenshot from DB using Forge API.
      * Returns extracted items, sender, invoice numbers, and detected status changes.
      */
-    analyzeHistoryItem: publicProcedure
+    analyzeHistoryItem: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -1835,7 +1835,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
      * Text files are stored directly; images/PDFs are uploaded to S3.
      * AI extracts and summarizes content, saves to chat_knowledge table.
      */
-    upload: publicProcedure
+    upload: protectedProcedure
       .input(z.object({
         files: z.array(z.object({
           name: z.string(),
@@ -2049,7 +2049,7 @@ ${analysis}`,
     /**
      * List all knowledge base entries.
      */
-    list: publicProcedure.query(async () => {
+    list: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       return await db.select({
@@ -2065,7 +2065,7 @@ ${analysis}`,
     /**
      * Delete a knowledge base entry.
      */
-    delete: publicProcedure
+    delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -2077,7 +2077,7 @@ ${analysis}`,
     /**
      * Create a new conversation session.
      */
-    createConversation: publicProcedure
+    createConversation: protectedProcedure
       .input(z.object({ title: z.string().optional() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -2091,7 +2091,7 @@ ${analysis}`,
     /**
      * List all conversations.
      */
-    listConversations: publicProcedure.query(async () => {
+    listConversations: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return [];
       return await db.select().from(chatConversations).orderBy(desc(chatConversations.updatedAt));
@@ -2100,7 +2100,7 @@ ${analysis}`,
     /**
      * Delete a conversation and all its messages.
      */
-    deleteConversation: publicProcedure
+    deleteConversation: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -2114,7 +2114,7 @@ ${analysis}`,
      * AI Chat — answers questions using knowledge base as context.
      * Retrieves relevant knowledge entries and passes them to AI.
      */
-    chat: publicProcedure
+    chat: protectedProcedure
       .input(z.object({
         message: z.string().min(1),
         conversationId: z.number().optional(),
@@ -2195,7 +2195,7 @@ ${contextText || "（まだデータがアップロードされていません�
     /**
      * Get AI chat history for a specific conversation.
      */
-    getChatHistory: publicProcedure
+    getChatHistory: protectedProcedure
       .input(z.object({ conversationId: z.number().optional() }).optional())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -2211,7 +2211,7 @@ ${contextText || "（まだデータがアップロードされていません�
     /**
      * Clear AI chat history (all or by conversationId).
      */
-    clearChatHistory: publicProcedure
+    clearChatHistory: protectedProcedure
       .input(z.object({ conversationId: z.number().optional() }).optional())
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -2228,7 +2228,7 @@ ${contextText || "（まだデータがアップロードされていません�
      * Extract invoice items / payment detections from knowledge base.
      * Used by the "ファイル抽出" and "支払い検知" buttons.
      */
-    extractFromKnowledge: publicProcedure
+    extractFromKnowledge: protectedProcedure
       .input(z.object({
         mode: z.enum(["invoice_items", "payment_detection"]),
       }))
@@ -2301,7 +2301,7 @@ ${contextText}`;
       }),
 
     // 知識ベースから送信済み・支払済みのインボイスを検知する
-    detectStatusFromKnowledge: publicProcedure
+    detectStatusFromKnowledge: protectedProcedure
       .mutation(async () => {
         const db = await getDb();
         if (!db) throw new Error("DB not available");
@@ -2392,7 +2392,7 @@ ${contextText}`;
       }),
 
     // 知識ベースから最新のインボイス番号を抽出する
-    getLatestInvoiceNumber: publicProcedure
+    getLatestInvoiceNumber: protectedProcedure
       .mutation(async () => {
         const db = await getDb();
         const knowledge = await db!.select().from(chatKnowledge).orderBy(desc(chatKnowledge.createdAt));
