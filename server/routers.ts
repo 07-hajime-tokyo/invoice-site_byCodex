@@ -1,11 +1,12 @@
-import { COOKIE_NAME } from "@shared/const";
+import { ADMIN_EMAILS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { inventoryRouter } from "./inventory/routers";
 import { z } from "zod";
 import { google } from "googleapis";
-import { getDb } from "./db";
+import { getDb, upsertUser } from "./db";
 import { getSystemSetting } from "./inventory/db";
 import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, verifiedUsers, shipments, shipmentItems } from "../drizzle/schema";
 import { eq, desc, asc, or, like, and, sql, isNull, isNotNull } from "drizzle-orm";
@@ -322,8 +323,11 @@ async function recalcShippingCosts(
 }
 
 // ============================================================
-// Auth Gate Router — Manus login + access code verification
+// Auth Gate Router - site-local login + access code verification
 // ============================================================
+const SITE_AUTH_OPEN_ID = "site-admin";
+const SITE_AUTH_NAME = "Site Admin";
+
 function isLocalAuthBypass() {
   return (
     process.env.LOCAL_AUTH_BYPASS === "true" ||
@@ -344,6 +348,52 @@ const authGateRouter = router({
       .limit(1);
     return { verified: row.length > 0, loggedIn: true };
   }),
+  loginWithCode: publicProcedure
+    .input(z.object({ code: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      if (isLocalAuthBypass()) {
+        return { success: true, message: "ログインしました" };
+      }
+
+      const storedCode = await getSystemSetting("access_code").catch(() => null);
+      const expectedCode = storedCode?.trim() || process.env.ACCESS_CODE?.trim();
+
+      if (!expectedCode) {
+        return { success: false, message: "認証コードが未設定です" };
+      }
+
+      if (input.code.trim() !== expectedCode) {
+        return { success: false, message: "認証コードが正しくありません" };
+      }
+
+      const db = await getDb();
+      if (!db) throw new Error("データベースに接続できません");
+
+      await upsertUser({
+        openId: SITE_AUTH_OPEN_ID,
+        name: SITE_AUTH_NAME,
+        email: ADMIN_EMAILS[0] ?? null,
+        loginMethod: "access_code",
+        role: "admin",
+        lastSignedIn: new Date(),
+      });
+
+      await db
+        .insert(verifiedUsers)
+        .values({ openId: SITE_AUTH_OPEN_ID })
+        .onDuplicateKeyUpdate({ set: { verifiedAt: new Date() } });
+
+      const token = await sdk.createSessionToken(SITE_AUTH_OPEN_ID, {
+        name: SITE_AUTH_NAME,
+        expiresInMs: ONE_YEAR_MS,
+      });
+      ctx.res.cookie(COOKIE_NAME, token, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: ONE_YEAR_MS,
+      });
+
+      return { success: true, message: "ログインしました" };
+    }),
   verifyCode: protectedProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ ctx, input }) => {

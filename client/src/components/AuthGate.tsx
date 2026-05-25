@@ -1,17 +1,8 @@
-/**
- * AuthGate — wraps the entire app with Manus login + access code verification.
- *
- * Flow:
- * 1. Not logged in → show "Login with Manus" button
- * 2. Logged in but not verified → show access code input form
- * 3. Logged in and verified → render children
- */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Lock, LogIn, Loader2, ShieldCheck } from "lucide-react";
+import { Loader2, Lock, ShieldCheck } from "lucide-react";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [code, setCode] = useState("");
@@ -19,33 +10,35 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const { data, isLoading, refetch } = trpc.authGate.checkVerified.useQuery(undefined, {
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
   });
 
-  const verifyMutation = trpc.authGate.verifyCode.useMutation({
-    onSuccess: (result) => {
-      if (result.success) {
-        setErrorMsg("");
-        refetch();
-      } else {
+  const loginMutation = trpc.authGate.loginWithCode.useMutation({
+    onSuccess: async (result) => {
+      if (!result.success) {
         setErrorMsg(result.message);
+        return;
       }
+      setErrorMsg("");
+      setCode("");
+      await refetch();
     },
     onError: (err) => {
-      setErrorMsg(err.message || "認証に失敗しました");
+      setErrorMsg(err.message || "ログインに失敗しました");
     },
   });
 
-  const handleVerify = () => {
-    if (!code.trim()) {
+  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
       setErrorMsg("認証コードを入力してください");
       return;
     }
     setErrorMsg("");
-    verifyMutation.mutate({ code: code.trim() });
+    loginMutation.mutate({ code: trimmedCode });
   };
 
-  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7]">
@@ -54,80 +47,54 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Not logged in
-  if (!data?.loggedIn) {
+  if (!data?.loggedIn || !data?.verified) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4">
-        <div className="bg-white rounded-2xl shadow-md border border-border p-8 max-w-sm w-full text-center space-y-5">
-          <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-            <LogIn size={26} className="text-primary" />
+        <div className="w-full max-w-sm rounded-lg border border-border bg-white p-8 text-center shadow-md">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <Lock size={26} className="text-primary" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-foreground">ログインが必要です</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              このサイトにアクセスするにはManusアカウントでのログインが必要です。
+          <div className="mt-5">
+            <h1 className="text-lg font-bold text-foreground">ログイン</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              認証コードを入力してください。
             </p>
           </div>
-          <Button
-            className="w-full"
-            onClick={() => { window.location.href = getLoginUrl(); }}
-          >
-            Manusアカウントでログイン
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Logged in but not verified
-  if (!data?.verified) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4">
-        <div className="bg-white rounded-2xl shadow-md border border-border p-8 max-w-sm w-full text-center space-y-5">
-          <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
-            <Lock size={26} className="text-amber-600" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-foreground">認証コードを入力してください</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              アクセスするには認証コードが必要です。<br />
-              一度認証すれば、次回以降は不要です。
-            </p>
-          </div>
-          <div className="space-y-3">
+          <form className="mt-5 space-y-3" onSubmit={handleLogin}>
             <Input
               type="password"
-              placeholder="認証コードを入力..."
+              placeholder="認証コード"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-              className="text-center tracking-widest text-base"
+              onChange={(event) => setCode(event.target.value)}
+              className="text-center text-base"
+              autoComplete="current-password"
               autoFocus
             />
             {errorMsg && (
-              <p className="text-xs text-destructive font-medium">{errorMsg}</p>
+              <p className="text-xs font-medium text-destructive">{errorMsg}</p>
             )}
             <Button
+              type="submit"
               className="w-full"
-              onClick={handleVerify}
-              disabled={verifyMutation.isPending}
+              disabled={loginMutation.isPending}
             >
-              {verifyMutation.isPending ? (
-                <><Loader2 size={14} className="animate-spin mr-2" />確認中...</>
+              {loginMutation.isPending ? (
+                <>
+                  <Loader2 size={14} className="mr-2 animate-spin" />
+                  確認中...
+                </>
               ) : (
-                "認証する"
+                "ログイン"
               )}
             </Button>
-          </div>
+          </form>
         </div>
       </div>
     );
   }
 
-  // Logged in and verified — render the app
   return (
     <>
-      {/* Subtle verified badge (optional, can remove) */}
       <div className="hidden" aria-hidden>
         <ShieldCheck size={14} className="text-green-500" />
       </div>
