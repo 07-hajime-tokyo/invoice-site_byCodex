@@ -1,6 +1,8 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import { ADMIN_EMAILS } from "@shared/const";
+import { ADMIN_EMAILS, COOKIE_NAME } from "@shared/const";
 import type { User } from "../../drizzle/schema";
+import { getSessionCookieOptions } from "./cookies";
+import { EMAIL_AUTH_LOGIN_METHOD, isAllowedLoginEmail } from "./emailAuth";
 import { sdk } from "./sdk";
 
 export type TrpcContext = {
@@ -39,6 +41,16 @@ export async function createContext(
 
   try {
     user = await sdk.authenticateRequest(opts.req);
+    if (
+      user &&
+      (user.loginMethod !== EMAIL_AUTH_LOGIN_METHOD || !isAllowedLoginEmail(user.email))
+    ) {
+      opts.res.clearCookie(COOKIE_NAME, {
+        ...getSessionCookieOptions(opts.req),
+        maxAge: -1,
+      });
+      user = null;
+    }
   } catch (error) {
     // Authentication is optional for public procedures.
     user = null;

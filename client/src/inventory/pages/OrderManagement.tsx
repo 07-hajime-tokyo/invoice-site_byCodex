@@ -46,7 +46,7 @@ type SummaryItem = {
 /** CSVエクスポート */
 function exportOrderManagementCSV(items: SummaryItem[]) {
   const rows: string[][] = [
-    ["インボイスNo", "取引先", "CSV発注数", "入庫済み数", "出庫済み数", "在庫数", "進捗率"],
+    ["インボイスNo", "取引先", "取引データ発注数", "入庫済み数", "出庫済み数", "在庫数", "進捗率"],
   ];
   for (const item of items) {
     const progress = item.csvOrderQty > 0
@@ -82,7 +82,7 @@ function progressColor(pct: number): string {
 }
 
 /**
- * CSV商品名からカラー名を抽出する
+ * 取引データ商品名からカラー名を抽出する
  * 例: "Vita 1000 コズミックレッド" → "コズミックレッド"
  *     "Vita 1000 レッド&ブルー" → "レッド&ブルー"
  *     "New 3DS ランダムカラー" → "ランダムカラー"
@@ -159,7 +159,7 @@ function managementNoMatchesColor(managementNo: string, colorName: string): bool
  */
 type ColorSummary = {
   colorName: string;
-  csvQty: number;         // CSV発注数
+  csvQty: number;         // 取引データ発注数
   zaicoCount: number;     // Zaico発注一覧に登録された数（status問わず）
   purchasedCount: number; // 入庫済み数（status=purchased）
   stockCount: number;     // 在庫数
@@ -204,7 +204,7 @@ function getColorKeywords(colorName: string): string[] {
 }
 
 /**
- * CSV商品名から機種キーワードを抽出する
+ * 取引データ商品名から機種キーワードを抽出する
  * 例: "PS Vita 2000 ランダムカラー" → "Vita2000"
  *     "New 3DS ランダムカラー" → "New3DS"
  *     "3DS LL ホワイトベース" → "3DSLL"
@@ -263,7 +263,7 @@ type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string }
 function buildColorSummary(item: SummaryItem): ColorSummary[] {
   if (item.csvProducts.length === 0) return [];
 
-  // CSV商品から「機種+カラー名」をグループキーにして発注数を収集
+  // 取引データ商品から「機種+カラー名」をグループキーにして発注数を収集
   const colorMap = new Map<string, ColorSummaryWithModel>();
 
   for (const csvProd of item.csvProducts) {
@@ -1007,7 +1007,7 @@ export default function OrderManagement() {
                         </span>
                       </div>
                     )}
-                    {/* CSV商品名（1件目のみ表示） */}
+                    {/* 取引データ商品名（1件目のみ表示） */}
                     {item.csvProducts.length > 0 && (
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
                         {item.csvProducts[0].name}
@@ -1049,12 +1049,12 @@ export default function OrderManagement() {
                     <span className="text-xs text-muted-foreground flex-shrink-0">備考:</span>
                     <InvoiceMemoField invoiceKey={item.key} colorKey="__invoice__" />
                   </div>
-                  {/* CSV発注明細 */}
+                  {/* 取引データ発注明細 */}
                   {item.csvProducts.length > 0 && (
                     <div className="px-4 py-3 bg-gray-50/50">
                       <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
                         <span className="inline-block w-2 h-2 rounded-full bg-gray-500"></span>
-                        CSV発注明細（{item.csvProducts.length}件）
+                        取引データ発注明細（{item.csvProducts.length}件）
                       </p>
                       <div className="space-y-1.5">
                         {item.csvProducts.map((p, i) => (
@@ -1090,7 +1090,7 @@ export default function OrderManagement() {
                               <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap">
                                 <div
                                   className="flex items-center gap-1 bg-white border border-blue-100 rounded-full px-2 py-0.5 text-xs"
-                                  title={`${cs.colorName}: CSV発注${cs.csvQty}個 / サイト内発注${cs.zaicoCount}個 / 入庫済${cs.purchasedCount}個 / 出庫${cs.deliveredCount}個 / 在庫${cs.stockCount}個`}
+                                  title={`${cs.colorName}: 取引データ発注${cs.csvQty}個 / サイト内発注${cs.zaicoCount}個 / 入庫済${cs.purchasedCount}個 / 出庫${cs.deliveredCount}個 / 在庫${cs.stockCount}個`}
                                 >
                                   <span className="font-medium text-blue-800">{cs.colorName}</span>
                                   <span className="text-muted-foreground">
@@ -1154,7 +1154,7 @@ export default function OrderManagement() {
                               <div
                                 key={cs.colorName}
                                 className="flex items-center gap-1 bg-white border border-purple-100 rounded-full px-2 py-0.5 text-xs"
-                                title={`${cs.colorName}: 在庫${cs.stockCount}個 / CSV発注${cs.csvQty}個`}
+                                title={`${cs.colorName}: 在庫${cs.stockCount}個 / 取引データ発注${cs.csvQty}個`}
                               >
                                 <span className="font-medium text-purple-800">{cs.colorName}</span>
                                 <span className="text-muted-foreground">
@@ -1213,7 +1213,7 @@ export default function OrderManagement() {
                               <div
                                 key={cs.colorName}
                                 className="flex items-center gap-1 bg-white border border-orange-100 rounded-full px-2 py-0.5 text-xs"
-                                title={`${cs.colorName}: 出庫${cs.deliveredCount}個 / CSV発注${cs.csvQty}個`}
+                                title={`${cs.colorName}: 出庫${cs.deliveredCount}個 / 取引データ発注${cs.csvQty}個`}
                               >
                                 <span className="font-medium text-orange-800">{cs.colorName}</span>
                                 <span className="text-muted-foreground">

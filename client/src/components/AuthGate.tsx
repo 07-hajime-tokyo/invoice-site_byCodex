@@ -2,10 +2,10 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Lock, ShieldCheck } from "lucide-react";
+import { Loader2, Mail, ShieldCheck } from "lucide-react";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const [code, setCode] = useState("");
+  const [email, setEmail] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
   const { data, isLoading, refetch } = trpc.authGate.checkVerified.useQuery(undefined, {
@@ -13,14 +13,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     staleTime: 1000 * 60 * 5,
   });
 
-  const loginMutation = trpc.authGate.loginWithCode.useMutation({
+  const loginMutation = trpc.authGate.loginWithEmail.useMutation({
     onSuccess: async (result) => {
       if (!result.success) {
         setErrorMsg(result.message);
         return;
       }
       setErrorMsg("");
-      setCode("");
+      setEmail("");
       await refetch();
     },
     onError: (err) => {
@@ -30,13 +30,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmedCode = code.trim();
-    if (!trimmedCode) {
-      setErrorMsg("認証コードを入力してください");
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMsg("メールアドレスを入力してください");
       return;
     }
     setErrorMsg("");
-    loginMutation.mutate({ code: trimmedCode });
+    loginMutation.mutate({ email: trimmedEmail });
   };
 
   if (isLoading) {
@@ -52,22 +52,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4">
         <div className="w-full max-w-sm rounded-lg border border-border bg-white p-8 text-center shadow-md">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <Lock size={26} className="text-primary" />
+            <Mail size={26} className="text-primary" />
           </div>
           <div className="mt-5">
             <h1 className="text-lg font-bold text-foreground">ログイン</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              認証コードを入力してください。
+              許可されたメールアドレスを入力してください。
             </p>
           </div>
           <form className="mt-5 space-y-3" onSubmit={handleLogin}>
             <Input
-              type="password"
-              placeholder="認証コード"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
+              type="email"
+              placeholder="メールアドレス"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               className="text-center text-base"
-              autoComplete="current-password"
+              autoComplete="email"
               autoFocus
             />
             {errorMsg && (

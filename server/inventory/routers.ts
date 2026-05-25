@@ -150,16 +150,6 @@ async function fetchGithubCsv(): Promise<string> {
   );
 }
 
-/**
- * 発注管理専用: csv-data-site リポジトリから CSV テキストを取得するヘルパー
- */
-async function fetchOrderCsv(): Promise<string> {
-  return fetchCsvFromGithub(
-    process.env.GITHUB_CSV_URL ?? "https://raw.githubusercontent.com/07-hajime-tokyo/csv-data-site/main/data.csv",
-    "Order CSV fetch failed",
-  );
-}
-
 function getGithubCsvToken(): string | undefined {
   const token = process.env.GITHUB_CSV_TOKEN?.trim();
   if (!token) return undefined;
@@ -286,40 +276,36 @@ type OrderCsvRow = {
   status: string;
 };
 
-function parseOrderCsvRows(text: string): OrderCsvRow[] {
-  const rows: OrderCsvRow[] = [];
-  const lines = text.split(/\r?\n/);
-  for (let i = 3; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line?.trim()) continue;
-    const cols = parseCSVLine(line).map((col) => col.trim());
-    const partner = cols[1] ?? "";
-    const invoiceNo = cols[2] ?? "";
-    const paymentDate = cols[3] ?? "";
-    const productName = cols[4] ?? "";
-    const orderQtyStr = cols[5] ?? "0";
-    const sellingPriceStr = cols[6] ?? "";
-    const currency = cols[7] ?? "";
-    const status9 = cols[9] ?? "";
-    const status10 = cols[10] ?? "";
-    const status = (status9.toLowerCase() === "complete" || status10.toLowerCase() === "complete")
-      ? "complete"
-      : status9 || status10;
-    if (!invoiceNo || !/^\d+$/.test(invoiceNo)) continue;
-    const orderQty = parseInt(orderQtyStr, 10) || 0;
-    const sellingPrice = sellingPriceStr ? parseFloat(sellingPriceStr) || null : null;
-    rows.push({
-      partner: partner || "その他",
-      invoiceNo,
-      paymentDate,
-      productName,
-      orderQty,
-      sellingPrice,
-      currency,
-      status,
-    });
-  }
-  return rows;
+async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { tradeRecords } = await import("../../drizzle/schema");
+  const rows = await db
+    .select({
+      partner: tradeRecords.partner,
+      invoiceNo: tradeRecords.no,
+      paymentDate: tradeRecords.paymentDate,
+      productName: tradeRecords.productName,
+      orderQty: tradeRecords.quantity,
+      sellingPrice: tradeRecords.unitPrice,
+      currency: tradeRecords.currency,
+      status: tradeRecords.status,
+    })
+    .from(tradeRecords);
+
+  return rows
+    .map((row) => ({
+      partner: row.partner?.trim() || "その他",
+      invoiceNo: row.invoiceNo != null ? String(row.invoiceNo) : "",
+      paymentDate: row.paymentDate ?? "",
+      productName: row.productName ?? "",
+      orderQty: Number(row.orderQty ?? 0) || 0,
+      sellingPrice: row.sellingPrice == null ? null : Number(row.sellingPrice) || null,
+      currency: row.currency ?? "",
+      status: row.status ?? "",
+    }))
+    .filter((row) => row.invoiceNo && /^\d+$/.test(row.invoiceNo))
+    .sort((a, b) => Number(a.invoiceNo) - Number(b.invoiceNo));
 }
 
 function resolveOperatorToken(_operatorKey?: string): string | undefined {
@@ -1507,8 +1493,7 @@ export const inventoryRouter = router({
             // CSV商品データを取得して商品集計
             let csvProducts: Array<{ name: string; qty: number }> = [];
             try {
-              const csvText = await fetchOrderCsv();
-              for (const row of parseOrderCsvRows(csvText)) {
+              for (const row of await getOrderRowsFromTradeRecords()) {
                 const csvInvoiceNo = row.invoiceNo;
                 if (csvInvoiceNo !== invoiceNo) continue;
                 const productName = row.productName;
@@ -2314,10 +2299,9 @@ export const inventoryRouter = router({
      */
     getCsvData: publicProcedure.query(async () => {
       try {
-        const text = await fetchOrderCsv();
-        return parseOrderCsvRows(text);
+        return await getOrderRowsFromTradeRecords();
       } catch (err) {
-        console.error("CSV fetch error:", err);
+        console.error("Trade order data error:", err);
         return [];
       }
     }),
@@ -2381,10 +2365,9 @@ export const inventoryRouter = router({
       type CsvRow = { partner: string; invoiceNo: string; productName: string; orderQty: number; status: string; paymentDate: string };
       let csvRows: CsvRow[] = [];
       try {
-        const text = await fetchOrderCsv();
-        csvRows = parseOrderCsvRows(text);
+        csvRows = await getOrderRowsFromTradeRecords();
       } catch (e) {
-        console.error("CSV parse error:", e);
+        console.error("Trade order data error:", e);
       }
       // CSVインボイスNoマップ: invoiceNo -> { partner, totalOrderQty, products }
       type CsvInvoice = { partner: string; totalOrderQty: number; products: Array<{ name: string; qty: number; status: string; paymentDate: string }> };
@@ -2809,9 +2792,8 @@ export const inventoryRouter = router({
      */
     getIncompleteInvoices: publicProcedure.query(async () => {
       try {
-        const text = await fetchOrderCsv();
         type CsvRow = { partner: string; invoiceNo: string; status: string; };
-        const rows: CsvRow[] = parseOrderCsvRows(text).map(({ partner, invoiceNo, status }) => ({ partner, invoiceNo, status }));
+        const rows: CsvRow[] = (await getOrderRowsFromTradeRecords()).map(({ partner, invoiceNo, status }) => ({ partner, invoiceNo, status }));
         // 完了ステータス以外を未完了として返す
         const allMemos = await getAllInvoiceMemos();
         const manualCompleteSet = new Set<string>(
@@ -3235,12 +3217,12 @@ export const inventoryRouter = router({
           };
         });
       };
-      const [inventories, allPurchases, allMemos, allDeliveriesForParallel, csvText, localPurchaseUnitPriceMap, allPurchaseHistories] = await Promise.all([
+      const [inventories, allPurchases, allMemos, allDeliveriesForParallel, orderRows, localPurchaseUnitPriceMap, allPurchaseHistories] = await Promise.all([
         getInventoriesForReport(),
         getPurchasesForReport(),
         getAllInvoiceMemos(),
         getAllDeliveryHistories().catch(() => []),
-        fetchOrderCsv().catch(() => ""),
+        getOrderRowsFromTradeRecords().catch(() => []),
         getLocalPurchaseUnitPriceMap().catch(() => new Map<string, number>()),
         getPurchaseHistories(2000).catch(() => []),
       ]);
@@ -3264,25 +3246,22 @@ export const inventoryRouter = router({
         currency: string;
         rowStatus: string; // 行単位のstatus
       };
-      // 並列取得済みcsvTextを使用（重複フェッチなし）
       const csvRows: CsvInvoiceRow[] = [];
       try {
-        if (csvText) {
-          csvRows.push(
-            ...parseOrderCsvRows(csvText).map((row) => ({
-              partner: row.partner,
-              invoiceNo: row.invoiceNo,
-              paymentDate: row.paymentDate,
-              productName: row.productName,
-              orderQty: row.orderQty,
-              sellingPrice: row.sellingPrice,
-              currency: row.currency,
-              rowStatus: row.status === "complete" ? "complete" : "",
-            })),
-          );
-        }
+        csvRows.push(
+          ...orderRows.map((row) => ({
+            partner: row.partner,
+            invoiceNo: row.invoiceNo,
+            paymentDate: row.paymentDate,
+            productName: row.productName,
+            orderQty: row.orderQty,
+            sellingPrice: row.sellingPrice,
+            currency: row.currency,
+            rowStatus: row.status === "complete" ? "complete" : "",
+          })),
+        );
       } catch (e) {
-        console.error("CSV fetch error:", e);
+        console.error("Trade order data error:", e);
       }
 
       // 5. CSVインボイスマップ構築
@@ -4580,8 +4559,7 @@ export const inventoryRouter = router({
       // CSV情報を取得（インボイスNo・支払日・発注数）
       let csvData: Record<string, { paymentDate: string; products: Array<{ name: string; qty: number }> }> = {};
       try {
-        const csvText = await fetchOrderCsv();
-        for (const row of parseOrderCsvRows(csvText)) {
+        for (const row of await getOrderRowsFromTradeRecords()) {
           const partner = row.partner;
           const invoiceNo = row.invoiceNo;
           const paymentDate = row.paymentDate;
@@ -4923,8 +4901,7 @@ export const inventoryRouter = router({
       const combinedShipments = [...allShipments, ...manualAsFedex];
       let csvData: Record<string, { partner: string; paymentDate: string; products: Array<{ name: string; qty: number }> }> = {};
       try {
-        const csvText = await fetchOrderCsv();
-        for (const row of parseOrderCsvRows(csvText)) {
+        for (const row of await getOrderRowsFromTradeRecords()) {
           const partner = row.partner;
           const invoiceNo = row.invoiceNo;
           const paymentDate = row.paymentDate;

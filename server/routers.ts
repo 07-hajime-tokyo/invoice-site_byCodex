@@ -1,5 +1,11 @@
-import { ADMIN_EMAILS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import {
+  createEmailOpenId,
+  EMAIL_AUTH_LOGIN_METHOD,
+  isAllowedLoginEmail,
+  normalizeLoginEmail,
+} from "./_core/emailAuth";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -7,8 +13,7 @@ import { inventoryRouter } from "./inventory/routers";
 import { z } from "zod";
 import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
-import { getSystemSetting } from "./inventory/db";
-import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, verifiedUsers, shipments, shipmentItems } from "../drizzle/schema";
+import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems } from "../drizzle/schema";
 import { eq, desc, asc, or, like, and, sql, isNull, isNotNull } from "drizzle-orm";
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
@@ -323,11 +328,8 @@ async function recalcShippingCosts(
 }
 
 // ============================================================
-// Auth Gate Router - site-local login + access code verification
+// Auth Gate Router - allowlisted email login
 // ============================================================
-const SITE_AUTH_OPEN_ID = "site-admin";
-const SITE_AUTH_NAME = "Site Admin";
-
 function isLocalAuthBypass() {
   return (
     process.env.LOCAL_AUTH_BYPASS === "true" ||
@@ -339,52 +341,35 @@ const authGateRouter = router({
   checkVerified: publicProcedure.query(async ({ ctx }) => {
     if (isLocalAuthBypass()) return { verified: true, loggedIn: true };
     if (!ctx.user) return { verified: false, loggedIn: false };
-    const db = await getDb();
-    if (!db) return { verified: false, loggedIn: true };
-    const row = await db
-      .select()
-      .from(verifiedUsers)
-      .where(eq(verifiedUsers.openId, ctx.user.openId))
-      .limit(1);
-    return { verified: row.length > 0, loggedIn: true };
+    return { verified: isAllowedLoginEmail(ctx.user.email), loggedIn: true };
   }),
-  loginWithCode: publicProcedure
-    .input(z.object({ code: z.string().min(1) }))
+  loginWithEmail: publicProcedure
+    .input(z.object({ email: z.string().trim().email().max(320) }))
     .mutation(async ({ ctx, input }) => {
       if (isLocalAuthBypass()) {
         return { success: true, message: "ログインしました" };
       }
 
-      const storedCode = await getSystemSetting("access_code").catch(() => null);
-      const expectedCode = storedCode?.trim() || process.env.ACCESS_CODE?.trim();
-
-      if (!expectedCode) {
-        return { success: false, message: "認証コードが未設定です" };
-      }
-
-      if (input.code.trim() !== expectedCode) {
-        return { success: false, message: "認証コードが正しくありません" };
+      const email = normalizeLoginEmail(input.email);
+      if (!isAllowedLoginEmail(email)) {
+        return { success: false, message: "このメールアドレスは許可されていません" };
       }
 
       const db = await getDb();
       if (!db) throw new Error("データベースに接続できません");
 
+      const openId = createEmailOpenId(email);
       await upsertUser({
-        openId: SITE_AUTH_OPEN_ID,
-        name: SITE_AUTH_NAME,
-        email: ADMIN_EMAILS[0] ?? null,
-        loginMethod: "access_code",
+        openId,
+        name: email,
+        email,
+        loginMethod: EMAIL_AUTH_LOGIN_METHOD,
         role: "admin",
         lastSignedIn: new Date(),
       });
 
-      await db
-        .insert(verifiedUsers)
-        .values({ openId: SITE_AUTH_OPEN_ID })
-        .onDuplicateKeyUpdate({ set: { verifiedAt: new Date() } });
-
-      const token = await sdk.createSessionToken(SITE_AUTH_OPEN_ID, {
-        name: SITE_AUTH_NAME,
+      const token = await sdk.createSessionToken(openId, {
+        name: email,
         expiresInMs: ONE_YEAR_MS,
       });
       ctx.res.cookie(COOKIE_NAME, token, {
@@ -393,25 +378,6 @@ const authGateRouter = router({
       });
 
       return { success: true, message: "ログインしました" };
-    }),
-  verifyCode: protectedProcedure
-    .input(z.object({ code: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      if (isLocalAuthBypass()) {
-        return { success: true, message: "Local development auth bypassed" };
-      }
-      const storedCode = await getSystemSetting("access_code").catch(() => null);
-      const expectedCode = storedCode?.trim() || process.env.ACCESS_CODE?.trim();
-      if (expectedCode && input.code !== expectedCode) {
-        return { success: false, message: "認証コードが正しくありません" };
-      }
-      const db = await getDb();
-      if (!db) throw new Error("データベースに接続できません");
-      await db
-        .insert(verifiedUsers)
-        .values({ openId: ctx.user.openId })
-        .onDuplicateKeyUpdate({ set: { verifiedAt: new Date() } });
-      return { success: true, message: "認証に成功しました" };
     }),
 });
 
