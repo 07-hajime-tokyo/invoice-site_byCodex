@@ -1165,10 +1165,12 @@ export const inventoryRouter = router({
             };
             if (firstItem?.unitPrice !== undefined) {
               // decimal型は数値をそのまま渡せる
-              (lpUpdateData as Record<string, unknown>).unitPrice = firstItem.unitPrice;
+              const unitPrice = String(firstItem.unitPrice);
+              (lpUpdateData as Record<string, unknown>).unitPrice = unitPrice;
+              updateFirstItemJson({ unit_price: unitPrice, unitPrice });
               // local_inventoriesの単価も更新
               if (lp.localInventoryId) {
-                await db.update(liTbl).set({ unitPrice: firstItem.unitPrice as unknown as string }).where(eq(liTbl.id, lp.localInventoryId));
+                await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, lp.localInventoryId));
               }
             }
             if (firstItem?.etc !== undefined) {
