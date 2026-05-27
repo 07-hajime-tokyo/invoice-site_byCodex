@@ -172,6 +172,7 @@ export default function Home() {
   });
   const [hasOpenedTrade, setHasOpenedTrade] = useState(() => activeTab === "trade");
   const [shouldLoadTradeFilterOptions, setShouldLoadTradeFilterOptions] = useState(false);
+  const [shouldLoadTradeCharts, setShouldLoadTradeCharts] = useState(false);
 
   // 状態変更時にURLを更新するヘルパー
   const updateURL = useCallback((newSearch: string, newFilters: Partial<Record<FilterableKey, string>>, newIncomplete: boolean, newTab: ActiveTab) => {
@@ -279,7 +280,7 @@ export default function Home() {
       void utils.inventory.zaico.getPurchasesWithCategory.prefetch();
       void utils.inventory.zaico.getOperators.prefetch();
       void utils.inventory.zaico.getCategories.prefetch();
-    }, 1200);
+    }, 2600);
     return () => window.clearTimeout(timer);
   }, [activeTab, utils]);
 
@@ -294,6 +295,12 @@ export default function Home() {
     enabled: activeTab === "trade" || hasOpenedTrade,
     staleTime: 5 * 60_000,
   });
+
+  useEffect(() => {
+    if (activeTab !== "trade" || !dbRows || shouldLoadTradeCharts) return;
+    const timer = window.setTimeout(() => setShouldLoadTradeCharts(true), 2200);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, dbRows, shouldLoadTradeCharts]);
 
   // フィルターオプション用（全件から取得）
   const { data: filterOptions } = trpc.trade.getFilterOptions.useQuery(undefined, {
@@ -603,11 +610,6 @@ export default function Home() {
             />
           </div>
 
-          {/* Charts */}
-          <Suspense fallback={<PanelLoading />}>
-            <ChartSection records={filteredRecords} />
-          </Suspense>
-
           {/* Filters (desktop) */}
           <div className="hidden md:block">
             <Suspense fallback={<div className="h-24 rounded-lg border border-border bg-card" />}>
@@ -652,6 +654,13 @@ export default function Home() {
               onRecordUpdated={() => refetch()}
             />
           </Suspense>
+
+          {/* Charts */}
+          {shouldLoadTradeCharts && (
+            <Suspense fallback={<PanelLoading />}>
+              <ChartSection records={filteredRecords} />
+            </Suspense>
+          )}
 
           {/* Footer */}
           <div className="text-center text-xs text-muted-foreground py-4 border-t border-border">

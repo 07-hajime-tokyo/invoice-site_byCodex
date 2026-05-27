@@ -521,16 +521,26 @@ export const appRouter = router({
     getFilterOptions: protectedProcedure.query(async () => {
       const db = await getDb();
       if (!db) return { years: [], partners: [], currencies: [], statuses: [] };
-      const rows = await db.select({
-        paymentDate: tradeRecords.paymentDate,
-        partner: tradeRecords.partner,
-        currency: tradeRecords.currency,
-        status: tradeRecords.status,
-      }).from(tradeRecords);
-      const years = Array.from(new Set(rows.map(r => r.paymentDate?.substring(0, 4)).filter((v): v is string => !!v))).sort();
-      const partners = Array.from(new Set(rows.map(r => r.partner).filter((v): v is string => !!v))).sort();
-      const currencies = Array.from(new Set(rows.map(r => r.currency).filter((v): v is string => !!v))).sort();
-      const statuses = Array.from(new Set(rows.map(r => r.status).filter((v): v is string => !!v))).sort();
+      const [yearRows, partnerRows, currencyRows, statusRows] = await Promise.all([
+        db.selectDistinct({ value: sql<string>`SUBSTRING(${tradeRecords.paymentDate}, 1, 4)` })
+          .from(tradeRecords)
+          .where(isNotNull(tradeRecords.paymentDate)),
+        db.selectDistinct({ value: tradeRecords.partner })
+          .from(tradeRecords)
+          .where(isNotNull(tradeRecords.partner)),
+        db.selectDistinct({ value: tradeRecords.currency })
+          .from(tradeRecords)
+          .where(isNotNull(tradeRecords.currency)),
+        db.selectDistinct({ value: tradeRecords.status })
+          .from(tradeRecords)
+          .where(isNotNull(tradeRecords.status)),
+      ]);
+      const toOptions = (rows: Array<{ value: string | null }>) =>
+        rows.map((r) => r.value?.trim()).filter((v): v is string => !!v).sort();
+      const years = toOptions(yearRows);
+      const partners = toOptions(partnerRows);
+      const currencies = toOptions(currencyRows);
+      const statuses = toOptions(statusRows);
       return { years, partners, currencies, statuses };
     }),
 
