@@ -54,6 +54,16 @@ function canSyncTradeSheet() {
   return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 }
 
+function normalizeTradeCurrency(value: string | null | undefined) {
+  const text = String(value ?? "").toLowerCase();
+  if (text.includes("usd") || text.includes("ドル") || text.includes("dollar")) return "USD";
+  return "EUR";
+}
+
+function changedNumber(a: unknown, b: number) {
+  return Math.abs(Number(a ?? 0) - b) > 0.0001;
+}
+
 // ─── WhatsApp chat parser ────────────────────────────────────────────────────
 // Strategy:
 //   1. Find the "order message" — the message that contains "invoice me" or
@@ -604,10 +614,17 @@ export const appRouter = router({
               .orderBy(asc(tradeRecords.id));
             const target = existing.find(r => r.productName === input.productName) ?? existing[0];
             if (target) {
+              const shouldRecalculateSales =
+                changedNumber(target.quantity, input.quantity) ||
+                changedNumber(target.unitPrice, input.unitPrice) ||
+                normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(input.currency);
               const rate = input.currency === "繝ｦ繝ｼ繝ｭ"
                 ? (input.eurRate ?? null)
                 : (input.usdRate ?? null);
-              const unitPriceJPY = rate ? Math.round(input.unitPrice * rate * 10000) / 10000 : null;
+              const normalizedRate = normalizeTradeCurrency(input.currency) === "EUR"
+                ? (input.eurRate ?? null)
+                : (input.usdRate ?? null);
+              const unitPriceJPY = shouldRecalculateSales && normalizedRate ? Math.round(input.unitPrice * normalizedRate * 10000) / 10000 : null;
               const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
               const effectiveTotalSales = totalSalesNew ?? Number(target.totalSales ?? 0);
               const customsDuty = input.customsDuty !== undefined
@@ -714,7 +731,14 @@ export const appRouter = router({
             const rate = input.currency === "ユーロ"
               ? (input.eurRate ?? null)
               : (input.usdRate ?? null);
-            const unitPriceJPY = rate ? Math.round(input.unitPrice * rate * 10000) / 10000 : null;
+            const normalizedRate = normalizeTradeCurrency(input.currency) === "EUR"
+              ? (input.eurRate ?? null)
+              : (input.usdRate ?? null);
+            const shouldRecalculateSales =
+              changedNumber(target.quantity, input.quantity) ||
+              changedNumber(target.unitPrice, input.unitPrice) ||
+              normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(input.currency);
+            const unitPriceJPY = shouldRecalculateSales && normalizedRate ? Math.round(input.unitPrice * normalizedRate * 10000) / 10000 : null;
             const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
             // 為替レートが未取得の場合はDBの既存totalSalesを使って利益を計算する
             const effectiveTotalSales = totalSalesNew ?? Number(target.totalSales ?? 0);

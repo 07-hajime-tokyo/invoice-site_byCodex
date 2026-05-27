@@ -306,7 +306,7 @@ export default function Home() {
       + (showIncompleteOnly ? 1 : 0);
   }, [filters, search, showIncompleteOnly]);
 
-  if (activeTab === "trade" && isLoading) {
+  if (activeTab === "trade" && isLoading && !dbRows) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7]">
         <div className="flex flex-col items-center gap-3">
