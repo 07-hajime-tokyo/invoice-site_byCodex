@@ -50,6 +50,10 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
+function canSyncTradeSheet() {
+  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+}
+
 // ─── WhatsApp chat parser ────────────────────────────────────────────────────
 // Strategy:
 //   1. Find the "order message" — the message that contains "invoice me" or
@@ -587,6 +591,54 @@ export const appRouter = router({
         shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
+        if (!canSyncTradeSheet()) {
+          const db = await getDb();
+          if (db) {
+            const no = parseInt(input.invoiceNo) || null;
+            const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
+              ? input.paymentDate
+              : null;
+            if (no === null) return { success: true, updatedRow: null, sheetSync: "skipped" as const };
+            const existing = await db.select().from(tradeRecords)
+              .where(eq(tradeRecords.no, no))
+              .orderBy(asc(tradeRecords.id));
+            const target = existing.find(r => r.productName === input.productName) ?? existing[0];
+            if (target) {
+              const rate = input.currency === "繝ｦ繝ｼ繝ｭ"
+                ? (input.eurRate ?? null)
+                : (input.usdRate ?? null);
+              const unitPriceJPY = rate ? Math.round(input.unitPrice * rate * 10000) / 10000 : null;
+              const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
+              const effectiveTotalSales = totalSalesNew ?? Number(target.totalSales ?? 0);
+              const customsDuty = input.customsDuty !== undefined
+                ? input.customsDuty
+                : Number(target.customsDuty ?? 0);
+              const profitWithRefund = effectiveTotalSales > 0
+                ? Math.round((effectiveTotalSales - input.procurementTotal + input.refund - input.shippingCost - customsDuty) * 10000) / 10000
+                : null;
+              await db.update(tradeRecords)
+                .set({
+                  month: String(input.month),
+                  partner: input.partner,
+                  paymentDate,
+                  productName: input.productName,
+                  quantity: String(input.quantity),
+                  unitPrice: String(input.unitPrice),
+                  currency: input.currency,
+                  status: input.status,
+                  ...(unitPriceJPY !== null ? { unitPriceJPY: String(unitPriceJPY) } : {}),
+                  ...(totalSalesNew !== null ? { totalSales: String(totalSalesNew) } : {}),
+                  procurementTotal: String(input.procurementTotal),
+                  refund: String(input.refund),
+                  shippingCost: String(input.shippingCost),
+                  customsDuty: String(customsDuty),
+                  ...(profitWithRefund !== null ? { profitWithRefund: String(profitWithRefund) } : {}),
+                })
+                .where(eq(tradeRecords.id, target.id));
+            }
+          }
+          return { success: true, updatedRow: null, sheetSync: "skipped" as const };
+        }
         const sheets = getSheetsClient();
         // C列(インボイスNo)とE列(商品名)を同時取得し、インボイスNo+商品名で行を特定
         const searchResponse = await sheets.spreadsheets.values.get({
@@ -712,8 +764,43 @@ export const appRouter = router({
         status: z.string().default(""),
         eurRate: z.number().min(0),
         usdRate: z.number().min(0),
+        shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
+        if (!canSyncTradeSheet()) {
+          const db = await getDb();
+          if (db) {
+            const no = parseInt(input.invoiceNo) || null;
+            const unitPriceJPY = input.currency === "繝ｦ繝ｼ繝ｭ"
+              ? input.unitPrice * input.eurRate
+              : input.unitPrice * input.usdRate;
+            const totalSales = unitPriceJPY * input.quantity;
+            const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
+              ? input.paymentDate
+              : null;
+            await db.insert(tradeRecords).values({
+              month: String(input.month),
+              partner: input.partner,
+              no,
+              paymentDate,
+              productName: input.productName,
+              quantity: String(input.quantity),
+              unitPrice: String(input.unitPrice),
+              currency: input.currency,
+              unitPriceJPY: String(unitPriceJPY),
+              status: input.status,
+              procurement: "",
+              shippingFromTokyo: "",
+              totalSales: String(totalSales),
+              procurementTotal: "0",
+              refund: "0",
+              shippingCost: String(input.shippingCost),
+              profitWithRefund: String(totalSales - input.shippingCost),
+              cumulativeProfit: "0",
+            });
+          }
+          return { success: true, sheetSync: "skipped" as const };
+        }
         const sheets = getSheetsClient();
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SPREADSHEET_ID,
@@ -779,8 +866,8 @@ export const appRouter = router({
             totalSales: String(totalSales),
             procurementTotal: "0",
             refund: "0",
-            shippingCost: "0",
-            profitWithRefund: "0",
+            shippingCost: String(input.shippingCost),
+            profitWithRefund: String(totalSales - input.shippingCost),
             cumulativeProfit: "0",
           });
         }

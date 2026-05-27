@@ -5,7 +5,7 @@
  *           Tab navigation: 取引データ / 入出庫管理 / インボイス
  *           Data source: DB (tRPC) — spreadsheet write-back is kept in parallel
  */
-import { lazy, Suspense, useState, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useMemo, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
@@ -139,6 +139,7 @@ export default function Home() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
+  const utils = trpc.useUtils();
   const logoutMutation = trpcClient.auth.logout.useMutation({
     onSuccess: () => { window.location.href = "/"; },
   });
@@ -169,6 +170,7 @@ export default function Home() {
     const hasInvoiceId = !!getParams().get("invoiceId");
     return (t === "trade" || t === "inventory" || t === "invoice") ? t : hasInvoiceId ? "invoice" : "trade";
   });
+  const [hasOpenedTrade, setHasOpenedTrade] = useState(() => activeTab === "trade");
 
   // 状態変更時にURLを更新するヘルパー
   const updateURL = useCallback((newSearch: string, newFilters: Partial<Record<FilterableKey, string>>, newIncomplete: boolean, newTab: ActiveTab) => {
@@ -237,8 +239,7 @@ export default function Home() {
     updateURL("", {}, true, activeTab);
   }, [activeTab, updateURL]);
 
-  // DB からデータを取得（フィルター・検索はサーバー側で処理）
-  const { data: dbRows, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery({
+  const tradeQueryInput = useMemo(() => ({
     search,
     year: filters.year && filters.year !== "__all__" ? filters.year : "",
     monthFrom: filters.monthFrom && filters.monthFrom !== "__all__" ? filters.monthFrom : "",
@@ -247,13 +248,33 @@ export default function Home() {
     currency: filters.currency && filters.currency !== "__all__" ? filters.currency : "",
     status: filters.status && filters.status !== "__all__" ? filters.status : "",
     incompleteOnly: showIncompleteOnly,
-  }, {
-    enabled: activeTab === "trade",
+  }), [search, filters, showIncompleteOnly]);
+
+  useEffect(() => {
+    if (activeTab === "trade") setHasOpenedTrade(true);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "inventory") return;
+    const timer = window.setTimeout(() => {
+      void utils.trade.listFromDb.prefetch(tradeQueryInput);
+      void utils.trade.getFilterOptions.prefetch();
+      void import("@/components/FilterPanel");
+      void import("@/components/DataTable");
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, tradeQueryInput, utils]);
+
+  // DB からデータを取得（フィルター・検索はサーバー側で処理）
+  const { data: dbRows, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery(tradeQueryInput, {
+    enabled: activeTab === "trade" || hasOpenedTrade,
+    staleTime: 5 * 60_000,
   });
 
   // フィルターオプション用（全件から取得）
   const { data: filterOptions } = trpc.trade.getFilterOptions.useQuery(undefined, {
-    enabled: activeTab === "trade",
+    enabled: activeTab === "trade" || hasOpenedTrade,
+    staleTime: 5 * 60_000,
   });
 
   // DBレコードをフロントエンド型に変換
@@ -296,7 +317,7 @@ export default function Home() {
     );
   }
 
-  if (activeTab === "trade" && error) {
+  if (activeTab === "trade" && error && !dbRows) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4">
         <div className="bg-white border border-border rounded-lg p-6 max-w-sm text-center shadow-sm w-full">
@@ -504,7 +525,6 @@ export default function Home() {
       {/* 取引データタブのコンテンツ（表示時だけ読み込む） */}
       {activeTab === "trade" && (
         <main className="container py-4 space-y-4">
-          <Suspense fallback={<PanelLoading />}>
           {/* KPI Cards — 1行目: 還付金合計・還付込み利益合計 */}
           <div className="grid grid-cols-2 gap-3">
             <KpiCard
@@ -560,20 +580,24 @@ export default function Home() {
           </div>
 
           {/* Charts */}
-          <ChartSection records={filteredRecords} />
+          <Suspense fallback={<PanelLoading />}>
+            <ChartSection records={filteredRecords} />
+          </Suspense>
 
           {/* Filters (desktop) */}
           <div className="hidden md:block">
-            <FilterPanel
-              allRecords={allRecordsForFilter}
-              filters={filters}
-              onFilterChange={handleFilterChange}
-              onClearAll={handleClearAll}
-              activeCount={activeFilterCount}
-              showIncompleteOnly={showIncompleteOnly}
-              onToggleIncomplete={setShowIncompleteOnly}
-              filterOptions={filterOptions}
-            />
+            <Suspense fallback={<div className="h-24 rounded-lg border border-border bg-card" />}>
+              <FilterPanel
+                allRecords={allRecordsForFilter}
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onClearAll={handleClearAll}
+                activeCount={activeFilterCount}
+                showIncompleteOnly={showIncompleteOnly}
+                onToggleIncomplete={setShowIncompleteOnly}
+                filterOptions={filterOptions}
+              />
+            </Suspense>
           </div>
 
           {/* Active filter chips (mobile) */}
@@ -598,16 +622,17 @@ export default function Home() {
           )}
 
           {/* Data Table */}
-          <DataTable
-            records={filteredRecords}
-            onRecordUpdated={() => refetch()}
-          />
+          <Suspense fallback={<PanelLoading />}>
+            <DataTable
+              records={filteredRecords}
+              onRecordUpdated={() => refetch()}
+            />
+          </Suspense>
 
           {/* Footer */}
           <div className="text-center text-xs text-muted-foreground py-4 border-t border-border">
             データソース: DB（{filteredRecords.length.toLocaleString()} 件表示中）
           </div>
-          </Suspense>
         </main>
       )}
     </div>
