@@ -171,6 +171,7 @@ export default function Home() {
     return (t === "trade" || t === "inventory" || t === "invoice") ? t : hasInvoiceId ? "invoice" : "trade";
   });
   const [hasOpenedTrade, setHasOpenedTrade] = useState(() => activeTab === "trade");
+  const [shouldLoadTradeFilterOptions, setShouldLoadTradeFilterOptions] = useState(false);
 
   // 状態変更時にURLを更新するヘルパー
   const updateURL = useCallback((newSearch: string, newFilters: Partial<Record<FilterableKey, string>>, newIncomplete: boolean, newTab: ActiveTab) => {
@@ -256,14 +257,37 @@ export default function Home() {
 
   useEffect(() => {
     if (activeTab !== "inventory") return;
-    const timer = window.setTimeout(() => {
+    const tradeTimer = window.setTimeout(() => {
       void utils.trade.listFromDb.prefetch(tradeQueryInput);
-      void utils.trade.getFilterOptions.prefetch();
       void import("@/components/FilterPanel");
       void import("@/components/DataTable");
     }, 700);
-    return () => window.clearTimeout(timer);
+    const filterTimer = window.setTimeout(() => {
+      void utils.trade.getFilterOptions.prefetch();
+    }, 1600);
+    return () => {
+      window.clearTimeout(tradeTimer);
+      window.clearTimeout(filterTimer);
+    };
   }, [activeTab, tradeQueryInput, utils]);
+
+  useEffect(() => {
+    if (activeTab !== "trade") return;
+    const timer = window.setTimeout(() => {
+      void import("@/inventory/InventoryApp");
+      void import("@/inventory/pages/Purchases");
+      void utils.inventory.zaico.getPurchasesWithCategory.prefetch();
+      void utils.inventory.zaico.getOperators.prefetch();
+      void utils.inventory.zaico.getCategories.prefetch();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, utils]);
+
+  useEffect(() => {
+    if (activeTab !== "trade" && !hasOpenedTrade) return;
+    const timer = window.setTimeout(() => setShouldLoadTradeFilterOptions(true), 900);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, hasOpenedTrade]);
 
   // DB からデータを取得（フィルター・検索はサーバー側で処理）
   const { data: dbRows, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery(tradeQueryInput, {
@@ -273,7 +297,7 @@ export default function Home() {
 
   // フィルターオプション用（全件から取得）
   const { data: filterOptions } = trpc.trade.getFilterOptions.useQuery(undefined, {
-    enabled: activeTab === "trade" || hasOpenedTrade,
+    enabled: shouldLoadTradeFilterOptions && (activeTab === "trade" || hasOpenedTrade),
     staleTime: 5 * 60_000,
   });
 

@@ -802,9 +802,11 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        const localPurchaseRows = await getLocalPurchases();
+        const [localPurchaseRows, purchaseHistRows] = await Promise.all([
+          getLocalPurchases(),
+          getPurchaseHistories(2000),
+        ]);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
-        const purchaseHistRows = await getPurchaseHistories(2000);
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows
             .filter((h) => h.cancelled === 0 && h.zaicoId != null)
@@ -2625,12 +2627,21 @@ export const inventoryRouter = router({
      */
     getSummary: publicProcedure.query(async () => {
       const zaicoEnabled = await isZaicoEnabled();
+      type CsvRow = { partner: string; invoiceNo: string; productName: string; orderQty: number; status: string; paymentDate: string };
+      const deliveriesPromise = getDeliveryHistories(1000);
+      const allMemosPromise = getAllInvoiceMemos();
+      const csvRowsPromise: Promise<CsvRow[]> = getOrderRowsFromTradeRecords().catch((e) => {
+        console.error("Trade order data error:", e);
+        return [];
+      });
       // 1. 発注済み入庫一覧（ordered + purchased）を取得
       let allPurchases: Array<{ id: number; num: string; status: string; purchase_items: Array<{ inventory_id?: number | null; title: string; quantity: string; unit_price?: string | number | null; etc?: string | null }> }>;
       if (!zaicoEnabled) {
-        const localPurchaseRows = await getLocalPurchases();
+        const [localPurchaseRows, _purchaseHistForStatus] = await Promise.all([
+          getLocalPurchases(),
+          getPurchaseHistories(2000),
+        ]);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
-        const _purchaseHistForStatus = await getPurchaseHistories(2000);
         const _purchasedIds = new Set<number>(
           _purchaseHistForStatus
             .filter((h) => h.cancelled === 0 && h.zaicoId != null)
@@ -2665,22 +2676,16 @@ export const inventoryRouter = router({
         inventories = await getInventories();
       }
       // 3. 出庫履歴を全件取得
-      const deliveries = await getDeliveryHistories(1000);
+      const deliveries = await deliveriesPromise;
       // 5. 全インボイスの手動完了フラグを取得
-      const allMemos = await getAllInvoiceMemos();
+      const allMemos = await allMemosPromise;
       const manualCompleteSet = new Set<string>(
         allMemos
           .filter((m) => m.colorKey === "__manual_complete__" && m.memo === "1")
           .map((m) => m.invoiceKey)
       );
       // 4. GitHub CSVからインボイスNo・取引先・発注数を取得
-      type CsvRow = { partner: string; invoiceNo: string; productName: string; orderQty: number; status: string; paymentDate: string };
-      let csvRows: CsvRow[] = [];
-      try {
-        csvRows = await getOrderRowsFromTradeRecords();
-      } catch (e) {
-        console.error("Trade order data error:", e);
-      }
+      const csvRows = await csvRowsPromise;
       // CSVインボイスNoマップ: invoiceNo -> { partner, totalOrderQty, products }
       type CsvInvoice = { partner: string; totalOrderQty: number; products: Array<{ name: string; qty: number; status: string; paymentDate: string }> };
       const csvInvoiceMap = new Map<string, CsvInvoice>();

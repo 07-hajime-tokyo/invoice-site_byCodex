@@ -1411,11 +1411,16 @@ function extractDeliveryGroup(deliveryNo: string): string {
 
 export default function DeliveryHistory() {
   const utils = trpc.useUtils();
+  const [loadHistoryDetails, setLoadHistoryDetails] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadHistoryDetails(true), 900);
+    return () => window.clearTimeout(timer);
+  }, []);
   const { data: histories, isLoading, refetch } = trpc.inventory.deliveryHistory.list.useQuery({ limit: 200 });
   // 在庫一覧を取得して削除済商品を自動検出
-  const { data: inventories } = trpc.inventory.zaico.getInventories.useQuery();
+  const { data: inventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, { enabled: loadHistoryDetails });
   // 発注管理サマリー（csvProductsをグループヘッダーに表示するため）
-  const { data: orderSummary } = trpc.inventory.orderManagement.getSummary.useQuery();
+  const { data: orderSummary } = trpc.inventory.orderManagement.getSummary.useQuery(undefined, { enabled: loadHistoryDetails });
   // インボイスNo -> csvProductsのマップ
   const csvProductsMap = useMemo(() => {
     if (!orderSummary) return new Map<string, Array<{ name: string; qty: number }>>();
@@ -1426,7 +1431,7 @@ export default function DeliveryHistory() {
     return map;
   }, [orderSummary]);
   // CSVデータ（販売価格・通貨・取引先）
-  const { data: csvRawData } = trpc.inventory.orderManagement.getCsvData.useQuery();
+  const { data: csvRawData } = trpc.inventory.orderManagement.getCsvData.useQuery(undefined, { enabled: loadHistoryDetails });
   // invoiceNo -> { sellingPrice, currency, partner, productName }[] のマップ
   const csvPriceMap = useMemo(() => {
     const map = new Map<string, Array<{ productName: string; sellingPrice: number | null; currency: string; partner: string }>>();
@@ -1922,7 +1927,7 @@ export default function DeliveryHistory() {
 
   const isPendingCancel = cancelItemMutation.isPending || cancelItemsMutation.isPending;
 
-  if (isLoading) {
+  if (isLoading && !histories) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

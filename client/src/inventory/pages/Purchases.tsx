@@ -433,8 +433,13 @@ function PurchaseCardMobile({
 
 export default function Purchases() {
   const utils = trpc.useUtils();
-  const { data: purchases, isLoading, refetch } = trpc.inventory.zaico.getPurchasesWithCategory.useQuery();
-  const { data: inventories } = trpc.inventory.zaico.getInventories.useQuery();
+  const { data: purchases, isLoading, refetch } = trpc.inventory.zaico.getPurchasesWithCategory.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+  const { data: inventories, refetch: refetchInventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
+    enabled: false,
+    staleTime: 5 * 60_000,
+  });
   const completeMutation = trpc.inventory.zaico.completePurchase.useMutation();
   const upsertExtraMutation = trpc.inventory.purchaseExtra.upsert.useMutation();
   const upsertExtraBulkMutation = trpc.inventory.purchaseExtra.upsertBulk.useMutation();
@@ -538,6 +543,7 @@ export default function Purchases() {
     setOrderedForm(emptyOrderedForm);
     setOrderedInventorySearch("");
     setShowOrderedDialog(true);
+    void refetchInventories();
   }
 
   function handleSelectInventoryForOrder(inv: { id: number; title: string; unit: string; purchase_unit_price?: number; etc?: string }) {
@@ -981,7 +987,7 @@ export default function Purchases() {
     return statusLabel[purchase.status] ?? purchase.status;
   }
 
-  if (isLoading) {
+  if (isLoading && !purchases) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

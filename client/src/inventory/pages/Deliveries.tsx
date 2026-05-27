@@ -184,6 +184,11 @@ const emptyForm: InventoryFormData = {
 
 export default function Deliveries() {
   const utils = trpc.useUtils();
+  const [loadSecondaryData, setLoadSecondaryData] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadSecondaryData(true), 900);
+    return () => window.clearTimeout(timer);
+  }, []);
   const { data: inventories, isLoading, refetch } = trpc.inventory.zaico.getInventories.useQuery();
   const createDeliveryMutation = trpc.inventory.zaico.createDelivery.useMutation();
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
@@ -196,9 +201,9 @@ export default function Deliveries() {
   const { data: nextPurchaseNumData, refetch: refetchNextNum } = trpc.inventory.zaico.getNextPurchaseNum.useQuery(undefined, { enabled: false });
   const { data: currentUser } = trpc.auth.me.useQuery();
   const { data: customers } = trpc.inventory.customer.list.useQuery();
-  const { data: incompleteInvoices } = trpc.inventory.orderManagement.getIncompleteInvoices.useQuery();
-  const { data: todayTrackingNumbers } = trpc.inventory.fedex.getTodayTrackingNumbers.useQuery();
-  const { data: csvRows } = trpc.inventory.orderManagement.getCsvData.useQuery();
+  const { data: incompleteInvoices } = trpc.inventory.orderManagement.getIncompleteInvoices.useQuery(undefined, { enabled: loadSecondaryData });
+  const { data: todayTrackingNumbers } = trpc.inventory.fedex.getTodayTrackingNumbers.useQuery(undefined, { enabled: loadSecondaryData });
+  const { data: csvRows } = trpc.inventory.orderManagement.getCsvData.useQuery(undefined, { enabled: loadSecondaryData });
   const { data: managedCategories } = trpc.inventory.zaico.getCategories.useQuery();
 
   /** 管理番号の2番目の部分（_区切り）から取引先を判別する */
@@ -1057,7 +1062,7 @@ export default function Deliveries() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading && !inventories) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
