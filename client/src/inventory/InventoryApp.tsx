@@ -1,17 +1,26 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Route, Switch, useLocation } from "wouter";
 import InventoryDashboardLayout from "@/inventory/components/DashboardLayout";
-import Purchases from "@/inventory/pages/Purchases";
-import Deliveries from "@/inventory/pages/Deliveries";
-import DeliveryHistory from "@/inventory/pages/DeliveryHistory";
-import PurchaseHistory from "@/inventory/pages/PurchaseHistory";
-import Settings from "@/inventory/pages/Settings";
-import OrderManagement from "@/inventory/pages/OrderManagement";
-import DeletedItems from "@/inventory/pages/DeletedItems";
-import MonthlyReport from "@/inventory/pages/MonthlyReport";
-import OverseasShipping from "@/inventory/pages/OverseasShipping";
-import PartnerPortal from "@/inventory/pages/PartnerPortal";
-import NotFound from "@/inventory/pages/NotFound";
+
+const Purchases = lazy(() => import("@/inventory/pages/Purchases"));
+const Deliveries = lazy(() => import("@/inventory/pages/Deliveries"));
+const DeliveryHistory = lazy(() => import("@/inventory/pages/DeliveryHistory"));
+const PurchaseHistory = lazy(() => import("@/inventory/pages/PurchaseHistory"));
+const Settings = lazy(() => import("@/inventory/pages/Settings"));
+const OrderManagement = lazy(() => import("@/inventory/pages/OrderManagement"));
+const DeletedItems = lazy(() => import("@/inventory/pages/DeletedItems"));
+const MonthlyReport = lazy(() => import("@/inventory/pages/MonthlyReport"));
+const OverseasShipping = lazy(() => import("@/inventory/pages/OverseasShipping"));
+const PartnerPortal = lazy(() => import("@/inventory/pages/PartnerPortal"));
+const NotFound = lazy(() => import("@/inventory/pages/NotFound"));
+
+function InventoryPageLoading() {
+  return (
+    <div className="min-h-[240px] flex items-center justify-center text-sm text-muted-foreground">
+      Loading...
+    </div>
+  );
+}
 
 const INVENTORY_HOME = "/inventory/purchases";
 const REMEMBERED_PATHS = [
@@ -53,29 +62,33 @@ export default function InventoryApp() {
 
   if (location.startsWith("/inventory/partner/")) {
     return (
-      <Switch>
-        <Route path={"/inventory/partner/:code"} component={PartnerPortal} />
-      </Switch>
+      <Suspense fallback={<InventoryPageLoading />}>
+        <Switch>
+          <Route path={"/inventory/partner/:code"} component={PartnerPortal} />
+        </Switch>
+      </Suspense>
     );
   }
 
   return (
     <InventoryDashboardLayout>
       <InventoryLocationPersister />
-      <Switch>
-        <Route path={"/inventory"} component={Purchases} />
-        <Route path={"/inventory/purchases"} component={Purchases} />
-        <Route path={"/inventory/deliveries"} component={Deliveries} />
-        <Route path={"/inventory/history"} component={DeliveryHistory} />
-        <Route path={"/inventory/delivery-history"} component={DeliveryHistory} />
-        <Route path={"/inventory/purchase-history"} component={PurchaseHistory} />
-        <Route path={"/inventory/order-management"} component={OrderManagement} />
-        <Route path={"/inventory/deleted-items"} component={DeletedItems} />
-        <Route path={"/inventory/monthly-report"} component={MonthlyReport} />
-        <Route path={"/inventory/settings"} component={Settings} />
-        <Route path={"/inventory/overseas-shipping"} component={OverseasShipping} />
-        <Route component={NotFound} />
-      </Switch>
+      <Suspense fallback={<InventoryPageLoading />}>
+        <Switch>
+          <Route path={"/inventory"} component={Purchases} />
+          <Route path={"/inventory/purchases"} component={Purchases} />
+          <Route path={"/inventory/deliveries"} component={Deliveries} />
+          <Route path={"/inventory/history"} component={DeliveryHistory} />
+          <Route path={"/inventory/delivery-history"} component={DeliveryHistory} />
+          <Route path={"/inventory/purchase-history"} component={PurchaseHistory} />
+          <Route path={"/inventory/order-management"} component={OrderManagement} />
+          <Route path={"/inventory/deleted-items"} component={DeletedItems} />
+          <Route path={"/inventory/monthly-report"} component={MonthlyReport} />
+          <Route path={"/inventory/settings"} component={Settings} />
+          <Route path={"/inventory/overseas-shipping"} component={OverseasShipping} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
     </InventoryDashboardLayout>
   );
 }

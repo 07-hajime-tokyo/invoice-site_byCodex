@@ -1,33 +1,45 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
 import { AuthGate } from "./components/AuthGate";
+
+const Home = lazy(() => import("./pages/Home"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
+
+function AppLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] text-sm text-muted-foreground">
+      Loading...
+    </div>
+  );
+}
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/inventory"} component={Home} />
-      <Route path={"/inventory/purchases"} component={Home} />
-      <Route path={"/inventory/deliveries"} component={Home} />
-      <Route path={"/inventory/history"} component={Home} />
-      <Route path={"/inventory/delivery-history"} component={Home} />
-      <Route path={"/inventory/purchase-history"} component={Home} />
-      <Route path={"/inventory/order-management"} component={Home} />
-      <Route path={"/inventory/deleted-items"} component={Home} />
-      <Route path={"/inventory/monthly-report"} component={Home} />
-      <Route path={"/inventory/settings"} component={Home} />
-      <Route path={"/inventory/overseas-shipping"} component={Home} />
-      <Route path={"/inventory/partner/:code"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<AppLoading />}>
+      <Switch>
+        <Route path={"/"} component={Home} />
+        <Route path={"/inventory"} component={Home} />
+        <Route path={"/inventory/purchases"} component={Home} />
+        <Route path={"/inventory/deliveries"} component={Home} />
+        <Route path={"/inventory/history"} component={Home} />
+        <Route path={"/inventory/delivery-history"} component={Home} />
+        <Route path={"/inventory/purchase-history"} component={Home} />
+        <Route path={"/inventory/order-management"} component={Home} />
+        <Route path={"/inventory/deleted-items"} component={Home} />
+        <Route path={"/inventory/monthly-report"} component={Home} />
+        <Route path={"/inventory/settings"} component={Home} />
+        <Route path={"/inventory/overseas-shipping"} component={Home} />
+        <Route path={"/inventory/partner/:code"} component={Home} />
+        <Route path={"/404"} component={NotFound} />
+        {/* Final fallback route */}
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 

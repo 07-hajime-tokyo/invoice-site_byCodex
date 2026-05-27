@@ -530,7 +530,7 @@ function InventoryDetailToggle({
                 </div>
                 {inv.item_image?.url && (
                   <div className="flex justify-center pb-1">
-                    <img src={inv.item_image.url} alt={inv.title} className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
+                    <img src={inv.item_image.url} alt={inv.title} loading="lazy" decoding="async" className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
                   </div>
                 )}
                 {managementNo && (
@@ -654,7 +654,7 @@ function InventoryDetailToggle({
             <>
               {inv.item_image?.url && (
                 <div className="flex justify-center pb-1">
-                  <img src={inv.item_image.url} alt={inv.title} className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
+                  <img src={inv.item_image.url} alt={inv.title} loading="lazy" decoding="async" className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
                 </div>
               )}
               {managementNo && (

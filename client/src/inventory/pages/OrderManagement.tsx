@@ -556,7 +556,7 @@ function InventoryDetailPanel({ inventoryId, unitPrice: propUnitPrice, trackingN
     <div className="px-4 py-2.5 bg-purple-50/30 border-t border-purple-100 text-sm space-y-1.5">
       {inv.item_image?.url && (
         <div className="flex justify-center pb-1">
-          <img src={inv.item_image.url} alt={inv.title} className="h-20 w-20 object-contain rounded border bg-muted/20" />
+          <img src={inv.item_image.url} alt={inv.title} loading="lazy" decoding="async" className="h-20 w-20 object-contain rounded border bg-muted/20" />
         </div>
       )}
       {displayTracking && (

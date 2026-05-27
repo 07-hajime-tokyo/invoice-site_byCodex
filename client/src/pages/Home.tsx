@@ -5,7 +5,7 @@
  *           Tab navigation: 取引データ / 入出庫管理 / インボイス
  *           Data source: DB (tRPC) — spreadsheet write-back is kept in parallel
  */
-import { useState, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
@@ -14,12 +14,6 @@ import {
   formatNumber,
 } from "@/lib/csvUtils";
 import { KpiCard } from "@/components/KpiCard";
-import { AddTradeDialog } from "@/components/AddTradeDialog";
-import { AddShipmentDialog } from "@/components/AddShipmentDialog";
-import { ShipmentListDialog } from "@/components/ShipmentListDialog";
-import { FilterPanel } from "@/components/FilterPanel";
-import { DataTable } from "@/components/DataTable";
-import { ChartSection } from "@/components/ChartSection";
 import {
   Search,
   TrendingUp,
@@ -39,8 +33,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc as trpcClient } from "@/lib/trpc";
-import InvoicePage from "./InvoicePage";
-import InventoryApp from "@/inventory/InventoryApp";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +45,24 @@ import {
 
 type FilterableKey = "year" | "monthFrom" | "monthTo" | "partner" | "currency" | "status";
 type ActiveTab = "trade" | "inventory" | "invoice";
+
+const AddTradeDialog = lazy(() => import("@/components/AddTradeDialog").then((module) => ({ default: module.AddTradeDialog })));
+const AddShipmentDialog = lazy(() => import("@/components/AddShipmentDialog").then((module) => ({ default: module.AddShipmentDialog })));
+const ShipmentListDialog = lazy(() => import("@/components/ShipmentListDialog").then((module) => ({ default: module.ShipmentListDialog })));
+const FilterPanel = lazy(() => import("@/components/FilterPanel").then((module) => ({ default: module.FilterPanel })));
+const DataTable = lazy(() => import("@/components/DataTable").then((module) => ({ default: module.DataTable })));
+const ChartSection = lazy(() => import("@/components/ChartSection").then((module) => ({ default: module.ChartSection })));
+const InvoicePage = lazy(() => import("./InvoicePage"));
+const InventoryApp = lazy(() => import("@/inventory/InventoryApp"));
+
+function PanelLoading() {
+  return (
+    <div className="min-h-[240px] flex items-center justify-center gap-2 text-sm text-muted-foreground">
+      <RefreshCw size={16} className="animate-spin" />
+      <span>Loading...</span>
+    </div>
+  );
+}
 
 // DBレコードをフロントエンドのTradeRecord型に変換する
 function dbRecordToTradeRecord(r: {
@@ -413,16 +423,18 @@ export default function Home() {
                     <SheetTitle className="text-sm">フィルター設定</SheetTitle>
                   </SheetHeader>
                   <div className="pb-4">
-                    <FilterPanel
-                      allRecords={allRecordsForFilter}
-                      filters={filters}
-                      onFilterChange={handleFilterChange}
-                      onClearAll={handleClearAll}
-                      activeCount={activeFilterCount}
-                      showIncompleteOnly={showIncompleteOnly}
-                      onToggleIncomplete={setShowIncompleteOnly}
-                      filterOptions={filterOptions}
-                    />
+                    <Suspense fallback={<PanelLoading />}>
+                      <FilterPanel
+                        allRecords={allRecordsForFilter}
+                        filters={filters}
+                        onFilterChange={handleFilterChange}
+                        onClearAll={handleClearAll}
+                        activeCount={activeFilterCount}
+                        showIncompleteOnly={showIncompleteOnly}
+                        onToggleIncomplete={setShowIncompleteOnly}
+                        filterOptions={filterOptions}
+                      />
+                    </Suspense>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -443,9 +455,11 @@ export default function Home() {
             {/* 新規登録ボタン — 取引データタブのみ表示 */}
             {activeTab === "trade" && (
               <div className="flex items-center gap-2">
-                <ShipmentListDialog onUpdated={() => refetch()} />
-                <AddShipmentDialog onSuccess={() => refetch()} />
-                <AddTradeDialog onSuccess={() => refetch()} />
+                <Suspense fallback={<div className="h-9 w-28" />}>
+                  <ShipmentListDialog onUpdated={() => refetch()} />
+                  <AddShipmentDialog onSuccess={() => refetch()} />
+                  <AddTradeDialog onSuccess={() => refetch()} />
+                </Suspense>
               </div>
             )}
 
@@ -471,24 +485,26 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 入出庫管理タブ（非表示時はdisplay:noneでDOMに残す） */}
-      <div style={{ display: activeTab === "inventory" ? undefined : "none" }}>
-        <InventoryPanel />
-      </div>
+      {/* 入出庫管理タブ（表示時だけ読み込む） */}
+      {activeTab === "inventory" && (
+        <Suspense fallback={<PanelLoading />}>
+          <InventoryPanel />
+        </Suspense>
+      )}
 
-      {/* インボイスタブ（非表示時はdisplay:noneでDOMに残す） */}
-      <main
-        className="container py-4"
-        style={{ display: activeTab === "invoice" ? undefined : "none" }}
-      >
-        <InvoicePage initialEditId={getParams().get("invoiceId") ? Number(getParams().get("invoiceId")) : null} />
-      </main>
+      {/* インボイスタブ（表示時だけ読み込む） */}
+      {activeTab === "invoice" && (
+        <main className="container py-4">
+          <Suspense fallback={<PanelLoading />}>
+            <InvoicePage initialEditId={getParams().get("invoiceId") ? Number(getParams().get("invoiceId")) : null} />
+          </Suspense>
+        </main>
+      )}
 
-      {/* 取引データタブのコンテンツ（非表示時はdisplay:noneでDOMに残す） */}
-      <main
-        className="container py-4 space-y-4"
-        style={{ display: activeTab === "trade" ? undefined : "none" }}
-      >
+      {/* 取引データタブのコンテンツ（表示時だけ読み込む） */}
+      {activeTab === "trade" && (
+        <main className="container py-4 space-y-4">
+          <Suspense fallback={<PanelLoading />}>
           {/* KPI Cards — 1行目: 還付金合計・還付込み利益合計 */}
           <div className="grid grid-cols-2 gap-3">
             <KpiCard
@@ -591,7 +607,9 @@ export default function Home() {
           <div className="text-center text-xs text-muted-foreground py-4 border-t border-border">
             データソース: DB（{filteredRecords.length.toLocaleString()} 件表示中）
           </div>
-      </main>
+          </Suspense>
+        </main>
+      )}
     </div>
   );
 }
