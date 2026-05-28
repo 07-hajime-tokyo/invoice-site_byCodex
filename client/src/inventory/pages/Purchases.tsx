@@ -455,8 +455,8 @@ function PurchaseCardMobile({
         >
           <span className="flex items-center gap-1.5">
             <Truck className="h-3.5 w-3.5" />
-            発送・備考情報
-            {(purchase.extra?.shipDate || purchase.extra?.note) && (
+            発送情報
+            {purchase.extra?.shipDate && (
               <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
             )}
           </span>
@@ -468,12 +468,6 @@ function PurchaseCardMobile({
               <span className="text-muted-foreground w-16 flex-shrink-0">発送日:</span>
               <span>{purchase.extra?.shipDate ?? <span className="italic text-muted-foreground/60">未設定</span>}</span>
             </div>
-            {purchase.extra?.note && (
-              <div className="flex gap-2">
-                <span className="text-muted-foreground w-16 flex-shrink-0">備考:</span>
-                <span>{purchase.extra.note}</span>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1497,7 +1491,7 @@ export default function Purchases() {
                   </table>
                 </div>
 
-                {/* 補足情報（発送日・追跡番号・備考） */}
+                {/* 補足情報（発送日・追跡番号） */}
                 <div className="px-4 py-3 border-t bg-muted/10">
                   {editingId === purchase.id ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1666,11 +1660,6 @@ export default function Purchases() {
                           <span className="italic text-muted-foreground/60">未設定</span>
                         )}
                       </span>
-                      {purchase.extra?.note && (
-                        <span className="text-muted-foreground">
-                          <span className="font-medium">備考:</span> {purchase.extra.note}
-                        </span>
-                      )}
                     </div>
                   )}
                 </div>
