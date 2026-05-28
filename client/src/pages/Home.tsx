@@ -303,7 +303,13 @@ export default function Home() {
     const timer = window.setTimeout(() => {
       void import("@/inventory/InventoryApp");
       void import("@/inventory/pages/Purchases");
-      void utils.inventory.zaico.getPurchasesWithCategory.prefetch();
+      void utils.inventory.zaico.getPurchasesWithCategoryPage.prefetch({
+        page: 1,
+        pageSize: 20,
+        category: null,
+        status: null,
+        search: null,
+      });
       void utils.inventory.zaico.getOperators.prefetch();
       void utils.inventory.zaico.getCategories.prefetch();
     }, 2600);

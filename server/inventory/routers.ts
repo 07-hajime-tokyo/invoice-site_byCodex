@@ -484,6 +484,123 @@ function resolveOperatorToken(_operatorKey?: string): string | undefined {
 
 const publicProcedure = protectedProcedure;
 
+type PurchasePageInput = {
+  page?: number;
+  pageSize?: number;
+  status?: "ordered" | "shipped" | null;
+  category?: string | null;
+  search?: string | null;
+};
+
+type PurchasePageRow = {
+  status: string;
+  num?: string | null;
+  csvSupplierName?: string | null;
+  extra?: { trackingNumber?: string | null } | null;
+  purchase_items: Array<{
+    title?: string | null;
+    quantity?: string | number | null;
+    unit_price?: string | number | null;
+    etc?: string | null;
+    category?: string | null;
+  }>;
+};
+
+function getEffectivePurchaseStatus(row: PurchasePageRow) {
+  if (row.status !== "purchased" && row.extra?.trackingNumber) return "shipped";
+  return row.status;
+}
+
+function purchaseRowMatchesSearch(row: PurchasePageRow, rawSearch: string) {
+  const search = rawSearch.trim().toLowerCase();
+  if (!search) return true;
+  const haystack = [
+    row.num,
+    row.csvSupplierName,
+    row.extra?.trackingNumber,
+    ...row.purchase_items.flatMap((item) => {
+      const etc = item.etc ?? "";
+      const parts = etc.split(",").map((part) => part.trim());
+      return [item.title, etc, parts[0], parts[2]];
+    }),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n")
+    .toLowerCase();
+  return haystack.includes(search);
+}
+
+function summarizePurchaseRows(rows: PurchasePageRow[]) {
+  const totals = new Map<string, { total: number; count: number }>();
+  for (const row of rows) {
+    const seenCategories = new Set<string>();
+    for (const item of row.purchase_items) {
+      const category = item.category || "未分類";
+      const price = Number(item.unit_price) || 0;
+      const qty = Number(item.quantity) || 0;
+      if (price) {
+        const current = totals.get(category) ?? { total: 0, count: 0 };
+        current.total += price * qty;
+        totals.set(category, current);
+      } else if (!totals.has(category)) {
+        totals.set(category, { total: 0, count: 0 });
+      }
+      seenCategories.add(category);
+    }
+    seenCategories.forEach((category) => {
+      const current = totals.get(category) ?? { total: 0, count: 0 };
+      current.count += 1;
+      totals.set(category, current);
+    });
+  }
+  const categoryTotals = Array.from(totals.entries())
+    .map(([category, value]) => ({ category, total: value.total, count: value.count }))
+    .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category, "ja"));
+  return {
+    categoryTotals,
+    grandTotal: categoryTotals.reduce((sum, row) => sum + row.total, 0),
+  };
+}
+
+function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?: PurchasePageInput) {
+  const pageSize = Math.min(Math.max(input?.pageSize ?? 20, 1), 100);
+  const requestedPage = Math.max(input?.page ?? 1, 1);
+  const category = input?.category?.trim();
+  const search = input?.search?.trim() ?? "";
+  const status = input?.status ?? null;
+  const activeRows = rows.filter((row) => row.status !== "purchased");
+  let filteredRows = activeRows;
+
+  if (category && category !== "すべて") {
+    filteredRows = filteredRows.filter((row) =>
+      row.purchase_items.some((item) => (item.category || "未分類") === category)
+    );
+  }
+  if (status) {
+    filteredRows = filteredRows.filter((row) => getEffectivePurchaseStatus(row) === status);
+  }
+  if (search) {
+    filteredRows = filteredRows.filter((row) => purchaseRowMatchesSearch(row, search));
+  }
+
+  const totalCount = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const start = totalCount === 0 ? 0 : (page - 1) * pageSize;
+  const items = filteredRows.slice(start, start + pageSize);
+  const summary = summarizePurchaseRows(activeRows);
+
+  return {
+    items,
+    page,
+    pageSize,
+    totalCount,
+    totalPages,
+    allCount: activeRows.length,
+    ...summary,
+  };
+}
+
 export const inventoryRouter = router({
   system: systemRouter,
   auth: router({
@@ -798,6 +915,119 @@ export const inventoryRouter = router({
      * 入庫予定一覧（在庫カテゴリをマッピングして返す）
      * 在庫一覧をキャッシュしてinventory_idでカテゴリを割り当てる
      */
+    getPurchasesWithCategoryPage: publicProcedure
+      .input(z.object({
+        page: z.number().int().min(1).optional(),
+        pageSize: z.number().int().min(1).max(100).optional(),
+        status: z.enum(["ordered", "shipped"]).nullable().optional(),
+        category: z.string().max(200).nullable().optional(),
+        search: z.string().max(200).nullable().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        const zaicoEnabled = await isZaicoEnabled();
+
+        if (!zaicoEnabled) {
+          const localPurchaseRows = await getLocalPurchases();
+          const invIds = localPurchaseRows
+            .map((p) => p.localInventoryId)
+            .filter((id): id is number => id != null);
+          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null }>();
+
+          if (invIds.length > 0) {
+            const { localInventories: localInvTbl } = await import("../../drizzle/schema");
+            const { inArray } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const rows = await db.select({
+                id: localInvTbl.id,
+                supplierName: localInvTbl.supplierName,
+                supplierUrl: localInvTbl.supplierUrl,
+              }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
+              for (const row of rows) {
+                invSupplierMap.set(row.id, { supplierName: row.supplierName ?? null, supplierUrl: row.supplierUrl ?? null });
+              }
+            }
+          }
+
+          const rows = localPurchaseRows.map((p) => {
+            const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
+            return {
+              id: p.zaicoId ?? p.id,
+              num: p.purchaseNum ?? "",
+              purchase_date: p.purchaseDate ?? null,
+              status: p.status,
+              csvSupplierName: p.supplierName ?? inv?.supplierName ?? null,
+              csvSupplierUrl: p.supplierUrl ?? inv?.supplierUrl ?? null,
+              extra: {
+                shipDate: p.shipDate ?? null,
+                trackingNumber: p.trackingNumber ?? null,
+                carrier: p.carrier ?? null,
+                note: p.note ?? null,
+              },
+              purchase_items: (() => {
+                try {
+                  const items = JSON.parse(p.itemsJson ?? "[]");
+                  return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
+                    ...item,
+                    category: p.category ?? "未分類",
+                  })) : [];
+                } catch {
+                  return [{
+                    id: p.id,
+                    title: p.title,
+                    quantity: String(p.quantity ?? 1),
+                    unit_price: p.unitPrice ?? null,
+                    etc: p.managementNo ?? null,
+                    status: p.status,
+                    inventory_id: null,
+                    category: p.category ?? "未分類",
+                  }];
+                }
+              })(),
+            };
+          });
+
+          return buildPurchasePageResponse(rows, input);
+        }
+
+        const [purchases, inventories, extras, inventoryExtras] = await Promise.all([
+          getPurchases(),
+          getInventories(),
+          getAllPurchaseExtras(),
+          getAllInventoryExtras(),
+        ]);
+        const inventoryMap = new Map(inventories.map((inv) => [inv.id, inv]));
+        const extrasMap = new Map(extras.map((e) => [e.zaicoId, e]));
+        const inventoryExtrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
+        const rows = purchases.map((p) => {
+          const invExtra = p.purchase_items
+            .map((item) => inventoryExtrasMap.get(item.inventory_id))
+            .find((extra) => extra?.supplierName?.trim() || extra?.supplierUrl?.trim()) ?? null;
+          return {
+            ...p,
+            csvSupplierName: invExtra?.supplierName ?? null,
+            csvSupplierUrl: invExtra?.supplierUrl ?? null,
+            extra: extrasMap.get(p.id) ?? null,
+            purchase_items: p.purchase_items.map((item) => {
+              const inv = inventoryMap.get(item.inventory_id);
+              return {
+                ...item,
+                category: inv?.categories?.[0] ?? inv?.category ?? "未分類",
+                etc: (() => {
+                  const itemEtc = item.etc?.trim() ?? "";
+                  const invEtc = inv?.etc?.trim() ?? "";
+                  if (itemEtc.includes(",")) return itemEtc;
+                  if (invEtc.includes(",")) return invEtc;
+                  return itemEtc || invEtc || undefined;
+                })(),
+              };
+            }),
+          };
+        });
+
+        return buildPurchasePageResponse(rows, input);
+      }),
+
     getPurchasesWithCategory: publicProcedure.query(async () => {
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得

@@ -51,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { usePagination } from "@/inventory/hooks/usePagination";
+import { PAGE_SIZE } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
 
 interface PurchaseItem {
@@ -163,6 +163,56 @@ function parseEtc(etc?: string | null): { managementNo: string; supplierSite: st
     managementNo: parts[0] ?? "",
     supplierSite: parts[2] ?? "",
   };
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function getEffectivePurchaseStatusKey(purchase: Purchase) {
+  if (purchase.status !== "purchased" && purchase.extra?.trackingNumber) return "shipped";
+  return purchase.status;
+}
+
+function filterPurchasesForView(
+  purchases: Purchase[],
+  selectedCategory: string,
+  selectedStatusFilter: string | null,
+  searchQuery: string,
+) {
+  let result = purchases.filter((purchase) => purchase.status !== "purchased");
+  if (selectedCategory !== "すべて") {
+    result = result.filter((purchase) =>
+      purchase.purchase_items.some((item) => (item.category || "未分類") === selectedCategory)
+    );
+  }
+  if (selectedStatusFilter) {
+    result = result.filter((purchase) => getEffectivePurchaseStatusKey(purchase) === selectedStatusFilter);
+  }
+  const q = searchQuery.trim().toLowerCase();
+  if (q) {
+    result = result.filter((purchase) => {
+      const trackingNo = (purchase.extra?.trackingNumber ?? "").toLowerCase();
+      return purchase.purchase_items.some((item) => {
+        const itemTitle = (item.title ?? "").toLowerCase();
+        const etcField = (item.etc ?? "").toLowerCase();
+        const kanriNo = etcField.split(",")[0].trim();
+        const invoiceNo = etcField.split(",")[2]?.trim() ?? "";
+        return (
+          kanriNo.includes(q) ||
+          invoiceNo.includes(q) ||
+          itemTitle.includes(q) ||
+          trackingNo.includes(q)
+        );
+      });
+    });
+  }
+  return result;
 }
 
 interface OrderedPurchaseForm {
@@ -433,9 +483,6 @@ function PurchaseCardMobile({
 
 export default function Purchases() {
   const utils = trpc.useUtils();
-  const { data: purchases, isLoading, refetch } = trpc.inventory.zaico.getPurchasesWithCategory.useQuery(undefined, {
-    staleTime: 5 * 60_000,
-  });
   const { data: inventories, refetch: refetchInventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
     enabled: false,
     staleTime: 5 * 60_000,
@@ -456,10 +503,12 @@ export default function Purchases() {
   const updateSupplierNameOnlyMutation = trpc.inventory.zaico.updateSupplierNameOnly.useMutation();
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
+  const [purchasePage, setPurchasePage] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
     return typeof window !== 'undefined' ? (localStorage.getItem('purchases-selectedCategory') ?? 'すべて') : 'すべて';
   });
   const handleSetSelectedCategory = useCallback((cat: string) => {
+    setPurchasePage(1);
     setSelectedCategory(cat);
     localStorage.setItem('purchases-selectedCategory', cat);
   }, []);
@@ -478,11 +527,25 @@ export default function Purchases() {
       } else {
         localStorage.setItem(PURCHASE_STATUS_FILTER_KEY, next);
       }
+      setPurchasePage(1);
       return next;
     });
   }, []);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 250);
+  const purchaseQueryInput = useMemo(() => ({
+    page: purchasePage,
+    pageSize: PAGE_SIZE,
+    category: selectedCategory === "すべて" ? null : selectedCategory,
+    status: selectedStatusFilter as "ordered" | "shipped" | null,
+    search: debouncedSearchQuery || null,
+  }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter]);
+  const { data: purchasePageData, isLoading, isFetching, refetch } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(purchaseQueryInput, {
+    staleTime: 5 * 60_000,
+  });
+  const purchases = useMemo(() => (purchasePageData?.items ?? []) as Purchase[], [purchasePageData?.items]);
   const [showTotals, setShowTotals] = useState(true);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
   // 入庫確認ダイアログ
   const [confirmPurchase, setConfirmPurchase] = useState<Purchase | null>(null);
   // 複数選択まとめ入庫
@@ -521,10 +584,6 @@ export default function Purchases() {
   const selectedOperatorName = operators?.find((o) => o.key === selectedOperatorKey)?.name ?? "野田";
 
   const today = new Date().toISOString().split("T")[0];
-
-  const activePurchases = useMemo(() => {
-    return ((purchases ?? []) as Purchase[]).filter((purchase) => purchase.status !== "purchased");
-  }, [purchases]);
 
   // 発注済み登録: 在庫検索フィルター
   const filteredInventoriesForOrder = useMemo(() => {
@@ -581,7 +640,10 @@ export default function Purchases() {
       toast.success(`「${orderedForm.title}」を発注済みとして登録しました`);
       setShowOrderedDialog(false);
       setOrderedForm(emptyOrderedForm);
-      await utils.inventory.zaico.getPurchasesWithCategory.invalidate();
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      ]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "登録に失敗しました";
       toast.error(msg);
@@ -590,89 +652,62 @@ export default function Purchases() {
     }
   }
 
-  // カテゴリ別合計金額
   const categoryTotals = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const p of activePurchases) {
-      for (const item of p.purchase_items) {
-        const price = Number(item.unit_price) || 0;
-        const qty = Number(item.quantity) || 0;
-        if (!price) continue;
-        const cat = item.category || "未分類";
-        totals.set(cat, (totals.get(cat) ?? 0) + price * qty);
-      }
-    }
-    return totals;
-  }, [activePurchases]);
+    return new Map((purchasePageData?.categoryTotals ?? []).map((row) => [row.category, row.total]));
+  }, [purchasePageData?.categoryTotals]);
 
-  const grandTotal = useMemo(() => {
-    let total = 0;
-    Array.from(categoryTotals.values()).forEach((v) => { total += v; });
-    return total;
-  }, [categoryTotals]);
+  const categoryCountMap = useMemo(() => {
+    return new Map((purchasePageData?.categoryTotals ?? []).map((row) => [row.category, row.count]));
+  }, [purchasePageData?.categoryTotals]);
+
+  const grandTotal = purchasePageData?.grandTotal ?? 0;
 
   const categoryOptions = useMemo(() => {
     const cats = new Set<string>();
+    if (selectedCategory !== "すべて" && selectedCategory !== "未分類") cats.add(selectedCategory);
     for (const cat of managedCategories ?? []) {
       if (cat && cat !== "すべて" && cat !== "未分類") cats.add(cat);
     }
-    for (const p of activePurchases) {
-      for (const item of p.purchase_items) {
-        const cat = (item.category || "").trim();
-        if (cat && cat !== "未分類") cats.add(cat);
-      }
+    for (const row of purchasePageData?.categoryTotals ?? []) {
+      const cat = row.category.trim();
+      if (cat && cat !== "未分類") cats.add(cat);
     }
     return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
-  }, [activePurchases, managedCategories]);
+  }, [managedCategories, purchasePageData?.categoryTotals, selectedCategory]);
 
   const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
-  const filteredPurchases = useMemo(() => {
-    let result = activePurchases;
-    if (selectedCategory !== "すべて") {
-      result = result.filter((p) =>
-        p.purchase_items.some((item) => (item.category || "未分類") === selectedCategory)
-      );
-    }
-    // ステータスフィルター
-    if (selectedStatusFilter) {
-      result = result.filter((p) => {
-        const effectiveStatus = (p.status !== "purchased" && p.extra?.trackingNumber)
-          ? "shipped"
-          : p.status;
-        return effectiveStatus === selectedStatusFilter;
-      });
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter((p) => {
-        const firstItem = p.purchase_items[0];
-        const trackingNo = (p.extra?.trackingNumber ?? "").toLowerCase();
-        const itemTitle = (firstItem?.title ?? "").toLowerCase();
-        const etcField = (firstItem?.etc ?? "").toLowerCase();
-        const kanriNo = etcField.split(",")[0].trim();
-        const invoiceNo = etcField.split(",")[2]?.trim() ?? "";
-        return (
-          kanriNo.includes(q) ||
-          invoiceNo.includes(q) ||
-          itemTitle.includes(q) ||
-          trackingNo.includes(q)
-        );
-      });
-    }
-    return result;
-  }, [activePurchases, selectedCategory, searchQuery, selectedStatusFilter]);
+  const filteredPurchases = purchases;
+  const pagedPurchases = purchases;
+  const displayedPurchasePage = purchasePageData?.page ?? purchasePage;
+  const purchaseTotalItems = purchasePageData?.totalCount ?? filteredPurchases.length;
+  const purchaseTotalPages = purchasePageData?.totalPages ?? Math.max(1, Math.ceil(purchaseTotalItems / PAGE_SIZE));
+  const purchaseStartIndex = purchaseTotalItems === 0 ? 0 : (displayedPurchasePage - 1) * PAGE_SIZE + 1;
+  const purchaseEndIndex = Math.min(displayedPurchasePage * PAGE_SIZE, purchaseTotalItems);
 
-  // 入庫管理ページネーション
-  const {
-    page: purchasePage,
-    setPage: setPurchasePage,
-    totalPages: purchaseTotalPages,
-    paginatedItems: pagedPurchases,
-    totalItems: purchaseTotalItems,
-    startIndex: purchaseStartIndex,
-    endIndex: purchaseEndIndex,
-  } = usePagination(filteredPurchases);
+  useEffect(() => {
+    setCheckedPurchaseIds(new Set());
+  }, [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter]);
+
+  async function handleExportPurchasesCSV() {
+    if (isExportingCsv) return;
+    setIsExportingCsv(true);
+    try {
+      const allPurchases = await utils.inventory.zaico.getPurchasesWithCategory.fetch();
+      const rows = filterPurchasesForView(
+        allPurchases as unknown as Purchase[],
+        selectedCategory,
+        selectedStatusFilter,
+        debouncedSearchQuery || searchQuery,
+      );
+      exportPurchasesCSV(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "CSV出力に失敗しました";
+      toast.error(msg);
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }
 
   function startEdit(purchase: Purchase) {
     setEditingId(purchase.id);
@@ -777,6 +812,7 @@ export default function Purchases() {
         utils.inventory.zaico.getCategories.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
       ]);
       refetch();
     } catch (err: unknown) {
@@ -987,7 +1023,7 @@ export default function Purchases() {
     return statusLabel[purchase.status] ?? purchase.status;
   }
 
-  if (isLoading && !purchases) {
+  if (isLoading && !purchasePageData) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1005,7 +1041,7 @@ export default function Purchases() {
           <div>
             <h1 className="text-xl font-bold text-foreground">入庫管理</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              入庫データ一覧 ({filteredPurchases.length}/{purchases?.length ?? 0} 件)
+              入庫データ一覧 ({purchaseTotalItems}/{purchasePageData?.allCount ?? purchaseTotalItems} 件)
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1029,12 +1065,12 @@ export default function Purchases() {
             >
               <span className="text-xs">{showTotals ? "合計: ON" : "合計: OFF"}</span>
             </button>
-            <Button variant="outline" size="sm" onClick={() => purchases && exportPurchasesCSV(filteredPurchases)} className="hidden md:flex">
-              <Download className="h-4 w-4 mr-1.5" />
+            <Button variant="outline" size="sm" onClick={handleExportPurchasesCSV} disabled={isExportingCsv} className="hidden md:flex">
+              {isExportingCsv ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
               CSV
             </Button>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4 mr-1.5" />
+              <RefreshCw className={`h-4 w-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
               <span className="hidden md:inline">更新</span>
             </Button>
             {/* スマホ用: 発注済み登録ボタン */}
@@ -1054,12 +1090,18 @@ export default function Purchases() {
           <Input
             placeholder="管理番号・商品名・追跡番号で検索..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setPurchasePage(1);
+              setSearchQuery(e.target.value);
+            }}
             className="pl-9 h-9 text-sm"
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery("")}
+              onClick={() => {
+                setPurchasePage(1);
+                setSearchQuery("");
+              }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="h-4 w-4" />
@@ -1125,10 +1167,8 @@ export default function Purchases() {
             <SelectContent>
               {categories.map((cat) => {
                 const count = cat === "すべて"
-                  ? activePurchases.length
-                  : activePurchases.filter((p) =>
-                      p.purchase_items.some((item) => (item.category || "未分類") === cat)
-                    ).length;
+                  ? purchasePageData?.allCount ?? 0
+                  : categoryCountMap.get(cat) ?? 0;
                 return (
                   <SelectItem key={cat} value={cat}>
                     {cat} ({count})
@@ -1639,7 +1679,7 @@ export default function Purchases() {
             })}
           </div>
           <PaginationBar
-            page={purchasePage}
+            page={displayedPurchasePage}
             totalPages={purchaseTotalPages}
             onPageChange={setPurchasePage}
             totalItems={purchaseTotalItems}

@@ -531,6 +531,7 @@ export default function Deliveries() {
         utils.inventory.zaico.getCategories.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
       ]);
       refetch();
       toast.success(`「${name}」を削除しました`);
