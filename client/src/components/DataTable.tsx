@@ -22,6 +22,13 @@ interface DataTableProps {
   records: TradeRecord[];
   pageSize?: number;
   onRecordUpdated?: () => void;
+  totalRecords?: number;
+  page?: number;
+  sortKey?: SortKey;
+  sortDir?: SortDir;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
+  onSortChange?: (key: SortKey, dir: SortDir) => void;
 }
 
 const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
@@ -42,30 +49,64 @@ const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
-export function DataTable({ records, pageSize: initialPageSize = 20, onRecordUpdated }: DataTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("no");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(initialPageSize);
+export function DataTable({
+  records,
+  pageSize: controlledPageSize,
+  onRecordUpdated,
+  totalRecords,
+  page: controlledPage,
+  sortKey: controlledSortKey,
+  sortDir: controlledSortDir,
+  onPageChange,
+  onPageSizeChange,
+  onSortChange,
+}: DataTableProps) {
+  const isServerPaged = totalRecords !== undefined && controlledPage !== undefined && !!onPageChange;
+  const [localSortKey, setLocalSortKey] = useState<SortKey>("no");
+  const [localSortDir, setLocalSortDir] = useState<SortDir>("asc");
+  const [localPage, setLocalPage] = useState(1);
+  const [localPageSize, setLocalPageSize] = useState(controlledPageSize ?? 20);
+  const sortKey = controlledSortKey ?? localSortKey;
+  const sortDir = controlledSortDir ?? localSortDir;
+  const page = controlledPage ?? localPage;
+  const pageSize = controlledPageSize ?? localPageSize;
+  const setPage = (next: number | ((prev: number) => number)) => {
+    if (onPageChange) {
+      onPageChange(typeof next === "function" ? next(page) : next);
+    } else {
+      setLocalPage(next);
+    }
+  };
+  const setPageSize = (next: number) => {
+    if (onPageSizeChange) onPageSizeChange(next);
+    else setLocalPageSize(next);
+  };
   // 発送履歴展開状態: key = `${no}-${index}`
   const [expandedShipment, setExpandedShipment] = useState<string | null>(null);
 
   const handleSort = useCallback(
     (key: SortKey) => {
-      if (sortKey === key) {
-        setSortDir((d) => (d === "asc" ? "desc" : d === "desc" ? "none" : "asc"));
-      } else {
-        setSortKey(key);
-        setSortDir("asc");
+      const nextDir = sortKey === key
+        ? (sortDir === "asc" ? "desc" : sortDir === "desc" ? "none" : "asc")
+        : "asc";
+      if (onSortChange) {
+        onSortChange(key, nextDir);
+        return;
       }
-      setPage(1);
+      if (sortKey === key) {
+        setLocalSortDir((d) => (d === "asc" ? "desc" : d === "desc" ? "none" : "asc"));
+      } else {
+        setLocalSortKey(key);
+        setLocalSortDir("asc");
+      }
+      setLocalPage(1);
     },
-    [sortKey]
+    [onSortChange, sortDir, sortKey]
   );
 
   const sorted = useMemo(
-    () => sortRecords(records, sortKey, sortDir),
-    [records, sortKey, sortDir]
+    () => isServerPaged ? records : sortRecords(records, sortKey, sortDir),
+    [isServerPaged, records, sortKey, sortDir]
   );
 
   // インボイスNoごとの全商品合計数量マップ（発送完了判定に使用）
@@ -78,9 +119,12 @@ export function DataTable({ records, pageSize: initialPageSize = 20, onRecordUpd
     return map;
   }, [records]);
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const effectiveTotalRecords = totalRecords ?? sorted.length;
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalRecords / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageRecords = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRecords = isServerPaged
+    ? sorted
+    : sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col || sortDir === "none")
@@ -145,7 +189,7 @@ export function DataTable({ records, pageSize: initialPageSize = 20, onRecordUpd
       {/* Table header bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
         <div className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{records.length.toLocaleString()}</span> 件
+          <span className="font-semibold text-foreground">{effectiveTotalRecords.toLocaleString()}</span> 件
           {records.length !== sorted.length && (
             <span className="ml-1">(ソート済み)</span>
           )}
@@ -261,8 +305,8 @@ export function DataTable({ records, pageSize: initialPageSize = 20, onRecordUpd
         <div className="flex items-center justify-between px-4 py-3 border-t border-border flex-wrap gap-2">
           <div className="text-xs text-muted-foreground">
             {((currentPage - 1) * pageSize + 1).toLocaleString()} –{" "}
-            {Math.min(currentPage * pageSize, sorted.length).toLocaleString()} /{" "}
-            {sorted.length.toLocaleString()} 件
+            {Math.min(currentPage * pageSize, effectiveTotalRecords).toLocaleString()} /{" "}
+            {effectiveTotalRecords.toLocaleString()} 件
           </div>
           <div className="flex items-center gap-1">
             <Button

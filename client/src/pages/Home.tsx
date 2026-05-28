@@ -12,6 +12,8 @@ import {
   TradeRecord,
   formatCurrency,
   formatNumber,
+  SortDir,
+  SortKey,
 } from "@/lib/csvUtils";
 import { KpiCard } from "@/components/KpiCard";
 import {
@@ -173,6 +175,10 @@ export default function Home() {
   const [hasOpenedTrade, setHasOpenedTrade] = useState(() => activeTab === "trade");
   const [shouldLoadTradeFilterOptions, setShouldLoadTradeFilterOptions] = useState(false);
   const [shouldLoadTradeCharts, setShouldLoadTradeCharts] = useState(false);
+  const [tradePage, setTradePage] = useState(1);
+  const [tradePageSize, setTradePageSize] = useState(20);
+  const [tradeSortKey, setTradeSortKey] = useState<SortKey>("no");
+  const [tradeSortDir, setTradeSortDir] = useState<SortDir>("asc");
 
   // 状態変更時にURLを更新するヘルパー
   const updateURL = useCallback((newSearch: string, newFilters: Partial<Record<FilterableKey, string>>, newIncomplete: boolean, newTab: ActiveTab) => {
@@ -241,7 +247,7 @@ export default function Home() {
     updateURL("", {}, true, activeTab);
   }, [activeTab, updateURL]);
 
-  const tradeQueryInput = useMemo(() => ({
+  const tradeFilterInput = useMemo(() => ({
     search,
     year: filters.year && filters.year !== "__all__" ? filters.year : "",
     monthFrom: filters.monthFrom && filters.monthFrom !== "__all__" ? filters.monthFrom : "",
@@ -251,6 +257,26 @@ export default function Home() {
     status: filters.status && filters.status !== "__all__" ? filters.status : "",
     incompleteOnly: showIncompleteOnly,
   }), [search, filters, showIncompleteOnly]);
+
+  const tradeQueryInput = useMemo(() => ({
+    ...tradeFilterInput,
+    page: tradePage,
+    pageSize: tradePageSize,
+    sortKey: tradeSortKey,
+    sortDir: tradeSortDir,
+  }), [tradeFilterInput, tradePage, tradePageSize, tradeSortKey, tradeSortDir]);
+
+  const tradeChartQueryInput = useMemo(() => ({
+    ...tradeFilterInput,
+    page: 1,
+    pageSize: 5000,
+    sortKey: "no",
+    sortDir: "asc" as const,
+  }), [tradeFilterInput]);
+
+  useEffect(() => {
+    setTradePage(1);
+  }, [tradeFilterInput, tradePageSize, tradeSortKey, tradeSortDir]);
 
   useEffect(() => {
     if (activeTab === "trade") setHasOpenedTrade(true);
@@ -291,8 +317,14 @@ export default function Home() {
   }, [activeTab, hasOpenedTrade]);
 
   // DB からデータを取得（フィルター・検索はサーバー側で処理）
-  const { data: dbRows, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery(tradeQueryInput, {
+  const { data: tradeData, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery(tradeQueryInput, {
     enabled: activeTab === "trade" || hasOpenedTrade,
+    staleTime: 5 * 60_000,
+  });
+  const dbRows = tradeData?.rows;
+
+  const { data: tradeChartData } = trpc.trade.listFromDb.useQuery(tradeChartQueryInput, {
+    enabled: shouldLoadTradeCharts && activeTab === "trade",
     staleTime: 5 * 60_000,
   });
 
@@ -314,6 +346,11 @@ export default function Home() {
     return dbRows.map(dbRecordToTradeRecord);
   }, [dbRows]);
 
+  const chartRecords = useMemo<TradeRecord[] | null>(() => {
+    if (!tradeChartData?.rows) return null;
+    return tradeChartData.rows.map(dbRecordToTradeRecord);
+  }, [tradeChartData]);
+
   // FilterPanel用の全レコード（フィルターオプション表示用）
   const allRecordsForFilter = useMemo<TradeRecord[]>(() => {
     // フィルターパネルはallRecordsからユニーク値を抽出するが、
@@ -321,15 +358,20 @@ export default function Home() {
     return filteredRecords;
   }, [filteredRecords]);
 
-  const kpis = useMemo(() => ({
-    totalProfit: filteredRecords.reduce((s, r) => s + r.profitWithRefund, 0),
-    totalSales: filteredRecords.reduce((s, r) => s + r.totalSales, 0),
-    totalQty: filteredRecords.reduce((s, r) => s + r.quantity, 0),
-    partners: new Set(filteredRecords.map((r) => r.partner)).size,
-    totalRefund: filteredRecords.reduce((s, r) => s + (r.refund ?? 0), 0),
-    totalShipping: filteredRecords.reduce((s, r) => s + (r.shippingCost ?? 0), 0),
-    totalCustomsDuty: filteredRecords.reduce((s, r) => s + ((r as any).customsDuty ?? 0), 0),
-  }), [filteredRecords]);
+  const kpis = useMemo(() => {
+    if (tradeData?.summary) return tradeData.summary;
+    return {
+      totalProfit: filteredRecords.reduce((s, r) => s + r.profitWithRefund, 0),
+      totalSales: filteredRecords.reduce((s, r) => s + r.totalSales, 0),
+      totalQty: filteredRecords.reduce((s, r) => s + r.quantity, 0),
+      partners: new Set(filteredRecords.map((r) => r.partner)).size,
+      totalRefund: filteredRecords.reduce((s, r) => s + (r.refund ?? 0), 0),
+      totalShipping: filteredRecords.reduce((s, r) => s + (r.shippingCost ?? 0), 0),
+      totalCustomsDuty: filteredRecords.reduce((s, r) => s + ((r as any).customsDuty ?? 0), 0),
+    };
+  }, [filteredRecords, tradeData]);
+
+  const totalTradeRecords = tradeData?.totalCount ?? filteredRecords.length;
 
   const activeFilterCount = useMemo(() => {
     return Object.values(filters).filter((v) => v && v !== "__all__").length
@@ -497,7 +539,7 @@ export default function Home() {
               <div className="flex-shrink-0 text-right hidden lg:block">
                 <div className="text-xs text-slate-400">
                   <span className="font-bold text-white text-sm tabular-nums">
-                    {filteredRecords.length.toLocaleString()}
+                    {totalTradeRecords.toLocaleString()}
                   </span>
                   <span className="ml-1">件</span>
                 </div>
@@ -570,7 +612,7 @@ export default function Home() {
               value={formatCurrency(kpis.totalProfit)}
               icon={<TrendingUp size={15} />}
               trend={kpis.totalProfit >= 0 ? "positive" : "negative"}
-              sub={`${filteredRecords.length.toLocaleString()}件の取引`}
+              sub={`${totalTradeRecords.toLocaleString()}件の取引`}
             />
           </div>
 
@@ -651,20 +693,33 @@ export default function Home() {
           <Suspense fallback={<PanelLoading />}>
             <DataTable
               records={filteredRecords}
+              totalRecords={totalTradeRecords}
+              page={tradePage}
+              pageSize={tradePageSize}
+              sortKey={tradeSortKey}
+              sortDir={tradeSortDir}
+              onPageChange={setTradePage}
+              onPageSizeChange={setTradePageSize}
+              onSortChange={(key, dir) => {
+                setTradeSortKey(key);
+                setTradeSortDir(dir);
+              }}
               onRecordUpdated={() => refetch()}
             />
           </Suspense>
 
           {/* Charts */}
           {shouldLoadTradeCharts && (
-            <Suspense fallback={<PanelLoading />}>
-              <ChartSection records={filteredRecords} />
-            </Suspense>
+            chartRecords ? (
+              <Suspense fallback={<PanelLoading />}>
+                <ChartSection records={chartRecords} />
+              </Suspense>
+            ) : <PanelLoading />
           )}
 
           {/* Footer */}
           <div className="text-center text-xs text-muted-foreground py-4 border-t border-border">
-            データソース: DB（{filteredRecords.length.toLocaleString()} 件表示中）
+            データソース: DB（{totalTradeRecords.toLocaleString()} 件表示中）
           </div>
         </main>
       )}

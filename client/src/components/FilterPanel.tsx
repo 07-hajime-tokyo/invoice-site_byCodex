@@ -26,6 +26,7 @@ interface FilterPanelProps {
   /** DB から取得したフィルター選択肢（指定時はCSV由来の選択肢を上書き） */
   filterOptions?: {
     years: string[];
+    months?: string[];
     partners: string[];
     currencies: string[];
     statuses: string[];
@@ -64,10 +65,10 @@ export function FilterPanel({
 
   const monthOptions = useMemo(
     () =>
-      getUniqueValues(filteredByYear, "month").sort(
+      (filterOptions?.months ?? getUniqueValues(filteredByYear, "month")).sort(
         (a, b) => parseInt(a) - parseInt(b)
       ),
-    [filteredByYear]
+    [filteredByYear, filterOptions]
   );
 
   const partnerOptions = useMemo(

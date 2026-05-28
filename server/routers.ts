@@ -422,10 +422,28 @@ export const appRouter = router({
         currency: z.string().optional().default(""),
         status: z.string().optional().default(""),
         incompleteOnly: z.boolean().optional().default(false),
+        page: z.number().int().min(1).optional().default(1),
+        pageSize: z.number().int().min(20).max(5000).optional().default(20),
+        sortKey: z.string().optional().default("no"),
+        sortDir: z.enum(["asc", "desc", "none"]).optional().default("asc"),
       }))
       .query(async ({ input }) => {
         const db = await getDb();
-        if (!db) return [];
+        if (!db) {
+          return {
+            rows: [],
+            totalCount: 0,
+            summary: {
+              totalProfit: 0,
+              totalSales: 0,
+              totalQty: 0,
+              partners: 0,
+              totalRefund: 0,
+              totalShipping: 0,
+              totalCustomsDuty: 0,
+            },
+          };
+        }
         const conditions = [];
         if (input.search) {
           // スペースを除去した正規化キーワードで検索（例: "New3DSLL" → "New 3DS LL" にもマッチ）
@@ -467,10 +485,59 @@ export const appRouter = router({
             sql`LOWER(${tradeRecords.status}) != 'complete'`
           );
         }
-        const rows = conditions.length > 0
-          ? await db.select().from(tradeRecords).where(and(...conditions)).orderBy(asc(tradeRecords.no))
-          : await db.select().from(tradeRecords).orderBy(asc(tradeRecords.no));
-        return rows;
+        const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+        const sortColumn = (() => {
+          switch (input.sortKey) {
+            case "month": return sql`CAST(${tradeRecords.month} AS UNSIGNED)`;
+            case "partner": return tradeRecords.partner;
+            case "paymentDate": return tradeRecords.paymentDate;
+            case "productName": return tradeRecords.productName;
+            case "quantity": return tradeRecords.quantity;
+            case "unitPrice": return tradeRecords.unitPrice;
+            case "currency": return tradeRecords.currency;
+            case "unitPriceJPY": return tradeRecords.unitPriceJPY;
+            case "status": return tradeRecords.status;
+            case "totalSales": return tradeRecords.totalSales;
+            case "procurementTotal": return tradeRecords.procurementTotal;
+            case "profitWithRefund": return tradeRecords.profitWithRefund;
+            default: return tradeRecords.no;
+          }
+        })();
+        const orderExpr = input.sortDir === "desc" ? desc(sortColumn) : asc(sortColumn);
+        const offset = (input.page - 1) * input.pageSize;
+        const aggregateSelect = {
+          totalCount: sql<string>`COUNT(*)`,
+          totalProfit: sql<string>`COALESCE(SUM(${tradeRecords.profitWithRefund}), 0)`,
+          totalSales: sql<string>`COALESCE(SUM(${tradeRecords.totalSales}), 0)`,
+          totalQty: sql<string>`COALESCE(SUM(${tradeRecords.quantity}), 0)`,
+          partners: sql<string>`COUNT(DISTINCT ${tradeRecords.partner})`,
+          totalRefund: sql<string>`COALESCE(SUM(${tradeRecords.refund}), 0)`,
+          totalShipping: sql<string>`COALESCE(SUM(${tradeRecords.shippingCost}), 0)`,
+          totalCustomsDuty: sql<string>`COALESCE(SUM(${tradeRecords.customsDuty}), 0)`,
+        };
+        const [rows, aggregateRows] = await Promise.all([
+          whereClause
+            ? db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr).limit(input.pageSize).offset(offset)
+            : db.select().from(tradeRecords).orderBy(orderExpr).limit(input.pageSize).offset(offset),
+          whereClause
+            ? db.select(aggregateSelect).from(tradeRecords).where(whereClause)
+            : db.select(aggregateSelect).from(tradeRecords),
+        ]);
+        const aggregate = aggregateRows[0] ?? {};
+        const toNumber = (value: unknown) => Number(value ?? 0) || 0;
+        return {
+          rows,
+          totalCount: toNumber(aggregate.totalCount),
+          summary: {
+            totalProfit: toNumber(aggregate.totalProfit),
+            totalSales: toNumber(aggregate.totalSales),
+            totalQty: toNumber(aggregate.totalQty),
+            partners: toNumber(aggregate.partners),
+            totalRefund: toNumber(aggregate.totalRefund),
+            totalShipping: toNumber(aggregate.totalShipping),
+            totalCustomsDuty: toNumber(aggregate.totalCustomsDuty),
+          },
+        };
       }),
 
     /** DB の取引データを更新する */
@@ -541,7 +608,11 @@ export const appRouter = router({
       const partners = toOptions(partnerRows);
       const currencies = toOptions(currencyRows);
       const statuses = toOptions(statusRows);
-      return { years, partners, currencies, statuses };
+      const monthRows = await db.selectDistinct({ value: tradeRecords.month })
+        .from(tradeRecords)
+        .where(isNotNull(tradeRecords.month));
+      const months = toOptions(monthRows).sort((a, b) => parseInt(a) - parseInt(b));
+      return { years, months, partners, currencies, statuses };
     }),
 
     // ─── Spreadsheet-backed procedures (kept for write-back) ─────────────────
