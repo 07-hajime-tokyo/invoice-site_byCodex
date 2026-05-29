@@ -353,9 +353,9 @@ function isLocalAuthBypass() {
 
 const authGateRouter = router({
   checkVerified: publicProcedure.query(async ({ ctx }) => {
-    if (isLocalAuthBypass()) return { verified: true, loggedIn: true };
-    if (!ctx.user) return { verified: false, loggedIn: false };
-    return { verified: isAllowedLoginEmail(ctx.user.email), loggedIn: true };
+    if (isLocalAuthBypass()) return { verified: true, loggedIn: true, user: ctx.user ?? null };
+    if (!ctx.user) return { verified: false, loggedIn: false, user: null };
+    return { verified: isAllowedLoginEmail(ctx.user.email), loggedIn: true, user: ctx.user };
   }),
   loginWithEmail: publicProcedure
     .input(z.object({ email: z.string().trim().email().max(320) }))

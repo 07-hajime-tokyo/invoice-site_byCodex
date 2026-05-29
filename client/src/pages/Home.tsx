@@ -175,6 +175,7 @@ export default function Home() {
   const [hasOpenedTrade, setHasOpenedTrade] = useState(() => activeTab === "trade");
   const [shouldLoadTradeFilterOptions, setShouldLoadTradeFilterOptions] = useState(false);
   const [shouldLoadTradeCharts, setShouldLoadTradeCharts] = useState(false);
+  const [shouldLoadTradeActions, setShouldLoadTradeActions] = useState(false);
   const [tradePage, setTradePage] = useState(1);
   const [tradePageSize, setTradePageSize] = useState(20);
   const [tradeSortKey, setTradeSortKey] = useState<SortKey>("no");
@@ -312,7 +313,7 @@ export default function Home() {
       });
       void utils.inventory.zaico.getOperators.prefetch();
       void utils.inventory.zaico.getCategories.prefetch();
-    }, 2600);
+    }, 8000);
     return () => window.clearTimeout(timer);
   }, [activeTab, utils]);
 
@@ -336,9 +337,15 @@ export default function Home() {
 
   useEffect(() => {
     if (activeTab !== "trade" || !dbRows || shouldLoadTradeCharts) return;
-    const timer = window.setTimeout(() => setShouldLoadTradeCharts(true), 2200);
+    const timer = window.setTimeout(() => setShouldLoadTradeCharts(true), 6000);
     return () => window.clearTimeout(timer);
   }, [activeTab, dbRows, shouldLoadTradeCharts]);
+
+  useEffect(() => {
+    if (activeTab !== "trade" || !dbRows || shouldLoadTradeActions) return;
+    const timer = window.setTimeout(() => setShouldLoadTradeActions(true), 2500);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, dbRows, shouldLoadTradeActions]);
 
   // フィルターオプション用（全件から取得）
   const { data: filterOptions } = trpc.trade.getFilterOptions.useQuery(undefined, {
@@ -385,16 +392,7 @@ export default function Home() {
       + (showIncompleteOnly ? 1 : 0);
   }, [filters, search, showIncompleteOnly]);
 
-  if (activeTab === "trade" && isLoading && !dbRows) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7]">
-        <div className="flex flex-col items-center gap-3">
-          <RefreshCw size={24} className="animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">データを読み込み中...</p>
-        </div>
-      </div>
-    );
-  }
+  const isInitialTradeLoading = activeTab === "trade" && isLoading && !dbRows;
 
   if (activeTab === "trade" && error && !dbRows) {
     return (
@@ -555,11 +553,15 @@ export default function Home() {
             {/* 新規登録ボタン — 取引データタブのみ表示 */}
             {activeTab === "trade" && (
               <div className="flex items-center gap-2">
-                <Suspense fallback={<div className="h-9 w-28" />}>
-                  <ShipmentListDialog onUpdated={() => refetch()} />
-                  <AddShipmentDialog onSuccess={() => refetch()} />
-                  <AddTradeDialog onSuccess={() => refetch()} />
-                </Suspense>
+                {shouldLoadTradeActions ? (
+                  <Suspense fallback={<div className="h-9 w-28" />}>
+                    <ShipmentListDialog onUpdated={() => refetch()} />
+                    <AddShipmentDialog onSuccess={() => refetch()} />
+                    <AddTradeDialog onSuccess={() => refetch()} />
+                  </Suspense>
+                ) : (
+                  <div className="hidden md:block h-9 w-28" aria-hidden />
+                )}
               </div>
             )}
 
@@ -659,20 +661,22 @@ export default function Home() {
           </div>
 
           {/* Filters (desktop) */}
-          <div className="hidden md:block">
-            <Suspense fallback={<div className="h-24 rounded-lg border border-border bg-card" />}>
-              <FilterPanel
-                allRecords={allRecordsForFilter}
-                filters={filters}
-                onFilterChange={handleFilterChange}
-                onClearAll={handleClearAll}
-                activeCount={activeFilterCount}
-                showIncompleteOnly={showIncompleteOnly}
-                onToggleIncomplete={setShowIncompleteOnly}
-                filterOptions={filterOptions}
-              />
-            </Suspense>
-          </div>
+          {!isInitialTradeLoading && (
+            <div className="hidden md:block">
+              <Suspense fallback={<div className="h-24 rounded-lg border border-border bg-card" />}>
+                <FilterPanel
+                  allRecords={allRecordsForFilter}
+                  filters={filters}
+                  onFilterChange={handleFilterChange}
+                  onClearAll={handleClearAll}
+                  activeCount={activeFilterCount}
+                  showIncompleteOnly={showIncompleteOnly}
+                  onToggleIncomplete={setShowIncompleteOnly}
+                  filterOptions={filterOptions}
+                />
+              </Suspense>
+            </div>
+          )}
 
           {/* Active filter chips (mobile) */}
           {activeFilterCount > 0 && (
@@ -696,23 +700,27 @@ export default function Home() {
           )}
 
           {/* Data Table */}
-          <Suspense fallback={<PanelLoading />}>
-            <DataTable
-              records={filteredRecords}
-              totalRecords={totalTradeRecords}
-              page={tradePage}
-              pageSize={tradePageSize}
-              sortKey={tradeSortKey}
-              sortDir={tradeSortDir}
-              onPageChange={setTradePage}
-              onPageSizeChange={setTradePageSize}
-              onSortChange={(key, dir) => {
-                setTradeSortKey(key);
-                setTradeSortDir(dir);
-              }}
-              onRecordUpdated={() => refetch()}
-            />
-          </Suspense>
+          {isInitialTradeLoading ? (
+            <PanelLoading />
+          ) : (
+            <Suspense fallback={<PanelLoading />}>
+              <DataTable
+                records={filteredRecords}
+                totalRecords={totalTradeRecords}
+                page={tradePage}
+                pageSize={tradePageSize}
+                sortKey={tradeSortKey}
+                sortDir={tradeSortDir}
+                onPageChange={setTradePage}
+                onPageSizeChange={setTradePageSize}
+                onSortChange={(key, dir) => {
+                  setTradeSortKey(key);
+                  setTradeSortDir(dir);
+                }}
+                onRecordUpdated={() => refetch()}
+              />
+            </Suspense>
+          )}
 
           {/* Charts */}
           {shouldLoadTradeCharts && (

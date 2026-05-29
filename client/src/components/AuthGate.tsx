@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Loader2, Mail, ShieldCheck } from "lucide-react";
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const utils = trpc.useUtils();
 
   const { data, isLoading, refetch } = trpc.authGate.checkVerified.useQuery(undefined, {
     retry: false,
@@ -27,6 +28,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       setErrorMsg(err.message || "ログインに失敗しました");
     },
   });
+
+  useEffect(() => {
+    void import("@/pages/Home");
+  }, []);
+
+  useEffect(() => {
+    if (!data?.user) return;
+    utils.auth.me.setData(undefined, data.user);
+  }, [data?.user, utils]);
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
