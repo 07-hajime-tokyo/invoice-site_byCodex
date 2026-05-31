@@ -34,7 +34,11 @@ type InvoiceImageAnalysisResult = {
 };
 
 function getInvoiceImageExtractionPrompt() {
-  return `You are an invoice extraction assistant. Analyze this WhatsApp chat screenshot carefully and extract all order/invoice information.
+  return `You are an expert OCR and invoice extraction assistant for WhatsApp order screenshots.
+Read the visible chat screenshot carefully, including small text in message bubbles.
+
+Goal:
+Extract the buyer's order into invoice line items.
 
 Return a JSON object with this EXACT format:
 {
@@ -48,6 +52,11 @@ Return a JSON object with this EXACT format:
 }
 
 Extraction rules:
+- Identify the BUYER's actual order request. Prioritize messages with words like "invoice", "order", "take", "buy", "pcs", "pieces", "units", "please", or a quantity.
+- Do NOT extract every product mentioned in the chat. Extract only products the buyer is asking to purchase or invoice.
+- If the buyer asks "how much is X?" and later says a quantity like "10 pcs", treat X as the ordered product.
+- If a seller message contains a price list or a price reply, use it only to fill unitPrice for the matching ordered product.
+- If quantity is visible separately from the product name, combine nearby buyer messages when they refer to the same product.
 - items.description: FULL product name, expanded from abbreviations/slang:
   * "N2dsll" or "n2dsll" -> "New 2DS LL"
   * "N3dsxl" -> "New 3DS XL"
@@ -67,25 +76,70 @@ Extraction rules:
 - invoiceNumbers: any invoice numbers like "Invoice - 0372.pdf" -> [372]
 - totalAmount: total order amount if visible (e.g. "Total: €500" -> 500)
 - currency: overall currency of the transaction
+- If you are uncertain, still return the most likely item instead of returning an empty items array.
+- Use empty string "" for unknown text fields and 0 for unknown numeric fields.
 
 Return ONLY valid JSON, no markdown, no explanation.`;
 }
 
 function parseInvoiceImageAnalysisText(text: string): InvoiceImageAnalysisResult {
   const clean = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const jsonText = clean.startsWith("{")
+    ? clean
+    : clean.slice(Math.max(0, clean.indexOf("{")), clean.lastIndexOf("}") + 1);
   try {
-    const parsed = JSON.parse(clean) as Partial<InvoiceImageAnalysisResult>;
+    const parsed = JSON.parse(jsonText || clean) as Partial<InvoiceImageAnalysisResult>;
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const items = rawItems
+      .map((item) => ({
+        description: String(item.description ?? "").trim(),
+        subText: String(item.subText ?? "").trim(),
+        quantity: Number(item.quantity ?? 0),
+        unitPrice: Number(item.unitPrice ?? 0),
+        currency: String(item.currency ?? parsed.currency ?? "EUR").trim().toUpperCase() || "EUR",
+      }))
+      .filter((item) => item.description.length > 0);
     return {
-      items: Array.isArray(parsed.items) ? parsed.items : [],
-      detectedSender: parsed.detectedSender ?? null,
-      invoiceNumbers: Array.isArray(parsed.invoiceNumbers) ? parsed.invoiceNumbers : [],
-      totalAmount: parsed.totalAmount ?? null,
-      currency: parsed.currency ?? null,
+      items,
+      detectedSender: parsed.detectedSender ? String(parsed.detectedSender).trim() : null,
+      invoiceNumbers: Array.isArray(parsed.invoiceNumbers)
+        ? parsed.invoiceNumbers.map((n) => Number(n)).filter(Number.isFinite)
+        : [],
+      totalAmount: parsed.totalAmount == null ? null : Number(parsed.totalAmount),
+      currency: parsed.currency ? String(parsed.currency).trim().toUpperCase() : null,
     };
   } catch {
     return { items: [], detectedSender: null, invoiceNumbers: [] };
   }
 }
+
+const invoiceImageResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    items: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          description: { type: "STRING" },
+          subText: { type: "STRING" },
+          quantity: { type: "NUMBER" },
+          unitPrice: { type: "NUMBER" },
+          currency: { type: "STRING" },
+        },
+        required: ["description", "subText", "quantity", "unitPrice", "currency"],
+      },
+    },
+    detectedSender: { type: "STRING" },
+    invoiceNumbers: {
+      type: "ARRAY",
+      items: { type: "INTEGER" },
+    },
+    totalAmount: { type: "NUMBER" },
+    currency: { type: "STRING" },
+  },
+  required: ["items", "detectedSender", "invoiceNumbers", "currency"],
+};
 
 async function analyzeInvoiceImageWithGemini(input: { base64: string; mimeType: string }) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -111,6 +165,7 @@ async function analyzeInvoiceImageWithGemini(input: { base64: string; mimeType: 
       }],
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: invoiceImageResponseSchema,
         temperature: 0.1,
         maxOutputTokens: 1024,
       },

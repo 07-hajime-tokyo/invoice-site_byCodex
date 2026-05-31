@@ -1084,6 +1084,10 @@ function InvoiceEditor({
   // Screenshot analysis mutation for the chat input area
   const chatScreenshotMutation = trpc.invoices.analyzeScreenshot.useMutation({
     onSuccess: (data) => {
+      if (data.items.length === 0) {
+        toast.error("明細を読み取れませんでした。文字が見える範囲にトリミングして、もう一度試してください。");
+        return;
+      }
       let autoClientId: number | null = null;
       if (data.detectedSender) {
         const senderLower = data.detectedSender.toLowerCase();
