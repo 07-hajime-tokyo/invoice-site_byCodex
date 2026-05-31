@@ -1124,6 +1124,10 @@ export const appRouter = router({
         return detectPaymentsFromChat(input.chatText);
       }),
 
+    imageAnalysisStatus: protectedProcedure.query(() => ({
+      enabled: Boolean(process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY),
+    })),
+
     // Analyze screenshot image to extract invoice line items using Forge API
     analyzeScreenshot: protectedProcedure
       .input(z.object({
@@ -1133,7 +1137,9 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
         const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
-        if (!forgeUrl || !forgeKey) throw new Error("Forge API not configured");
+        if (!forgeUrl || !forgeKey) {
+          throw new Error("画像解析APIが未設定です。テキストに切替、または手動で行を追加してください。");
+        }
         const res = await fetch(`${forgeUrl}/v1/chat/completions`, {
           method: "POST",
           headers: {

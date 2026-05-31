@@ -1076,6 +1076,10 @@ function InvoiceEditor({
 
   const { data: clients = [] } = trpc.invoiceClients.list.useQuery();
   const { data: senderSettings } = trpc.invoiceSettings.get.useQuery();
+  const { data: imageAnalysisStatus } = trpc.invoices.imageAnalysisStatus.useQuery(undefined, {
+    staleTime: 10 * 60_000,
+  });
+  const imageAnalysisEnabled = imageAnalysisStatus?.enabled ?? false;
 
   // Screenshot analysis mutation for the chat input area
   const chatScreenshotMutation = trpc.invoices.analyzeScreenshot.useMutation({
@@ -1105,7 +1109,7 @@ function InvoiceEditor({
       if (resultWithExtra.totalAmount) msgs.push(`合計: ${resultWithExtra.currency ?? "EUR"} ${resultWithExtra.totalAmount}`);
       toast.success(msgs.join(" / "));
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(e.message || "画像解析に失敗しました"),
   });
 
   const parseMutation = trpc.invoices.parseWhatsApp.useMutation({
@@ -1669,18 +1673,23 @@ function InvoiceEditor({
                         <X size={12} />
                       </button>
                     </div>
+                    {!imageAnalysisEnabled && (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        画像解析APIが未設定です。テキストに切替、または右側の「行を追加」から手動で明細を入力してください。
+                      </p>
+                    )}
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         className="h-8 gap-1 bg-[#075E54] hover:bg-[#075E54]/90"
-                        disabled={chatScreenshotMutation.isPending}
+                        disabled={chatScreenshotMutation.isPending || !imageAnalysisEnabled}
                         onClick={() => {
                           if (!chatImageBase64) return;
                           chatScreenshotMutation.mutate({ base64: chatImageBase64, mimeType: chatImageMime });
                         }}
                       >
                         {chatScreenshotMutation.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Upload size={12} />}
-                        画像を解析して明細を生成
+                        {imageAnalysisEnabled ? "画像を解析して明細を生成" : "画像解析API未設定"}
                       </Button>
                       <Button size="sm" variant="outline" className="h-8" onClick={() => { setChatImagePreview(null); setChatImageBase64(null); }}>
                         テキストに切替
