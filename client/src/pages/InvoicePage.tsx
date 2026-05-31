@@ -1675,7 +1675,7 @@ function InvoiceEditor({
                     </div>
                     {!imageAnalysisEnabled && (
                       <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        画像解析APIが未設定です。テキストに切替、または右側の「行を追加」から手動で明細を入力してください。
+                        画像解析APIが未設定です。無料枠で使う場合は Vercel に GEMINI_API_KEY を設定してください。
                       </p>
                     )}
                     <div className="flex gap-2">

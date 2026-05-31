@@ -25,6 +25,108 @@ function sanitizeText(str: string | null | undefined): string | null {
   return str.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '').trim() || null;
 }
 
+type InvoiceImageAnalysisResult = {
+  items: Array<{ description: string; subText?: string; quantity: number; unitPrice: number; currency: string }>;
+  detectedSender: string | null;
+  invoiceNumbers: number[];
+  totalAmount?: number | null;
+  currency?: string | null;
+};
+
+function getInvoiceImageExtractionPrompt() {
+  return `You are an invoice extraction assistant. Analyze this WhatsApp chat screenshot carefully and extract all order/invoice information.
+
+Return a JSON object with this EXACT format:
+{
+  "items": [
+    { "description": "product name", "subText": "color or variant", "quantity": 10, "unitPrice": 25.00, "currency": "EUR" }
+  ],
+  "detectedSender": "name or phone number of the buyer (not the seller/Murakami)",
+  "invoiceNumbers": [372, 373],
+  "totalAmount": 250.00,
+  "currency": "EUR"
+}
+
+Extraction rules:
+- items.description: FULL product name, expanded from abbreviations/slang:
+  * "N2dsll" or "n2dsll" -> "New 2DS LL"
+  * "N3dsxl" -> "New 3DS XL"
+  * "N3ds" -> "New 3DS"
+  * "PSVita" -> "PS Vita"
+  * "PSPGO" or "PSPGo" -> "PSP Go"
+  * "WiiU" -> "Wii U"
+  * Other abbreviations: expand to full official product name
+- items.subText: color, variant, or condition mentioned in the conversation for this item.
+  * Look in the ENTIRE conversation for color/variant info, not just the order line.
+  * Examples: "turquoise", "black", "white", "random color", "coral pink", "like new"
+  * Leave empty string "" if no color/variant info found.
+- items.quantity: number of units ordered
+- items.unitPrice: unit price if visible (e.g. "€25 each", "25 EUR/pc", "160 euros per"). Set to 0 if not shown.
+- items.currency: currency code (EUR, USD, GBP, JPY). Default EUR.
+- detectedSender: the BUYER's name or phone number. The seller is typically "Murakami" or "村上" - exclude them.
+- invoiceNumbers: any invoice numbers like "Invoice - 0372.pdf" -> [372]
+- totalAmount: total order amount if visible (e.g. "Total: €500" -> 500)
+- currency: overall currency of the transaction
+
+Return ONLY valid JSON, no markdown, no explanation.`;
+}
+
+function parseInvoiceImageAnalysisText(text: string): InvoiceImageAnalysisResult {
+  const clean = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  try {
+    const parsed = JSON.parse(clean) as Partial<InvoiceImageAnalysisResult>;
+    return {
+      items: Array.isArray(parsed.items) ? parsed.items : [],
+      detectedSender: parsed.detectedSender ?? null,
+      invoiceNumbers: Array.isArray(parsed.invoiceNumbers) ? parsed.invoiceNumbers : [],
+      totalAmount: parsed.totalAmount ?? null,
+      currency: parsed.currency ?? null,
+    };
+  } catch {
+    return { items: [], detectedSender: null, invoiceNumbers: [] };
+  }
+}
+
+async function analyzeInvoiceImageWithGemini(input: { base64: string; mimeType: string }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          {
+            inline_data: {
+              mime_type: input.mimeType,
+              data: input.base64,
+            },
+          },
+          { text: getInvoiceImageExtractionPrompt() },
+        ],
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+        maxOutputTokens: 1024,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Gemini API error: ${res.status}${detail ? ` ${detail.slice(0, 200)}` : ""}`);
+  }
+  const data = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "{}";
+  return parseInvoiceImageAnalysisText(text);
+}
+
 // Fix private_key spaces that may be stripped by secret storage
 function fixServiceAccountJson(jsonStr: string) {
   const credentials = JSON.parse(jsonStr);
@@ -1124,21 +1226,29 @@ export const appRouter = router({
         return detectPaymentsFromChat(input.chatText);
       }),
 
-    imageAnalysisStatus: protectedProcedure.query(() => ({
-      enabled: Boolean(process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY),
-    })),
+    imageAnalysisStatus: protectedProcedure.query(() => {
+      const hasGemini = Boolean(process.env.GEMINI_API_KEY);
+      const hasForge = Boolean(process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY);
+      return {
+        enabled: hasGemini || hasForge,
+        provider: hasGemini ? "gemini" : hasForge ? "forge" : null,
+      };
+    }),
 
-    // Analyze screenshot image to extract invoice line items using Forge API
+    // Analyze screenshot image to extract invoice line items using Gemini, with Forge as a fallback.
     analyzeScreenshot: protectedProcedure
       .input(z.object({
         base64: z.string(),
         mimeType: z.string().default("image/png"),
       }))
       .mutation(async ({ input }) => {
+        const geminiResult = await analyzeInvoiceImageWithGemini(input);
+        if (geminiResult) return geminiResult;
+
         const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
         const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
         if (!forgeUrl || !forgeKey) {
-          throw new Error("画像解析APIが未設定です。テキストに切替、または手動で行を追加してください。");
+          throw new Error("画像解析APIが未設定です。無料枠で使う場合は GEMINI_API_KEY を設定してください。");
         }
         const res = await fetch(`${forgeUrl}/v1/chat/completions`, {
           method: "POST",

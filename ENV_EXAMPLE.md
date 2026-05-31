@@ -44,19 +44,19 @@ OWNER_OPEN_ID=your-owner-open-id
 OWNER_NAME=your-owner-name
 
 # =============================================================================
-# Manus Forge API（LLM・画像生成・音声認識 — Manus環境専用）
-# Codex/Vercel移行時: OPENAI_API_KEY + https://api.openai.com/v1 に差し替え
+# Manus Forge API（Manus環境専用 / 現在は未使用でも可）
+# Codex/Vercelでは画像解析に GEMINI_API_KEY を使用
 # =============================================================================
-# Manus環境必須 | Manus Forge APIのベースURL（サーバーサイド用）
+# 任意 | Manus Forge APIのベースURL（サーバーサイド用）
 BUILT_IN_FORGE_API_URL=https://forge.manus.im
 
-# Manus環境必須 | Manus Forge APIのBearerトークン（サーバーサイド用）
+# 任意 | Manus Forge APIのBearerトークン（サーバーサイド用）
 BUILT_IN_FORGE_API_KEY=your-forge-api-key
 
-# Manus環境必須 | Manus Forge APIのBearerトークン（フロントエンド用）
+# 任意 | Manus Forge APIのBearerトークン（フロントエンド用）
 VITE_FRONTEND_FORGE_API_KEY=your-frontend-forge-api-key
 
-# Manus環境必須 | Manus Forge APIのURL（フロントエンド用）
+# 任意 | Manus Forge APIのURL（フロントエンド用）
 VITE_FRONTEND_FORGE_API_URL=https://forge.manus.im
 
 # =============================================================================
@@ -69,11 +69,14 @@ VITE_FRONTEND_FORGE_API_URL=https://forge.manus.im
 GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"...@....iam.gserviceaccount.com"}
 
 # =============================================================================
-# Gemini API（WhatsApp解析・インボイス番号抽出・ナレッジベースAI）
+# Gemini API（インボイス画像解析）
 # =============================================================================
-# 必須 | Google Gemini APIキー
+# 任意 | Google Gemini APIキー（無料枠で画像解析を使う場合に設定）
 # 取得元: https://aistudio.google.com/app/apikey
 GEMINI_API_KEY=your-gemini-api-key
+
+# 任意 | Geminiモデル（未設定時は gemini-2.5-flash）
+GEMINI_MODEL=gemini-2.5-flash
 
 # =============================================================================
 # AWS S3（ロゴ・WhatsApp解析ファイル・ナレッジベースファイルの保存）
@@ -140,12 +143,13 @@ GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 | `VITE_OAUTH_PORTAL_URL` | Manus必須 | Manusログインポータルフロント | Manusダッシュボード |
 | `OWNER_OPEN_ID` | Manus必須 | オーナー通知送信先 | Manusダッシュボード |
 | `OWNER_NAME` | 任意 | オーナー表示名 | 任意 |
-| `BUILT_IN_FORGE_API_URL` | Manus必須 | LLM/画像/音声API URL | Manusダッシュボード |
-| `BUILT_IN_FORGE_API_KEY` | Manus必須 | LLM/画像/音声API キー | Manusダッシュボード |
-| `VITE_FRONTEND_FORGE_API_KEY` | Manus必須 | フロントエンドLLM APIキー | Manusダッシュボード |
-| `VITE_FRONTEND_FORGE_API_URL` | Manus必須 | フロントエンドLLM API URL | Manusダッシュボード |
+| `BUILT_IN_FORGE_API_URL` | 任意 | Manus Forge API URL | Manusダッシュボード |
+| `BUILT_IN_FORGE_API_KEY` | 任意 | Manus Forge API キー | Manusダッシュボード |
+| `VITE_FRONTEND_FORGE_API_KEY` | 任意 | フロントエンドForge APIキー | Manusダッシュボード |
+| `VITE_FRONTEND_FORGE_API_URL` | 任意 | フロントエンドForge API URL | Manusダッシュボード |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | **必須** | Google Sheets API認証 | Google Cloud Console |
-| `GEMINI_API_KEY` | **必須** | Gemini AI API | Google AI Studio |
+| `GEMINI_API_KEY` | 任意 | インボイス画像解析（無料枠利用） | Google AI Studio |
+| `GEMINI_MODEL` | 任意 | Geminiモデル名 | Google AI Studio |
 | `AWS_ACCESS_KEY_ID` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_SECRET_ACCESS_KEY` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_REGION` | **必須** | S3バケットリージョン | AWS Console |
