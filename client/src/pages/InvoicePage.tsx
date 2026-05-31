@@ -305,6 +305,51 @@ const EMPTY_FORM: InvoiceFormData = {
   items: [],
 };
 
+type InvoiceClientOption = {
+  id: number;
+  name: string;
+  company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
+
+function normalizeClientLookupText(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/^~\s*/, "")
+    .replace(/[^\p{L}\p{N}@+]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function phoneDigits(value: string | null | undefined) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function findClientByDetectedSender(clients: InvoiceClientOption[], detectedSender: string | null | undefined) {
+  const sender = normalizeClientLookupText(detectedSender);
+  if (!sender) return null;
+  const senderDigits = phoneDigits(sender);
+
+  return clients.find((client) => {
+    const candidates = [client.name, client.company, client.email]
+      .map(normalizeClientLookupText)
+      .filter(Boolean);
+    const textMatch = candidates.some((candidate) =>
+      candidate.length >= 2 && (sender.includes(candidate) || candidate.includes(sender))
+    );
+    if (textMatch) return true;
+
+    const clientDigits = phoneDigits(client.phone);
+    return Boolean(
+      senderDigits.length >= 7 &&
+      clientDigits.length >= 7 &&
+      (senderDigits.includes(clientDigits) || clientDigits.includes(senderDigits))
+    );
+  }) ?? null;
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
@@ -1088,15 +1133,8 @@ function InvoiceEditor({
         toast.error("明細を読み取れませんでした。文字が見える範囲にトリミングして、もう一度試してください。");
         return;
       }
-      let autoClientId: number | null = null;
-      if (data.detectedSender) {
-        const senderLower = data.detectedSender.toLowerCase();
-        const matchedClient = clients.find(c =>
-          c.name.toLowerCase().includes(senderLower) ||
-          senderLower.includes(c.name.toLowerCase())
-        );
-        if (matchedClient) autoClientId = matchedClient.id;
-      }
+      const matchedClient = findClientByDetectedSender(clients, data.detectedSender);
+      const autoClientId = matchedClient?.id ?? null;
       const resultWithExtra = data as typeof data & { totalAmount?: number | null; currency?: string | null };
       setForm(f => ({
         ...f,
@@ -1109,7 +1147,8 @@ function InvoiceEditor({
       setChatImageBase64(null);
       setShowChatInput(false);
       const msgs: string[] = [`${data.items.length}件の明細を解析しました`];
-      if (data.detectedSender) msgs.push(`宛先: ${data.detectedSender}`);
+      if (matchedClient) msgs.push(`宛先: ${matchedClient.name}`);
+      else if (data.detectedSender) msgs.push(`宛先候補: ${data.detectedSender}`);
       if (resultWithExtra.totalAmount) msgs.push(`合計: ${resultWithExtra.currency ?? "EUR"} ${resultWithExtra.totalAmount}`);
       toast.success(msgs.join(" / "));
     },
@@ -1118,16 +1157,8 @@ function InvoiceEditor({
 
   const parseMutation = trpc.invoices.parseWhatsApp.useMutation({
     onSuccess: (data) => {
-      // Try to auto-detect client from detectedSender
-      let autoClientId: number | null = null;
-      if (data.detectedSender) {
-        const senderLower = data.detectedSender.toLowerCase();
-        const matchedClient = clients.find(c =>
-          c.name.toLowerCase().includes(senderLower) ||
-          senderLower.includes(c.name.toLowerCase())
-        );
-        if (matchedClient) autoClientId = matchedClient.id;
-      }
+      const matchedClient = findClientByDetectedSender(clients, data.detectedSender);
+      const autoClientId = matchedClient?.id ?? null;
       setForm(f => ({
         ...f,
         invoiceNumber: f.invoiceNumber || data.invoiceNumber,
@@ -1136,7 +1167,9 @@ function InvoiceEditor({
         ...(autoClientId !== null ? { clientId: autoClientId } : {}),
       }));
       setShowChatInput(false);
-      const senderMsg = data.detectedSender ? ` (宛先: ${data.detectedSender})` : "";
+      const senderMsg = matchedClient
+        ? ` (宛先: ${matchedClient.name})`
+        : data.detectedSender ? ` (宛先候補: ${data.detectedSender})` : "";
       toast.success(`${data.items.length}件の明細を解析しました${senderMsg}`);
     },
     onError: (e) => toast.error(e.message),

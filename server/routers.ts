@@ -31,6 +31,7 @@ type InvoiceImageAnalysisResult = {
   invoiceNumbers: number[];
   totalAmount?: number | null;
   currency?: string | null;
+  rawOrderText?: string | null;
 };
 
 function getInvoiceImageExtractionPrompt() {
@@ -48,7 +49,8 @@ Return a JSON object with this EXACT format:
   "detectedSender": "name or phone number of the buyer (not the seller/Murakami)",
   "invoiceNumbers": [372, 373],
   "totalAmount": 250.00,
-  "currency": "EUR"
+  "currency": "EUR",
+  "rawOrderText": "the exact buyer message text used for the order"
 }
 
 Extraction rules:
@@ -58,8 +60,12 @@ Extraction rules:
 - If a seller message contains a price list or a price reply, use it only to fill unitPrice for the matching ordered product.
 - If quantity is visible separately from the product name, combine nearby buyer messages when they refer to the same product.
 - items.description: FULL product name, expanded from abbreviations/slang:
+  * Do NOT add "New" unless the visible text explicitly says "New" or uses an "N" abbreviation such as "N3DSXL" or "N3DSLL".
+  * "3dsxl" or "3ds xl" -> "3DS XL"
+  * "N3dsxl" or "New 3DS XL" -> "New 3DS XL"
+  * "3dsll" or "3ds ll" -> "3DS LL"
+  * "N3dsll" or "New 3DS LL" -> "New 3DS LL"
   * "N2dsll" or "n2dsll" -> "New 2DS LL"
-  * "N3dsxl" -> "New 3DS XL"
   * "N3ds" -> "New 3DS"
   * "PSVita" -> "PS Vita"
   * "PSPGO" or "PSPGo" -> "PSP Go"
@@ -72,14 +78,39 @@ Extraction rules:
 - items.quantity: number of units ordered
 - items.unitPrice: unit price if visible (e.g. "€25 each", "25 EUR/pc", "160 euros per"). Set to 0 if not shown.
 - items.currency: currency code (EUR, USD, GBP, JPY). Default EUR.
-- detectedSender: the BUYER's name or phone number. The seller is typically "Murakami" or "村上" - exclude them.
+- detectedSender: the BUYER's WhatsApp display name shown on the buyer's message bubble. Strip leading "~". Include phone only if the name is unreadable. The seller is typically "Murakami" or "村上" - exclude them.
 - invoiceNumbers: any invoice numbers like "Invoice - 0372.pdf" -> [372]
 - totalAmount: total order amount if visible (e.g. "Total: €500" -> 500)
 - currency: overall currency of the transaction
+- rawOrderText: exact visible buyer message(s) used to determine product, quantity, and price.
 - If you are uncertain, still return the most likely item instead of returning an empty items array.
 - Use empty string "" for unknown text fields and 0 for unknown numeric fields.
 
 Return ONLY valid JSON, no markdown, no explanation.`;
+}
+
+function cleanDetectedSender(value: unknown) {
+  const text = String(value ?? "")
+    .replace(/^~\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || null;
+}
+
+function normalizeExtractedProductName(description: string, rawOrderText: string | null | undefined) {
+  const raw = String(rawOrderText ?? "").toLowerCase().replace(/\s+/g, "");
+  if (!raw) return description;
+  const mentionsPlain3dsXl = raw.includes("3dsxl");
+  const mentionsNew3dsXl = raw.includes("new3dsxl") || raw.includes("n3dsxl");
+  if (mentionsPlain3dsXl && !mentionsNew3dsXl && /^new\s+3ds\s+xl$/i.test(description.trim())) {
+    return "3DS XL";
+  }
+  const mentionsPlain3dsLl = raw.includes("3dsll");
+  const mentionsNew3dsLl = raw.includes("new3dsll") || raw.includes("n3dsll");
+  if (mentionsPlain3dsLl && !mentionsNew3dsLl && /^new\s+3ds\s+ll$/i.test(description.trim())) {
+    return "3DS LL";
+  }
+  return description;
 }
 
 function parseInvoiceImageAnalysisText(text: string): InvoiceImageAnalysisResult {
@@ -90,9 +121,10 @@ function parseInvoiceImageAnalysisText(text: string): InvoiceImageAnalysisResult
   try {
     const parsed = JSON.parse(jsonText || clean) as Partial<InvoiceImageAnalysisResult>;
     const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const rawOrderText = parsed.rawOrderText ? String(parsed.rawOrderText).trim() : null;
     const items = rawItems
       .map((item) => ({
-        description: String(item.description ?? "").trim(),
+        description: normalizeExtractedProductName(String(item.description ?? "").trim(), rawOrderText),
         subText: String(item.subText ?? "").trim(),
         quantity: Number(item.quantity ?? 0),
         unitPrice: Number(item.unitPrice ?? 0),
@@ -101,12 +133,13 @@ function parseInvoiceImageAnalysisText(text: string): InvoiceImageAnalysisResult
       .filter((item) => item.description.length > 0);
     return {
       items,
-      detectedSender: parsed.detectedSender ? String(parsed.detectedSender).trim() : null,
+      detectedSender: cleanDetectedSender(parsed.detectedSender),
       invoiceNumbers: Array.isArray(parsed.invoiceNumbers)
         ? parsed.invoiceNumbers.map((n) => Number(n)).filter(Number.isFinite)
         : [],
       totalAmount: parsed.totalAmount == null ? null : Number(parsed.totalAmount),
       currency: parsed.currency ? String(parsed.currency).trim().toUpperCase() : null,
+      rawOrderText,
     };
   } catch {
     return { items: [], detectedSender: null, invoiceNumbers: [] };
@@ -137,14 +170,15 @@ const invoiceImageResponseSchema = {
     },
     totalAmount: { type: "NUMBER" },
     currency: { type: "STRING" },
+    rawOrderText: { type: "STRING" },
   },
-  required: ["items", "detectedSender", "invoiceNumbers", "currency"],
+  required: ["items", "detectedSender", "invoiceNumbers", "currency", "rawOrderText"],
 };
 
 async function analyzeInvoiceImageWithGemini(input: { base64: string; mimeType: string }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: {
@@ -167,7 +201,10 @@ async function analyzeInvoiceImageWithGemini(input: { base64: string; mimeType: 
         responseMimeType: "application/json",
         responseSchema: invoiceImageResponseSchema,
         temperature: 0.1,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 512,
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
       },
     }),
   });

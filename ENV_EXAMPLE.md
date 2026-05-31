@@ -75,8 +75,8 @@ GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...","privat
 # 取得元: https://aistudio.google.com/app/apikey
 GEMINI_API_KEY=your-gemini-api-key
 
-# 任意 | Geminiモデル（未設定時は gemini-2.5-flash）
-GEMINI_MODEL=gemini-2.5-flash
+# 任意 | Geminiモデル（未設定時は gemini-2.5-flash-lite）
+GEMINI_MODEL=gemini-2.5-flash-lite
 
 # =============================================================================
 # AWS S3（ロゴ・WhatsApp解析ファイル・ナレッジベースファイルの保存）
