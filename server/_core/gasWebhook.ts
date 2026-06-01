@@ -161,12 +161,21 @@ function syntheticZaicoId(sourceKey: string) {
   return 1_500_000_000 + (hash.readUInt32BE(0) % 500_000_000);
 }
 
-function getProvidedSecret(req: Request) {
+function getProvidedSecretInfo(req: Request) {
   const authorization = req.header("authorization") ?? "";
   const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
   const headerSecret = req.header("x-gas-secret");
   const bodySecret = typeof req.body?.secret === "string" ? req.body.secret : undefined;
-  return (bearer || headerSecret || bodySecret || "").trim();
+  const rawValue = bearer ?? headerSecret ?? bodySecret ?? "";
+  const value = rawValue.trim();
+  const source = bearer != null
+    ? "authorization"
+    : headerSecret != null
+      ? "x-gas-secret"
+      : bodySecret != null
+        ? "body.secret"
+        : "none";
+  return { value, source, length: value.length };
 }
 
 function secretsMatch(expected: string, provided: string) {
@@ -182,8 +191,20 @@ function requireGasSecret(req: Request) {
   if (!expected) {
     return { ok: false as const, status: 503, message: "GAS_WEBHOOK_SECRET is not configured" };
   }
-  if (!secretsMatch(expected, getProvidedSecret(req))) {
-    return { ok: false as const, status: 401, message: "Unauthorized" };
+  const provided = getProvidedSecretInfo(req);
+  if (!secretsMatch(expected, provided.value)) {
+    console.warn("[GAS purchase webhook] auth failed", {
+      providedSource: provided.source,
+      providedLength: provided.length,
+      hasAuthorizationHeader: Boolean(req.header("authorization")),
+      hasGasSecretHeader: Boolean(req.header("x-gas-secret")),
+      hasBodySecret: typeof req.body?.secret === "string",
+    });
+    return {
+      ok: false as const,
+      status: 401,
+      message: `Unauthorized: GAS_WEBHOOK_SECRET mismatch or missing (received ${provided.source}, length ${provided.length})`,
+    };
   }
   return { ok: true as const };
 }
