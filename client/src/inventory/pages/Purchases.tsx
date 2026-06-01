@@ -535,7 +535,10 @@ export default function Purchases() {
     search: debouncedSearchQuery || null,
   }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter]);
   const { data: purchasePageData, isLoading, isFetching, refetch } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(purchaseQueryInput, {
-    staleTime: 5 * 60_000,
+    staleTime: 5_000,
+    refetchInterval: editingId === null ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
   });
   const purchases = useMemo(() => (purchasePageData?.items ?? []) as Purchase[], [purchasePageData?.items]);
   const [showTotals, setShowTotals] = useState(true);
