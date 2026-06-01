@@ -16,7 +16,7 @@ const gasPayloadSchema = z.object({
 const stringKeys = {
   sourceKey: ["sourceKey", "source_key", "idempotencyKey", "idempotency_key"],
   sheetName: ["sheetName", "sheet_name", "シート名"],
-  rowNumber: ["rowNumber", "row_number", "rowIndex", "row_index", "row", "行番号"],
+  rowNumber: ["rowNumber", "row_number", "rowIndex", "row_index", "rowNo", "row_no", "row", "行番号"],
   title: ["title", "productName", "product_name", "name", "商品名", "タイトル"],
   category: ["category", "カテゴリ", "カテゴリー"],
   place: ["place", "保管場所"],
@@ -189,10 +189,20 @@ function requireGasSecret(req: Request) {
 }
 
 function sendError(res: Response, status: number, message: string, extra: Record<string, unknown> = {}) {
-  res.status(status).json({ success: false, message, error: message, ...extra });
+  res.status(status).json({ success: false, ok: false, status, message, error: message, ...extra });
 }
 
 export function registerGasWebhookRoutes(app: Express) {
+  function sendHealth(res: Response, endpoint: string) {
+    res.json({
+      success: true,
+      ok: true,
+      endpoint,
+      message: "GAS webhook is reachable. Send inventory data with POST.",
+      requiredSecret: "GAS_WEBHOOK_SECRET",
+    });
+  }
+
   async function handlePurchaseWebhook(req: Request, res: Response, defaultMarkPurchased: boolean) {
     const auth = requireGasSecret(req);
     if (!auth.ok) {
@@ -455,11 +465,27 @@ export function registerGasWebhookRoutes(app: Express) {
     void handlePurchaseWebhook(req, res, false);
   });
 
+  app.get("/api/gas/purchase-order", (_req, res) => {
+    sendHealth(res, "/api/gas/purchase-order");
+  });
+
   app.post("/api/gas-webhook/register-product", (req, res) => {
     void handlePurchaseWebhook(req, res, false);
   });
 
+  app.get("/api/gas-webhook/register-product", (_req, res) => {
+    sendHealth(res, "/api/gas-webhook/register-product");
+  });
+
+  app.get("/api/gas-webhook/health", (_req, res) => {
+    sendHealth(res, "/api/gas-webhook/register-product");
+  });
+
   app.post("/api/gas/purchase-receive", (req, res) => {
     void handlePurchaseWebhook(req, res, true);
+  });
+
+  app.get("/api/gas/purchase-receive", (_req, res) => {
+    sendHealth(res, "/api/gas/purchase-receive");
   });
 }
