@@ -117,7 +117,10 @@ VITE_ANALYTICS_WEBSITE_ID=
 # =============================================================================
 # 外部Zaico/ManusアプリURLは使用しません。入出庫管理はサイト内DBで動作します。
 
-# 任意 | Google Apps Scriptから /api/gas/purchase-order にPOSTするための共有シークレット
+# 任意 | 出庫時に発送管理スプレッドシートへ書き込むGAS Web App URL
+GAS_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
+
+# 任意 | GAS連携で使用する共有シークレット
 GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
 # =============================================================================

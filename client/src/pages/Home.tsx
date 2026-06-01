@@ -66,6 +66,19 @@ function PanelLoading() {
   );
 }
 
+function runWhenIdle(callback: () => void, timeout = 12_000) {
+  const win = window as Window & {
+    requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (win.requestIdleCallback) {
+    const id = win.requestIdleCallback(callback, { timeout });
+    return () => win.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(id);
+}
+
 // DBレコードをフロントエンドのTradeRecord型に変換する
 function dbRecordToTradeRecord(r: {
   id: number;
@@ -285,23 +298,23 @@ export default function Home() {
 
   useEffect(() => {
     if (activeTab !== "inventory") return;
-    const tradeTimer = window.setTimeout(() => {
+    const cancelTrade = runWhenIdle(() => {
       void utils.trade.listFromDb.prefetch(tradeQueryInput);
       void import("@/components/FilterPanel");
       void import("@/components/DataTable");
-    }, 700);
-    const filterTimer = window.setTimeout(() => {
+    }, 16_000);
+    const cancelFilters = runWhenIdle(() => {
       void utils.trade.getFilterOptions.prefetch();
-    }, 1600);
+    }, 22_000);
     return () => {
-      window.clearTimeout(tradeTimer);
-      window.clearTimeout(filterTimer);
+      cancelTrade();
+      cancelFilters();
     };
   }, [activeTab, tradeQueryInput, utils]);
 
   useEffect(() => {
     if (activeTab !== "trade") return;
-    const timer = window.setTimeout(() => {
+    return runWhenIdle(() => {
       void import("@/inventory/InventoryApp");
       void import("@/inventory/pages/Purchases");
       void utils.inventory.zaico.getPurchasesWithCategoryPage.prefetch({
@@ -313,8 +326,7 @@ export default function Home() {
       });
       void utils.inventory.zaico.getOperators.prefetch();
       void utils.inventory.zaico.getCategories.prefetch();
-    }, 8000);
-    return () => window.clearTimeout(timer);
+    }, 20_000);
   }, [activeTab, utils]);
 
   useEffect(() => {
@@ -336,15 +348,8 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (activeTab !== "trade" || !dbRows || shouldLoadTradeCharts) return;
-    const timer = window.setTimeout(() => setShouldLoadTradeCharts(true), 6000);
-    return () => window.clearTimeout(timer);
-  }, [activeTab, dbRows, shouldLoadTradeCharts]);
-
-  useEffect(() => {
     if (activeTab !== "trade" || !dbRows || shouldLoadTradeActions) return;
-    const timer = window.setTimeout(() => setShouldLoadTradeActions(true), 2500);
-    return () => window.clearTimeout(timer);
+    return runWhenIdle(() => setShouldLoadTradeActions(true), 8_000);
   }, [activeTab, dbRows, shouldLoadTradeActions]);
 
   // フィルターオプション用（全件から取得）
@@ -723,7 +728,17 @@ export default function Home() {
           )}
 
           {/* Charts */}
-          {shouldLoadTradeCharts && (
+          {!shouldLoadTradeCharts ? (
+            <div className="rounded-lg border border-border bg-card p-4 text-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShouldLoadTradeCharts(true)}
+              >
+                グラフを読み込む
+              </Button>
+            </div>
+          ) : (
             chartRecords ? (
               <Suspense fallback={<PanelLoading />}>
                 <ChartSection records={chartRecords} />
