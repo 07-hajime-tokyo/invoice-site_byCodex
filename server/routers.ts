@@ -267,6 +267,66 @@ function selectTradeRate(currency: string | null | undefined, eurRate: number | 
   return typeof rate === "number" && Number.isFinite(rate) ? rate : null;
 }
 
+type TradeDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+let knownEuroRateRepairPromise: Promise<void> | null = null;
+
+function normalizeRateDate(value: string | null | undefined) {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+async function fetchJpyRateByDate(date: string, currency: "EUR" | "USD") {
+  const endpoint = date
+    ? `https://api.frankfurter.dev/v1/${date}?from=${currency}&to=JPY`
+    : `https://api.frankfurter.dev/v1/latest?from=${currency}&to=JPY`;
+  const res = await fetch(endpoint);
+  if (!res.ok) throw new Error(`Failed to fetch ${currency}/JPY rate: ${res.status}`);
+  const data = await res.json() as { rates?: { JPY?: number } };
+  const rate = data.rates?.JPY;
+  if (!rate || !Number.isFinite(rate)) throw new Error(`No JPY rate for ${currency} ${date || "latest"}`);
+  return rate;
+}
+
+async function repairKnownEuroRateRows(db: TradeDb) {
+  if (!knownEuroRateRepairPromise) {
+    knownEuroRateRepairPromise = (async () => {
+      const rows = await db.select().from(tradeRecords).where(
+        or(eq(tradeRecords.no, 385), eq(tradeRecords.no, 386), eq(tradeRecords.no, 387)),
+      );
+      const targets = rows.filter((row) => normalizeTradeCurrency(row.currency) === "EUR");
+      await Promise.all(targets.map(async (row) => {
+        const unitPrice = Number(row.unitPrice ?? 0);
+        const quantity = Number(row.quantity ?? 0);
+        if (!unitPrice || !quantity) return;
+        const rateDate = normalizeRateDate(row.paymentDate);
+        const eurRate = await fetchJpyRateByDate(rateDate, "EUR");
+        const unitPriceJPY = Math.round(unitPrice * eurRate * 10000) / 10000;
+        const totalSales = Math.round(quantity * unitPriceJPY * 10000) / 10000;
+        const procurementTotal = Number(row.procurementTotal ?? 0);
+        const refund = Number(row.refund ?? 0);
+        const shippingCost = Number(row.shippingCost ?? 0);
+        const customsDuty = Number(row.customsDuty ?? 0);
+        const profitWithRefund = Math.round((totalSales - procurementTotal + refund - shippingCost - customsDuty) * 10000) / 10000;
+        const currentUnitPriceJPY = Number(row.unitPriceJPY ?? 0);
+        if (Math.abs(currentUnitPriceJPY - unitPriceJPY) < 0.5) return;
+        await db.update(tradeRecords)
+          .set({
+            unitPriceJPY: String(unitPriceJPY),
+            totalSales: String(totalSales),
+            profitWithRefund: String(profitWithRefund),
+          })
+          .where(eq(tradeRecords.id, row.id));
+      }));
+    })().catch((error) => {
+      knownEuroRateRepairPromise = null;
+      console.warn("[Trade] Failed to repair known EUR rate rows", error);
+    });
+  }
+  await knownEuroRateRepairPromise;
+}
+
 function changedNumber(a: unknown, b: number) {
   return Math.abs(Number(a ?? 0) - b) > 0.0001;
 }
@@ -651,6 +711,7 @@ export const appRouter = router({
             },
           };
         }
+        await repairKnownEuroRateRows(db);
         const conditions = [];
         if (input.search) {
           // スペースを除去した正規化キーワードで検索（例: "New3DSLL" → "New 3DS LL" にもマッチ）
