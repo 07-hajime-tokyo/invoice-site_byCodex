@@ -249,9 +249,22 @@ function canSyncTradeSheet() {
 }
 
 function normalizeTradeCurrency(value: string | null | undefined) {
-  const text = String(value ?? "").toLowerCase();
-  if (text.includes("usd") || text.includes("ドル") || text.includes("dollar")) return "USD";
+  const text = String(value ?? "").trim().toLowerCase();
+  if (
+    text.includes("usd") ||
+    text.includes("ドル") ||
+    text.includes("dollar") ||
+    text.includes("$") ||
+    text.includes("繝峨Ν")
+  ) {
+    return "USD";
+  }
   return "EUR";
+}
+
+function selectTradeRate(currency: string | null | undefined, eurRate: number | null | undefined, usdRate: number | null | undefined) {
+  const rate = normalizeTradeCurrency(currency) === "EUR" ? eurRate : usdRate;
+  return typeof rate === "number" && Number.isFinite(rate) ? rate : null;
 }
 
 function changedNumber(a: unknown, b: number) {
@@ -893,12 +906,7 @@ export const appRouter = router({
                 changedNumber(target.quantity, input.quantity) ||
                 changedNumber(target.unitPrice, input.unitPrice) ||
                 normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(input.currency);
-              const rate = input.currency === "繝ｦ繝ｼ繝ｭ"
-                ? (input.eurRate ?? null)
-                : (input.usdRate ?? null);
-              const normalizedRate = normalizeTradeCurrency(input.currency) === "EUR"
-                ? (input.eurRate ?? null)
-                : (input.usdRate ?? null);
+              const normalizedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate);
               const unitPriceJPY = shouldRecalculateSales && normalizedRate ? Math.round(input.unitPrice * normalizedRate * 10000) / 10000 : null;
               const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
               const effectiveTotalSales = totalSalesNew ?? Number(target.totalSales ?? 0);
@@ -1003,12 +1011,7 @@ export const appRouter = router({
             // 商品名が一致するレコードを更新、なければ最初のレコードを更新
             const target = existing.find(r => r.productName === input.productName) ?? existing[0];
             // 商品価格(円)・売上合計・還付込利益を自動計算
-            const rate = input.currency === "ユーロ"
-              ? (input.eurRate ?? null)
-              : (input.usdRate ?? null);
-            const normalizedRate = normalizeTradeCurrency(input.currency) === "EUR"
-              ? (input.eurRate ?? null)
-              : (input.usdRate ?? null);
+            const normalizedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate);
             const shouldRecalculateSales =
               changedNumber(target.quantity, input.quantity) ||
               changedNumber(target.unitPrice, input.unitPrice) ||
@@ -1070,9 +1073,8 @@ export const appRouter = router({
           const db = await getDb();
           if (db) {
             const no = parseInt(input.invoiceNo) || null;
-            const unitPriceJPY = input.currency === "繝ｦ繝ｼ繝ｭ"
-              ? input.unitPrice * input.eurRate
-              : input.unitPrice * input.usdRate;
+            const selectedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate) ?? 0;
+            const unitPriceJPY = input.unitPrice * selectedRate;
             const totalSales = unitPriceJPY * input.quantity;
             const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
               ? input.paymentDate
@@ -1118,6 +1120,7 @@ export const appRouter = router({
         });
         const existingRows = existingData.data.values ?? [];
         const newRowNumber = existingRows.length + 1; // 追加後の行番号
+        const rateCell = normalizeTradeCurrency(input.currency) === "EUR" ? "$G$1" : "$G$2";
 
         const newRow = [
           input.month,
@@ -1128,7 +1131,7 @@ export const appRouter = router({
           input.quantity,
           input.unitPrice,
           input.currency,
-          `=G${newRowNumber}*G1`, // I列: 商品価格 = 単価 × EUR/USDレート
+          `=G${newRowNumber}*${rateCell}`, // I列: 商品価格 = 単価 × 通貨別レート
           input.status,
         ];
         await sheets.spreadsheets.values.append({
@@ -1142,9 +1145,8 @@ export const appRouter = router({
         const db = await getDb();
         if (db) {
           const no = parseInt(input.invoiceNo) || null;
-          const unitPriceJPY = input.currency === "ユーロ"
-            ? input.unitPrice * input.eurRate
-            : input.unitPrice * input.usdRate;
+          const selectedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate) ?? 0;
+          const unitPriceJPY = input.unitPrice * selectedRate;
           const totalSales = unitPriceJPY * input.quantity;
           const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
             ? input.paymentDate
