@@ -1505,14 +1505,6 @@ export default function Deliveries() {
                                       ))}
                                     </div>
                                   )}
-                                  {/* 詳細リンク */}
-                                  <div className="pt-1 border-t border-blue-100">
-                                    <a href="/inventory/deliveries"
-                                      className="flex items-center gap-1 text-primary hover:underline"
-                                    >
-                                      サイト内詳細
-                                    </a>
-                                  </div>
                                 </>
                               )}
                             </div>

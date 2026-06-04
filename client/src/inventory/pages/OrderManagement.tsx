@@ -486,15 +486,6 @@ function PurchaseDetailPanel({ purchaseId }: { purchaseId: number }) {
           <span className="font-semibold text-right">¥{Number(item.unit_price).toLocaleString()}</span>
         </div>
       ))}
-      <div className="pt-1 border-t border-blue-100">
-        <a
-          href="/inventory/order-management"
-          target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          <ExternalLink className="h-3 w-3" />サイト内詳細
-        </a>
-      </div>
     </div>
   );
 }
@@ -597,15 +588,6 @@ function InventoryDetailPanel({ inventoryId, unitPrice: propUnitPrice, trackingN
           </div>
         ) : null
       )}
-      <div className="pt-1 border-t border-purple-100">
-        <a
-          href="/inventory/order-management"
-          target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          <ExternalLink className="h-3 w-3" />サイト内詳細
-        </a>
-      </div>
     </div>
   );
 }

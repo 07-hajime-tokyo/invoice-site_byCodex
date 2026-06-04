@@ -421,17 +421,6 @@ function InventoryDetailToggle({
                   <span className="text-muted-foreground flex-shrink-0">最終更新日</span>
                   <span className="text-right">{formatDateShort(inv.updated_at)}</span>
                 </div>
-                <div className="pt-1.5 border-t">
-                  <a
-                    href="/inventory/delivery-history"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    サイト内詳細
-                  </a>
-                </div>
               </>
             ) : isFromLocalDb ? (
               <>
@@ -468,17 +457,6 @@ function InventoryDetailToggle({
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground flex-shrink-0">最終更新日</span>
                   <span className="text-right">{formatDateShort((inv as { updated_at?: string } | null)?.updated_at ?? "")}</span>
-                </div>
-                <div className="pt-1.5 border-t">
-                  <a
-                    href="/inventory/delivery-history"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    サイト内詳細
-                  </a>
                 </div>
               </>
             ) : (
@@ -570,17 +548,6 @@ function InventoryDetailToggle({
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground flex-shrink-0">最終更新日</span>
                   <span className="text-right">{formatDateShort(inv.updated_at)}</span>
-                </div>
-                <div className="pt-1.5 border-t">
-                  <a
-                    href="/inventory/delivery-history"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    サイト内詳細
-                  </a>
                 </div>
               </>
             ) : (
@@ -705,16 +672,7 @@ function InventoryDetailToggle({
                 <span className="text-muted-foreground flex-shrink-0">最終更新日</span>
                 <span className="text-right">{formatDateShort(inv.updated_at)}</span>
               </div>
-              <div className="pt-1.5 border-t flex items-center justify-between gap-2">
-                <a
-                  href="/inventory/delivery-history"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  サイト内詳細
-                </a>
+              <div className="pt-1.5 border-t flex items-center justify-end gap-2">
                 {onDeleteInventory && (
                   <Button
                     variant="destructive"
