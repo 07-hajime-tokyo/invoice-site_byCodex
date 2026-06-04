@@ -3299,12 +3299,32 @@ export const inventoryRouter = router({
         }
       }
       for (const delivery of deliveries) {
+        if (delivery.status !== "success") continue;
+
         const key = extractKeyFromDeliveryNo(delivery.deliveryNo);
         if (!key) continue;
         const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number }>;
+        const cancelledItems = delivery.cancelledItemsJson
+          ? (JSON.parse(delivery.cancelledItemsJson) as Array<{ inventoryId: number; quantity: number; cancelledAt: string }>)
+          : [];
+        const cancelledQtyByInventoryId = new Map<number, number>();
+        for (const cancelled of cancelledItems) {
+          cancelledQtyByInventoryId.set(
+            cancelled.inventoryId,
+            (cancelledQtyByInventoryId.get(cancelled.inventoryId) ?? 0) + cancelled.quantity
+          );
+        }
+
         for (const item of items) {
+          const cancelledQty = Math.min(item.quantity, cancelledQtyByInventoryId.get(item.inventoryId) ?? 0);
+          if (cancelledQty > 0) {
+            cancelledQtyByInventoryId.set(item.inventoryId, (cancelledQtyByInventoryId.get(item.inventoryId) ?? 0) - cancelledQty);
+          }
+          const activeQuantity = item.quantity - cancelledQty;
+          if (activeQuantity <= 0) continue;
+
           const g = getOrCreate(key);
-          g.deliveredCount += item.quantity;
+          g.deliveredCount += activeQuantity;
           const etc = inventoryEtcMap.get(item.inventoryId) ?? "";
           const rawMgmt = etc.split(",")[0]?.trim() ?? "";
           // 管理番号として有効な形式: 「在庫」始まり、または3、4桁の数字始まり（例: 371_ルカ_1/5、在庫0408_1）
@@ -3314,7 +3334,7 @@ export const inventoryRouter = router({
           g.deliveryItems.push({
             deliveryNo: delivery.deliveryNo,
             title: item.title,
-            quantity: item.quantity,
+            quantity: activeQuantity,
             deliveredAt: delivery.createdAt.toISOString(),
             managementNo,
             unitPrice: pInfo3.unitPrice,
