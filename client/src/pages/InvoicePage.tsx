@@ -1278,8 +1278,11 @@ function InvoiceEditor({
   });
 
   const updateMutation = trpc.invoices.update.useMutation({
-    onSuccess: () => {
-      utils.invoices.list.invalidate();
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        utils.invoices.list.invalidate(),
+        utils.invoices.get.invalidate({ id: variables.id }),
+      ]);
       toast.success("請求書を更新しました");
       onSaved();
     },

@@ -76,8 +76,8 @@ export const invoices = mysqlTable("invoices", {
   rawChat: text("rawChat"),
   /** Status: draft | sent | paid */
   status: mysqlEnum("status", ["draft", "sent", "paid"]).default("draft").notNull(),
-  /** Accent color for invoice header bar (hex, e.g. "#1a56db") */
-  accentColor: varchar("accentColor", { length: 16 }).default("#1a56db"),
+  /** Accent color for invoice header bar (hex, e.g. "#db8b1a") */
+  accentColor: varchar("accentColor", { length: 16 }).default("#db8b1a"),
   /** Soft-delete timestamp — non-null means this invoice is deleted */
   deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

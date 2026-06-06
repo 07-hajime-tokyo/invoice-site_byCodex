@@ -1539,7 +1539,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
           notes: input.notes ?? null,
           rawChat: input.rawChat ?? null,
           status: input.status,
-          accentColor: input.accentColor ?? "#1a56db",
+          accentColor: input.accentColor ?? "#db8b1a",
         });
         const invoiceId = Number(result[0].insertId);
 
@@ -1602,7 +1602,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
             notes: input.notes ?? null,
             rawChat: input.rawChat ?? null,
             status: input.status,
-            accentColor: input.accentColor ?? "#1a56db",
+            accentColor: input.accentColor ?? "#db8b1a",
           })
           .where(eq(invoices.id, input.id));
 
@@ -1788,7 +1788,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
             notes: input.notes ?? null,
             rawChat: input.rawChat ?? null,
             status: input.status,
-            accentColor: input.accentColor ?? "#1a56db",
+            accentColor: input.accentColor ?? "#db8b1a",
           });
           const invoiceId = Number(result[0].insertId);
           createdIds.push(invoiceId);
@@ -1852,6 +1852,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
           notes: orig.notes,
           rawChat: orig.rawChat,
           status: "draft",
+          accentColor: orig.accentColor ?? "#db8b1a",
         });
         const newId = Number(result[0].insertId);
         // Insert cloned items
