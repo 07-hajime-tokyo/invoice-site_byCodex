@@ -139,6 +139,18 @@ import {
   getDb,
 } from "./db";
 
+const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理"]);
+type ShipmentSheetName = z.infer<typeof shipmentSheetNameSchema>;
+
+function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
+  const haystack = texts.filter(Boolean).join(" ").toLowerCase();
+  if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
+    return "サミー発送管理";
+  }
+  return "独発送管理";
+}
+
 /**
  * GitHub プライベートリポジトリから CSV テキストを取得するヘルパー
  * GITHUB_CSV_TOKEN が設定されている場合は Authorization ヘッダーを付与する
@@ -1967,7 +1979,7 @@ export const inventoryRouter = router({
           ).min(1, "出庫する商品を選択してください"),
           // FedEx発送情報（任意）
           trackingNumber: z.string().optional(),
-          sheetName: z.enum(["独発送管理", "サミー発送管理"]).optional(),
+          sheetName: shipmentSheetNameSchema.optional(),
           invoiceNo: z.string().optional(), // CSV商品集計用のインボイスNo
         })
       )
@@ -2013,17 +2025,24 @@ export const inventoryRouter = router({
           }
         }
 
+        const historyItems = await Promise.all(
+          input.items.map(async (item) => {
+            const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId).catch(() => null);
+            const managementNo = localInv?.etc?.split(",")[0]?.trim() || null;
+            return {
+              inventoryId: item.inventoryId,
+              title: item.title,
+              quantity: item.quantity,
+              ...(managementNo ? { managementNo } : {}),
+            };
+          })
+        );
+
         // 出庫履歴をDBに保存
         await createDeliveryHistory({
           deliveryNo: input.deliveryNo,
           zaicoDeliveryId: zaicoResult?.data_id ?? null,
-          itemsJson: JSON.stringify(
-            input.items.map((item) => ({
-              inventoryId: item.inventoryId,
-              title: item.title,
-              quantity: item.quantity,
-            }))
-          ),
+          itemsJson: JSON.stringify(historyItems),
           status: historyStatus,
           errorMessage: errorMessage ?? null,
         });
@@ -4558,7 +4577,7 @@ export const inventoryRouter = router({
     create: protectedProcedure
       .input(z.object({
         deliveryNo: z.string(),
-        sheetName: z.enum(["独発送管理", "サミー発送管理"]),
+        sheetName: shipmentSheetNameSchema,
         shippingDate: z.string(), // 例: "3/26"
         trackingNumber: z.string(),
         historyId: z.number().int().positive().optional(),
@@ -4835,6 +4854,7 @@ export const inventoryRouter = router({
         shippingDate: z.string(),
         shipments: z.array(z.object({
           deliveryNo: z.string(),
+          sheetName: shipmentSheetNameSchema.optional(),
           trackingNumber: z.string(),
           historyId: z.number().int().positive().optional(),
           items: z.array(z.object({
@@ -4845,11 +4865,6 @@ export const inventoryRouter = router({
         })),
       }))
       .mutation(async ({ input, ctx }) => {
-        function detectSheetName(deliveryNo: string): "独発送管理" | "サミー発送管理" {
-          const lower = deliveryNo.toLowerCase();
-          if (lower.includes("samee") || lower.includes("sami") || lower.includes("sammy")) return "サミー発送管理";
-          return "独発送管理";
-        }
         type MergeItem = { productNameJa: string; productNameEn: string; quantity: number };
         const results: Array<{ deliveryNo: string; sheetName: string; trackingNumber: string; id: number; success: boolean; message: string }> = [];
         const gasUrl = process.env.GAS_WEBHOOK_URL;
@@ -4879,7 +4894,7 @@ export const inventoryRouter = router({
         const allRecords = await getAllFedexShipments();
 
         for (const shipment of input.shipments) {
-          const sheetName = detectSheetName(shipment.deliveryNo);
+          const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
           // 同一追跡番号の既存記録を確認
           const sameTracking = allRecords.filter((r) => r.trackingNumber === shipment.trackingNumber);
 
@@ -5146,9 +5161,11 @@ export const inventoryRouter = router({
           // 取引先フィルタリング（シート名と取引先を照合）
           const isLuca = sheetName === "独発送管理";
           const isSamee = sheetName === "サミー発送管理";
+          const isDevon = sheetName === "デボン発送管理";
           const partnerLower = partner.toLowerCase();
           if (isLuca && !partnerLower.includes("ルカ") && !partnerLower.includes("luca")) continue;
           if (isSamee && !partnerLower.includes("サミ") && !partnerLower.includes("samm") && !partnerLower.includes("same")) continue;
+          if (isDevon && !partnerLower.includes("デボン") && !partnerLower.includes("devon")) continue;
           if (!csvData[invoiceNo]) csvData[invoiceNo] = { paymentDate, products: [] };
           if (productName) csvData[invoiceNo].products.push({ name: productName, qty: orderQty });
         }

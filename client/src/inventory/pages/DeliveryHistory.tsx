@@ -57,6 +57,26 @@ export interface HistoryItem {
   inventoryId: number;
   title: string;
   quantity: number;
+  managementNo?: string;
+}
+
+type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理";
+
+const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理"];
+
+function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
+  const haystack = texts.filter(Boolean).join(" ").toLowerCase();
+  if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
+    return "サミー発送管理";
+  }
+  return "独発送管理";
+}
+
+function sheetBadgeClass(sheetName: ShipmentSheetName) {
+  if (sheetName === "デボン発送管理") return "bg-amber-100 text-amber-700 border-amber-200";
+  if (sheetName === "サミー発送管理") return "bg-purple-100 text-purple-700 border-purple-200";
+  return "bg-blue-100 text-blue-700 border-blue-200";
 }
 
 interface CancelledItem {
@@ -217,7 +237,7 @@ function buildGroupDeliveredSummary(
 function getManagementNo(etc: string | undefined): string {
   if (!etc) return "";
   const raw = etc.split(",")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw)) return raw;
+  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw) || /デボン|devon/i.test(raw)) return raw;
   return "";
 }
 
@@ -778,7 +798,7 @@ export function FedexShipmentDialog({
   groupKey: string;
   groupItems: HistoryItem[];
   onSubmit: (data: {
-    sheetName: "独発送管理" | "サミー発送管理";
+    sheetName: ShipmentSheetName;
     shippingDate: string;
     trackingNumber: string;
     items: Array<{ productNameJa: string; productNameEn: string; quantity: number }>;
@@ -788,7 +808,11 @@ export function FedexShipmentDialog({
 }) {
   const today = new Date();
   const defaultDate = `${today.getMonth() + 1}/${today.getDate()}`;
-  const [sheetName, setSheetName] = useState<"独発送管理" | "サミー発送管理">("独発送管理");
+  const autoSheetName = useMemo(
+    () => detectShipmentSheetName(groupKey, ...groupItems.map((item) => item.managementNo)),
+    [groupKey, groupItems]
+  );
+  const [sheetName, setSheetName] = useState<ShipmentSheetName>(autoSheetName);
   const [shippingDate, setShippingDate] = useState(defaultDate);
   const [trackingNumber, setTrackingNumber] = useState("");
   // 商品ごとの発送数（inventoryId -> quantity）
@@ -807,7 +831,8 @@ export function FedexShipmentDialog({
       init[item.inventoryId] = item.quantity;
     }
     setItemQuantities(init);
-  }, [groupItems]);
+    if (open) setSheetName(autoSheetName);
+  }, [groupItems, open, autoSheetName]);
 
   function handleSubmit() {
     if (!shippingDate.trim()) {
@@ -863,13 +888,14 @@ export function FedexShipmentDialog({
           {/* シート選択 */}
           <div className="space-y-1.5">
             <Label className="text-sm font-medium">書き込み先シート</Label>
-            <Select value={sheetName} onValueChange={(v) => setSheetName(v as "独発送管理" | "サミー発送管理")}>
+            <Select value={sheetName} onValueChange={(v) => setSheetName(v as ShipmentSheetName)}>
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="独発送管理">独発送管理</SelectItem>
-                <SelectItem value="サミー発送管理">サミー発送管理</SelectItem>
+                {SHIPMENT_SHEET_NAMES.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -1114,6 +1140,7 @@ function FedexBatchDialog({
   selectedGroupKeys,
   groupedHistories,
   csvProductsMap,
+  inventoryManagementMap,
   initialShippingDate,
   initialTrackingNumber,
   onSubmit,
@@ -1124,9 +1151,10 @@ function FedexBatchDialog({
   selectedGroupKeys: string[];
   groupedHistories: GroupedHistoryEntry[];
   csvProductsMap: Map<string, Array<{ name: string; qty: number }>>;
+  inventoryManagementMap: Map<number, string>;
   initialShippingDate?: string;
   initialTrackingNumber?: string;
-  onSubmit: (shippingDate: string, shipments: Array<{ deliveryNo: string; trackingNumber: string; historyId?: number; items: Array<{ productNameJa: string; productNameEn: string; quantity: number }> }>) => void;
+  onSubmit: (shippingDate: string, shipments: Array<{ deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; historyId?: number; items: Array<{ productNameJa: string; productNameEn: string; quantity: number }> }>) => void;
   isPending: boolean;
 }) {
   const today = new Date();
@@ -1136,7 +1164,7 @@ function FedexBatchDialog({
 
   // グループごとの編集可能な商品リスト
   type EditableItem = { productNameJa: string; productNameEn: string; quantity: number };
-  type GroupItems = { deliveryNo: string; sheetLabel: string; historyId?: number; items: EditableItem[] };
+  type GroupItems = { deliveryNo: string; sheetLabel: ShipmentSheetName; historyId?: number; items: EditableItem[] };
   const [editableGroups, setEditableGroups] = useState<GroupItems[]>([]);
 
   // ダイアログが開くたびに初期値をセット
@@ -1151,9 +1179,7 @@ function FedexBatchDialog({
       const entry = groupedHistories.find(([k]) => k === key);
       if (!entry) {
         // エントリが見つからない場合はキーそのものをdeliveryNoとして追加
-        const lower = key.toLowerCase();
-        const sheetLabel = (lower.includes("samee") || lower.includes("sami") || lower.includes("sammy"))
-          ? "サミー発送管理" : "独発送管理";
+        const sheetLabel = detectShipmentSheetName(key);
         groups.push({ deliveryNo: key, sheetLabel, historyId: undefined, items: [] });
         continue;
       }
@@ -1167,15 +1193,18 @@ function FedexBatchDialog({
       const csvProducts = csvProductsMap.get(key) ?? [];
       // 出庫Noごとにサブグループを作成
       for (const [dn, dnEntries] of Array.from(byDeliveryNo.entries())) {
-        const allItems: HistoryItem[] = dnEntries.flatMap((e: { historyId: number; items: HistoryItem[] }) => e.items);
+        const allItems: HistoryItem[] = dnEntries
+          .flatMap((e: { historyId: number; items: HistoryItem[] }) => e.items)
+          .map((item) => ({
+            ...item,
+            managementNo: item.managementNo || inventoryManagementMap.get(item.inventoryId) || "",
+          }));
         const aggregated = aggregateItemsByCsvProducts(csvProducts, allItems);
         const items: EditableItem[] = aggregated
           .filter((a) => a.deliveredQty > 0)
           .map((a) => ({ productNameJa: a.csvName, productNameEn: a.csvName, quantity: a.deliveredQty }));
         const historyId = dnEntries[0]?.historyId;
-        const lower = dn.toLowerCase();
-        const sheetLabel = (lower.includes("samee") || lower.includes("sami") || lower.includes("sammy"))
-          ? "サミー発送管理" : "独発送管理";
+        const sheetLabel = detectShipmentSheetName(dn, ...allItems.map((item) => item.managementNo));
         groups.push({ deliveryNo: dn, sheetLabel, historyId, items });
       }
     }
@@ -1208,6 +1237,7 @@ function FedexBatchDialog({
     const shipments = editableGroups
       .map((g) => ({
         deliveryNo: g.deliveryNo,
+        sheetName: g.sheetLabel,
         trackingNumber: trackingNumber.trim(),
         historyId: g.historyId,
         items: g.items.filter((it) => it.quantity > 0),
@@ -1274,7 +1304,7 @@ function FedexBatchDialog({
                   })()}
                   <span className="text-xs font-bold text-foreground">{groupQty}台</span>
                 </div>
-                <Badge className={`text-xs border ${group.sheetLabel === "独発送管理" ? "bg-blue-100 text-blue-700 border-blue-200" : "bg-purple-100 text-purple-700 border-purple-200"}`}>
+                <Badge className={`text-xs border ${sheetBadgeClass(group.sheetLabel)}`}>
                   {group.sheetLabel}
                 </Badge>
               </div>
@@ -1377,6 +1407,18 @@ export default function DeliveryHistory() {
   const { data: histories, isLoading, refetch } = trpc.inventory.deliveryHistory.list.useQuery({ limit: 200 });
   // 在庫一覧を取得して削除済商品を自動検出
   const { data: inventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, { enabled: loadHistoryDetails });
+  const inventoryManagementMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const inv of (inventories ?? []) as Array<{ id: number; etc?: string }>) {
+      map.set(inv.id, getManagementNo(inv.etc));
+    }
+    return map;
+  }, [inventories]);
+  const withManagementNos = (items: HistoryItem[]) =>
+    items.map((item) => ({
+      ...item,
+      managementNo: item.managementNo || inventoryManagementMap.get(item.inventoryId) || "",
+    }));
   // 発注管理サマリー（csvProductsをグループヘッダーに表示するため）
   const { data: orderSummary } = trpc.inventory.orderManagement.getSummary.useQuery(undefined, { enabled: loadHistoryDetails });
   // インボイスNo -> csvProductsのマップ
@@ -2035,7 +2077,7 @@ export default function DeliveryHistory() {
             // CSV発注商品名（グループヘッダーに表示）
             const groupCsvProducts = csvProductsMap.get(groupKey) ?? [];
             // 全グループの全アイテムを結合
-            const allGroupItems: HistoryItem[] = groupHistories.flatMap((h) => h.items as HistoryItem[]);
+            const allGroupItems: HistoryItem[] = withManagementNos(groupHistories.flatMap((h) => h.items as HistoryItem[]));
             // 精密照合ロジックでCSV発注商品ごとの出庫数を集計
             const _groupDeliveredByProduct = buildGroupDeliveredSummary(groupCsvProducts, allGroupItems);
             // CSV商品がない場合は実際の出庫商品名でサマリーを作成
@@ -2081,7 +2123,7 @@ export default function DeliveryHistory() {
                 const gCsvPriceRows = csvPriceMap.get(gKey) ?? [];
                 const gPartner = gCsvPriceRows[0]?.partner ?? "";
                 const gIsSamee = gPartner.toLowerCase().includes("samee") || gPartner.toLowerCase().includes("sami") || gPartner.toLowerCase().includes("sammy");
-                const gAllItems: HistoryItem[] = gHistories.flatMap((h) => h.items as HistoryItem[]);
+                const gAllItems: HistoryItem[] = withManagementNos(gHistories.flatMap((h) => h.items as HistoryItem[]));
                 const gCsvProducts = csvProductsMap.get(gKey) ?? [];
                 const gDelivered = buildGroupDeliveredSummary(gCsvProducts, gAllItems);
                 for (const csvRow of gCsvPriceRows) {
@@ -2228,7 +2270,7 @@ export default function DeliveryHistory() {
               ? (JSON.parse(history.cancelledItemsJson as string) as CancelledItem[])
               : [];
             const cancelledIds = new Set(cancelledItems.map((c) => c.inventoryId));
-            const allItems = history.items as HistoryItem[];
+            const allItems = withManagementNos(history.items as HistoryItem[]);
             const cancelableItems = allItems.filter(
               (item) => !deletedIds.has(item.inventoryId) && !cancelledIds.has(item.inventoryId)
             );
@@ -2829,6 +2871,7 @@ export default function DeliveryHistory() {
         selectedGroupKeys={Array.from(fedexSelectedGroups)}
         groupedHistories={groupedHistories}
         csvProductsMap={csvProductsMap}
+        inventoryManagementMap={inventoryManagementMap}
         initialShippingDate={fedexBarShippingDate}
         initialTrackingNumber={fedexBarTrackingNumber}
         onSubmit={(shippingDate, shipments) => {
