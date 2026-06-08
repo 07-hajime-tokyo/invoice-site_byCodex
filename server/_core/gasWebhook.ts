@@ -131,11 +131,27 @@ function resolveSupplierName(supplier?: string | null, supplierDetail?: string |
 function resolveWebhookCategory(
   productName: string,
   incomingCategory: string,
-  ...context: Array<string | null | undefined>
 ): string | null {
   const incoming = incomingCategory.trim();
-  const detected = getCategoryFromProductContext(productName, ...context);
-  if (!incoming || incoming === "ゲーム" || incoming === "未分類") return detected;
+  const normalizedIncoming = incoming.toLowerCase();
+  const isUncategorized =
+    !incoming ||
+    incoming === "未分類" ||
+    incoming === "未設定" ||
+    incoming === "なし" ||
+    incoming === "-" ||
+    incoming === "ー" ||
+    normalizedIncoming === "uncategorized" ||
+    normalizedIncoming === "none" ||
+    normalizedIncoming === "null" ||
+    normalizedIncoming === "undefined";
+
+  if (isUncategorized) {
+    const detectedFromProductName = getCategoryFromProductContext(productName);
+    return detectedFromProductName === "ゴルフ" ? "ゴルフ" : "未分類";
+  }
+
+  if (incoming === "ゲーム") return getCategoryFromProductContext(productName);
   return incoming;
 }
 
@@ -263,9 +279,6 @@ export function registerGasWebhookRoutes(app: Express) {
       const category = resolveWebhookCategory(
         title,
         textField(payload, stringKeys.category),
-        supplierName,
-        supplierDetail,
-        supplierUrl,
       );
       const purchaseNum = textField(payload, stringKeys.purchaseNum);
       const receivedDate = textField(payload, stringKeys.receivedDate) || todayJst();
