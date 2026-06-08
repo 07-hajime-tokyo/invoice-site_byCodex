@@ -95,8 +95,8 @@ interface EditState {
   note: string;
   supplierName: string;
   supplierUrl: string;
-  // 商品別編集: inventory_id -> { unitPrice, managementNo, estimatedDate, category }
-  itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string; category: string }>;
+  // 商品別編集: inventory_id -> { title, unitPrice, managementNo, estimatedDate, category }
+  itemEdits: Record<number, { title: string; unitPrice: string; managementNo: string; estimatedDate: string; category: string }>;
 }
 
 const CARRIER_OPTIONS = [
@@ -708,10 +708,11 @@ export default function Purchases() {
 
   function startEdit(purchase: Purchase) {
     setEditingId(purchase.id);
-    const itemEdits: Record<number, { unitPrice: string; managementNo: string; estimatedDate: string; category: string }> = {};
+    const itemEdits: EditState["itemEdits"] = {};
     for (const item of purchase.purchase_items) {
       const { managementNo } = parseEtc(item.etc);
       itemEdits[item.inventory_id] = {
+        title: item.title ?? "",
         unitPrice: item.unit_price ? String(item.unit_price) : "",
         managementNo,
         estimatedDate: item.estimated_purchase_date ?? "",
@@ -738,6 +739,15 @@ export default function Purchases() {
 
   async function saveEdit(purchaseId: number, purchase: Purchase) {
     try {
+      const blankTitle = purchase.purchase_items.find((item) => {
+        const edit = editState.itemEdits[item.inventory_id];
+        return edit && edit.title.trim() === "";
+      });
+      if (blankTitle) {
+        toast.error("商品名は空欄にできません");
+        return;
+      }
+
       // 入庫補足情報（発送日・追跡番号・備考）を保存
       await upsertExtraMutation.mutateAsync({
         zaicoId: purchaseId,
@@ -760,9 +770,12 @@ export default function Purchases() {
             : item.etc ?? "";
           const nextCategory = edit.category.trim();
           const currentCategory = item.category || "";
+          const nextTitle = edit.title.trim();
+          const currentTitle = item.title || "";
           return {
             ...(item.id > 0 && { id: item.id }),
             inventoryId: item.inventory_id,
+            ...(nextTitle !== currentTitle && { title: nextTitle }),
             ...(edit.unitPrice !== "" && { unitPrice: parseFloat(edit.unitPrice) }),
             ...(edit.estimatedDate !== "" && { estimatedPurchaseDate: edit.estimatedDate }),
             ...(newManagementNo !== parseEtc(item.etc).managementNo && { etc: newEtc }),
@@ -1368,21 +1381,38 @@ export default function Purchases() {
                         return (
                           <tr key={idx} className="border-b last:border-0 hover:bg-muted/10">
                             <td data-label="商品名" className="px-4 py-2">
-                              <div>{item.title}</div>
                               {isEditing && itemEdit && (
-                                <div className="mt-1">
-                                  <label className="text-xs text-muted-foreground">管理番号</label>
-                                  <Input
-                                    type="text"
-                                    value={itemEdit.managementNo}
-                                    onChange={(e) => setEditState((s) => ({
-                                      ...s,
-                                      itemEdits: { ...s.itemEdits, [item.inventory_id]: { ...itemEdit, managementNo: e.target.value } }
-                                    }))}
-                                    className="h-7 text-xs mt-0.5"
-                                    placeholder="管理番号"
-                                  />
+                                <div className="space-y-1.5">
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">商品名</label>
+                                    <Input
+                                      type="text"
+                                      value={itemEdit.title}
+                                      onChange={(e) => setEditState((s) => ({
+                                        ...s,
+                                        itemEdits: { ...s.itemEdits, [item.inventory_id]: { ...itemEdit, title: e.target.value } }
+                                      }))}
+                                      className="h-7 text-xs mt-0.5 min-w-[220px]"
+                                      placeholder="商品名"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">管理番号</label>
+                                    <Input
+                                      type="text"
+                                      value={itemEdit.managementNo}
+                                      onChange={(e) => setEditState((s) => ({
+                                        ...s,
+                                        itemEdits: { ...s.itemEdits, [item.inventory_id]: { ...itemEdit, managementNo: e.target.value } }
+                                      }))}
+                                      className="h-7 text-xs mt-0.5 min-w-[220px]"
+                                      placeholder="管理番号"
+                                    />
+                                  </div>
                                 </div>
+                              )}
+                              {!isEditing && (
+                                <div>{item.title}</div>
                               )}
                             </td>
                             <td data-label="カテゴリ" className="px-4 py-2">

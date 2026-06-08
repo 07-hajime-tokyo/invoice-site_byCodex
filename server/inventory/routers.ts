@@ -1353,6 +1353,7 @@ export const inventoryRouter = router({
         purchaseItems: z.array(z.object({
           id: z.number().int().nonnegative().optional(),
           inventoryId: z.number().int().positive(),
+          title: z.string().min(1).max(500).optional(),
           unitPrice: z.number().optional(),
           quantity: z.number().optional(),
           estimatedPurchaseDate: z.string().optional(),
@@ -1405,6 +1406,14 @@ export const inventoryRouter = router({
                 await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, lp.localInventoryId));
               }
             }
+            if (firstItem?.title !== undefined) {
+              const nextTitle = firstItem.title.trim();
+              (lpUpdateData as Record<string, unknown>).title = nextTitle;
+              updateFirstItemJson({ title: nextTitle });
+              if (lp.localInventoryId) {
+                await db.update(liTbl).set({ title: nextTitle }).where(eq(liTbl.id, lp.localInventoryId));
+              }
+            }
             if (firstItem?.etc !== undefined) {
               lpUpdateData.managementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
               updateFirstItemJson({ etc: firstItem.etc });
@@ -1444,7 +1453,7 @@ export const inventoryRouter = router({
         }
         await updatePurchase(input.purchaseId, payload, operatorToken);
         if (input.purchaseItems) {
-          const itemsWithInventoryChanges = input.purchaseItems.filter((item) => item.unitPrice !== undefined || item.category !== undefined);
+          const itemsWithInventoryChanges = input.purchaseItems.filter((item) => item.title !== undefined || item.unitPrice !== undefined || item.category !== undefined);
           await Promise.all(
             itemsWithInventoryChanges.map(async (item) => {
               try {
@@ -1452,7 +1461,7 @@ export const inventoryRouter = router({
                 await updateInventory(
                   item.inventoryId,
                   {
-                    title: inv.title,
+                    title: item.title ?? inv.title,
                     quantity: String(inv.quantity ?? 0),
                     unit: inv.unit ?? undefined,
                     category: item.category !== undefined
