@@ -4805,6 +4805,23 @@ export const inventoryRouter = router({
           const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
           const invoiceNoMatch = record.deliveryNo.match(/^(\d+)/);
           const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1] : record.deliveryNo;
+          const postGas = async (payload: Record<string, unknown>): Promise<{ success: boolean; message?: string }> => {
+            const res1 = await fetch(gasUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+              redirect: "manual",
+            });
+            let text: string;
+            if (res1.status === 302 || res1.status === 301) {
+              const redirectUrl = res1.headers.get("location") ?? gasUrl;
+              const res2 = await fetch(redirectUrl, { method: "GET" });
+              text = await res2.text();
+            } else {
+              text = await res1.text();
+            }
+            try { return JSON.parse(text); } catch { return { success: false, message: text }; }
+          };
           const payload = {
             secret,
             action: "updateShipmentBatch",
@@ -4815,22 +4832,19 @@ export const inventoryRouter = router({
             invoiceNo,
             items: input.items,
           };
-          const res1 = await fetch(gasUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            redirect: "manual",
-          });
-          let text: string;
-          if (res1.status === 302 || res1.status === 301) {
-            const redirectUrl = res1.headers.get("location") ?? gasUrl;
-            const res2 = await fetch(redirectUrl, { method: "GET" });
-            text = await res2.text();
-          } else {
-            text = await res1.text();
+          let result = await postGas(payload);
+          if (!result.success && /見つかりません|not\s*found/i.test(result.message ?? "")) {
+            result = await postGas({
+              secret,
+              action: "writeShipmentBatch",
+              deliveryNo: record.deliveryNo,
+              invoiceNo,
+              sheetName: record.sheetName,
+              shippingDate: input.shippingDate,
+              trackingNumber: input.trackingNumber,
+              items: input.items,
+            });
           }
-          let result: { success: boolean; message?: string };
-          try { result = JSON.parse(text); } catch { result = { success: false, message: text }; }
           if (result.success) {
             await updateFedexShipment(input.id, { spreadsheetStatus: "success", spreadsheetError: null });
             return { success: true, message: "発送情報を更新しました" };
