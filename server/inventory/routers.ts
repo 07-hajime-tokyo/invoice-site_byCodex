@@ -4653,17 +4653,8 @@ export const inventoryRouter = router({
           });
           // 既存の山積み記録の山積み分（2件目以降）を削除
           for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
-          // 新規出庫履歴にhistoryIdを結び付ける場合は既存記録のhistoryIdも更新
-          if (input.historyId) {
-            await updateFedexShipment(keepId, { spreadsheetStatus: "pending" });
-            // historyIdは新しい出庫履歴に結び付ける（既存記録のhistoryIdはそのまま保持）
-            // 合算後は新しいhistoryIdで上書き
-            const db2 = await (await import("./db")).getDb();
-            if (db2) {
-              const { fedexShipments: fs } = await import("../../drizzle/schema");
-              await db2.update(fs).set({ historyId: input.historyId }).where((await import("drizzle-orm")).eq(fs.id, keepId));
-            }
-          }
+          // Keep the displayed delivery number and linked history in sync after merging.
+          await updateFedexShipmentHistoryAndDeliveryNo(keepId, input.historyId ?? null, input.deliveryNo);
           // スプシを削除→再登録
           await callGasDelete();
           const gasResult = await callGasWrite(mergedItems);
@@ -4803,8 +4794,13 @@ export const inventoryRouter = router({
         }
         try {
           const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
-          const invoiceNoMatch = record.deliveryNo.match(/^(\d+)/);
-          const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1] : record.deliveryNo;
+          const history = record.historyId ? await getDeliveryHistoryById(record.historyId).catch(() => null) : null;
+          const deliveryNoForGas = history?.deliveryNo?.trim() || record.deliveryNo;
+          if (deliveryNoForGas !== record.deliveryNo) {
+            await updateFedexShipmentHistoryAndDeliveryNo(input.id, record.historyId ?? null, deliveryNoForGas);
+          }
+          const invoiceNoMatch = deliveryNoForGas.match(/^(\d+)/);
+          const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1] : deliveryNoForGas;
           const postGas = async (payload: Record<string, unknown>): Promise<{ success: boolean; message?: string }> => {
             const res1 = await fetch(gasUrl, {
               method: "POST",
@@ -4837,7 +4833,7 @@ export const inventoryRouter = router({
             result = await postGas({
               secret,
               action: "writeShipmentBatch",
-              deliveryNo: record.deliveryNo,
+              deliveryNo: deliveryNoForGas,
               invoiceNo,
               sheetName: record.sheetName,
               shippingDate: input.shippingDate,
@@ -4933,13 +4929,7 @@ export const inventoryRouter = router({
             const keepId = sameTracking[0].id;
             await updateFedexShipment(keepId, { sheetName, shippingDate: input.shippingDate, itemsJson: JSON.stringify(mergedItems), spreadsheetStatus: "pending" });
             for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
-            if (shipment.historyId) {
-              const db2 = await (await import("./db")).getDb();
-              if (db2) {
-                const { fedexShipments: fs } = await import("../../drizzle/schema");
-                await db2.update(fs).set({ historyId: shipment.historyId }).where((await import("drizzle-orm")).eq(fs.id, keepId));
-              }
-            }
+            await updateFedexShipmentHistoryAndDeliveryNo(keepId, shipment.historyId ?? null, shipment.deliveryNo);
             await callGasBatchDelete(sheetName, shipment.trackingNumber);
             const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, mergedItems);
             if (gasResult.success) {
