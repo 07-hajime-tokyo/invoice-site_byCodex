@@ -320,6 +320,117 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
     .sort((a, b) => Number(a.invoiceNo) - Number(b.invoiceNo));
 }
 
+type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number };
+
+function invoiceNoFromDeliveryNo(deliveryNo: string): string {
+  return deliveryNo.match(/^(\d+)/)?.[1] ?? deliveryNo;
+}
+
+function compactShipmentName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[　\s・･_\-ー]/g, "")
+    .replace(/ニンテンドー|nintendo/g, "")
+    .replace(/カラー/g, "color")
+    .trim();
+}
+
+function isRandomShipmentName(value: string): boolean {
+  const target = compactShipmentName(value);
+  return target.includes("ランダム") || target.includes("random") || target.includes("ramdom");
+}
+
+function shipmentModelKey(value: string): string {
+  const target = compactShipmentName(value);
+  if (/new3ds(ll|xl)|n3ds(ll|xl)/.test(target)) return "new3dsll";
+  if (/new2ds(ll|xl)|n2ds(ll|xl)/.test(target)) return "new2dsll";
+  if (/new3ds|n3ds/.test(target)) return "new3ds";
+  if (/(^|[^a-z])3ds(ll|xl)/.test(target) || target.includes("3dsll")) return "3dsll";
+  if (target.includes("3ds")) return "3ds";
+  if (target.includes("vita2000") || target.includes("psvita2000") || target.includes("pch2000")) return "vita2000";
+  if (target.includes("vita1000") || target.includes("psvita1000") || target.includes("pch1000") || target.includes("pch1100")) return "vita1000";
+  if (target.includes("switchlite")) return "switchlite";
+  if (target.includes("switch")) return "switch";
+  if (target.includes("psp3000")) return "psp3000";
+  if (target.includes("psp2000")) return "psp2000";
+  if (target.includes("psp1000")) return "psp1000";
+  if (target.includes("psp")) return "psp";
+  if (target.includes("dsi")) return target.includes("ll") ? "dsill" : "dsi";
+  if (target.includes("dslite")) return "dslite";
+  return target;
+}
+
+function shipmentColorTokens(value: string): Set<string> {
+  const target = compactShipmentName(value);
+  const tokens = new Set<string>();
+  const pairs: Array<[string, string]> = [
+    ["ブラック", "black"], ["黒", "black"], ["black", "black"],
+    ["ホワイト", "white"], ["白", "white"], ["white", "white"],
+    ["ブルー", "blue"], ["青", "blue"], ["blue", "blue"],
+    ["レッド", "red"], ["赤", "red"], ["red", "red"],
+    ["ピンク", "pink"], ["pink", "pink"],
+    ["ミント", "mint"], ["mint", "mint"],
+    ["ライム", "lime"], ["lime", "lime"],
+    ["ターコイズ", "turquoise"], ["turquoise", "turquoise"],
+    ["ラベンダー", "lavender"], ["lavender", "lavender"],
+    ["シルバー", "silver"], ["silver", "silver"],
+    ["ゴールド", "gold"], ["gold", "gold"],
+    ["グレー", "gray"], ["gray", "gray"], ["grey", "gray"],
+    ["オレンジ", "orange"], ["orange", "orange"],
+    ["メタリック", "metallic"], ["metallic", "metallic"],
+  ];
+  for (const [needle, token] of pairs) {
+    if (target.includes(compactShipmentName(needle))) tokens.add(token);
+  }
+  return tokens;
+}
+
+function shipmentProductMatches(orderName: string, shippedName: string): boolean {
+  const orderModel = shipmentModelKey(orderName);
+  const shippedModel = shipmentModelKey(shippedName);
+  if (!orderModel || !shippedModel || orderModel !== shippedModel) return false;
+  if (isRandomShipmentName(orderName) || isRandomShipmentName(shippedName)) return true;
+
+  const orderColors = shipmentColorTokens(orderName);
+  const shippedColors = shipmentColorTokens(shippedName);
+  const orderCompact = compactShipmentName(orderName);
+  if (orderCompact.includes("other") || orderCompact.includes("その他") || orderCompact.includes("それ以外")) {
+    return true;
+  }
+  if (orderCompact.includes("base") || orderCompact.includes("ベース")) {
+    orderColors.delete("base");
+  }
+  if (orderColors.size === 0 || shippedColors.size === 0) return true;
+  for (const color of orderColors) {
+    if (color === "metallic") continue;
+    if (shippedColors.has(color)) return true;
+  }
+  return false;
+}
+
+async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentGasItem[]): Promise<ShipmentGasItem[]> {
+  const orderRows = (await getOrderRowsFromTradeRecords().catch(() => []))
+    .filter((row) => row.invoiceNo === invoiceNo && row.productName.trim());
+  if (orderRows.length === 0) return items;
+
+  const sortedRows = [...orderRows].sort((a, b) => {
+    const aRandom = isRandomShipmentName(a.productName) ? 1 : 0;
+    const bRandom = isRandomShipmentName(b.productName) ? 1 : 0;
+    return aRandom - bRandom || shipmentColorTokens(b.productName).size - shipmentColorTokens(a.productName).size;
+  });
+
+  const grouped = new Map<string, ShipmentGasItem>();
+  for (const item of items) {
+    const shippedName = item.productNameJa || item.productNameEn;
+    const match = sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
+    const name = match?.productName || item.productNameJa || item.productNameEn;
+    const current = grouped.get(name);
+    if (current) current.quantity += item.quantity;
+    else grouped.set(name, { productNameJa: name, productNameEn: name, quantity: item.quantity });
+  }
+  return Array.from(grouped.values()).filter((item) => item.quantity > 0);
+}
+
 const CATEGORY_SETTINGS_KEY = "inventory_categories";
 const ALL_CATEGORY_LABEL = "すべて";
 const UNCATEGORIZED_LABEL = "未分類";
@@ -2108,7 +2219,7 @@ export const inventoryRouter = router({
               if (!csvModel || !invModel || csvModel !== invModel) return false;
               const csvColor = extractColorKey(csvName);
               const invColor = extractColorKey(invTitle);
-              if (/\u30e9\u30f3\u30c0\u30e0|random/i.test(csvColor)) return true;
+              if (/\u30e9\u30f3\u30c0\u30e0|random|ramdom/i.test(csvColor)) return true;
               const baseMatch = csvColor.match(/^(.+?)\u30d9\u30fc\u30b9$/);
               if (baseMatch) {
                 const bc = baseMatch[1].trim().toLowerCase();
@@ -3127,7 +3238,7 @@ export const inventoryRouter = router({
       // カラーが「ランダムカラー」か判定
       function isRandomColorName(colorName: string): boolean {
         const c = colorName.toLowerCase();
-        return c.includes("ランダム") || c.includes("random");
+        return c.includes("ランダム") || c.includes("random") || c.includes("ramdom");
       }
 
       // カラーが「○○ベース」か判定し、ベース色を返す（例: "ホワイトベース" → "ホワイト"）
@@ -4588,9 +4699,11 @@ export const inventoryRouter = router({
         })),
       }))
       .mutation(async ({ input, ctx }) => {
-        type MergeItem = { productNameJa: string; productNameEn: string; quantity: number };
+        type MergeItem = ShipmentGasItem;
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
+        const invoiceNo = invoiceNoFromDeliveryNo(input.deliveryNo);
+        const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
 
         // GAS呼び出しヘルパー
         async function callGasWrite(items: MergeItem[]): Promise<{ success: boolean; message?: string }> {
@@ -4599,7 +4712,7 @@ export const inventoryRouter = router({
             const payload = {
               secret, action: "writeShipmentBatch",
               deliveryNo: input.deliveryNo,
-              invoiceNo: input.deliveryNo.match(/^(\d+)/)?.[1] ?? input.deliveryNo,
+              invoiceNo,
               sheetName: input.sheetName,
               shippingDate: input.shippingDate,
               trackingNumber: input.trackingNumber,
@@ -4612,18 +4725,9 @@ export const inventoryRouter = router({
             try { return JSON.parse(text); } catch { return { success: false, message: text }; }
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
         }
-        async function callGasDelete(): Promise<void> {
-          if (!gasUrl) return;
-          try {
-            const payload = { secret, action: "deleteShipmentBatch", sheetName: input.sheetName, trackingNumber: input.trackingNumber };
-            const res = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
-            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; await fetch(loc, { method: "GET" }); }
-          } catch { /* スプシ削除失敗は無視 */ }
-        }
-
-        // 同一追跡番号の既存記録を確認
+        // 同一追跡番号かつ同一出庫Noの既存記録を確認
         const allRecords = await getAllFedexShipments();
-        const sameTracking = allRecords.filter((r) => r.trackingNumber === input.trackingNumber);
+        const sameTracking = allRecords.filter((r) => r.trackingNumber === input.trackingNumber && r.deliveryNo === input.deliveryNo);
 
         if (sameTracking.length > 0) {
           // 自動合算: 既存記録と新規分をマージ
@@ -4637,7 +4741,7 @@ export const inventoryRouter = router({
               else mergedMap.set(key, { ...item });
             }
           }
-          for (const item of input.items) {
+          for (const item of gasItems) {
             const key = item.productNameJa;
             if (mergedMap.has(key)) mergedMap.get(key)!.quantity += item.quantity;
             else mergedMap.set(key, { ...item });
@@ -4655,8 +4759,6 @@ export const inventoryRouter = router({
           for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
           // Keep the displayed delivery number and linked history in sync after merging.
           await updateFedexShipmentHistoryAndDeliveryNo(keepId, input.historyId ?? null, input.deliveryNo);
-          // スプシを削除→再登録
-          await callGasDelete();
           const gasResult = await callGasWrite(mergedItems);
           if (gasResult.success) {
             await updateFedexShipmentStatus(keepId, "success");
@@ -4673,7 +4775,7 @@ export const inventoryRouter = router({
           sheetName: input.sheetName,
           shippingDate: input.shippingDate,
           trackingNumber: input.trackingNumber,
-          itemsJson: JSON.stringify(input.items),
+          itemsJson: JSON.stringify(gasItems),
           spreadsheetStatus: "pending",
           operatorName: ctx.user.name ?? ctx.user.email ?? "unknown",
           historyId: input.historyId ?? null,
@@ -4684,7 +4786,7 @@ export const inventoryRouter = router({
           return { id, success: false, message: "GAS_WEBHOOK_URL が未設定です。管理者に連絡してください。" };
         }
 
-        const gasResult = await callGasWrite(input.items);
+        const gasResult = await callGasWrite(gasItems);
         if (gasResult.success) {
           await updateFedexShipmentStatus(id, "success");
           return { id, success: true, message: "スプシへの書き込みが完了しました" };
@@ -4779,13 +4881,6 @@ export const inventoryRouter = router({
           return { success: false, message: "発送記録が見つかりません" };
         }
         const oldTrackingNumber = record.trackingNumber;
-        // DBを更新
-        await updateFedexShipment(input.id, {
-          trackingNumber: input.trackingNumber,
-          shippingDate: input.shippingDate,
-          itemsJson: JSON.stringify(input.items),
-          spreadsheetStatus: "pending",
-        });
         // GASを通じてスプシも更新
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         if (!gasUrl) {
@@ -4801,6 +4896,14 @@ export const inventoryRouter = router({
           }
           const invoiceNoMatch = deliveryNoForGas.match(/^(\d+)/);
           const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1] : deliveryNoForGas;
+          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
+          // DBを更新
+          await updateFedexShipment(input.id, {
+            trackingNumber: input.trackingNumber,
+            shippingDate: input.shippingDate,
+            itemsJson: JSON.stringify(gasItems),
+            spreadsheetStatus: "pending",
+          });
           const postGas = async (payload: Record<string, unknown>): Promise<{ success: boolean; message?: string }> => {
             const res1 = await fetch(gasUrl, {
               method: "POST",
@@ -4826,7 +4929,7 @@ export const inventoryRouter = router({
             trackingNumber: input.trackingNumber,
             shippingDate: input.shippingDate,
             invoiceNo,
-            items: input.items,
+            items: gasItems,
           };
           let result = await postGas(payload);
           if (!result.success && /見つかりません|not\s*found/i.test(result.message ?? "")) {
@@ -4838,7 +4941,7 @@ export const inventoryRouter = router({
               sheetName: record.sheetName,
               shippingDate: input.shippingDate,
               trackingNumber: input.trackingNumber,
-              items: input.items,
+              items: gasItems,
             });
           }
           if (result.success) {
@@ -4875,7 +4978,7 @@ export const inventoryRouter = router({
         })),
       }))
       .mutation(async ({ input, ctx }) => {
-        type MergeItem = { productNameJa: string; productNameEn: string; quantity: number };
+        type MergeItem = ShipmentGasItem;
         const results: Array<{ deliveryNo: string; sheetName: string; trackingNumber: string; id: number; success: boolean; message: string }> = [];
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
@@ -4883,7 +4986,7 @@ export const inventoryRouter = router({
         async function callGasBatchWrite(sheetName: string, deliveryNo: string, trackingNumber: string, items: MergeItem[]): Promise<{ success: boolean; message?: string }> {
           if (!gasUrl) return { success: false, message: "GAS_WEBHOOK_URLが未設定" };
           try {
-            const invoiceNo = deliveryNo.match(/^(\d+)/)?.[1] ?? deliveryNo;
+            const invoiceNo = invoiceNoFromDeliveryNo(deliveryNo);
             const payload = { secret, action: "writeShipmentBatch", deliveryNo, invoiceNo, sheetName, shippingDate: input.shippingDate, trackingNumber, items };
             const res = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
             let text: string;
@@ -4892,21 +4995,14 @@ export const inventoryRouter = router({
             try { return JSON.parse(text); } catch { return { success: false, message: text }; }
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
         }
-        async function callGasBatchDelete(sheetName: string, trackingNumber: string): Promise<void> {
-          if (!gasUrl) return;
-          try {
-            const payload = { secret, action: "deleteShipmentBatch", sheetName, trackingNumber };
-            const res = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
-            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; await fetch(loc, { method: "GET" }); }
-          } catch { /* スプシ削除失敗は無視 */ }
-        }
-
         const allRecords = await getAllFedexShipments();
 
         for (const shipment of input.shipments) {
           const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
-          // 同一追跡番号の既存記録を確認
-          const sameTracking = allRecords.filter((r) => r.trackingNumber === shipment.trackingNumber);
+          const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
+          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, shipment.items);
+          // 同一追跡番号かつ同一出庫Noの既存記録を確認
+          const sameTracking = allRecords.filter((r) => r.trackingNumber === shipment.trackingNumber && r.deliveryNo === shipment.deliveryNo);
 
           if (sameTracking.length > 0) {
             // 自動合算
@@ -4920,7 +5016,7 @@ export const inventoryRouter = router({
                 else mergedMap.set(key, { ...item });
               }
             }
-            for (const item of shipment.items) {
+            for (const item of gasItems) {
               const key = item.productNameJa;
               if (mergedMap.has(key)) mergedMap.get(key)!.quantity += item.quantity;
               else mergedMap.set(key, { ...item });
@@ -4930,7 +5026,6 @@ export const inventoryRouter = router({
             await updateFedexShipment(keepId, { sheetName, shippingDate: input.shippingDate, itemsJson: JSON.stringify(mergedItems), spreadsheetStatus: "pending" });
             for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
             await updateFedexShipmentHistoryAndDeliveryNo(keepId, shipment.historyId ?? null, shipment.deliveryNo);
-            await callGasBatchDelete(sheetName, shipment.trackingNumber);
             const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, mergedItems);
             if (gasResult.success) {
               await updateFedexShipmentStatus(keepId, "success");
@@ -4948,7 +5043,7 @@ export const inventoryRouter = router({
             sheetName,
             shippingDate: input.shippingDate,
             trackingNumber: shipment.trackingNumber,
-            itemsJson: JSON.stringify(shipment.items),
+            itemsJson: JSON.stringify(gasItems),
             spreadsheetStatus: "pending",
             operatorName: ctx.user.name ?? ctx.user.email ?? "unknown",
             historyId: shipment.historyId ?? null,
@@ -4958,7 +5053,7 @@ export const inventoryRouter = router({
             results.push({ deliveryNo: shipment.deliveryNo, sheetName, trackingNumber: shipment.trackingNumber, id, success: false, message: "GAS_WEBHOOK_URL が未設定です" });
             continue;
           }
-          const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, shipment.items);
+          const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, gasItems);
           if (gasResult.success) {
             await updateFedexShipmentStatus(id, "success");
             results.push({ deliveryNo: shipment.deliveryNo, sheetName, trackingNumber: shipment.trackingNumber, id, success: true, message: "書き込み完了" });

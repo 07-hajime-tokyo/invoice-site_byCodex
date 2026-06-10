@@ -164,6 +164,8 @@ const EN_COLOR_NORMALIZE: Record<string, string> = {
   "aqua": "Aqua",
   "random": "Random Color",
   "random color": "Random Color",
+  "ramdom": "Random Color",
+  "ramdom color": "Random Color",
 };
 
 /**

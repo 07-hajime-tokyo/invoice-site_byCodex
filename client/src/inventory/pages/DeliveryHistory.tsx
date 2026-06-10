@@ -986,7 +986,7 @@ type GroupedHistoryEntry = [string, Array<{
  */
 function isRandomColor(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower.includes("ランダム") || lower.includes("random");
+  return lower.includes("ランダム") || lower.includes("random") || lower.includes("ramdom");
 }
 
 /**
@@ -1003,8 +1003,8 @@ function extractModelName(name: string): string {
   const modelPatterns = [
     { pattern: /PS\s*Vita\s*2000|Vita\s*2000|VITA2000/i, canonical: "Vita2000" },
     { pattern: /PS\s*Vita\s*1[01][0-9][0-9]|Vita\s*1[01][0-9][0-9]|VITA1[01][0-9][0-9]/i, canonical: "Vita1000" },
-    { pattern: /New\s*2DS\s*LL|2DS\s*LL/i, canonical: "New2DSLL" },
-    { pattern: /New\s*3DS\s*LL|3DS\s*LL/i, canonical: "New3DSLL" },
+    { pattern: /New\s*2DS\s*LL|New2DSLL|N2DSLL/i, canonical: "New2DSLL" },
+    { pattern: /New\s*3DS\s*LL|New3DSLL|N3DSLL/i, canonical: "New3DSLL" },
     { pattern: /New\s*3DS(?!\s*LL)/i, canonical: "New3DS" },
     { pattern: /3DS\s*LL/i, canonical: "3DSLL" },
     { pattern: /3DS(?!\s*LL)/i, canonical: "3DS" },

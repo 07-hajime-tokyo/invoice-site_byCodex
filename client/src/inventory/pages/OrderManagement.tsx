@@ -255,7 +255,7 @@ function matchesModel(title: string, managementNo: string, model: string): boole
  */
 function isRandomColor(colorName: string): boolean {
   const c = colorName.toLowerCase();
-  return c.includes("ランダム") || c.includes("random");
+  return c.includes("ランダム") || c.includes("random") || c.includes("ramdom");
 }
 
 type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string };
