@@ -980,6 +980,20 @@ type GroupedHistoryEntry = [string, Array<{
   zaicoDeliveryId?: number | null;
 }>];
 
+function parseCancelledItems(cancelledItemsJson?: string | null): CancelledItem[] {
+  if (!cancelledItemsJson) return [];
+  try {
+    return JSON.parse(cancelledItemsJson) as CancelledItem[];
+  } catch {
+    return [];
+  }
+}
+
+function getActiveHistoryItems(history: { items: unknown; cancelledItemsJson?: string | null }): HistoryItem[] {
+  const cancelledIds = new Set(parseCancelledItems(history.cancelledItemsJson).map((item) => item.inventoryId));
+  return ((history.items as HistoryItem[]) ?? []).filter((item) => !cancelledIds.has(item.inventoryId));
+}
+
 /**
  * 商品名がランダムカラーかどうかを判定
  * 「ランダムカラー」「Random color」「random」等を含む場合はtrue
@@ -1188,7 +1202,7 @@ function FedexBatchDialog({
       for (const h of entry[1]) {
         const dn = h.deliveryNo;
         if (!byDeliveryNo.has(dn)) byDeliveryNo.set(dn, []);
-        byDeliveryNo.get(dn)!.push({ historyId: h.id, items: h.items as HistoryItem[] });
+        byDeliveryNo.get(dn)!.push({ historyId: h.id, items: getActiveHistoryItems(h) });
       }
       const csvProducts = csvProductsMap.get(key) ?? [];
       // 出庫Noごとにサブグループを作成
@@ -2073,11 +2087,11 @@ export default function DeliveryHistory() {
             const prevGroupDate = groupIdx > 0 ? new Date(pagedGroups[groupIdx - 1][1][0].createdAt).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
             const showDateHeader = groupDate !== prevGroupDate;
             const groupHasDeleted = groupHistories.some((h) => (h.deletedInventoryIds ?? []).length > 0);
-            const groupTotalItems = groupHistories.reduce((sum, h) => sum + (h.items as HistoryItem[]).length, 0);
+            const groupTotalItems = groupHistories.reduce((sum, h) => sum + getActiveHistoryItems(h).length, 0);
             // CSV発注商品名（グループヘッダーに表示）
             const groupCsvProducts = csvProductsMap.get(groupKey) ?? [];
             // 全グループの全アイテムを結合
-            const allGroupItems: HistoryItem[] = withManagementNos(groupHistories.flatMap((h) => h.items as HistoryItem[]));
+            const allGroupItems: HistoryItem[] = withManagementNos(groupHistories.flatMap((h) => getActiveHistoryItems(h)));
             // 精密照合ロジックでCSV発注商品ごとの出庫数を集計
             const _groupDeliveredByProduct = buildGroupDeliveredSummary(groupCsvProducts, allGroupItems);
             // CSV商品がない場合は実際の出庫商品名でサマリーを作成
@@ -2123,7 +2137,7 @@ export default function DeliveryHistory() {
                 const gCsvPriceRows = csvPriceMap.get(gKey) ?? [];
                 const gPartner = gCsvPriceRows[0]?.partner ?? "";
                 const gIsSamee = gPartner.toLowerCase().includes("samee") || gPartner.toLowerCase().includes("sami") || gPartner.toLowerCase().includes("sammy");
-                const gAllItems: HistoryItem[] = withManagementNos(gHistories.flatMap((h) => h.items as HistoryItem[]));
+                const gAllItems: HistoryItem[] = withManagementNos(gHistories.flatMap((h) => getActiveHistoryItems(h)));
                 const gCsvProducts = csvProductsMap.get(gKey) ?? [];
                 const gDelivered = buildGroupDeliveredSummary(gCsvProducts, gAllItems);
                 for (const csvRow of gCsvPriceRows) {
@@ -2266,9 +2280,7 @@ export default function DeliveryHistory() {
                 {isGroupOpen && groupHistories.map((history) => {
             const deletedIds = new Set(history.deletedInventoryIds ?? []);
             const hasDeletedItems = deletedIds.size > 0;
-            const cancelledItems: CancelledItem[] = history.cancelledItemsJson
-              ? (JSON.parse(history.cancelledItemsJson as string) as CancelledItem[])
-              : [];
+            const cancelledItems = parseCancelledItems(history.cancelledItemsJson as string | null);
             const cancelledIds = new Set(cancelledItems.map((c) => c.inventoryId));
             const allItems = withManagementNos(history.items as HistoryItem[]);
             const cancelableItems = allItems.filter(
