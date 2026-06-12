@@ -340,7 +340,9 @@ export default function Home() {
   // DB からデータを取得（フィルター・検索はサーバー側で処理）
   const { data: tradeData, isLoading, error, refetch } = trpc.trade.listFromDb.useQuery(tradeQueryInput, {
     enabled: activeTab === "trade" || hasOpenedTrade,
-    staleTime: 5 * 60_000,
+    staleTime: 20_000,
+    refetchInterval: activeTab === "trade" ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
   const dbRows = tradeData?.rows;
 

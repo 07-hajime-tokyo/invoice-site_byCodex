@@ -384,6 +384,144 @@ function isTradeViewSheet(sheet: { title: string; hidden?: boolean }) {
   return Boolean(sheet.title) && !sheet.hidden && sheet.title.includes(TRADE_VIEW_SHEET_NAME_KEYWORD);
 }
 
+type SheetShipmentProgress = {
+  invoiceNo: string;
+  productNameJa: string;
+  productNameEn: string;
+  orderedQty: number;
+  shippedQty: number;
+};
+
+let tradeShipmentProgressCache: {
+  expiresAt: number;
+  data: Map<string, SheetShipmentProgress[]>;
+} | null = null;
+
+function parseSheetQuantity(value: unknown) {
+  const text = String(value ?? "").replace(/,/g, "").trim();
+  if (!text) return 0;
+  const number = Number(text.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeSheetProductKey(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+async function getSheetShipmentProgressByInvoice() {
+  if (!canSyncTradeSheet()) return new Map<string, SheetShipmentProgress[]>();
+  const now = Date.now();
+  if (tradeShipmentProgressCache && tradeShipmentProgressCache.expiresAt > now) {
+    return tradeShipmentProgressCache.data;
+  }
+
+  const sheets = getSheetsClient();
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+    fields: "sheets.properties(title,index,hidden)",
+  }).catch((error) => {
+    throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+  });
+  const tabs = (metadata.data.sheets ?? [])
+    .map((sheet) => ({
+      title: sheet.properties?.title ?? "",
+      index: sheet.properties?.index ?? 0,
+      hidden: sheet.properties?.hidden ?? false,
+    }))
+    .filter(isTradeViewSheet)
+    .sort((a, b) => a.index - b.index);
+
+  if (tabs.length === 0) return new Map<string, SheetShipmentProgress[]>();
+
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+    ranges: tabs.map((tab) => `${quoteSheetName(tab.title)}!B:G`),
+    valueRenderOption: "FORMATTED_VALUE",
+  }).catch((error) => {
+    throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+  });
+
+  const progressByInvoice = new Map<string, SheetShipmentProgress[]>();
+  for (const valueRange of response.data.valueRanges ?? []) {
+    for (const row of valueRange.values ?? []) {
+      const invoiceNo = String(row[0] ?? "").trim();
+      if (!/^\d+$/.test(invoiceNo)) continue;
+      const orderedQty = parseSheetQuantity(row[4]);
+      const shippedQty = parseSheetQuantity(row[5]);
+      if (orderedQty <= 0 && shippedQty <= 0) continue;
+      const entries = progressByInvoice.get(invoiceNo) ?? [];
+      entries.push({
+        invoiceNo,
+        productNameJa: String(row[2] ?? "").trim(),
+        productNameEn: String(row[3] ?? "").trim(),
+        orderedQty,
+        shippedQty,
+      });
+      progressByInvoice.set(invoiceNo, entries);
+    }
+  }
+
+  tradeShipmentProgressCache = {
+    expiresAt: now + 20_000,
+    data: progressByInvoice,
+  };
+  return progressByInvoice;
+}
+
+function summarizeSheetShipmentProgress(entries: SheetShipmentProgress[], fallbackOrderedQty: number) {
+  const orderedQty = entries.reduce((sum, entry) => sum + entry.orderedQty, 0) || fallbackOrderedQty;
+  const shippedQty = entries.reduce((sum, entry) => sum + entry.shippedQty, 0);
+  return { orderedQty, shippedQty };
+}
+
+function getSheetShipmentStatus(
+  row: { no: number | null; productName: string | null; quantity: string | null },
+  entries: SheetShipmentProgress[] | undefined,
+  occurrenceIndex: number,
+) {
+  if (!entries?.length) return null;
+  const productKey = normalizeSheetProductKey(row.productName);
+  const matchedByProduct = productKey
+    ? entries.find((entry) => {
+        const jaKey = normalizeSheetProductKey(entry.productNameJa);
+        const enKey = normalizeSheetProductKey(entry.productNameEn);
+        return jaKey === productKey || enKey === productKey || jaKey.includes(productKey) || enKey.includes(productKey);
+      })
+    : undefined;
+  const fallback = entries[occurrenceIndex];
+  const selected = matchedByProduct ?? fallback;
+  const fallbackOrderedQty = parseSheetQuantity(row.quantity);
+  const progress = selected
+    ? {
+        orderedQty: selected.orderedQty || fallbackOrderedQty,
+        shippedQty: selected.shippedQty,
+      }
+    : summarizeSheetShipmentProgress(entries, fallbackOrderedQty);
+  if (progress.orderedQty <= 0) return null;
+  const remaining = Math.max(0, Math.round((progress.orderedQty - progress.shippedQty) * 100) / 100);
+  return remaining <= 0 ? "complete" : `残${Number.isInteger(remaining) ? remaining : remaining.toFixed(2)}`;
+}
+
+function applySheetShipmentStatuses<T extends { no: number | null; productName: string | null; quantity: string | null; status: string | null }>(
+  rows: T[],
+  progressByInvoice: Map<string, SheetShipmentProgress[]>,
+) {
+  if (progressByInvoice.size === 0) return rows;
+  const invoiceOccurrences = new Map<string, number>();
+  return rows.map((row) => {
+    if (row.no == null) return row;
+    const invoiceNo = String(row.no);
+    const occurrenceIndex = invoiceOccurrences.get(invoiceNo) ?? 0;
+    invoiceOccurrences.set(invoiceNo, occurrenceIndex + 1);
+    const status = getSheetShipmentStatus(row, progressByInvoice.get(invoiceNo), occurrenceIndex);
+    return status ? { ...row, status } : row;
+  });
+}
+
 async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({
@@ -1032,10 +1170,17 @@ export const appRouter = router({
             ? db.select(aggregateSelect).from(tradeRecords).where(whereClause)
             : db.select(aggregateSelect).from(tradeRecords),
         ]);
+        const sheetProgress = await getSheetShipmentProgressByInvoice().catch((error) => {
+          console.warn("[Trade] Failed to load sheet shipment progress", error);
+          return null;
+        });
+        const rowsWithSheetStatus = sheetProgress
+          ? applySheetShipmentStatuses(rows, sheetProgress)
+          : rows;
         const aggregate = aggregateRows[0] ?? {};
         const toNumber = (value: unknown) => Number(value ?? 0) || 0;
         return {
-          rows,
+          rows: rowsWithSheetStatus,
           totalCount: toNumber(aggregate.totalCount),
           summary: {
             totalProfit: toNumber(aggregate.totalProfit),
@@ -1255,6 +1400,7 @@ export const appRouter = router({
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
+        tradeShipmentProgressCache = null;
         return { success: true, cell };
       }),
 
