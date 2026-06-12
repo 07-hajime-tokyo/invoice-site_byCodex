@@ -48,6 +48,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
   const [activeSheet, setActiveSheet] = useState("独発送管理");
   const [maxRows, setMaxRows] = useState(140);
   const [startRow, setStartRow] = useState(1);
+  const [focusColumn, setFocusColumn] = useState<number | null>(null);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [highlightedCell, setHighlightedCell] = useState<HighlightedCell | null>(null);
 
@@ -61,12 +62,13 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
       setActiveSheet(tabs[0].title);
       setStartRow(1);
       setMaxRows(140);
+      setFocusColumn(null);
       setHighlightedCell(null);
     }
   }, [activeSheet, tabs]);
 
   const sheetQuery = trpc.trade.getSheetView.useQuery(
-    { sheetName: activeSheet, startRow, maxRows, maxColumns: 160 },
+    { sheetName: activeSheet, startRow, maxRows, maxColumns: 160, focusColumn: focusColumn ?? undefined },
     { enabled: !!activeSheet, staleTime: 30 * 1000 }
   );
 
@@ -92,13 +94,15 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
           return;
         }
         const nextStartRow = Math.max(1, result.row - 40);
+        const nextFocusColumn = result.focusColumn ?? result.column;
         setActiveSheet(result.sheetName);
         setStartRow(nextStartRow);
         setMaxRows(120);
+        setFocusColumn(nextFocusColumn);
         setHighlightedCell({
           sheetName: result.sheetName,
           row: result.row,
-          column: result.column,
+          column: nextFocusColumn,
           invoiceNo: jumpTarget.invoiceNo,
           nonce: jumpTarget.nonce,
         });
@@ -113,9 +117,10 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
 
   const rows = sheetQuery.data?.rows ?? [];
   const columnCount = sheetQuery.data?.columnCount ?? 8;
+  const columnIndexes = sheetQuery.data?.columnIndexes ?? Array.from({ length: columnCount }, (_, index) => index + 1);
   const columns = useMemo(
-    () => Array.from({ length: columnCount }, (_, i) => columnName(i + 1)),
-    [columnCount]
+    () => columnIndexes.map((columnIndex) => columnName(columnIndex)),
+    [columnIndexes]
   );
   const visibleStartRow = sheetQuery.data?.startRow ?? startRow;
   const visibleRowCount = sheetQuery.data?.rowCount ?? rows.length;
@@ -126,6 +131,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
     setActiveSheet(sheetName);
     setStartRow(1);
     setMaxRows(140);
+    setFocusColumn(null);
     setEditing(null);
     setHighlightedCell(null);
   };
@@ -147,7 +153,8 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
 
   const saveEditing = () => {
     if (!editing || !activeSheet || updateMutation.isPending) return;
-    const currentValue = rows[editing.row - visibleStartRow]?.[editing.column - 1] ?? "";
+    const columnOffset = columnIndexes.indexOf(editing.column);
+    const currentValue = columnOffset >= 0 ? rows[editing.row - visibleStartRow]?.[columnOffset] ?? "" : "";
     if (editing.value === currentValue) {
       setEditing(null);
       return;
@@ -248,14 +255,21 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
             <thead>
               <tr>
                 <th className="sticky left-0 top-0 z-30 h-7 w-10 min-w-10 border-b border-r border-border bg-muted text-[10px] text-muted-foreground" />
-                {columns.map((col) => (
+                {columns.map((col, visibleColIndex) => {
+                  const columnIndex = columnIndexes[visibleColIndex];
+                  const isFrozenColumn = columnIndex <= 7;
+                  return (
                   <th
                     key={col}
-                    className="sticky top-0 z-20 h-7 min-w-[88px] border-b border-r border-border bg-muted px-2 text-center text-[10px] font-semibold text-muted-foreground"
+                    className={`sticky top-0 h-7 min-w-[88px] border-b border-r border-border bg-muted px-2 text-center text-[10px] font-semibold text-muted-foreground ${
+                      isFrozenColumn ? "z-40" : "z-20"
+                    }`}
+                    style={isFrozenColumn ? { left: `${40 + visibleColIndex * 88}px` } : undefined}
                   >
                     {col}
                   </th>
-                ))}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -266,9 +280,10 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
                     <th className="sticky left-0 z-10 h-7 border-b border-r border-border bg-muted px-1 text-right text-[10px] font-medium text-muted-foreground">
                       {rowNumber}
                     </th>
-                    {columns.map((_, colIndex) => {
-                      const colNumber = colIndex + 1;
-                      const value = rows[rowIndex]?.[colIndex] ?? "";
+                    {columns.map((_, visibleColIndex) => {
+                      const colNumber = columnIndexes[visibleColIndex];
+                      const value = rows[rowIndex]?.[visibleColIndex] ?? "";
+                      const isFrozenColumn = colNumber <= 7;
                       const isEditing = editing?.row === rowNumber && editing.column === colNumber;
                       const isHighlightedRow = highlightedCell?.sheetName === activeSheet && highlightedCell.row === rowNumber;
                       const isHighlightedCell = isHighlightedRow && highlightedCell.column === colNumber;
@@ -278,6 +293,8 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
                           data-cell-row={rowNumber}
                           data-cell-column={colNumber}
                           className={`h-7 min-w-[88px] max-w-[180px] border-b border-r border-border px-1 align-middle ${
+                            isFrozenColumn ? "sticky z-20" : ""
+                          } ${
                             isEditing
                               ? "bg-amber-50"
                               : isHighlightedCell
@@ -286,6 +303,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
                                   ? "bg-emerald-50"
                                   : rowNumber <= 2 ? "bg-slate-50" : "bg-white hover:bg-teal-50/70"
                           }`}
+                          style={isFrozenColumn ? { left: `${40 + visibleColIndex * 88}px` } : undefined}
                           onDoubleClick={() => startEditing(rowNumber, colNumber, value)}
                         >
                           {isEditing ? (

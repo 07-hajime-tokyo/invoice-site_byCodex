@@ -983,31 +983,65 @@ export const appRouter = router({
         startRow: z.number().int().min(1).max(10000).optional().default(1),
         maxRows: z.number().int().min(10).max(300).optional().default(140),
         maxColumns: z.number().int().min(6).max(225).optional().default(140),
+        focusColumn: z.number().int().min(1).max(225).optional(),
       }))
       .query(async ({ input }) => {
         const sheetName = input.sheetName?.trim() || TRADE_VIEW_DEFAULT_SHEET_NAME;
         const { sheets, sheet } = await assertTradeSheetExists(sheetName, TRADE_VIEW_SPREADSHEET_ID);
-        const columnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, input.maxColumns);
+        const totalColumnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, 225);
         const totalRowCount = sheet.gridProperties?.rowCount ?? input.maxRows;
         const startRow = Math.min(input.startRow, Math.max(totalRowCount, 1));
         const rowCount = Math.min(input.maxRows, Math.max(totalRowCount - startRow + 1, 0));
         const endRow = Math.max(startRow, startRow + rowCount - 1);
-        const endColumn = spreadsheetColumnName(columnCount);
-        const response = await sheets.spreadsheets.values.get({
+
+        const focusColumn = input.focusColumn ? Math.min(input.focusColumn, totalColumnCount) : undefined;
+        const fixedEndColumn = Math.min(7, totalColumnCount);
+        const focusWindowStart = focusColumn && focusColumn > input.maxColumns
+          ? Math.max(fixedEndColumn + 1, focusColumn - 6)
+          : 0;
+        const focusWindowEnd = focusColumn && focusWindowStart > 0
+          ? Math.min(totalColumnCount, focusColumn + 10)
+          : 0;
+
+        const ranges = focusWindowStart > 0
+          ? [
+              { startColumn: 1, endColumn: fixedEndColumn },
+              { startColumn: focusWindowStart, endColumn: focusWindowEnd },
+            ]
+          : [
+              { startColumn: 1, endColumn: Math.min(totalColumnCount, input.maxColumns) },
+            ];
+        const response = await sheets.spreadsheets.values.batchGet({
           spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
-          range: `${quoteSheetName(sheetName)}!A${startRow}:${endColumn}${endRow}`,
+          ranges: ranges.map((range) => {
+            const startColumnName = spreadsheetColumnName(range.startColumn);
+            const endColumnName = spreadsheetColumnName(range.endColumn);
+            return `${quoteSheetName(sheetName)}!${startColumnName}${startRow}:${endColumnName}${endRow}`;
+          }),
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
-        const rawRows = response.data.values ?? [];
+        const columnIndexes = ranges.flatMap((range) =>
+          Array.from({ length: range.endColumn - range.startColumn + 1 }, (_, index) => range.startColumn + index)
+        );
+        const valueRanges = response.data.valueRanges ?? [];
+        const rows = Array.from({ length: rowCount }, (_, rowIndex) =>
+          valueRanges.flatMap((valueRange, rangeIndex) => {
+            const expectedLength = ranges[rangeIndex].endColumn - ranges[rangeIndex].startColumn + 1;
+            const row = valueRange.values?.[rowIndex] ?? [];
+            return Array.from({ length: expectedLength }, (_, columnIndex) => String(row[columnIndex] ?? ""));
+          })
+        );
         return {
           sheetName,
           startRow,
           rowCount,
           totalRowCount,
-          columnCount,
-          rows: rawRows.map((row) => row.slice(0, columnCount).map((cell) => String(cell ?? ""))),
+          columnCount: columnIndexes.length,
+          totalColumnCount,
+          columnIndexes,
+          rows,
         };
       }),
 
@@ -1039,7 +1073,7 @@ export const appRouter = router({
         const sheets = getSheetsClient();
         const metadata = await sheets.spreadsheets.get({
           spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
-          fields: "sheets.properties(title,index,hidden)",
+          fields: "sheets.properties(title,index,hidden,gridProperties(columnCount))",
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
@@ -1048,6 +1082,7 @@ export const appRouter = router({
             title: sheet.properties?.title ?? "",
             index: sheet.properties?.index ?? 0,
             hidden: sheet.properties?.hidden ?? false,
+            columnCount: sheet.properties?.gridProperties?.columnCount ?? 225,
           }))
           .filter(isTradeViewSheet)
           .sort((a, b) => a.index - b.index);
@@ -1066,11 +1101,27 @@ export const appRouter = router({
           for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             const cell = String(rows[rowIndex]?.[0] ?? "").trim();
             if (cell === invoiceNo) {
+              const rowNumber = rowIndex + 1;
+              const maxColumn = Math.min(tabs[tabIndex].columnCount || 225, 225);
+              const rowResponse = await sheets.spreadsheets.values.get({
+                spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+                range: `${quoteSheetName(tabs[tabIndex].title)}!A${rowNumber}:${spreadsheetColumnName(maxColumn)}${rowNumber}`,
+                valueRenderOption: "FORMATTED_VALUE",
+              }).catch((error) => {
+                throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+              });
+              const rowValues = rowResponse.data.values?.[0] ?? [];
+              const quantityCell = rowValues
+                .map((value, index) => ({ column: index + 1, value: String(value ?? "").trim() }))
+                .filter((entry) => entry.column > 7 && /^\d+(?:\.\d+)?$/.test(entry.value.replace(/,/g, "")) && Number(entry.value.replace(/,/g, "")) > 0)
+                .at(-1);
               return {
                 found: true as const,
                 sheetName: tabs[tabIndex].title,
-                row: rowIndex + 1,
+                row: rowNumber,
                 column: 2,
+                focusColumn: quantityCell?.column ?? 2,
+                focusValue: quantityCell?.value ?? "",
               };
             }
           }
