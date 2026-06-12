@@ -23,6 +23,10 @@ function columnName(index: number) {
   return name;
 }
 
+const ROW_HEADER_WIDTH = 40;
+const CELL_WIDTH = 88;
+const ROW_HEIGHT = 28;
+
 type EditingCell = {
   row: number;
   column: number;
@@ -116,6 +120,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
   }, [jumpTarget, utils]);
 
   const rows = sheetQuery.data?.rows ?? [];
+  const frozenRows = sheetQuery.data?.frozenRows ?? [];
   const columnCount = sheetQuery.data?.columnCount ?? 8;
   const columnIndexes = sheetQuery.data?.columnIndexes ?? Array.from({ length: columnCount }, (_, index) => index + 1);
   const columns = useMemo(
@@ -126,6 +131,15 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
   const visibleRowCount = sheetQuery.data?.rowCount ?? rows.length;
   const visibleEndRow = visibleRowCount > 0 ? visibleStartRow + visibleRowCount - 1 : visibleStartRow;
   const totalRowCount = sheetQuery.data?.totalRowCount ?? visibleRowCount;
+  const displayRows = useMemo(
+    () => [
+      ...frozenRows.map((values, index) => ({ rowNumber: index + 1, values, frozenIndex: index })),
+      ...rows
+        .map((values, index) => ({ rowNumber: visibleStartRow + index, values, frozenIndex: null as number | null }))
+        .filter((row) => row.rowNumber > frozenRows.length),
+    ],
+    [frozenRows, rows, visibleStartRow]
+  );
 
   const handleSheetChange = (sheetName: string) => {
     setActiveSheet(sheetName);
@@ -151,10 +165,16 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
     setEditing({ row, column, value });
   };
 
+  const getCellValue = (row: number, column: number) => {
+    const columnOffset = columnIndexes.indexOf(column);
+    if (columnOffset < 0) return "";
+    if (row <= frozenRows.length) return frozenRows[row - 1]?.[columnOffset] ?? "";
+    return rows[row - visibleStartRow]?.[columnOffset] ?? "";
+  };
+
   const saveEditing = () => {
     if (!editing || !activeSheet || updateMutation.isPending) return;
-    const columnOffset = columnIndexes.indexOf(editing.column);
-    const currentValue = columnOffset >= 0 ? rows[editing.row - visibleStartRow]?.[columnOffset] ?? "" : "";
+    const currentValue = getCellValue(editing.row, editing.column);
     if (editing.value === currentValue) {
       setEditing(null);
       return;
@@ -242,7 +262,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
         )}
       </div>
 
-      <div ref={scrollAreaRef} className="h-[640px] overflow-auto bg-white">
+      <div ref={scrollAreaRef} className="h-[430px] overflow-auto bg-white">
         {tabsQuery.isLoading || sheetQuery.isLoading ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -264,7 +284,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
                     className={`sticky top-0 h-7 min-w-[88px] border-b border-r border-border bg-muted px-2 text-center text-[10px] font-semibold text-muted-foreground ${
                       isFrozenColumn ? "z-40" : "z-20"
                     }`}
-                    style={isFrozenColumn ? { left: `${40 + visibleColIndex * 88}px` } : undefined}
+                    style={isFrozenColumn ? { left: `${ROW_HEADER_WIDTH + visibleColIndex * CELL_WIDTH}px` } : undefined}
                   >
                     {col}
                   </th>
@@ -273,27 +293,39 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: visibleRowCount }, (_, rowIndex) => {
-                const rowNumber = visibleStartRow + rowIndex;
+              {displayRows.map(({ rowNumber, values, frozenIndex }) => {
+                const isFrozenRow = frozenIndex !== null;
+                const frozenTop = isFrozenRow ? ROW_HEIGHT + frozenIndex * ROW_HEIGHT : undefined;
                 return (
                   <tr key={rowNumber}>
-                    <th className="sticky left-0 z-10 h-7 border-b border-r border-border bg-muted px-1 text-right text-[10px] font-medium text-muted-foreground">
+                    <th
+                      className={`sticky left-0 h-7 border-b border-r border-border bg-muted px-1 text-right text-[10px] font-medium text-muted-foreground ${
+                        isFrozenRow ? "z-50" : "z-10"
+                      }`}
+                      style={isFrozenRow ? { top: `${frozenTop}px` } : undefined}
+                    >
                       {rowNumber}
                     </th>
                     {columns.map((_, visibleColIndex) => {
                       const colNumber = columnIndexes[visibleColIndex];
-                      const value = rows[rowIndex]?.[visibleColIndex] ?? "";
+                      const value = values[visibleColIndex] ?? "";
                       const isFrozenColumn = colNumber <= 7;
                       const isEditing = editing?.row === rowNumber && editing.column === colNumber;
                       const isHighlightedRow = highlightedCell?.sheetName === activeSheet && highlightedCell.row === rowNumber;
                       const isHighlightedCell = isHighlightedRow && highlightedCell.column === colNumber;
+                      const stickyStyle = {
+                        ...(isFrozenColumn ? { left: `${ROW_HEADER_WIDTH + visibleColIndex * CELL_WIDTH}px` } : {}),
+                        ...(isFrozenRow ? { top: `${frozenTop}px` } : {}),
+                      };
                       return (
                         <td
                           key={`${rowNumber}-${colNumber}`}
                           data-cell-row={rowNumber}
                           data-cell-column={colNumber}
                           className={`h-7 min-w-[88px] max-w-[180px] border-b border-r border-border px-1 align-middle ${
-                            isFrozenColumn ? "sticky z-20" : ""
+                            isFrozenColumn || isFrozenRow ? "sticky" : ""
+                          } ${
+                            isFrozenColumn && isFrozenRow ? "z-40" : isFrozenColumn ? "z-20" : isFrozenRow ? "z-30" : ""
                           } ${
                             isEditing
                               ? "bg-amber-50"
@@ -301,9 +333,9 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
                                 ? "bg-emerald-100 ring-2 ring-primary ring-inset"
                                 : isHighlightedRow
                                   ? "bg-emerald-50"
-                                  : rowNumber <= 2 ? "bg-slate-50" : "bg-white hover:bg-teal-50/70"
+                                  : rowNumber <= 3 ? "bg-slate-50" : "bg-white hover:bg-teal-50/70"
                           }`}
-                          style={isFrozenColumn ? { left: `${40 + visibleColIndex * 88}px` } : undefined}
+                          style={isFrozenColumn || isFrozenRow ? stickyStyle : undefined}
                           onDoubleClick={() => startEditing(rowNumber, colNumber, value)}
                         >
                           {isEditing ? (

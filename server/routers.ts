@@ -1011,13 +1011,19 @@ export const appRouter = router({
           : [
               { startColumn: 1, endColumn: Math.min(totalColumnCount, input.maxColumns) },
             ];
+        const frozenRowCount = Math.min(3, totalRowCount);
+        const rangeToA1 = (range: { startColumn: number; endColumn: number }, fromRow: number, toRow: number) => {
+          const startColumnName = spreadsheetColumnName(range.startColumn);
+          const endColumnName = spreadsheetColumnName(range.endColumn);
+          return `${quoteSheetName(sheetName)}!${startColumnName}${fromRow}:${endColumnName}${toRow}`;
+        };
+        const frozenRanges = frozenRowCount > 0
+          ? ranges.map((range) => rangeToA1(range, 1, frozenRowCount))
+          : [];
+        const bodyRanges = ranges.map((range) => rangeToA1(range, startRow, endRow));
         const response = await sheets.spreadsheets.values.batchGet({
           spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
-          ranges: ranges.map((range) => {
-            const startColumnName = spreadsheetColumnName(range.startColumn);
-            const endColumnName = spreadsheetColumnName(range.endColumn);
-            return `${quoteSheetName(sheetName)}!${startColumnName}${startRow}:${endColumnName}${endRow}`;
-          }),
+          ranges: [...frozenRanges, ...bodyRanges],
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
@@ -1026,8 +1032,17 @@ export const appRouter = router({
           Array.from({ length: range.endColumn - range.startColumn + 1 }, (_, index) => range.startColumn + index)
         );
         const valueRanges = response.data.valueRanges ?? [];
+        const frozenValueRanges = valueRanges.slice(0, frozenRanges.length);
+        const bodyValueRanges = valueRanges.slice(frozenRanges.length);
+        const frozenRows = Array.from({ length: frozenRowCount }, (_, rowIndex) =>
+          frozenValueRanges.flatMap((valueRange, rangeIndex) => {
+            const expectedLength = ranges[rangeIndex].endColumn - ranges[rangeIndex].startColumn + 1;
+            const row = valueRange.values?.[rowIndex] ?? [];
+            return Array.from({ length: expectedLength }, (_, columnIndex) => String(row[columnIndex] ?? ""));
+          })
+        );
         const rows = Array.from({ length: rowCount }, (_, rowIndex) =>
-          valueRanges.flatMap((valueRange, rangeIndex) => {
+          bodyValueRanges.flatMap((valueRange, rangeIndex) => {
             const expectedLength = ranges[rangeIndex].endColumn - ranges[rangeIndex].startColumn + 1;
             const row = valueRange.values?.[rowIndex] ?? [];
             return Array.from({ length: expectedLength }, (_, columnIndex) => String(row[columnIndex] ?? ""));
@@ -1041,6 +1056,7 @@ export const appRouter = router({
           columnCount: columnIndexes.length,
           totalColumnCount,
           columnIndexes,
+          frozenRows,
           rows,
         };
       }),
