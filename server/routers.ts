@@ -21,6 +21,7 @@ const SHEET_NAME = "全体";
 const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
 const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
 const TRADE_VIEW_SHEET_NAME_KEYWORD = "発送管理";
+const TRADE_SHEET_WRITE_BACK_ENABLED = false;
 
 // 不可視文字（ゼロ幅スペース、WORD JOINERなど）を除去するヘルパー
 function sanitizeText(str: string | null | undefined): string | null {
@@ -1212,7 +1213,7 @@ export const appRouter = router({
         shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
-        if (!canSyncTradeSheet()) {
+        if (!TRADE_SHEET_WRITE_BACK_ENABLED || !canSyncTradeSheet()) {
           const db = await getDb();
           if (db) {
             const no = parseInt(input.invoiceNo) || null;
@@ -1392,7 +1393,7 @@ export const appRouter = router({
         shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
-        if (!canSyncTradeSheet()) {
+        if (!TRADE_SHEET_WRITE_BACK_ENABLED || !canSyncTradeSheet()) {
           const db = await getDb();
           if (db) {
             const no = parseInt(input.invoiceNo) || null;

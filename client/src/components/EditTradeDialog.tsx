@@ -299,7 +299,7 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
               取引データ編集 — No.{record.no}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              編集した内容はスプレッドシートとDBに反映されます。
+              編集した内容はサイト内DBに保存されます。
             </DialogDescription>
           </DialogHeader>
 
