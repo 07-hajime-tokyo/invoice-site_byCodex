@@ -707,7 +707,7 @@ export default function Home() {
           )}
 
           {/* Data Table + Spreadsheet View */}
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+          <div className="space-y-4">
             {isInitialTradeLoading ? (
               <PanelLoading />
             ) : (
