@@ -20,6 +20,7 @@ const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
 const SHEET_NAME = "全体";
 const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
 const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
+const TRADE_VIEW_SHEET_NAME_KEYWORD = "発送管理";
 
 // 不可視文字（ゼロ幅スペース、WORD JOINERなど）を除去するヘルパー
 function sanitizeText(str: string | null | undefined): string | null {
@@ -376,6 +377,10 @@ function spreadsheetColumnName(index: number) {
 
 function quoteSheetName(sheetName: string) {
   return `'${sheetName.replace(/'/g, "''")}'`;
+}
+
+function isTradeViewSheet(sheet: { title: string; hidden?: boolean }) {
+  return Boolean(sheet.title) && !sheet.hidden && sheet.title.includes(TRADE_VIEW_SHEET_NAME_KEYWORD);
 }
 
 async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
@@ -962,7 +967,7 @@ export const appRouter = router({
           rowCount: sheet.properties?.gridProperties?.rowCount ?? 0,
           columnCount: sheet.properties?.gridProperties?.columnCount ?? 0,
         }))
-        .filter((sheet) => sheet.title && !sheet.hidden)
+        .filter(isTradeViewSheet)
         .sort((a, b) => a.index - b.index);
       return {
         configured: true as const,
@@ -975,7 +980,7 @@ export const appRouter = router({
     getSheetView: protectedProcedure
       .input(z.object({
         sheetName: z.string().optional().default(TRADE_VIEW_DEFAULT_SHEET_NAME),
-        maxRows: z.number().int().min(10).max(300).optional().default(140),
+        maxRows: z.number().int().min(10).max(1200).optional().default(140),
         maxColumns: z.number().int().min(6).max(225).optional().default(140),
       }))
       .query(async ({ input }) => {
@@ -1029,6 +1034,52 @@ export const appRouter = router({
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
         return { success: true, cell };
+      }),
+
+    findTradeViewInvoiceCell: protectedProcedure
+      .input(z.object({ invoiceNo: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const invoiceNo = input.invoiceNo.trim();
+        const sheets = getSheetsClient();
+        const metadata = await sheets.spreadsheets.get({
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          fields: "sheets.properties(title,index,hidden)",
+        }).catch((error) => {
+          throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+        });
+        const tabs = (metadata.data.sheets ?? [])
+          .map((sheet) => ({
+            title: sheet.properties?.title ?? "",
+            index: sheet.properties?.index ?? 0,
+            hidden: sheet.properties?.hidden ?? false,
+          }))
+          .filter(isTradeViewSheet)
+          .sort((a, b) => a.index - b.index);
+        if (tabs.length === 0) return { found: false as const };
+
+        const response = await sheets.spreadsheets.values.batchGet({
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          ranges: tabs.map((tab) => `${quoteSheetName(tab.title)}!B:B`),
+          valueRenderOption: "FORMATTED_VALUE",
+        }).catch((error) => {
+          throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+        });
+
+        for (let tabIndex = 0; tabIndex < tabs.length; tabIndex++) {
+          const rows = response.data.valueRanges?.[tabIndex]?.values ?? [];
+          for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            const cell = String(rows[rowIndex]?.[0] ?? "").trim();
+            if (cell === invoiceNo) {
+              return {
+                found: true as const,
+                sheetName: tabs[tabIndex].title,
+                row: rowIndex + 1,
+                column: 2,
+              };
+            }
+          }
+        }
+        return { found: false as const };
       }),
 
     // ─── Spreadsheet-backed procedures (kept for write-back) ─────────────────

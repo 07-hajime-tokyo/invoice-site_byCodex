@@ -194,6 +194,7 @@ export default function Home() {
   const [tradePageSize, setTradePageSize] = useState(20);
   const [tradeSortKey, setTradeSortKey] = useState<SortKey>("no");
   const [tradeSortDir, setTradeSortDir] = useState<SortDir>("asc");
+  const [sheetJumpTarget, setSheetJumpTarget] = useState<{ invoiceNo: number; nonce: number } | null>(null);
 
   // 状態変更時にURLを更新するヘルパー
   const updateURL = useCallback((newSearch: string, newFilters: Partial<Record<FilterableKey, string>>, newIncomplete: boolean, newTab: ActiveTab) => {
@@ -725,11 +726,12 @@ export default function Home() {
                     setTradeSortDir(dir);
                   }}
                   onRecordUpdated={() => refetch()}
+                  onInvoiceNoClick={(invoiceNo) => setSheetJumpTarget({ invoiceNo, nonce: Date.now() })}
                 />
               </Suspense>
             )}
             <Suspense fallback={<PanelLoading />}>
-              <TradeSheetSidePanel />
+              <TradeSheetSidePanel jumpTarget={sheetJumpTarget} />
             </Suspense>
           </div>
 

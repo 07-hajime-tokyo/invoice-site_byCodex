@@ -29,6 +29,7 @@ interface DataTableProps {
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   onSortChange?: (key: SortKey, dir: SortDir) => void;
+  onInvoiceNoClick?: (invoiceNo: number) => void;
 }
 
 const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
@@ -60,6 +61,7 @@ export function DataTable({
   onPageChange,
   onPageSizeChange,
   onSortChange,
+  onInvoiceNoClick,
 }: DataTableProps) {
   const isServerPaged = totalRecords !== undefined && controlledPage !== undefined && !!onPageChange;
   const [localSortKey, setLocalSortKey] = useState<SortKey>("no");
@@ -153,6 +155,19 @@ export function DataTable({
     }
     if (key === "unitPrice") {
       return <span className="tabular-nums">{formatNumber(val as number)}</span>;
+    }
+    if (key === "no") {
+      const no = Number(val);
+      if (!Number.isFinite(no) || !onInvoiceNoClick) return <span>{String(val)}</span>;
+      return (
+        <button
+          type="button"
+          className="tabular-nums font-semibold text-primary hover:underline"
+          onClick={() => onInvoiceNoClick(no)}
+        >
+          {String(val)}
+        </button>
+      );
     }
     if (key === "status") {
       const s = String(val);

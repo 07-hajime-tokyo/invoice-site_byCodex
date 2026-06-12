@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw, Save, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -29,11 +29,26 @@ type EditingCell = {
   value: string;
 };
 
-export function TradeSheetSidePanel() {
+type SheetJumpTarget = {
+  invoiceNo: number;
+  nonce: number;
+};
+
+type HighlightedCell = {
+  sheetName: string;
+  row: number;
+  column: number;
+  invoiceNo: number;
+  nonce: number;
+};
+
+export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarget | null }) {
   const utils = trpc.useUtils();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [activeSheet, setActiveSheet] = useState("独発送管理");
   const [maxRows, setMaxRows] = useState(140);
   const [editing, setEditing] = useState<EditingCell | null>(null);
+  const [highlightedCell, setHighlightedCell] = useState<HighlightedCell | null>(null);
 
   const tabsQuery = trpc.trade.getSheetTabs.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
@@ -60,12 +75,51 @@ export function TradeSheetSidePanel() {
     },
   });
 
+  useEffect(() => {
+    if (!jumpTarget) return;
+    let cancelled = false;
+    void utils.trade.findTradeViewInvoiceCell.fetch({ invoiceNo: String(jumpTarget.invoiceNo) })
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.found) {
+          toast.error(`No.${jumpTarget.invoiceNo} は発送管理シート内に見つかりませんでした`);
+          return;
+        }
+        setActiveSheet(result.sheetName);
+        setMaxRows((value) => Math.min(1200, Math.max(value, result.row + 20)));
+        setHighlightedCell({
+          sheetName: result.sheetName,
+          row: result.row,
+          column: result.column,
+          invoiceNo: jumpTarget.invoiceNo,
+          nonce: jumpTarget.nonce,
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Noの検索に失敗しました");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jumpTarget, utils]);
+
   const rows = sheetQuery.data?.rows ?? [];
   const columnCount = sheetQuery.data?.columnCount ?? 8;
   const columns = useMemo(
     () => Array.from({ length: columnCount }, (_, i) => columnName(i + 1)),
     [columnCount]
   );
+
+  useEffect(() => {
+    if (!highlightedCell || highlightedCell.sheetName !== activeSheet || sheetQuery.isLoading || sheetQuery.isFetching) return;
+    const id = window.setTimeout(() => {
+      const target = scrollAreaRef.current?.querySelector<HTMLElement>(
+        `[data-cell-row="${highlightedCell.row}"][data-cell-column="${highlightedCell.column}"]`
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }, 80);
+    return () => window.clearTimeout(id);
+  }, [activeSheet, highlightedCell, rows, sheetQuery.isFetching, sheetQuery.isLoading]);
 
   const startEditing = (row: number, column: number, value: string) => {
     setEditing({ row, column, value });
@@ -161,7 +215,7 @@ export function TradeSheetSidePanel() {
         )}
       </div>
 
-      <div className="h-[640px] overflow-auto bg-white">
+      <div ref={scrollAreaRef} className="h-[640px] overflow-auto bg-white">
         {tabsQuery.isLoading || sheetQuery.isLoading ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -196,11 +250,21 @@ export function TradeSheetSidePanel() {
                       const colNumber = colIndex + 1;
                       const value = rows[rowIndex]?.[colIndex] ?? "";
                       const isEditing = editing?.row === rowNumber && editing.column === colNumber;
+                      const isHighlightedRow = highlightedCell?.sheetName === activeSheet && highlightedCell.row === rowNumber;
+                      const isHighlightedCell = isHighlightedRow && highlightedCell.column === colNumber;
                       return (
                         <td
                           key={`${rowNumber}-${colNumber}`}
+                          data-cell-row={rowNumber}
+                          data-cell-column={colNumber}
                           className={`h-7 min-w-[88px] max-w-[180px] border-b border-r border-border px-1 align-middle ${
-                            isEditing ? "bg-amber-50" : rowNumber <= 2 ? "bg-slate-50" : "bg-white hover:bg-teal-50/70"
+                            isEditing
+                              ? "bg-amber-50"
+                              : isHighlightedCell
+                                ? "bg-emerald-100 ring-2 ring-primary ring-inset"
+                                : isHighlightedRow
+                                  ? "bg-emerald-50"
+                                  : rowNumber <= 2 ? "bg-slate-50" : "bg-white hover:bg-teal-50/70"
                           }`}
                           onDoubleClick={() => startEditing(rowNumber, colNumber, value)}
                         >
@@ -238,8 +302,8 @@ export function TradeSheetSidePanel() {
           variant="ghost"
           size="sm"
           className="h-7 px-2 text-xs"
-          onClick={() => setMaxRows((value) => Math.min(value + 80, 300))}
-          disabled={maxRows >= 300}
+          onClick={() => setMaxRows((value) => Math.min(value + 80, 1200))}
+          disabled={maxRows >= 1200}
         >
           さらに表示
         </Button>
