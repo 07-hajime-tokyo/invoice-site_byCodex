@@ -122,6 +122,13 @@ export function ShipmentHistory({ invoiceNo, orderedQty, onDeleted }: ShipmentHi
               )}
             </div>
             <div className="text-muted-foreground">
+              {s.items
+                .filter((item) => item.invoiceNo === invoiceNo)
+                .map((item) => (
+                  <div key={item.id} className="text-[11px] text-muted-foreground">
+                    {item.productName ? item.productName : `No.${item.invoiceNo}`} × {item.quantity}台
+                  </div>
+                ))}
               送料: ¥{Number(s.shippingCost).toLocaleString()}
               {s.items.length > 1 && (
                 <span className="ml-1 text-orange-700">

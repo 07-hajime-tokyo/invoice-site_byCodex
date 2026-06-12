@@ -4,7 +4,7 @@
  * 複数のインボイス番号と発送台数を紐付けて登録する。
  * インボイスNoを入力すると発注数合計・発送済み・残数をリアルタイム表示。
  */
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,11 +17,19 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Truck, Plus, Trash2, Loader2, Package } from "lucide-react";
 import { toast } from "sonner";
 
 interface ShipmentItem {
   invoiceNo: string;
+  tradeRecordId: string;
   quantity: string;
 }
 
@@ -52,6 +60,66 @@ function InvoiceSummaryBadge({ invoiceNo }: { invoiceNo: number }) {
   );
 }
 
+function InvoiceItemSelect({
+  invoiceNo,
+  value,
+  onChange,
+}: {
+  invoiceNo: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { data, isLoading } = trpc.shipment.invoiceSummary.useQuery(
+    { invoiceNo },
+    { enabled: invoiceNo > 0 }
+  );
+  const lines = data?.items ?? [];
+
+  useEffect(() => {
+    if (!value && lines.length === 1) {
+      onChange(String(lines[0].tradeRecordId));
+    }
+  }, [lines, onChange, value]);
+
+  if (isLoading || lines.length === 0) return null;
+
+  const selected = lines.find((line) => String(line.tradeRecordId) === value);
+
+  return (
+    <div className="pl-1 space-y-1">
+      {lines.length > 1 ? (
+        <Select value={value || "__unassigned__"} onValueChange={(v) => onChange(v === "__unassigned__" ? "" : v)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="商品を選択" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__unassigned__">No単位で登録</SelectItem>
+            {lines.map((line) => (
+              <SelectItem key={line.tradeRecordId} value={String(line.tradeRecordId)}>
+                {line.productName || `商品行 ${line.tradeRecordId}`} / 残{line.remainingQty}台
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          商品: {lines[0].productName || `商品行 ${lines[0].tradeRecordId}`} / 残{lines[0].remainingQty}台
+        </p>
+      )}
+      {selected && (
+        <p className="text-[11px] text-muted-foreground">
+          選択中: {selected.productName || `商品行 ${selected.tradeRecordId}`}（発送済み{selected.shippedQty}/{selected.orderedQty}台）
+        </p>
+      )}
+      {data?.unassignedShippedQty ? (
+        <p className="text-[11px] text-amber-700">
+          旧形式のNo単位発送: {data.unassignedShippedQty}台
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
   const [open, setOpen] = useState(false);
   const [shippingDate, setShippingDate] = useState(() => {
@@ -61,7 +129,7 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shippingCost, setShippingCost] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<ShipmentItem[]>([{ invoiceNo: "", quantity: "" }]);
+  const [items, setItems] = useState<ShipmentItem[]>([{ invoiceNo: "", tradeRecordId: "", quantity: "" }]);
 
   const createMutation = trpc.shipment.create.useMutation({
     onSuccess: () => {
@@ -81,11 +149,11 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
     setTrackingNumber("");
     setShippingCost("");
     setNotes("");
-    setItems([{ invoiceNo: "", quantity: "" }]);
+    setItems([{ invoiceNo: "", tradeRecordId: "", quantity: "" }]);
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { invoiceNo: "", quantity: "" }]);
+    setItems((prev) => [...prev, { invoiceNo: "", tradeRecordId: "", quantity: "" }]);
   }
 
   function removeItem(index: number) {
@@ -112,6 +180,7 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
       .filter((item) => item.invoiceNo.trim() !== "" && item.quantity.trim() !== "")
       .map((item) => ({
         invoiceNo: parseInt(item.invoiceNo, 10),
+        tradeRecordId: item.tradeRecordId ? parseInt(item.tradeRecordId, 10) : undefined,
         quantity: parseInt(item.quantity, 10),
       }));
     if (parsedItems.length === 0) {
@@ -230,7 +299,10 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
                         type="number"
                         placeholder="例: 371"
                         value={item.invoiceNo}
-                        onChange={(e) => updateItem(index, "invoiceNo", e.target.value)}
+                        onChange={(e) => {
+                          updateItem(index, "invoiceNo", e.target.value);
+                          updateItem(index, "tradeRecordId", "");
+                        }}
                         className="h-8 text-sm"
                         min="1"
                       />
@@ -258,6 +330,13 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
                       <div className="pl-1">
                         <InvoiceSummaryBadge invoiceNo={parsedNo} />
                       </div>
+                    )}
+                    {validNo && (
+                      <InvoiceItemSelect
+                        invoiceNo={parsedNo}
+                        value={item.tradeRecordId}
+                        onChange={(value) => updateItem(index, "tradeRecordId", value)}
+                      />
                     )}
                   </div>
                 );

@@ -26,6 +26,7 @@ export interface TradeRecord {
   procurementTotal: number;
   refund: number;
   shippingCost: number;
+  customsDuty: number;
   profitWithRefund: number;
   cumulativeProfit: number;
 }
@@ -49,6 +50,7 @@ export const COLUMN_LABELS: Record<keyof TradeRecord, string> = {
   procurementTotal: "仕入れ合計",
   refund: "還付",
   shippingCost: "送料",
+  customsDuty: "関税",
   profitWithRefund: "還付込み利益",
   cumulativeProfit: "累積利益",
 };
@@ -159,6 +161,7 @@ export function parseCSV(text: string): TradeRecord[] {
       procurementTotal: parseNumber(cols[15] ?? "0"),
       refund: parseNumber(cols[16] ?? "0"),
       shippingCost: parseNumber(cols[17] ?? "0"),
+      customsDuty: 0,
       profitWithRefund: parseNumber(cols[18] ?? "0"),
       cumulativeProfit: parseNumber(cols[19] ?? "0"),
     });

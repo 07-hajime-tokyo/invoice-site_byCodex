@@ -1,9 +1,26 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { createDrizzleDatabase, type AppDatabase } from "./_core/database";
 
 let _db: AppDatabase | null = null;
+let _schemaReady: Promise<void> | null = null;
+
+async function ensureRuntimeSchema(db: AppDatabase) {
+  try {
+    await db.execute(sql`ALTER TABLE shipment_items ADD COLUMN tradeRecordId int`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("Duplicate column") ||
+      message.includes("ER_DUP_FIELDNAME") ||
+      message.includes("already exists")
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
@@ -14,6 +31,10 @@ export async function getDb() {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
+  }
+  if (_db) {
+    _schemaReady ??= ensureRuntimeSchema(_db);
+    await _schemaReady;
   }
   return _db;
 }

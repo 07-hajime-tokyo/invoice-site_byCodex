@@ -14,7 +14,7 @@ import { z } from "zod";
 import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
 import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems } from "../drizzle/schema";
-import { eq, desc, asc, or, like, and, sql, isNull, isNotNull } from "drizzle-orm";
+import { eq, desc, asc, or, like, and, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
 const SHEET_NAME = "全体";
@@ -565,6 +565,50 @@ function generateInvoiceNumber(): string {
 // ============================================================
 // Shipment shipping cost & customs duty recalculation helper
 // ============================================================
+type TradeRow = typeof tradeRecords.$inferSelect;
+type ShipmentItemRow = typeof shipmentItems.$inferSelect;
+type RouterDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+function toNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getShipmentTradeRecordId(item: ShipmentItemRow): number | null {
+  const id = Number(item.tradeRecordId ?? 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function allocateQtyToTrades(
+  trades: TradeRow[],
+  alreadyAllocated: Map<number, number>,
+  quantity: number
+): Array<{ tradeId: number; quantity: number }> {
+  let remaining = Math.max(0, quantity);
+  const result: Array<{ tradeId: number; quantity: number }> = [];
+
+  for (const trade of trades) {
+    if (remaining <= 0) break;
+    const tradeId = Number(trade.id);
+    const orderedQty = toNumber(trade.quantity);
+    const usedQty = alreadyAllocated.get(tradeId) ?? 0;
+    const capacity = Math.max(0, orderedQty - usedQty);
+    if (capacity <= 0) continue;
+    const qty = Math.min(capacity, remaining);
+    alreadyAllocated.set(tradeId, usedQty + qty);
+    result.push({ tradeId, quantity: qty });
+    remaining -= qty;
+  }
+
+  if (remaining > 0 && trades.length > 0) {
+    const fallbackTradeId = Number(trades[0].id);
+    alreadyAllocated.set(fallbackTradeId, (alreadyAllocated.get(fallbackTradeId) ?? 0) + remaining);
+    result.push({ tradeId: fallbackTradeId, quantity: remaining });
+  }
+
+  return result;
+}
+
 /**
  * 指定インボイスの送料・関税を再計算する。
  * - 全発送記録から当該インボイスの合計発送台数を集計
@@ -572,8 +616,8 @@ function generateInvoiceNumber(): string {
  * - それ以外は仮送料（550円×注文数）を維持
  * - USD取引の場合、各発送の発送日レートで関税（商品価格円換算×発送台数×10%）を計算
  */
-async function recalcShippingCosts(
-  db: Awaited<ReturnType<typeof getDb>>,
+async function recalcShippingCostsLegacy(
+  db: RouterDb,
   invoiceNos: number[]
 ): Promise<void> {
   for (const invoiceNo of invoiceNos) {
@@ -600,7 +644,7 @@ async function recalcShippingCosts(
     if (shippedQty >= orderedQty && orderedQty > 0) {
       // 発送完了 → 実送料を按分計算
       let totalActualCost = 0;
-      const shipmentIds = [...new Set(allItems.map((i) => i.shipmentId))];
+      const shipmentIds = Array.from(new Set(allItems.map((i) => i.shipmentId)));
       for (const sid of shipmentIds) {
         const [s] = await db.select().from(shipments).where(eq(shipments.id, sid));
         if (!s) continue;
@@ -624,7 +668,7 @@ async function recalcShippingCosts(
     // 分割発送の場合は各発送の発送日レートで分割計算し合計する
     let newCustomsDuty: number | null = null;
     if (isUSD && allItems.length > 0) {
-      const shipmentIds = [...new Set(allItems.map((i) => i.shipmentId))];
+      const shipmentIds = Array.from(new Set(allItems.map((i) => i.shipmentId)));
       let totalCustoms = 0;
       for (const sid of shipmentIds) {
         const [s] = await db.select().from(shipments).where(eq(shipments.id, sid));
@@ -667,6 +711,135 @@ async function recalcShippingCosts(
         .set({
           shippingCost: String(newShippingCost),
           ...(newCustomsDuty !== null ? { customsDuty: String(newCustomsDuty) } : {}),
+          profitWithRefund: String(newProfit),
+        })
+        .where(eq(tradeRecords.id, trade.id));
+    }
+  }
+}
+
+async function recalcShippingCosts(
+  db: RouterDb,
+  invoiceNos: number[]
+): Promise<void> {
+  const uniqueInvoiceNos = Array.from(new Set(invoiceNos.filter((n) => Number.isFinite(n))));
+
+  for (const invoiceNo of uniqueInvoiceNos) {
+    const trades = await db
+      .select()
+      .from(tradeRecords)
+      .where(eq(tradeRecords.no, invoiceNo))
+      .orderBy(asc(tradeRecords.id));
+    if (trades.length === 0) continue;
+
+    const allItems = await db
+      .select()
+      .from(shipmentItems)
+      .where(eq(shipmentItems.invoiceNo, invoiceNo));
+
+    const shippedByTradeId = new Map<number, number>();
+    const allocatedQtyByTradeId = new Map<number, number>();
+    for (const item of allItems) {
+      const tradeId = getShipmentTradeRecordId(item);
+      if (!tradeId) continue;
+      shippedByTradeId.set(tradeId, (shippedByTradeId.get(tradeId) ?? 0) + item.quantity);
+      allocatedQtyByTradeId.set(tradeId, (allocatedQtyByTradeId.get(tradeId) ?? 0) + item.quantity);
+    }
+
+    const shippingByTradeId = new Map<number, number>();
+    const customsByTradeId = new Map<number, number>();
+    const shipmentIds = Array.from(new Set(allItems.map((item) => item.shipmentId)));
+
+    for (const shipmentId of shipmentIds) {
+      const [shipment] = await db.select().from(shipments).where(eq(shipments.id, shipmentId));
+      if (!shipment) continue;
+
+      const allShipmentItems = await db
+        .select()
+        .from(shipmentItems)
+        .where(eq(shipmentItems.shipmentId, shipmentId));
+      const totalQtyInShipment = allShipmentItems.reduce((sum, item) => sum + item.quantity, 0);
+      if (totalQtyInShipment <= 0) continue;
+
+      let usdRate: number | null = null;
+      const loadUsdRate = async () => {
+        if (usdRate !== null) return usdRate;
+        try {
+          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${shipment.shippingDate}?from=USD&to=JPY`);
+          if (rateRes.ok) {
+            const rateData = await rateRes.json() as { rates?: { JPY?: number } };
+            usdRate = rateData.rates?.JPY ?? null;
+          }
+        } catch {
+          usdRate = null;
+        }
+        return usdRate;
+      };
+
+      const unitShippingCost = Number(shipment.shippingCost) / totalQtyInShipment;
+      const invoiceShipmentItems = allShipmentItems.filter((item) => item.invoiceNo === invoiceNo);
+
+      for (const item of invoiceShipmentItems) {
+        const explicitTradeId = getShipmentTradeRecordId(item);
+        const allocations = explicitTradeId
+          ? [{ tradeId: explicitTradeId, quantity: item.quantity }]
+          : allocateQtyToTrades(trades, allocatedQtyByTradeId, item.quantity);
+
+        for (const allocation of allocations) {
+          const trade = trades.find((row) => row.id === allocation.tradeId);
+          if (!trade) continue;
+
+          shippingByTradeId.set(
+            allocation.tradeId,
+            (shippingByTradeId.get(allocation.tradeId) ?? 0) + unitShippingCost * allocation.quantity
+          );
+
+          if (!explicitTradeId) {
+            shippedByTradeId.set(
+              allocation.tradeId,
+              (shippedByTradeId.get(allocation.tradeId) ?? 0) + allocation.quantity
+            );
+          }
+
+          const orderedTradeQty = toNumber(trade.quantity);
+          const shippedTradeQty = shippedByTradeId.get(allocation.tradeId) ?? 0;
+          if (orderedTradeQty <= 0 || shippedTradeQty < orderedTradeQty) continue;
+          if (String(trade.currency ?? "") !== "ドル") continue;
+
+          const rate = await loadUsdRate();
+          if (rate === null) continue;
+
+          const customs = Math.round(toNumber(trade.unitPrice) * rate * allocation.quantity * 0.1);
+          customsByTradeId.set(allocation.tradeId, (customsByTradeId.get(allocation.tradeId) ?? 0) + customs);
+        }
+      }
+    }
+
+    for (const trade of trades) {
+      const tradeId = Number(trade.id);
+      const orderedTradeQty = toNumber(trade.quantity);
+      const shippedTradeQty = shippedByTradeId.get(tradeId) ?? 0;
+      const tradeComplete = orderedTradeQty > 0 && shippedTradeQty >= orderedTradeQty;
+      const newShippingCost = tradeComplete
+        ? Math.round(shippingByTradeId.get(tradeId) ?? 0)
+        : 550 * orderedTradeQty;
+      const isDollarTrade = String(trade.currency ?? "") === "ドル";
+      const newCustomsDuty = isDollarTrade
+        ? (tradeComplete ? (customsByTradeId.get(tradeId) ?? 0) : 0)
+        : undefined;
+      const customs = newCustomsDuty !== undefined ? newCustomsDuty : toNumber(trade.customsDuty);
+      const newProfit =
+        toNumber(trade.totalSales) -
+        toNumber(trade.procurementTotal) +
+        toNumber(trade.refund) -
+        newShippingCost -
+        customs;
+
+      await db
+        .update(tradeRecords)
+        .set({
+          shippingCost: String(newShippingCost),
+          ...(newCustomsDuty !== undefined ? { customsDuty: String(newCustomsDuty) } : {}),
           profitWithRefund: String(newProfit),
         })
         .where(eq(tradeRecords.id, trade.id));
@@ -833,6 +1006,8 @@ export const appRouter = router({
             case "status": return tradeRecords.status;
             case "totalSales": return tradeRecords.totalSales;
             case "procurementTotal": return tradeRecords.procurementTotal;
+            case "shippingCost": return tradeRecords.shippingCost;
+            case "customsDuty": return tradeRecords.customsDuty;
             case "profitWithRefund": return tradeRecords.profitWithRefund;
             default: return tradeRecords.no;
           }
@@ -3151,9 +3326,19 @@ ${contextText}`;
       const db = (await getDb())!;
       const rows = await db.select().from(shipments).orderBy(desc(shipments.shippingDate));
       const items = await db.select().from(shipmentItems);
+      const tradeRecordIds = Array.from(new Set(items.map((i) => i.tradeRecordId).filter((id): id is number => typeof id === "number" && id > 0)));
+      const tradeRows = tradeRecordIds.length > 0
+        ? await db
+            .select({ id: tradeRecords.id, productName: tradeRecords.productName })
+            .from(tradeRecords)
+            .where(inArray(tradeRecords.id, tradeRecordIds))
+        : [];
+      const productNameByTradeId = new Map(tradeRows.map((row) => [row.id, row.productName ?? ""]));
       return rows.map((s) => ({
         ...s,
-        items: items.filter((i) => i.shipmentId === s.id),
+        items: items
+          .filter((i) => i.shipmentId === s.id)
+          .map((i) => ({ ...i, productName: i.tradeRecordId ? productNameByTradeId.get(i.tradeRecordId) ?? null : null })),
       }));
     }),
 
@@ -3164,22 +3349,52 @@ ${contextText}`;
         const db = (await getDb())!;
         // 同一インボイスNoの全商品の発注数合計
         const trades = await db
-          .select({ quantity: tradeRecords.quantity })
+          .select({
+            id: tradeRecords.id,
+            productName: tradeRecords.productName,
+            quantity: tradeRecords.quantity,
+          })
           .from(tradeRecords)
-          .where(eq(tradeRecords.no, input.invoiceNo));
+          .where(eq(tradeRecords.no, input.invoiceNo))
+          .orderBy(asc(tradeRecords.id));
         const orderedQty = trades.reduce((sum, t) => sum + Number(t.quantity ?? 0), 0);
         // 発送済み合計
         const items = await db
-          .select({ quantity: shipmentItems.quantity })
+          .select({
+            quantity: shipmentItems.quantity,
+            tradeRecordId: shipmentItems.tradeRecordId,
+          })
           .from(shipmentItems)
           .where(eq(shipmentItems.invoiceNo, input.invoiceNo));
         const shippedQty = items.reduce((sum, i) => sum + i.quantity, 0);
+        const shippedByTradeId = new Map<number, number>();
+        let unassignedShippedQty = 0;
+        for (const item of items) {
+          if (item.tradeRecordId) {
+            shippedByTradeId.set(item.tradeRecordId, (shippedByTradeId.get(item.tradeRecordId) ?? 0) + item.quantity);
+          } else {
+            unassignedShippedQty += item.quantity;
+          }
+        }
+        const itemSummaries = trades.map((trade) => {
+          const ordered = Number(trade.quantity ?? 0);
+          const shipped = shippedByTradeId.get(trade.id) ?? 0;
+          return {
+            tradeRecordId: trade.id,
+            productName: trade.productName ?? "",
+            orderedQty: ordered,
+            shippedQty: shipped,
+            remainingQty: Math.max(0, ordered - shipped),
+          };
+        });
         return {
           invoiceNo: input.invoiceNo,
           orderedQty,
           shippedQty,
           remainingQty: Math.max(0, orderedQty - shippedQty),
           isComplete: orderedQty > 0 && shippedQty >= orderedQty,
+          unassignedShippedQty,
+          items: itemSummaries,
         };
       }),
 
@@ -3193,13 +3408,27 @@ ${contextText}`;
           .from(shipmentItems)
           .where(eq(shipmentItems.invoiceNo, input.invoiceNo));
         if (items.length === 0) return [];
+        const tradeRecordIds = Array.from(new Set(items.map((i) => i.tradeRecordId).filter((id): id is number => typeof id === "number" && id > 0)));
+        const tradeRows = tradeRecordIds.length > 0
+          ? await db
+              .select({ id: tradeRecords.id, productName: tradeRecords.productName })
+              .from(tradeRecords)
+              .where(inArray(tradeRecords.id, tradeRecordIds))
+          : [];
+        const productNameByTradeId = new Map(tradeRows.map((row) => [row.id, row.productName ?? ""]));
         const shipmentIds = Array.from(new Set(items.map((i) => i.shipmentId)));
-        const result: Array<typeof shipments.$inferSelect & { items: typeof shipmentItems.$inferSelect[] }> = [];
+        const result: Array<typeof shipments.$inferSelect & { items: Array<typeof shipmentItems.$inferSelect & { productName?: string | null }> }> = [];
         for (const sid of shipmentIds) {
           const [s] = await db.select().from(shipments).where(eq(shipments.id, sid));
           if (s) {
             const allItems = await db.select().from(shipmentItems).where(eq(shipmentItems.shipmentId, sid));
-            result.push({ ...s, items: allItems });
+            result.push({
+              ...s,
+              items: allItems.map((item) => ({
+                ...item,
+                productName: item.tradeRecordId ? productNameByTradeId.get(item.tradeRecordId) ?? null : null,
+              })),
+            });
           }
         }
         return result.sort((a, b) => a.shippingDate.localeCompare(b.shippingDate));
@@ -3216,6 +3445,7 @@ ${contextText}`;
           items: z.array(
             z.object({
               invoiceNo: z.number(),
+              tradeRecordId: z.number().optional(),
               quantity: z.number(),
             })
           ),
@@ -3225,6 +3455,21 @@ ${contextText}`;
         const db = (await getDb())!;
 
         // 1. 発送レコードを作成
+        const tradeRecordIds = Array.from(new Set(input.items.map((item) => item.tradeRecordId).filter((id): id is number => typeof id === "number" && id > 0)));
+        const tradeRows = tradeRecordIds.length > 0
+          ? await db
+              .select({ id: tradeRecords.id, no: tradeRecords.no })
+              .from(tradeRecords)
+              .where(inArray(tradeRecords.id, tradeRecordIds))
+          : [];
+        const tradeInvoiceById = new Map(tradeRows.map((row) => [row.id, row.no]));
+        for (const item of input.items) {
+          if (!item.tradeRecordId) continue;
+          if (tradeInvoiceById.get(item.tradeRecordId) !== item.invoiceNo) {
+            throw new Error(`出庫明細の商品行がNo.${item.invoiceNo}に紐づいていません。`);
+          }
+        }
+
         const [result] = await db.insert(shipments).values({
           shippingDate: input.shippingDate,
           trackingNumber: input.trackingNumber ?? null,
@@ -3238,6 +3483,7 @@ ${contextText}`;
           await db.insert(shipmentItems).values({
             shipmentId,
             invoiceNo: item.invoiceNo,
+            tradeRecordId: item.tradeRecordId ?? null,
             quantity: item.quantity,
           });
         }

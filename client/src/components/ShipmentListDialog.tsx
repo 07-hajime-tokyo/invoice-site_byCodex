@@ -81,7 +81,7 @@ export function ShipmentListDialog({ onUpdated }: ShipmentListDialogProps) {
             </p>
             {shipments.map((s) => {
               const totalQty = s.items.reduce((sum, i) => sum + i.quantity, 0);
-              const invoiceNos = [...new Set(s.items.map((i) => i.invoiceNo))].sort((a, b) => a - b);
+              const invoiceNos = Array.from(new Set(s.items.map((i) => i.invoiceNo))).sort((a, b) => a - b);
               return (
                 <div
                   key={s.id}
@@ -148,6 +148,9 @@ export function ShipmentListDialog({ onUpdated }: ShipmentListDialogProps) {
                             className="bg-white border border-border rounded px-2 py-1 text-xs"
                           >
                             <span className="font-medium">No.{item.invoiceNo}</span>
+                            {item.productName && (
+                              <span className="text-foreground ml-1">{item.productName}</span>
+                            )}
                             <span className="text-muted-foreground ml-1">{item.quantity}台</span>
                             {s.items.length > 1 && (
                               <span className="text-orange-600 ml-1">

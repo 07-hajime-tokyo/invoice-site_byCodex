@@ -45,6 +45,8 @@ const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
   "status",
   "totalSales",
   "procurementTotal",
+  "shippingCost",
+  "customsDuty",
   "profitWithRefund",
 ];
 
@@ -147,7 +149,7 @@ export function DataTable({
         </span>
       );
     }
-    if (["totalSales", "procurementTotal", "unitPriceJPY"].includes(key)) {
+    if (["totalSales", "procurementTotal", "unitPriceJPY", "shippingCost", "customsDuty"].includes(key)) {
       return <span className="tabular-nums">{formatCurrency(val as number)}</span>;
     }
     if (key === "quantity") {

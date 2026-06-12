@@ -335,6 +335,8 @@ export const shipmentItems = mysqlTable("shipment_items", {
   shipmentId: int("shipmentId").notNull(),
   /** Invoice number (e.g. 371, 372) */
   invoiceNo: int("invoiceNo").notNull(),
+  /** Optional FK to trade_records.id for item-level shipment tracking */
+  tradeRecordId: int("tradeRecordId"),
   /** Number of units shipped for this invoice in this shipment */
   quantity: int("quantity").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
