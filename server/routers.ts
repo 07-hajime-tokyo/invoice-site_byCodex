@@ -331,6 +331,32 @@ function changedNumber(a: unknown, b: number) {
   return Math.abs(Number(a ?? 0) - b) > 0.0001;
 }
 
+function spreadsheetColumnName(index: number) {
+  let n = index;
+  let name = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function quoteSheetName(sheetName: string) {
+  return `'${sheetName.replace(/'/g, "''")}'`;
+}
+
+async function assertTradeSheetExists(sheetName: string) {
+  const sheets = getSheetsClient();
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: "sheets.properties(title,gridProperties(rowCount,columnCount))",
+  });
+  const sheet = metadata.data.sheets?.find((s) => s.properties?.title === sheetName);
+  if (!sheet?.properties) throw new Error(`シート「${sheetName}」が見つかりません`);
+  return { sheets, sheet: sheet.properties };
+}
+
 // ─── WhatsApp chat parser ────────────────────────────────────────────────────
 // Strategy:
 //   1. Find the "order message" — the message that contains "invoice me" or
@@ -882,6 +908,86 @@ export const appRouter = router({
       const months = toOptions(monthRows).sort((a, b) => parseInt(a) - parseInt(b));
       return { years, months, partners, currencies, statuses };
     }),
+
+    getSheetTabs: protectedProcedure.query(async () => {
+      if (!canSyncTradeSheet()) {
+        return { configured: false as const, spreadsheetId: SPREADSHEET_ID, tabs: [] };
+      }
+      const sheets = getSheetsClient();
+      const metadata = await sheets.spreadsheets.get({
+        spreadsheetId: SPREADSHEET_ID,
+        fields: "spreadsheetId,spreadsheetUrl,sheets.properties(title,index,gridProperties(rowCount,columnCount))",
+      });
+      const tabs = (metadata.data.sheets ?? [])
+        .map((sheet) => ({
+          title: sheet.properties?.title ?? "",
+          index: sheet.properties?.index ?? 0,
+          rowCount: sheet.properties?.gridProperties?.rowCount ?? 0,
+          columnCount: sheet.properties?.gridProperties?.columnCount ?? 0,
+        }))
+        .filter((sheet) => sheet.title)
+        .sort((a, b) => a.index - b.index);
+      return {
+        configured: true as const,
+        spreadsheetId: metadata.data.spreadsheetId ?? SPREADSHEET_ID,
+        spreadsheetUrl: metadata.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit`,
+        tabs,
+      };
+    }),
+
+    getSheetView: protectedProcedure
+      .input(z.object({
+        sheetName: z.string().min(1),
+        maxRows: z.number().int().min(10).max(300).optional().default(140),
+        maxColumns: z.number().int().min(6).max(225).optional().default(140),
+      }))
+      .query(async ({ input }) => {
+        const { sheets, sheet } = await assertTradeSheetExists(input.sheetName);
+        const columnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, input.maxColumns);
+        const rowCount = Math.min(sheet.gridProperties?.rowCount ?? input.maxRows, input.maxRows);
+        const endColumn = spreadsheetColumnName(columnCount);
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${quoteSheetName(input.sheetName)}!A1:${endColumn}${rowCount}`,
+          valueRenderOption: "FORMATTED_VALUE",
+        });
+        const rawRows = response.data.values ?? [];
+        let lastUsedColumn = 1;
+        for (const row of rawRows) {
+          for (let i = row.length - 1; i >= 0; i--) {
+            if (String(row[i] ?? "").trim() !== "") {
+              lastUsedColumn = Math.max(lastUsedColumn, i + 1);
+              break;
+            }
+          }
+        }
+        const visibleColumnCount = Math.min(columnCount, Math.max(lastUsedColumn, 8));
+        return {
+          sheetName: input.sheetName,
+          rowCount,
+          columnCount: visibleColumnCount,
+          rows: rawRows.map((row) => row.slice(0, visibleColumnCount).map((cell) => String(cell ?? ""))),
+        };
+      }),
+
+    updateSheetCell: protectedProcedure
+      .input(z.object({
+        sheetName: z.string().min(1),
+        row: z.number().int().min(1).max(10000),
+        column: z.number().int().min(1).max(225),
+        value: z.string().max(2000),
+      }))
+      .mutation(async ({ input }) => {
+        const { sheets } = await assertTradeSheetExists(input.sheetName);
+        const cell = `${spreadsheetColumnName(input.column)}${input.row}`;
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${quoteSheetName(input.sheetName)}!${cell}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[input.value]] },
+        });
+        return { success: true, cell };
+      }),
 
     // ─── Spreadsheet-backed procedures (kept for write-back) ─────────────────
     getExchangeRates: protectedProcedure.query(async () => {

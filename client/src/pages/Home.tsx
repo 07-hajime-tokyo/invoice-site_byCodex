@@ -53,6 +53,7 @@ const AddShipmentDialog = lazy(() => import("@/components/AddShipmentDialog").th
 const ShipmentListDialog = lazy(() => import("@/components/ShipmentListDialog").then((module) => ({ default: module.ShipmentListDialog })));
 const FilterPanel = lazy(() => import("@/components/FilterPanel").then((module) => ({ default: module.FilterPanel })));
 const DataTable = lazy(() => import("@/components/DataTable").then((module) => ({ default: module.DataTable })));
+const TradeSheetSidePanel = lazy(() => import("@/components/TradeSheetSidePanel").then((module) => ({ default: module.TradeSheetSidePanel })));
 const ChartSection = lazy(() => import("@/components/ChartSection").then((module) => ({ default: module.ChartSection })));
 const InvoicePage = lazy(() => import("./InvoicePage"));
 const InventoryApp = lazy(() => import("@/inventory/InventoryApp"));
@@ -704,28 +705,33 @@ export default function Home() {
             </div>
           )}
 
-          {/* Data Table */}
-          {isInitialTradeLoading ? (
-            <PanelLoading />
-          ) : (
+          {/* Data Table + Spreadsheet View */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+            {isInitialTradeLoading ? (
+              <PanelLoading />
+            ) : (
+              <Suspense fallback={<PanelLoading />}>
+                <DataTable
+                  records={filteredRecords}
+                  totalRecords={totalTradeRecords}
+                  page={tradePage}
+                  pageSize={tradePageSize}
+                  sortKey={tradeSortKey}
+                  sortDir={tradeSortDir}
+                  onPageChange={setTradePage}
+                  onPageSizeChange={setTradePageSize}
+                  onSortChange={(key, dir) => {
+                    setTradeSortKey(key);
+                    setTradeSortDir(dir);
+                  }}
+                  onRecordUpdated={() => refetch()}
+                />
+              </Suspense>
+            )}
             <Suspense fallback={<PanelLoading />}>
-              <DataTable
-                records={filteredRecords}
-                totalRecords={totalTradeRecords}
-                page={tradePage}
-                pageSize={tradePageSize}
-                sortKey={tradeSortKey}
-                sortDir={tradeSortDir}
-                onPageChange={setTradePage}
-                onPageSizeChange={setTradePageSize}
-                onSortChange={(key, dir) => {
-                  setTradeSortKey(key);
-                  setTradeSortDir(dir);
-                }}
-                onRecordUpdated={() => refetch()}
-              />
+              <TradeSheetSidePanel />
             </Suspense>
-          )}
+          </div>
 
           {/* Charts */}
           {!shouldLoadTradeCharts ? (
