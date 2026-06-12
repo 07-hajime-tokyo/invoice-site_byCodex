@@ -233,10 +233,40 @@ function fixServiceAccountJson(jsonStr: string) {
   return credentials;
 }
 
-function getSheetsClient() {
+function getServiceAccountCredentials() {
   const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!serviceAccountJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not set");
-  const credentials = fixServiceAccountJson(serviceAccountJson);
+  return fixServiceAccountJson(serviceAccountJson);
+}
+
+function getSheetsAccessError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+  const credentials = (() => {
+    try {
+      return getServiceAccountCredentials() as { client_email?: string; project_id?: string };
+    } catch {
+      return null;
+    }
+  })();
+  const serviceAccountEmail = credentials?.client_email ?? "不明";
+  const projectId = credentials?.project_id ?? "不明";
+
+  if (status === "403" || message.toLowerCase().includes("permission")) {
+    return new Error(
+      `Google Sheetsの権限がありません。スプシID ${SPREADSHEET_ID} を ` +
+      `${serviceAccountEmail} に編集者権限で共有してください。` +
+      `Vercelのサービスアカウント project_id: ${projectId}。詳細: ${message}`
+    );
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
+function getSheetsClient() {
+  const credentials = getServiceAccountCredentials();
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -351,6 +381,8 @@ async function assertTradeSheetExists(sheetName: string) {
   const metadata = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
     fields: "sheets.properties(title,gridProperties(rowCount,columnCount))",
+  }).catch((error) => {
+    throw getSheetsAccessError(error);
   });
   const sheet = metadata.data.sheets?.find((s) => s.properties?.title === sheetName);
   if (!sheet?.properties) throw new Error(`シート「${sheetName}」が見つかりません`);
@@ -917,6 +949,8 @@ export const appRouter = router({
       const metadata = await sheets.spreadsheets.get({
         spreadsheetId: SPREADSHEET_ID,
         fields: "spreadsheetId,spreadsheetUrl,sheets.properties(title,index,gridProperties(rowCount,columnCount))",
+      }).catch((error) => {
+        throw getSheetsAccessError(error);
       });
       const tabs = (metadata.data.sheets ?? [])
         .map((sheet) => ({
@@ -951,6 +985,8 @@ export const appRouter = router({
           spreadsheetId: SPREADSHEET_ID,
           range: `${quoteSheetName(sheetName)}!A1:${endColumn}${rowCount}`,
           valueRenderOption: "FORMATTED_VALUE",
+        }).catch((error) => {
+          throw getSheetsAccessError(error);
         });
         const rawRows = response.data.values ?? [];
         let lastUsedColumn = 1;
@@ -986,6 +1022,8 @@ export const appRouter = router({
           range: `${quoteSheetName(input.sheetName)}!${cell}`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[input.value]] },
+        }).catch((error) => {
+          throw getSheetsAccessError(error);
         });
         return { success: true, cell };
       }),
