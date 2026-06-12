@@ -6,19 +6,43 @@ import { createDrizzleDatabase, type AppDatabase } from "./_core/database";
 let _db: AppDatabase | null = null;
 let _schemaReady: Promise<void> | null = null;
 
+function errorText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  while (current) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = (current as Error & { cause?: unknown }).cause;
+    } else if (typeof current === "object") {
+      const record = current as Record<string, unknown>;
+      if (typeof record.message === "string") parts.push(record.message);
+      if (typeof record.code === "string") parts.push(record.code);
+      current = record.cause;
+    } else {
+      parts.push(String(current));
+      current = undefined;
+    }
+  }
+  return parts.join(" ");
+}
+
 async function ensureRuntimeSchema(db: AppDatabase) {
   try {
+    const existing = await db.execute(sql`SHOW COLUMNS FROM shipment_items LIKE 'tradeRecordId'`);
+    const rows = Array.isArray(existing) ? existing : ((existing as { rows?: unknown[] }).rows ?? []);
+    if (Array.isArray(rows) && rows.length > 0) return;
     await db.execute(sql`ALTER TABLE shipment_items ADD COLUMN tradeRecordId int`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     if (
       message.includes("Duplicate column") ||
       message.includes("ER_DUP_FIELDNAME") ||
-      message.includes("already exists")
+      message.includes("already exists") ||
+      message.includes("1060")
     ) {
       return;
     }
-    throw error;
+    console.warn("[Database] Runtime schema check skipped:", message);
   }
 }
 
