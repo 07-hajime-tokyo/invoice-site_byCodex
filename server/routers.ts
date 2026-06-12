@@ -447,9 +447,16 @@ async function getSheetShipmentProgressByInvoice() {
 
   const progressByInvoice = new Map<string, SheetShipmentProgress[]>();
   for (const valueRange of response.data.valueRanges ?? []) {
+    let currentInvoiceNo = "";
     for (const row of valueRange.values ?? []) {
-      const invoiceNo = String(row[0] ?? "").trim();
-      if (!/^\d+$/.test(invoiceNo)) continue;
+      const rawInvoiceNo = String(row[0] ?? "").trim();
+      if (/^\d+$/.test(rawInvoiceNo)) {
+        currentInvoiceNo = rawInvoiceNo;
+      } else if (rawInvoiceNo) {
+        currentInvoiceNo = "";
+      }
+      const invoiceNo = currentInvoiceNo;
+      if (!invoiceNo) continue;
       const orderedQty = parseSheetQuantity(row[4]);
       const shippedQty = parseSheetQuantity(row[5]);
       if (orderedQty <= 0 && shippedQty <= 0) continue;
