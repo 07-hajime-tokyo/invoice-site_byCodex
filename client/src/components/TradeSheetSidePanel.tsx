@@ -47,6 +47,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [activeSheet, setActiveSheet] = useState("独発送管理");
   const [maxRows, setMaxRows] = useState(140);
+  const [startRow, setStartRow] = useState(1);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [highlightedCell, setHighlightedCell] = useState<HighlightedCell | null>(null);
 
@@ -56,11 +57,16 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
   const tabs = tabsQuery.data?.tabs ?? [];
 
   useEffect(() => {
-    if (tabs.length > 0 && !tabs.some((tab) => tab.title === activeSheet)) setActiveSheet(tabs[0].title);
+    if (tabs.length > 0 && !tabs.some((tab) => tab.title === activeSheet)) {
+      setActiveSheet(tabs[0].title);
+      setStartRow(1);
+      setMaxRows(140);
+      setHighlightedCell(null);
+    }
   }, [activeSheet, tabs]);
 
   const sheetQuery = trpc.trade.getSheetView.useQuery(
-    { sheetName: activeSheet, maxRows, maxColumns: 160 },
+    { sheetName: activeSheet, startRow, maxRows, maxColumns: 160 },
     { enabled: !!activeSheet, staleTime: 30 * 1000 }
   );
 
@@ -85,8 +91,10 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
           toast.error(`No.${jumpTarget.invoiceNo} は発送管理シート内に見つかりませんでした`);
           return;
         }
+        const nextStartRow = Math.max(1, result.row - 40);
         setActiveSheet(result.sheetName);
-        setMaxRows((value) => Math.min(1200, Math.max(value, result.row + 20)));
+        setStartRow(nextStartRow);
+        setMaxRows(120);
         setHighlightedCell({
           sheetName: result.sheetName,
           row: result.row,
@@ -109,6 +117,18 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
     () => Array.from({ length: columnCount }, (_, i) => columnName(i + 1)),
     [columnCount]
   );
+  const visibleStartRow = sheetQuery.data?.startRow ?? startRow;
+  const visibleRowCount = sheetQuery.data?.rowCount ?? rows.length;
+  const visibleEndRow = visibleRowCount > 0 ? visibleStartRow + visibleRowCount - 1 : visibleStartRow;
+  const totalRowCount = sheetQuery.data?.totalRowCount ?? visibleRowCount;
+
+  const handleSheetChange = (sheetName: string) => {
+    setActiveSheet(sheetName);
+    setStartRow(1);
+    setMaxRows(140);
+    setEditing(null);
+    setHighlightedCell(null);
+  };
 
   useEffect(() => {
     if (!highlightedCell || highlightedCell.sheetName !== activeSheet || sheetQuery.isLoading || sheetQuery.isFetching) return;
@@ -127,7 +147,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
 
   const saveEditing = () => {
     if (!editing || !activeSheet || updateMutation.isPending) return;
-    const currentValue = rows[editing.row - 1]?.[editing.column - 1] ?? "";
+    const currentValue = rows[editing.row - visibleStartRow]?.[editing.column - 1] ?? "";
     if (editing.value === currentValue) {
       setEditing(null);
       return;
@@ -190,7 +210,7 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
       </div>
 
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Select value={activeSheet} onValueChange={setActiveSheet} disabled={tabsQuery.isLoading || tabs.length === 0}>
+        <Select value={activeSheet} onValueChange={handleSheetChange} disabled={tabsQuery.isLoading || tabs.length === 0}>
           <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
             <SelectValue placeholder="シート" />
           </SelectTrigger>
@@ -239,8 +259,8 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: sheetQuery.data?.rowCount ?? rows.length }, (_, rowIndex) => {
-                const rowNumber = rowIndex + 1;
+              {Array.from({ length: visibleRowCount }, (_, rowIndex) => {
+                const rowNumber = visibleStartRow + rowIndex;
                 return (
                   <tr key={rowNumber}>
                     <th className="sticky left-0 z-10 h-7 border-b border-r border-border bg-muted px-1 text-right text-[10px] font-medium text-muted-foreground">
@@ -297,13 +317,17 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        <span>{sheetQuery.data ? `${sheetQuery.data.rowCount}行 / ${sheetQuery.data.columnCount}列` : ""}</span>
+        <span>
+          {sheetQuery.data
+            ? `${visibleStartRow}-${visibleEndRow}行 / 全${totalRowCount}行・${sheetQuery.data.columnCount}列`
+            : ""}
+        </span>
         <Button
           variant="ghost"
           size="sm"
           className="h-7 px-2 text-xs"
-          onClick={() => setMaxRows((value) => Math.min(value + 80, 1200))}
-          disabled={maxRows >= 1200}
+          onClick={() => setMaxRows((value) => Math.min(value + 80, 300))}
+          disabled={maxRows >= 300}
         >
           さらに表示
         </Button>

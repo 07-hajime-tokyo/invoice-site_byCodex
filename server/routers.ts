@@ -980,38 +980,34 @@ export const appRouter = router({
     getSheetView: protectedProcedure
       .input(z.object({
         sheetName: z.string().optional().default(TRADE_VIEW_DEFAULT_SHEET_NAME),
-        maxRows: z.number().int().min(10).max(1200).optional().default(140),
+        startRow: z.number().int().min(1).max(10000).optional().default(1),
+        maxRows: z.number().int().min(10).max(300).optional().default(140),
         maxColumns: z.number().int().min(6).max(225).optional().default(140),
       }))
       .query(async ({ input }) => {
         const sheetName = input.sheetName?.trim() || TRADE_VIEW_DEFAULT_SHEET_NAME;
         const { sheets, sheet } = await assertTradeSheetExists(sheetName, TRADE_VIEW_SPREADSHEET_ID);
         const columnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, input.maxColumns);
-        const rowCount = Math.min(sheet.gridProperties?.rowCount ?? input.maxRows, input.maxRows);
+        const totalRowCount = sheet.gridProperties?.rowCount ?? input.maxRows;
+        const startRow = Math.min(input.startRow, Math.max(totalRowCount, 1));
+        const rowCount = Math.min(input.maxRows, Math.max(totalRowCount - startRow + 1, 0));
+        const endRow = Math.max(startRow, startRow + rowCount - 1);
         const endColumn = spreadsheetColumnName(columnCount);
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
-          range: `${quoteSheetName(sheetName)}!A1:${endColumn}${rowCount}`,
+          range: `${quoteSheetName(sheetName)}!A${startRow}:${endColumn}${endRow}`,
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
         const rawRows = response.data.values ?? [];
-        let lastUsedColumn = 1;
-        for (const row of rawRows) {
-          for (let i = row.length - 1; i >= 0; i--) {
-            if (String(row[i] ?? "").trim() !== "") {
-              lastUsedColumn = Math.max(lastUsedColumn, i + 1);
-              break;
-            }
-          }
-        }
-        const visibleColumnCount = Math.min(columnCount, Math.max(lastUsedColumn, 8));
         return {
           sheetName,
+          startRow,
           rowCount,
-          columnCount: visibleColumnCount,
-          rows: rawRows.map((row) => row.slice(0, visibleColumnCount).map((cell) => String(cell ?? ""))),
+          totalRowCount,
+          columnCount,
+          rows: rawRows.map((row) => row.slice(0, columnCount).map((cell) => String(cell ?? ""))),
         };
       }),
 
