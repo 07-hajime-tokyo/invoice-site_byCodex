@@ -937,18 +937,19 @@ export const appRouter = router({
 
     getSheetView: protectedProcedure
       .input(z.object({
-        sheetName: z.string().min(1),
+        sheetName: z.string().optional().default(SHEET_NAME),
         maxRows: z.number().int().min(10).max(300).optional().default(140),
         maxColumns: z.number().int().min(6).max(225).optional().default(140),
       }))
       .query(async ({ input }) => {
-        const { sheets, sheet } = await assertTradeSheetExists(input.sheetName);
+        const sheetName = input.sheetName?.trim() || SHEET_NAME;
+        const { sheets, sheet } = await assertTradeSheetExists(sheetName);
         const columnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, input.maxColumns);
         const rowCount = Math.min(sheet.gridProperties?.rowCount ?? input.maxRows, input.maxRows);
         const endColumn = spreadsheetColumnName(columnCount);
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: SPREADSHEET_ID,
-          range: `${quoteSheetName(input.sheetName)}!A1:${endColumn}${rowCount}`,
+          range: `${quoteSheetName(sheetName)}!A1:${endColumn}${rowCount}`,
           valueRenderOption: "FORMATTED_VALUE",
         });
         const rawRows = response.data.values ?? [];
@@ -963,7 +964,7 @@ export const appRouter = router({
         }
         const visibleColumnCount = Math.min(columnCount, Math.max(lastUsedColumn, 8));
         return {
-          sheetName: input.sheetName,
+          sheetName,
           rowCount,
           columnCount: visibleColumnCount,
           rows: rawRows.map((row) => row.slice(0, visibleColumnCount).map((cell) => String(cell ?? ""))),

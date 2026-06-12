@@ -31,7 +31,7 @@ type EditingCell = {
 
 export function TradeSheetSidePanel() {
   const utils = trpc.useUtils();
-  const [activeSheet, setActiveSheet] = useState("");
+  const [activeSheet, setActiveSheet] = useState("全体");
   const [maxRows, setMaxRows] = useState(140);
   const [editing, setEditing] = useState<EditingCell | null>(null);
 
@@ -41,12 +41,12 @@ export function TradeSheetSidePanel() {
   const tabs = tabsQuery.data?.tabs ?? [];
 
   useEffect(() => {
-    if (!activeSheet && tabs.length > 0) setActiveSheet(tabs[0].title);
+    if (tabs.length > 0 && !tabs.some((tab) => tab.title === activeSheet)) setActiveSheet(tabs[0].title);
   }, [activeSheet, tabs]);
 
   const sheetQuery = trpc.trade.getSheetView.useQuery(
     { sheetName: activeSheet, maxRows, maxColumns: 160 },
-    { enabled: !!activeSheet, staleTime: 30 * 1000 }
+    { staleTime: 30 * 1000 }
   );
 
   const updateMutation = trpc.trade.updateSheetCell.useMutation({
@@ -90,6 +90,14 @@ export function TradeSheetSidePanel() {
     return (
       <aside className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         Google Sheets API が未設定です。
+      </aside>
+    );
+  }
+
+  if (tabsQuery.error) {
+    return (
+      <aside className="rounded-lg border border-destructive/30 bg-card p-4 text-sm text-destructive">
+        {tabsQuery.error.message}
       </aside>
     );
   }
