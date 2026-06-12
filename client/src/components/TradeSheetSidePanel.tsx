@@ -31,7 +31,7 @@ type EditingCell = {
 
 export function TradeSheetSidePanel() {
   const utils = trpc.useUtils();
-  const [activeSheet, setActiveSheet] = useState("全体");
+  const [activeSheet, setActiveSheet] = useState("独発送管理");
   const [maxRows, setMaxRows] = useState(140);
   const [editing, setEditing] = useState<EditingCell | null>(null);
 
@@ -46,7 +46,7 @@ export function TradeSheetSidePanel() {
 
   const sheetQuery = trpc.trade.getSheetView.useQuery(
     { sheetName: activeSheet, maxRows, maxColumns: 160 },
-    { staleTime: 30 * 1000 }
+    { enabled: !!activeSheet, staleTime: 30 * 1000 }
   );
 
   const updateMutation = trpc.trade.updateSheetCell.useMutation({

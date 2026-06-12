@@ -18,6 +18,8 @@ import { eq, desc, asc, or, like, and, sql, isNull, isNotNull } from "drizzle-or
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
 const SHEET_NAME = "全体";
+const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
+const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
 
 // 不可視文字（ゼロ幅スペース、WORD JOINERなど）を除去するヘルパー
 function sanitizeText(str: string | null | undefined): string | null {
@@ -239,7 +241,7 @@ function getServiceAccountCredentials() {
   return fixServiceAccountJson(serviceAccountJson);
 }
 
-function getSheetsAccessError(error: unknown) {
+function getSheetsAccessError(error: unknown, spreadsheetId = SPREADSHEET_ID) {
   const message = error instanceof Error ? error.message : String(error);
   const status = typeof error === "object" && error !== null && "code" in error
     ? String((error as { code?: unknown }).code)
@@ -256,7 +258,7 @@ function getSheetsAccessError(error: unknown) {
 
   if (status === "403" || message.toLowerCase().includes("permission")) {
     return new Error(
-      `Google Sheetsの権限がありません。スプシID ${SPREADSHEET_ID} を ` +
+      `Google Sheetsの権限がありません。スプシID ${spreadsheetId} を ` +
       `${serviceAccountEmail} に編集者権限で共有してください。` +
       `Vercelのサービスアカウント project_id: ${projectId}。詳細: ${message}`
     );
@@ -376,13 +378,13 @@ function quoteSheetName(sheetName: string) {
   return `'${sheetName.replace(/'/g, "''")}'`;
 }
 
-async function assertTradeSheetExists(sheetName: string) {
+async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId,
     fields: "sheets.properties(title,gridProperties(rowCount,columnCount))",
   }).catch((error) => {
-    throw getSheetsAccessError(error);
+    throw getSheetsAccessError(error, spreadsheetId);
   });
   const sheet = metadata.data.sheets?.find((s) => s.properties?.title === sheetName);
   if (!sheet?.properties) throw new Error(`シート「${sheetName}」が見つかりません`);
@@ -943,50 +945,51 @@ export const appRouter = router({
 
     getSheetTabs: protectedProcedure.query(async () => {
       if (!canSyncTradeSheet()) {
-        return { configured: false as const, spreadsheetId: SPREADSHEET_ID, tabs: [] };
+        return { configured: false as const, spreadsheetId: TRADE_VIEW_SPREADSHEET_ID, tabs: [] };
       }
       const sheets = getSheetsClient();
       const metadata = await sheets.spreadsheets.get({
-        spreadsheetId: SPREADSHEET_ID,
-        fields: "spreadsheetId,spreadsheetUrl,sheets.properties(title,index,gridProperties(rowCount,columnCount))",
+        spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+        fields: "spreadsheetId,spreadsheetUrl,sheets.properties(title,index,hidden,gridProperties(rowCount,columnCount))",
       }).catch((error) => {
-        throw getSheetsAccessError(error);
+        throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
       });
       const tabs = (metadata.data.sheets ?? [])
         .map((sheet) => ({
           title: sheet.properties?.title ?? "",
           index: sheet.properties?.index ?? 0,
+          hidden: sheet.properties?.hidden ?? false,
           rowCount: sheet.properties?.gridProperties?.rowCount ?? 0,
           columnCount: sheet.properties?.gridProperties?.columnCount ?? 0,
         }))
-        .filter((sheet) => sheet.title)
+        .filter((sheet) => sheet.title && !sheet.hidden)
         .sort((a, b) => a.index - b.index);
       return {
         configured: true as const,
-        spreadsheetId: metadata.data.spreadsheetId ?? SPREADSHEET_ID,
-        spreadsheetUrl: metadata.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit`,
+        spreadsheetId: metadata.data.spreadsheetId ?? TRADE_VIEW_SPREADSHEET_ID,
+        spreadsheetUrl: metadata.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${TRADE_VIEW_SPREADSHEET_ID}/edit`,
         tabs,
       };
     }),
 
     getSheetView: protectedProcedure
       .input(z.object({
-        sheetName: z.string().optional().default(SHEET_NAME),
+        sheetName: z.string().optional().default(TRADE_VIEW_DEFAULT_SHEET_NAME),
         maxRows: z.number().int().min(10).max(300).optional().default(140),
         maxColumns: z.number().int().min(6).max(225).optional().default(140),
       }))
       .query(async ({ input }) => {
-        const sheetName = input.sheetName?.trim() || SHEET_NAME;
-        const { sheets, sheet } = await assertTradeSheetExists(sheetName);
+        const sheetName = input.sheetName?.trim() || TRADE_VIEW_DEFAULT_SHEET_NAME;
+        const { sheets, sheet } = await assertTradeSheetExists(sheetName, TRADE_VIEW_SPREADSHEET_ID);
         const columnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, input.maxColumns);
         const rowCount = Math.min(sheet.gridProperties?.rowCount ?? input.maxRows, input.maxRows);
         const endColumn = spreadsheetColumnName(columnCount);
         const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
           range: `${quoteSheetName(sheetName)}!A1:${endColumn}${rowCount}`,
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
-          throw getSheetsAccessError(error);
+          throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
         const rawRows = response.data.values ?? [];
         let lastUsedColumn = 1;
@@ -1015,15 +1018,15 @@ export const appRouter = router({
         value: z.string().max(2000),
       }))
       .mutation(async ({ input }) => {
-        const { sheets } = await assertTradeSheetExists(input.sheetName);
+        const { sheets } = await assertTradeSheetExists(input.sheetName, TRADE_VIEW_SPREADSHEET_ID);
         const cell = `${spreadsheetColumnName(input.column)}${input.row}`;
         await sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
           range: `${quoteSheetName(input.sheetName)}!${cell}`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[input.value]] },
         }).catch((error) => {
-          throw getSheetsAccessError(error);
+          throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
         });
         return { success: true, cell };
       }),
