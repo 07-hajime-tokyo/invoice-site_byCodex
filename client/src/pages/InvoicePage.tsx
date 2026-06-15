@@ -1971,6 +1971,7 @@ function InvoiceEditor({
                         type="number"
                         value={item.quantity}
                         onChange={e => updateItem(idx, "quantity", Number(e.target.value))}
+                        onFocus={e => e.currentTarget.select()}
                         className="h-8 text-xs text-right"
                         min={0}
                       />
@@ -1979,6 +1980,7 @@ function InvoiceEditor({
                           type="number"
                           value={item.unitPrice}
                           onChange={e => updateItem(idx, "unitPrice", Number(e.target.value))}
+                          onFocus={e => e.currentTarget.select()}
                           className="h-8 text-xs text-right"
                           min={0}
                         />
