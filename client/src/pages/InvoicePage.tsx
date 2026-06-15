@@ -313,6 +313,11 @@ type InvoiceClientOption = {
   phone?: string | null;
 };
 
+function getDefaultCurrencyForClient(client: { name?: string | null; company?: string | null } | null | undefined) {
+  const text = `${client?.name ?? ""} ${client?.company ?? ""}`.normalize("NFKC").toLowerCase();
+  return text.includes("luca") || text.includes("ルカ") ? "EUR" : "USD";
+}
+
 function normalizeClientLookupText(value: string | null | undefined) {
   return String(value ?? "")
     .normalize("NFKC")
@@ -1360,6 +1365,25 @@ function InvoiceEditor({
     setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
   };
 
+  const handleClientChange = useCallback((value: string) => {
+    const clientId = value === "__none__" ? null : Number(value);
+    const client = clientId ? clients.find(c => c.id === clientId) : null;
+    setForm(f => {
+      if (!client) return { ...f, clientId };
+      const nextCurrency = getDefaultCurrencyForClient(client);
+      return {
+        ...f,
+        clientId,
+        currency: nextCurrency,
+        items: f.items.map(item => (
+          !item.currency || item.currency === f.currency
+            ? { ...item, currency: nextCurrency }
+            : item
+        )),
+      };
+    });
+  }, [clients]);
+
   const handlePrint = () => {
     // Set document title to control PDF filename: "Invoice - 0373.pdf"
     const numMatch = form.invoiceNumber.match(/(\d+)$/);
@@ -1873,7 +1897,7 @@ function InvoiceEditor({
               <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">宛先</h3>
               <Select
                 value={form.clientId ? String(form.clientId) : "__none__"}
-                onValueChange={v => setForm(f => ({ ...f, clientId: v === "__none__" ? null : Number(v) }))}
+                onValueChange={handleClientChange}
               >
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue placeholder="宛先を選択..." />
