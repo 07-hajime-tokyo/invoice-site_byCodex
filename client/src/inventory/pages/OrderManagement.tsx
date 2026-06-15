@@ -258,6 +258,15 @@ function isRandomColor(colorName: string): boolean {
   return c.includes("ランダム") || c.includes("random") || c.includes("ramdom");
 }
 
+function isOtherColor(colorName: string): boolean {
+  const c = colorName.normalize("NFKC").trim().toLowerCase();
+  return c === "other" ||
+    c.includes("other color") ||
+    c.includes("その他") ||
+    c.includes("それ以外") ||
+    c.includes("以外");
+}
+
 type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string };
 
 function buildColorSummary(item: SummaryItem): ColorSummary[] {
@@ -312,6 +321,8 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
       }
       // 機種一致するのでマッチ（Zaico商品名の機種が一致するかどうかでスコア差をつける）
       return zaicoModel === entry.model ? 3 : 2;
+    } else if (isOtherColor(entry.colorOnly)) {
+      return zaicoModel === entry.model ? 1 : -1;
     } else {
       // 通常カラー: Zaico商品名にカラー名が含まれるか確認
       const zaicoColor = extractColorFromCsvName(zaicoTitle);

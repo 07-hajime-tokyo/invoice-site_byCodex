@@ -2220,6 +2220,7 @@ export const inventoryRouter = router({
               const csvColor = extractColorKey(csvName);
               const invColor = extractColorKey(invTitle);
               if (/\u30e9\u30f3\u30c0\u30e0|random|ramdom/i.test(csvColor)) return true;
+              if (/^other$/i.test(csvColor.trim()) || /other colors?/i.test(csvColor) || /\u305d\u306e\u4ed6|\u305d\u308c\u4ee5\u5916|\u4ee5\u5916/.test(csvColor)) return true;
               const baseMatch = csvColor.match(/^(.+?)\u30d9\u30fc\u30b9$/);
               if (baseMatch) {
                 const bc = baseMatch[1].trim().toLowerCase();
@@ -3242,6 +3243,15 @@ export const inventoryRouter = router({
       }
 
       // カラーが「○○ベース」か判定し、ベース色を返す（例: "ホワイトベース" → "ホワイト"）
+      function isOtherColorName(colorName: string): boolean {
+        const c = colorName.normalize("NFKC").trim().toLowerCase();
+        return c === "other" ||
+          c.includes("other color") ||
+          c.includes("その他") ||
+          c.includes("それ以外") ||
+          c.includes("以外");
+      }
+
       function extractBaseColor(colorName: string): string | null {
         const m = colorName.match(/^(.+?)ベース$/);
         return m ? m[1].trim() : null;
@@ -3263,6 +3273,10 @@ export const inventoryRouter = router({
 
         if (isRandomColorName(csvColor)) {
           // ランダムカラー: 機種が一致すれば色は不問
+          return true;
+        }
+
+        if (isOtherColorName(csvColor)) {
           return true;
         }
 
