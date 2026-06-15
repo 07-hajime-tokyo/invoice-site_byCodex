@@ -258,6 +258,31 @@ function isRandomColor(colorName: string): boolean {
   return c.includes("ランダム") || c.includes("random") || c.includes("ramdom");
 }
 
+function normalizeColorToken(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function isColorlessRandomColor(colorName: string): boolean {
+  if (!colorName.normalize("NFKC").trim()) return true;
+  const compact = normalizeColorToken(colorName);
+  if (!compact) return false;
+  if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds)$/.test(compact)) return true;
+  if (/^\d{3,4}$/.test(compact)) return true;
+  if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
+  if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
+  return false;
+}
+
+function colorlessQualifierMatches(colorName: string, title: string): boolean {
+  const compactColor = normalizeColorToken(colorName);
+  const compactTitle = normalizeColorToken(title);
+  const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
+  if (version && !compactTitle.includes(version)) return false;
+  const grade = compactColor.match(/(?:grade|rank)([abc])/)?.[1];
+  if (grade && !compactTitle.includes(`grade${grade}`) && !compactTitle.includes(`rank${grade}`)) return false;
+  return true;
+}
+
 function isOtherColor(colorName: string): boolean {
   const c = colorName.normalize("NFKC").trim().toLowerCase();
   return c === "other" ||
@@ -311,7 +336,8 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     const zt = zaicoTitle.toLowerCase();
     const zaicoModel = extractModelFromCsvName(zaicoTitle);
 
-    if (isRandomColor(entry.colorOnly)) {
+    if (isRandomColor(entry.colorOnly) || isColorlessRandomColor(entry.colorOnly)) {
+      if (isColorlessRandomColor(entry.colorOnly) && !colorlessQualifierMatches(entry.colorOnly, zaicoTitle)) return -1;
       // ランダムカラーグループ: 機種が一致するものはすべて満たす
       // 機種情報がある場合は已にチェック済みなので、ここに届いたら機種一致
       // 機種なしの場合はランダムカラーという文字列を商品名に含むか確認

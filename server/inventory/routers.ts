@@ -2213,6 +2213,27 @@ export const inventoryRouter = router({
               }
               return working;
             };
+            const normalizeColorToken = (value: string): string =>
+              value.normalize("NFKC").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+            const isColorlessRandomColor = (colorName: string): boolean => {
+              if (!colorName.normalize("NFKC").trim()) return true;
+              const compact = normalizeColorToken(colorName);
+              if (!compact) return false;
+              if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds)$/.test(compact)) return true;
+              if (/^\d{3,4}$/.test(compact)) return true;
+              if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
+              if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
+              return false;
+            };
+            const colorlessQualifierMatches = (colorName: string, title: string): boolean => {
+              const compactColor = normalizeColorToken(colorName);
+              const compactTitle = normalizeColorToken(title);
+              const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
+              if (version && !compactTitle.includes(version)) return false;
+              const grade = compactColor.match(/(?:grade|rank)([abc])/)?.[1];
+              if (grade && !compactTitle.includes(`grade${grade}`) && !compactTitle.includes(`rank${grade}`)) return false;
+              return true;
+            };
             const matchesCsvProduct = (csvName: string, invTitle: string): boolean => {
               const csvModel = extractModelKey(csvName);
               const invModel = extractModelKey(invTitle);
@@ -2220,6 +2241,7 @@ export const inventoryRouter = router({
               const csvColor = extractColorKey(csvName);
               const invColor = extractColorKey(invTitle);
               if (/\u30e9\u30f3\u30c0\u30e0|random|ramdom/i.test(csvColor)) return true;
+              if (isColorlessRandomColor(csvColor)) return colorlessQualifierMatches(csvColor, invTitle);
               if (/^other$/i.test(csvColor.trim()) || /other colors?/i.test(csvColor) || /\u305d\u306e\u4ed6|\u305d\u308c\u4ee5\u5916|\u4ee5\u5916/.test(csvColor)) return true;
               const baseMatch = csvColor.match(/^(.+?)\u30d9\u30fc\u30b9$/);
               if (baseMatch) {
@@ -3243,6 +3265,31 @@ export const inventoryRouter = router({
       }
 
       // カラーが「○○ベース」か判定し、ベース色を返す（例: "ホワイトベース" → "ホワイト"）
+      function normalizeColorToken(value: string): string {
+        return value.normalize("NFKC").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+      }
+
+      function isColorlessRandomColorName(colorName: string): boolean {
+        if (!colorName.normalize("NFKC").trim()) return true;
+        const compact = normalizeColorToken(colorName);
+        if (!compact) return false;
+        if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds)$/.test(compact)) return true;
+        if (/^\d{3,4}$/.test(compact)) return true;
+        if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
+        if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
+        return false;
+      }
+
+      function colorlessQualifierMatches(colorName: string, title: string, managementNo = ""): boolean {
+        const compactColor = normalizeColorToken(colorName);
+        const compactTarget = normalizeColorToken(`${title} ${managementNo}`);
+        const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
+        if (version && !compactTarget.includes(version)) return false;
+        const grade = compactColor.match(/(?:grade|rank)([abc])/)?.[1];
+        if (grade && !compactTarget.includes(`grade${grade}`) && !compactTarget.includes(`rank${grade}`)) return false;
+        return true;
+      }
+
       function isOtherColorName(colorName: string): boolean {
         const c = colorName.normalize("NFKC").trim().toLowerCase();
         return c === "other" ||
@@ -3274,6 +3321,10 @@ export const inventoryRouter = router({
         if (isRandomColorName(csvColor)) {
           // ランダムカラー: 機種が一致すれば色は不問
           return true;
+        }
+
+        if (isColorlessRandomColorName(csvColor)) {
+          return colorlessQualifierMatches(csvColor, invTitle, invManagementNo);
         }
 
         if (isOtherColorName(csvColor)) {
