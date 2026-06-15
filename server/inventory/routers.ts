@@ -3549,8 +3549,18 @@ export const inventoryRouter = router({
         }
       }
 
+      const summaries = Array.from(groups.values()).map((g) => {
+        const isAutoComplete = g.csvOrderQty > 0 && g.deliveredCount === g.csvOrderQty;
+        const isComplete = g.manualComplete || g.csvStatus === "complete" || isAutoComplete;
+        if (!isComplete) return g;
+        return {
+          ...g,
+          csvProducts: g.csvProducts.map((p) => ({ ...p, status: "complete" })),
+        };
+      });
+
        // キーの昇順でソートして返却
-      return Array.from(groups.values()).sort((a, b) => {
+      return summaries.sort((a, b) => {
         const na = parseInt(a.key, 10);
         const nb = parseInt(b.key, 10);
         return na - nb;
