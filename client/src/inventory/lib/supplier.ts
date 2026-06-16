@@ -86,6 +86,26 @@ export function getSiteNameFromUrl(url: string | null | undefined): string {
   }
 }
 
+function compactSupplierText(value: string): string {
+  return value.toLowerCase().replace(/[!！\s　・･_\-ー]/g, "");
+}
+
+function isYahooShoppingText(value: string): boolean {
+  const compact = compactSupplierText(value);
+  return compact.includes("yahooショッピング") ||
+    compact.includes("yahooshopping") ||
+    compact.includes("ヤフショ") ||
+    compact.includes("ヤフーショッピング");
+}
+
+function isYahooShoppingRelatedSeller(value: string): boolean {
+  const compact = compactSupplierText(value);
+  return isYahooShoppingText(value) ||
+    compact.includes("yahoo店") ||
+    compact.includes("yahooストア") ||
+    compact.includes("yahoostore");
+}
+
 /**
  * 在庫一覧・入庫履歴用の仕入先表示文字列を生成する。
  *
@@ -114,6 +134,7 @@ export function buildSupplierDisplay(
     // 駿河屋はそのまま（店舗名が既に含まれている）
     if (siteName === "駿河屋") return name || siteName;
     if (siteName && name) {
+      if (isYahooShoppingText(siteName) && isYahooShoppingRelatedSeller(name)) return "Yahoo!ショッピング";
       // nameが既にsiteNameで始まっている場合は重複を避ける
       // 例: siteName="Amazon", name="Amazon モノモロストア" → "Amazon モノモロストア"
       if (name.startsWith(siteName)) return name;
@@ -123,6 +144,7 @@ export function buildSupplierDisplay(
     if (name) return name;
   }
 
+  if (name && isYahooShoppingRelatedSeller(name)) return "Yahoo!ショッピング";
   if (name) return name;
   return fb;
 }
@@ -151,12 +173,14 @@ export function combineSupplierInfo(
   if (site && seller) {
     // 駿河屋の場合は出品者名（店舗名）をそのまま使う
     if (site.includes("駿河屋")) return site;
+    if (isYahooShoppingText(site) && isYahooShoppingRelatedSeller(seller)) return "Yahoo!ショッピング";
     // sellerが既にsiteで始まっている場合は重複を避けてsellerをそのまま返す
     // 例: site="Amazon", seller="Amazon モノモロストア" → "Amazon モノモロストア"
     if (seller.startsWith(site)) return seller;
     return `${site} ${seller}`;
   }
   if (site) return site;
+  if (seller && isYahooShoppingRelatedSeller(seller)) return "Yahoo!ショッピング";
   if (seller) return seller;
   return fallback;
 }
