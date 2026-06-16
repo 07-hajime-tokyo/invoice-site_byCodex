@@ -1,4 +1,4 @@
-import { eq, desc, and, inArray, gt, like } from "drizzle-orm";
+import { eq, desc, and, inArray, gt, like, isNotNull } from "drizzle-orm";
 import {
   InsertUser,
   User,
@@ -284,6 +284,36 @@ export async function updateDeliveryCancelledItems(
     .update(deliveryHistories)
     .set({ cancelledItemsJson: JSON.stringify(cancelledItems) })
     .where(eq(deliveryHistories.id, historyId));
+}
+
+export async function getDeletedInventoryIdsFromDeliveryHistories(): Promise<Set<number>> {
+  const ids = new Set<number>();
+  const collect = (value: string | null | undefined) => {
+    if (!value) return;
+    try {
+      const parsed = JSON.parse(value) as number[];
+      for (const id of parsed) {
+        const n = Number(id);
+        if (Number.isFinite(n)) ids.add(n);
+      }
+    } catch {
+      // ignore broken legacy JSON
+    }
+  };
+
+  const db = await getDb();
+  if (!db) {
+    const rows = await getDumpRows<DeliveryHistory>("delivery_histories");
+    for (const row of rows) collect(row.deletedInventoryIdsJson);
+    return ids;
+  }
+
+  const rows = await db
+    .select({ deletedInventoryIdsJson: deliveryHistories.deletedInventoryIdsJson })
+    .from(deliveryHistories)
+    .where(isNotNull(deliveryHistories.deletedInventoryIdsJson));
+  for (const row of rows) collect(row.deletedInventoryIdsJson);
+  return ids;
 }
 
 /**

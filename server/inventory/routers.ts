@@ -77,6 +77,7 @@ import {
   upsertMonthlyReportCost,
   getMonthlyReportCosts,
   getAllDeliveryHistories,
+  getDeletedInventoryIdsFromDeliveryHistories,
   getUnitPricesByInventoryIds,
   getLocalPurchaseUnitPriceMap,
   getLocalInventoryUnitPriceByZaicoIds,
@@ -943,11 +944,20 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        const [localInvs, dbDateMap] = await Promise.all([
+        const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
+          getDeletedInventoryIdsFromDeliveryHistories(),
         ]);
-        return localInvs.map((inv) => ({
+        const hiddenInvs: typeof localInvs = [];
+        const visibleInvs = localInvs.filter((inv) => {
+          const displayId = inv.zaicoId ?? inv.id;
+          const hidden = deletedFromHistoryIds.has(displayId) || deletedFromHistoryIds.has(inv.id) || (inv.zaicoId != null && deletedFromHistoryIds.has(inv.zaicoId));
+          if (hidden) hiddenInvs.push(inv);
+          return !hidden;
+        });
+        await Promise.all(hiddenInvs.map((inv) => deleteLocalInventory(inv.id).catch(() => {})));
+        return visibleInvs.map((inv) => ({
           id: inv.zaicoId ?? inv.id,
           title: inv.title,
           quantity: String(inv.quantity ?? 0),
@@ -2862,6 +2872,31 @@ export const inventoryRouter = router({
           for (const inventoryId of input.inventoryIds) {
             try {
               await deleteInventory(inventoryId, operatorToken);
+              results.push({ inventoryId, success: true });
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : "不明なエラー";
+              results.push({ inventoryId, success: false, error: errMsg });
+            }
+          }
+        } else {
+          // Zaico連携OFF: ローカル在庫を在庫一覧から非表示にする
+          for (const inventoryId of input.inventoryIds) {
+            try {
+              const localInv = await getLocalInventoryByZaicoIdOrId(inventoryId);
+              if (localInv) {
+                await createDeletedInventory({
+                  zaicoId: localInv.zaicoId ?? localInv.id,
+                  title: localInv.title,
+                  category: localInv.category ?? undefined,
+                  place: localInv.place ?? undefined,
+                  quantity: localInv.quantity != null ? String(localInv.quantity) : undefined,
+                  unit: localInv.unit ?? undefined,
+                  unitPrice: localInv.unitPrice ?? undefined,
+                  etc: localInv.etc ?? undefined,
+                  snapshotJson: JSON.stringify(localInv),
+                }).catch(() => {});
+                await deleteLocalInventory(localInv.id);
+              }
               results.push({ inventoryId, success: true });
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : "不明なエラー";
