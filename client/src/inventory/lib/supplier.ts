@@ -106,6 +106,22 @@ function isYahooShoppingRelatedSeller(value: string): boolean {
     compact.includes("yahoostore");
 }
 
+function cleanYahooShoppingSeller(value: string): string {
+  const seller = value
+    .trim()
+    .replace(/^(Yahoo!?ショッピング|Yahooショッピング|ヤフショ|ヤフーショッピング)/i, "")
+    .replace(/^[\s　:：・･_\-]+/, "")
+    .trim();
+  const compact = compactSupplierText(seller);
+  if (!seller || compact === "yahoo店" || compact === "yahooストア" || compact === "yahoostore") return "";
+  return seller;
+}
+
+function buildYahooShoppingDisplay(seller: string): string {
+  const cleaned = cleanYahooShoppingSeller(seller);
+  return cleaned ? `Yahoo!ショッピング ${cleaned}` : "Yahoo!ショッピング";
+}
+
 /**
  * 在庫一覧・入庫履歴用の仕入先表示文字列を生成する。
  *
@@ -134,7 +150,7 @@ export function buildSupplierDisplay(
     // 駿河屋はそのまま（店舗名が既に含まれている）
     if (siteName === "駿河屋") return name || siteName;
     if (siteName && name) {
-      if (isYahooShoppingText(siteName) && isYahooShoppingRelatedSeller(name)) return "Yahoo!ショッピング";
+      if (isYahooShoppingText(siteName) && isYahooShoppingRelatedSeller(name)) return buildYahooShoppingDisplay(name);
       // nameが既にsiteNameで始まっている場合は重複を避ける
       // 例: siteName="Amazon", name="Amazon モノモロストア" → "Amazon モノモロストア"
       if (name.startsWith(siteName)) return name;
@@ -144,7 +160,7 @@ export function buildSupplierDisplay(
     if (name) return name;
   }
 
-  if (name && isYahooShoppingRelatedSeller(name)) return "Yahoo!ショッピング";
+  if (name && isYahooShoppingRelatedSeller(name)) return buildYahooShoppingDisplay(name);
   if (name) return name;
   return fb;
 }
@@ -173,14 +189,14 @@ export function combineSupplierInfo(
   if (site && seller) {
     // 駿河屋の場合は出品者名（店舗名）をそのまま使う
     if (site.includes("駿河屋")) return site;
-    if (isYahooShoppingText(site) && isYahooShoppingRelatedSeller(seller)) return "Yahoo!ショッピング";
+    if (isYahooShoppingText(site) && isYahooShoppingRelatedSeller(seller)) return buildYahooShoppingDisplay(seller);
     // sellerが既にsiteで始まっている場合は重複を避けてsellerをそのまま返す
     // 例: site="Amazon", seller="Amazon モノモロストア" → "Amazon モノモロストア"
     if (seller.startsWith(site)) return seller;
     return `${site} ${seller}`;
   }
   if (site) return site;
-  if (seller && isYahooShoppingRelatedSeller(seller)) return "Yahoo!ショッピング";
+  if (seller && isYahooShoppingRelatedSeller(seller)) return buildYahooShoppingDisplay(seller);
   if (seller) return seller;
   return fallback;
 }
