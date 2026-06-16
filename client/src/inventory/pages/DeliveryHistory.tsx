@@ -157,7 +157,7 @@ function _matchesModel(title: string, model: string): boolean {
   }
 }
 function _getColorKeywords(colorName: string): string[] {
-  if (colorName.includes("&")) return colorName.split("&").map((p) => p.trim()).filter(Boolean);
+  if (/[&×＆・,，、/]/.test(colorName)) return colorName.split(/[&×＆・,，、/]/).map((p) => p.trim()).filter(Boolean);
   const keywords = [colorName];
   if (colorName.includes("ランダムカラー")) keywords.push("ランダム");
   if (colorName === "ランダム") keywords.push("ランダムカラー");
@@ -199,7 +199,9 @@ function _scoreMatch(zaicoTitle: string, entry: _ColorEntry): number {
       : [zaicoColor];
     const colorMatch = allCsvKeywords.some((kw) => {
       const k = kw.toLowerCase();
-      return zaicoColorParts.some((zp) => { const zc = zp.toLowerCase(); return zc.includes(k) || k.includes(zc); }) || zt.includes(k);
+      return colorKeywordMatches(kw, zaicoTitle) ||
+        zaicoColorParts.some((zp) => { const zc = zp.toLowerCase(); return zc.includes(k) || k.includes(zc); }) ||
+        zt.includes(k);
     });
     if (!colorMatch) return -1;
     return zaicoModel === entry.model ? 3 : 2;
@@ -1003,6 +1005,43 @@ function isRandomColor(name: string): boolean {
   return lower.includes("ランダム") || lower.includes("random") || lower.includes("ramdom");
 }
 
+function normalizeColorText(value: string): string {
+  return value.toLowerCase().replace(/[　\s・･_\-ー,，、&＆×/]/g, "");
+}
+
+function colorAliases(value: string): string[] {
+  const normalized = normalizeColorText(value);
+  const groups = [
+    ["black", "ブラック", "黒"],
+    ["white", "ホワイト", "白"],
+    ["red", "レッド", "赤"],
+    ["blue", "ブルー", "青"],
+    ["pink", "ピンク"],
+    ["green", "グリーン", "緑"],
+    ["yellow", "イエロー", "黄色"],
+    ["silver", "シルバー", "銀"],
+    ["gold", "ゴールド", "金"],
+    ["gray", "grey", "グレー", "グレイ"],
+    ["orange", "オレンジ"],
+    ["purple", "パープル", "紫"],
+    ["lime", "ライム"],
+    ["mint", "ミント"],
+    ["turquoise", "ターコイズ"],
+    ["aqua", "アクア"],
+    ["lavender", "ラベンダー"],
+  ];
+  const matched = groups.find((group) => group.some((alias) => normalized.includes(normalizeColorText(alias))));
+  return matched ?? [value];
+}
+
+function colorKeywordMatches(keyword: string, title: string): boolean {
+  const titleNorm = normalizeColorText(title);
+  return colorAliases(keyword).some((alias) => {
+    const aliasNorm = normalizeColorText(alias);
+    return aliasNorm.length > 0 && titleNorm.includes(aliasNorm);
+  });
+}
+
 /**
  * 商品名から機種名（ベース名）を抽出
  * 例: "Toynet Vita2000 アクアブルー" → "Vita2000"
@@ -1096,8 +1135,8 @@ function aggregateItemsByCsvProducts(
       const baseColor = baseMatch[1].trim();
       return baseColor ? [baseColor] : [];
     }
-    // 複数色区切り（&, ×, ＆, ・）で分割
-    const parts = remaining.split(/[&×＆・]/).map((p) => p.trim()).filter(Boolean);
+    // 複数色区切り（&, ×, ＆, ・, カンマ）で分割
+    const parts = remaining.split(/[&×＆・,，、/]/).map((p) => p.trim()).filter(Boolean);
     return parts.length > 1 ? parts : [remaining];
   }
 
@@ -1114,8 +1153,7 @@ function aggregateItemsByCsvProducts(
         deliveredQty += item.quantity;
       } else {
         // 色キーワードのいずれかが出庫商品名に含まれるか確認
-        const titleLower = item.title.toLowerCase();
-        const matched = colorKeywords.some((kw) => titleLower.includes(kw.toLowerCase()));
+        const matched = colorKeywords.some((kw) => colorKeywordMatches(kw, item.title));
         if (matched) deliveredQty += item.quantity;
       }
     }
@@ -1134,8 +1172,7 @@ function aggregateItemsByCsvProducts(
       const csvRandom = isRandomColor(csvProd.name);
       const colorKeywords = extractColorKeywords(csvProd.name);
       if (csvRandom || colorKeywords.length === 0) return true;
-      const titleLower = item.title.toLowerCase();
-      return colorKeywords.some((kw) => titleLower.includes(kw.toLowerCase()));
+      return colorKeywords.some((kw) => colorKeywordMatches(kw, item.title));
     });
     if (!isMatched) {
       unmatchedMap[item.title] = (unmatchedMap[item.title] ?? 0) + item.quantity;
