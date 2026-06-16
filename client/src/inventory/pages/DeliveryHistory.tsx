@@ -1151,7 +1151,7 @@ function aggregateItemsByCsvProducts(
 function FedexBatchDialog({
   open,
   onClose,
-  selectedGroupKeys,
+  selectedHistoryIds,
   groupedHistories,
   csvProductsMap,
   inventoryManagementMap,
@@ -1162,7 +1162,7 @@ function FedexBatchDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  selectedGroupKeys: string[];
+  selectedHistoryIds: number[];
   groupedHistories: GroupedHistoryEntry[];
   csvProductsMap: Map<string, Array<{ name: string; qty: number }>>;
   inventoryManagementMap: Map<number, string>;
@@ -1178,7 +1178,7 @@ function FedexBatchDialog({
 
   // グループごとの編集可能な商品リスト
   type EditableItem = { productNameJa: string; productNameEn: string; quantity: number };
-  type GroupItems = { deliveryNo: string; sheetLabel: ShipmentSheetName; historyId?: number; items: EditableItem[] };
+  type GroupItems = { rowKey: string; deliveryNo: string; sheetLabel: ShipmentSheetName; historyId?: number; createdAt?: string | Date; items: EditableItem[] };
   const [editableGroups, setEditableGroups] = useState<GroupItems[]>([]);
 
   // ダイアログが開くたびに初期値をセット
@@ -1186,45 +1186,28 @@ function FedexBatchDialog({
     if (!open) return;
     if (initialShippingDate !== undefined) setShippingDate(initialShippingDate);
     if (initialTrackingNumber !== undefined) setTrackingNumber(initialTrackingNumber);
-    // 各グループの商品集計を初期化
-    // 出庫Noごとにサブグループを作成（同一インボイス内の複数出庫Noを個別表示）
+    // 選択された出庫履歴ごとに商品集計を初期化
     const groups: GroupItems[] = [];
-    for (const key of selectedGroupKeys) {
-      const entry = groupedHistories.find(([k]) => k === key);
-      if (!entry) {
-        // エントリが見つからない場合はキーそのものをdeliveryNoとして追加
-        const sheetLabel = detectShipmentSheetName(key);
-        groups.push({ deliveryNo: key, sheetLabel, historyId: undefined, items: [] });
-        continue;
-      }
-      // 出庫Noごとにグループ化
-      const byDeliveryNo = new Map<string, { historyId: number; items: HistoryItem[] }[]>();
-      for (const h of entry[1]) {
-        const dn = h.deliveryNo;
-        if (!byDeliveryNo.has(dn)) byDeliveryNo.set(dn, []);
-        byDeliveryNo.get(dn)!.push({ historyId: h.id, items: getActiveHistoryItems(h) });
-      }
+    const selectedIdSet = new Set(selectedHistoryIds);
+    for (const [key, histories] of groupedHistories) {
       const csvProducts = csvProductsMap.get(key) ?? [];
-      // 出庫Noごとにサブグループを作成
-      for (const [dn, dnEntries] of Array.from(byDeliveryNo.entries())) {
-        const allItems: HistoryItem[] = dnEntries
-          .flatMap((e: { historyId: number; items: HistoryItem[] }) => e.items)
-          .map((item) => ({
-            ...item,
-            managementNo: item.managementNo || inventoryManagementMap.get(item.inventoryId) || "",
-          }));
+      for (const h of histories) {
+        if (!selectedIdSet.has(h.id)) continue;
+        const allItems: HistoryItem[] = getActiveHistoryItems(h).map((item) => ({
+          ...item,
+          managementNo: item.managementNo || inventoryManagementMap.get(item.inventoryId) || "",
+        }));
         const aggregated = aggregateItemsByCsvProducts(csvProducts, allItems);
         const items: EditableItem[] = aggregated
           .filter((a) => a.deliveredQty > 0)
           .map((a) => ({ productNameJa: a.csvName, productNameEn: a.csvName, quantity: a.deliveredQty }));
-        const historyId = dnEntries[0]?.historyId;
-        const sheetLabel = detectShipmentSheetName(dn, ...allItems.map((item) => item.managementNo));
-        groups.push({ deliveryNo: dn, sheetLabel, historyId, items });
+        const sheetLabel = detectShipmentSheetName(h.deliveryNo, ...allItems.map((item) => item.managementNo));
+        groups.push({ rowKey: String(h.id), deliveryNo: h.deliveryNo, sheetLabel, historyId: h.id, createdAt: h.createdAt, items });
       }
     }
     setEditableGroups(groups);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedGroupKeys.join(","), initialShippingDate, initialTrackingNumber]);
+  }, [open, selectedHistoryIds.join(","), initialShippingDate, initialTrackingNumber]);
 
   function updateItemQty(groupIdx: number, itemIdx: number, qty: number) {
     setEditableGroups((prev) => {
@@ -1303,7 +1286,7 @@ function FedexBatchDialog({
           {editableGroups.map((group, groupIdx) => {
             const groupQty = group.items.reduce((s, it) => s + it.quantity, 0);
             return (
-            <div key={group.deliveryNo} className="rounded-lg border overflow-hidden">
+            <div key={group.rowKey} className="rounded-lg border overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">No.{group.deliveryNo.split("_")[0]}</span>
@@ -1316,6 +1299,11 @@ function FedexBatchDialog({
                       <span className="text-xs text-muted-foreground font-mono">{group.deliveryNo}</span>
                     );
                   })()}
+                  {group.createdAt && (
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(group.createdAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
                   <span className="text-xs font-bold text-foreground">{groupQty}台</span>
                 </div>
                 <Badge className={`text-xs border ${sheetBadgeClass(group.sheetLabel)}`}>
@@ -1766,9 +1754,9 @@ export default function DeliveryHistory() {
 
   // FedEx発送登録ダイアログ
   const [fedexDialog, setFedexDialog] = useState<{ groupKey: string; groupItems: HistoryItem[]; historyId?: number } | null>(null);
-  // FedExバッチ選択モード（グループキー -> 選択中か）
+  // FedExバッチ選択モード（出庫履歴ID -> 選択中か）
   const [fedexSelectMode, setFedexSelectMode] = useState(false);
-  const [fedexSelectedGroups, setFedexSelectedGroups] = useState<Set<string>>(new Set());
+  const [fedexSelectedHistoryIds, setFedexSelectedHistoryIds] = useState<Set<number>>(new Set());
   // 固定バーの入力値
   const today = new Date();
   const defaultShippingDate = `${today.getMonth() + 1}/${today.getDate()}`;
@@ -1827,7 +1815,7 @@ export default function DeliveryHistory() {
         toast.warning(`${data.message}\n失敗: ${failedItems.map((r) => `No.${r.deliveryNo}`).join(", ")}`);
       }
       setFedexBatchDialog(false);
-      setFedexSelectedGroups(new Set());
+      setFedexSelectedHistoryIds(new Set());
       setFedexSelectMode(false);
     },
     onError: (err) => {
@@ -2058,7 +2046,7 @@ export default function DeliveryHistory() {
             onClick={() => {
               if (fedexSelectMode) {
                 setFedexSelectMode(false);
-                setFedexSelectedGroups(new Set());
+                setFedexSelectedHistoryIds(new Set());
               } else {
                 setFedexSelectMode(true);
               }
@@ -2253,23 +2241,9 @@ export default function DeliveryHistory() {
                       )
                     )}
                     {fedexSelectMode && (
-                      <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={fedexSelectedGroups.has(groupKey)}
-                          onCheckedChange={(checked) => {
-                            setFedexSelectedGroups((prev) => {
-                              const next = new Set(prev);
-                              if (checked) next.add(groupKey);
-                              else next.delete(groupKey);
-                              return next;
-                            });
-                          }}
-                          className="h-4 w-4"
-                        />
-                        <span className="text-xs text-blue-700 font-medium">
-                          {fedexSelectedGroups.has(groupKey) ? "選択済み" : "FedEx発送に選択"}
-                        </span>
-                      </label>
+                      <span className="text-xs text-blue-700 font-medium">
+                        下の出庫履歴ごとに選択
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -2308,6 +2282,23 @@ export default function DeliveryHistory() {
                         }}
                         className="h-4 w-4 mr-1"
                       />
+                    )}
+                    {fedexSelectMode && (
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none mr-1" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={fedexSelectedHistoryIds.has(history.id)}
+                          onCheckedChange={(checked) => {
+                            setFedexSelectedHistoryIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(history.id);
+                              else next.delete(history.id);
+                              return next;
+                            });
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-xs text-blue-700 font-medium">FedEx</span>
+                      </label>
                     )}
                     {editingId === history.id ? (
                       <div className="flex items-center gap-1.5">
@@ -2880,7 +2871,7 @@ export default function DeliveryHistory() {
       <FedexBatchDialog
         open={fedexBatchDialog}
         onClose={() => { setFedexBatchDialog(false); }}
-        selectedGroupKeys={Array.from(fedexSelectedGroups)}
+        selectedHistoryIds={Array.from(fedexSelectedHistoryIds)}
         groupedHistories={groupedHistories}
         csvProductsMap={csvProductsMap}
         inventoryManagementMap={inventoryManagementMap}
@@ -2983,12 +2974,12 @@ export default function DeliveryHistory() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Package className="h-4 w-4" />
                 <span className="font-semibold text-sm">FedEx発送</span>
-                {fedexSelectedGroups.size > 0 ? (
+                {fedexSelectedHistoryIds.size > 0 ? (
                   <span className="bg-white text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                    {fedexSelectedGroups.size}件選択中
+                    {fedexSelectedHistoryIds.size}件選択中
                   </span>
                 ) : (
-                  <span className="text-blue-200 text-xs">グループを選択してください</span>
+                  <span className="text-blue-200 text-xs">出庫履歴を選択してください</span>
                 )}
               </div>
 
@@ -3018,7 +3009,7 @@ export default function DeliveryHistory() {
 
               {/* 右側: 確認・キャンセル */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {fedexSelectedGroups.size > 0 && (
+                {fedexSelectedHistoryIds.size > 0 && (
                   <Button
                     size="sm"
                     className="h-8 gap-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold"
@@ -3035,7 +3026,7 @@ export default function DeliveryHistory() {
                   className="h-8 gap-1.5 text-white hover:bg-blue-600"
                   onClick={() => {
                     setFedexSelectMode(false);
-                    setFedexSelectedGroups(new Set());
+                    setFedexSelectedHistoryIds(new Set());
                     setFedexBarTrackingNumber("");
                   }}
                 >

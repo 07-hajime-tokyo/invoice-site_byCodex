@@ -4802,7 +4802,11 @@ export const inventoryRouter = router({
         }
         // 同一追跡番号かつ同一出庫Noの既存記録を確認
         const allRecords = await getAllFedexShipments();
-        const sameTracking = allRecords.filter((r) => r.trackingNumber === input.trackingNumber && r.deliveryNo === input.deliveryNo);
+        const sameTracking = allRecords.filter((r) =>
+          r.trackingNumber === input.trackingNumber &&
+          r.deliveryNo === input.deliveryNo &&
+          (input.historyId ? r.historyId === input.historyId : !r.historyId)
+        );
 
         if (sameTracking.length > 0) {
           // 自動合算: 既存記録と新規分をマージ
@@ -5077,7 +5081,11 @@ export const inventoryRouter = router({
           const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
           const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, shipment.items);
           // 同一追跡番号かつ同一出庫Noの既存記録を確認
-          const sameTracking = allRecords.filter((r) => r.trackingNumber === shipment.trackingNumber && r.deliveryNo === shipment.deliveryNo);
+          const sameTracking = allRecords.filter((r) =>
+            r.trackingNumber === shipment.trackingNumber &&
+            r.deliveryNo === shipment.deliveryNo &&
+            (shipment.historyId ? r.historyId === shipment.historyId : !r.historyId)
+          );
 
           if (sameTracking.length > 0) {
             // 自動合算
