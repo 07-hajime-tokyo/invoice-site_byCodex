@@ -2241,9 +2241,35 @@ export default function DeliveryHistory() {
                       )
                     )}
                     {fedexSelectMode && (
-                      <span className="text-xs text-blue-700 font-medium">
-                        下の出庫履歴ごとに選択
-                      </span>
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={
+                            groupHistories.every((h) => fedexSelectedHistoryIds.has(h.id))
+                              ? true
+                              : groupHistories.some((h) => fedexSelectedHistoryIds.has(h.id))
+                                ? "indeterminate"
+                                : false
+                          }
+                          onCheckedChange={(checked) => {
+                            setFedexSelectedHistoryIds((prev) => {
+                              const next = new Set(prev);
+                              for (const h of groupHistories) {
+                                if (checked) next.add(h.id);
+                                else next.delete(h.id);
+                              }
+                              return next;
+                            });
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-xs text-blue-700 font-medium">
+                          {groupHistories.every((h) => fedexSelectedHistoryIds.has(h.id))
+                            ? "このNoを全解除"
+                            : groupHistories.some((h) => fedexSelectedHistoryIds.has(h.id))
+                              ? "このNoを全選択（一部選択中）"
+                              : "このNoを全選択"}
+                        </span>
+                      </label>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -3009,6 +3035,29 @@ export default function DeliveryHistory() {
 
               {/* 右側: 確認・キャンセル */}
               <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 text-white hover:bg-blue-600"
+                  onClick={() => {
+                    const visibleIds = pagedGroups.flatMap(([, histories]) => histories.map((h) => h.id));
+                    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => fedexSelectedHistoryIds.has(id));
+                    setFedexSelectedHistoryIds((prev) => {
+                      const next = new Set(prev);
+                      for (const id of visibleIds) {
+                        if (allVisibleSelected) next.delete(id);
+                        else next.add(id);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  {(() => {
+                    const visibleIds = pagedGroups.flatMap(([, histories]) => histories.map((h) => h.id));
+                    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => fedexSelectedHistoryIds.has(id));
+                    return allVisibleSelected ? "表示中を全解除" : "表示中を全選択";
+                  })()}
+                </Button>
                 {fedexSelectedHistoryIds.size > 0 && (
                   <Button
                     size="sm"
