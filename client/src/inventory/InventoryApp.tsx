@@ -4,6 +4,7 @@ import InventoryDashboardLayout from "@/inventory/components/DashboardLayout";
 
 const Purchases = lazy(() => import("@/inventory/pages/Purchases"));
 const Deliveries = lazy(() => import("@/inventory/pages/Deliveries"));
+const EbayInventory = lazy(() => import("@/inventory/pages/EbayInventory"));
 const DeliveryHistory = lazy(() => import("@/inventory/pages/DeliveryHistory"));
 const PurchaseHistory = lazy(() => import("@/inventory/pages/PurchaseHistory"));
 const Settings = lazy(() => import("@/inventory/pages/Settings"));
@@ -26,6 +27,7 @@ const INVENTORY_HOME = "/inventory/purchases";
 const REMEMBERED_PATHS = [
   "/inventory/purchases",
   "/inventory/deliveries",
+  "/inventory/ebay-inventory",
   "/inventory/history",
   "/inventory/delivery-history",
   "/inventory/purchase-history",
@@ -78,6 +80,7 @@ export default function InventoryApp() {
           <Route path={"/inventory"} component={Purchases} />
           <Route path={"/inventory/purchases"} component={Purchases} />
           <Route path={"/inventory/deliveries"} component={Deliveries} />
+          <Route path={"/inventory/ebay-inventory"} component={EbayInventory} />
           <Route path={"/inventory/history"} component={DeliveryHistory} />
           <Route path={"/inventory/delivery-history"} component={DeliveryHistory} />
           <Route path={"/inventory/purchase-history"} component={PurchaseHistory} />

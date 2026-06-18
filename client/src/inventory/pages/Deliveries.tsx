@@ -57,6 +57,8 @@ import {
 import { buildSupplierDisplay } from "@/inventory/lib/supplier";
 import { usePagination } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
+import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
+import { isEbayManagementNo } from "@shared/ebayInventory";
 
 interface InventoryItem {
   id: number;
@@ -75,6 +77,7 @@ interface InventoryItem {
   created_at?: string;
   supplierUrl?: string | null;
   supplierName?: string | null;
+  ebayListingUrl?: string | null;
 }
 
 /** 在庫一覧CSVエクスポート */
@@ -168,6 +171,7 @@ interface InventoryFormData {
   purchase_unit_price: string;
   supplierUrl: string;
   supplierName: string;
+  ebayListingUrl: string;
 }
 
 const emptyForm: InventoryFormData = {
@@ -180,6 +184,7 @@ const emptyForm: InventoryFormData = {
   purchase_unit_price: "",
   supplierUrl: "",
   supplierName: "",
+  ebayListingUrl: "",
 };
 
 export default function Deliveries() {
@@ -987,6 +992,7 @@ export default function Deliveries() {
       purchase_unit_price: inv.purchase_unit_price != null ? String(inv.purchase_unit_price) : "",
       supplierUrl: inv.supplierUrl ?? "",
       supplierName: inv.supplierName ?? "",
+      ebayListingUrl: inv.ebayListingUrl ?? "",
     });
   }
 
@@ -1010,6 +1016,7 @@ export default function Deliveries() {
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
         supplierUrl: editForm.supplierUrl || undefined,
         supplierName: editForm.supplierName || undefined,
+        ebayListingUrl: isEbayManagementNo(editForm.etc) ? (editForm.ebayListingUrl || null) : undefined,
       });
       toast.success(`「${editForm.title}」を更新しました`);
       setEditingItem(null);
@@ -1049,6 +1056,7 @@ export default function Deliveries() {
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
         supplierUrl: createForm.supplierUrl || undefined,
         supplierName: createForm.supplierName || undefined,
+        ebayListingUrl: isEbayManagementNo(createForm.etc) ? (createForm.ebayListingUrl || null) : undefined,
       });
       toast.success(`「${createForm.title}」を登録しました`);
       setShowCreateDialog(false);
@@ -1459,6 +1467,13 @@ export default function Deliveries() {
                             </p>
                           )}
                           {/* 商品名の下にトグル展開 */}
+                          <EbayListingUrlEditor
+                            inventoryId={inv.id}
+                            managementNo={getManagementNo(inv.etc)}
+                            value={inv.ebayListingUrl}
+                            compact
+                            className="mt-0.5"
+                          />
                           {openDetailId === inv.id && (
                             <div className="mt-2 pt-2 border-t border-blue-100 text-xs space-y-1.5 bg-blue-50/40 rounded p-2">
                               {isDetailLoading ? (
@@ -2504,6 +2519,18 @@ export default function Deliveries() {
                 placeholder="https://..."
                 type="url"
               />
+              {isEbayManagementNo(editForm.etc) && (
+                <div className="space-y-1.5 pt-2">
+                  <Label htmlFor="edit-ebay-listing-url">自社出品ページ</Label>
+                  <Input
+                    id="edit-ebay-listing-url"
+                    value={editForm.ebayListingUrl}
+                    onChange={(e) => setEditForm(f => ({ ...f, ebayListingUrl: e.target.value }))}
+                    placeholder="https://www.ebay.com/itm/..."
+                    type="url"
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">サイト内DBに保存されます</p>
             </div>
           </div>

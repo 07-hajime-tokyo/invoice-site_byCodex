@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { PAGE_SIZE } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
+import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
 
 interface PurchaseItem {
   id: number;
@@ -66,6 +67,7 @@ interface PurchaseItem {
   estimated_purchase_date: string | null;
   etc?: string;
   category: string;
+  ebayListingUrl?: string | null;
 }
 
 interface Purchase {
@@ -353,6 +355,13 @@ function PurchaseCardMobile({
                     <span className="text-xs text-muted-foreground">予定: {item.estimated_purchase_date}</span>
                   )}
                 </div>
+                <EbayListingUrlEditor
+                  inventoryId={item.inventory_id}
+                  managementNo={parseEtc(item.etc).managementNo}
+                  value={item.ebayListingUrl}
+                  compact
+                  className="mt-1"
+                />
               </div>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -1414,6 +1423,13 @@ export default function Purchases() {
                               {!isEditing && (
                                 <div>{item.title}</div>
                               )}
+                              <EbayListingUrlEditor
+                                inventoryId={item.inventory_id}
+                                managementNo={parseEtc(item.etc).managementNo}
+                                value={item.ebayListingUrl}
+                                compact
+                                className="mt-1"
+                              />
                             </td>
                             <td data-label="カテゴリ" className="px-4 py-2">
                               {isEditing && itemEdit ? (

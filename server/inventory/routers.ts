@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
+import { isEbayManagementNo } from "@shared/ebayInventory";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -156,6 +157,12 @@ function detectShipmentSheetName(...texts: Array<string | null | undefined>): Sh
  * GitHub プライベートリポジトリから CSV テキストを取得するヘルパー
  * GITHUB_CSV_TOKEN が設定されている場合は Authorization ヘッダーを付与する
  */
+function normalizeListingUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 async function fetchGithubCsv(): Promise<string> {
   return fetchCsvFromGithub(
     process.env.MERUKANRI_CSV_URL ?? "https://raw.githubusercontent.com/07-hajime-tokyo/merukanri-data-site/main/data.csv",
@@ -970,6 +977,7 @@ export const inventoryRouter = router({
           last_purchase_date: dbDateMap[inv.zaicoId ?? inv.id] ?? null,
           supplierUrl: inv.supplierUrl ?? null,
           supplierName: inv.supplierName ?? null,
+          ebayListingUrl: inv.ebayListingUrl ?? null,
         }));
       }
       const [inventories, zaicoDateMap, dbDateMap, inventoryExtras, increaseMemosMap] = await Promise.all([
@@ -1068,7 +1076,7 @@ export const inventoryRouter = router({
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
-          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null }>();
+          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
 
           if (invIds.length > 0) {
             const { localInventories: localInvTbl } = await import("../../drizzle/schema");
@@ -1079,9 +1087,14 @@ export const inventoryRouter = router({
                 id: localInvTbl.id,
                 supplierName: localInvTbl.supplierName,
                 supplierUrl: localInvTbl.supplierUrl,
+                ebayListingUrl: localInvTbl.ebayListingUrl,
               }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
               for (const row of rows) {
-                invSupplierMap.set(row.id, { supplierName: row.supplierName ?? null, supplierUrl: row.supplierUrl ?? null });
+                invSupplierMap.set(row.id, {
+                  supplierName: row.supplierName ?? null,
+                  supplierUrl: row.supplierUrl ?? null,
+                  ebayListingUrl: row.ebayListingUrl ?? null,
+                });
               }
             }
           }
@@ -1123,6 +1136,14 @@ export const inventoryRouter = router({
               })(),
             };
           });
+
+          for (const row of rows) {
+            for (const item of row.purchase_items as Array<Record<string, unknown>>) {
+              const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
+              const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
+              item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
+            }
+          }
 
           return buildPurchasePageResponse(rows, input);
         }
@@ -1183,7 +1204,7 @@ export const inventoryRouter = router({
         const invIds = localPurchaseRows
           .map((p) => p.localInventoryId)
           .filter((id): id is number => id != null);
-        const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null }>();
+        const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
         if (invIds.length > 0) {
           const { localInventories: localInvTbl } = await import("../../drizzle/schema");
           const { inArray } = await import("drizzle-orm");
@@ -1193,13 +1214,18 @@ export const inventoryRouter = router({
               id: localInvTbl.id,
               supplierName: localInvTbl.supplierName,
               supplierUrl: localInvTbl.supplierUrl,
+              ebayListingUrl: localInvTbl.ebayListingUrl,
             }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
             for (const row of rows) {
-              invSupplierMap.set(row.id, { supplierName: row.supplierName ?? null, supplierUrl: row.supplierUrl ?? null });
+              invSupplierMap.set(row.id, {
+                supplierName: row.supplierName ?? null,
+                supplierUrl: row.supplierUrl ?? null,
+                ebayListingUrl: row.ebayListingUrl ?? null,
+              });
             }
           }
         }
-        return localPurchaseRows.map((p) => {
+        const rows = localPurchaseRows.map((p) => {
           const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
           // local_purchasesのstatusがpurchased、またはpurchase_historiesに有効な入庫履歴があればpurchased
           const localId = p.zaicoId ?? p.id;
@@ -1240,6 +1266,14 @@ export const inventoryRouter = router({
             })(),
           };
         });
+        for (const row of rows) {
+          for (const item of row.purchase_items as Array<Record<string, unknown>>) {
+            const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
+            const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
+            item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
+          }
+        }
+        return rows;
       }
       const [purchases, inventories, extras, inventoryExtras] = await Promise.all([
         getPurchases(),
@@ -1331,6 +1365,7 @@ export const inventoryRouter = router({
             etc: localInv.etc ?? undefined,
             unit_price: localInv.unitPrice ? Number(localInv.unitPrice) : undefined,
             purchase_unit_price: localInv.unitPrice ? Number(localInv.unitPrice) : undefined,
+            ebayListingUrl: localInv.ebayListingUrl ?? null,
             code: undefined as string | undefined,
             optional_attributes: [] as Array<{ name: string; value: string | null }>,
             item_image: undefined,
@@ -1746,11 +1781,12 @@ export const inventoryRouter = router({
           operatorKey: z.enum(["default", "A", "B"]).optional(),
           supplierUrl: z.string().optional(),
           supplierName: z.string().max(200).optional(),
+          ebayListingUrl: z.string().max(1000).nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { operatorKey, supplierUrl, supplierName, ...payload } = input;
+        const { operatorKey, supplierUrl, supplierName, ebayListingUrl, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBに商品を作成
@@ -1765,6 +1801,7 @@ export const inventoryRouter = router({
             etc: payload.etc ?? null,
             supplierUrl: supplierUrl || null,
             supplierName: supplierName || null,
+            ebayListingUrl: normalizeListingUrl(ebayListingUrl),
             isDeleted: 0,
           });
           return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: 0 };
@@ -1802,11 +1839,12 @@ export const inventoryRouter = router({
           operatorKey: z.enum(["default", "A", "B"]).optional(),
           supplierUrl: z.string().optional(),
           supplierName: z.string().max(200).optional(),
+          ebayListingUrl: z.string().max(1000).nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { inventoryId, operatorKey, supplierUrl, supplierName, ...payload } = input;
+        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBの商品を更新
@@ -1822,6 +1860,7 @@ export const inventoryRouter = router({
               etc: payload.etc ?? null,
               supplierUrl: supplierUrl || null,
               supplierName: supplierName || null,
+              ebayListingUrl: ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl),
             });
           }
           return { code: 200, status: "ok", message: "商品を更新しました（ローカルDB）" };
@@ -1914,6 +1953,42 @@ export const inventoryRouter = router({
           }).catch(() => {});
         }
         return { success: true };
+      }),
+
+    updateEbayListingUrl: publicProcedure
+      .input(
+        z.object({
+          inventoryId: z.number().int().positive(),
+          ebayListingUrl: z.string().max(1000).nullable().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const zaicoEnabled = await isZaicoEnabled();
+        const normalizedUrl = normalizeListingUrl(input.ebayListingUrl);
+
+        if (!zaicoEnabled) {
+          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
+          if (!localInv) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Inventory not found" });
+          }
+          if (!isEbayManagementNo(localInv.etc)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけ出品ページを登録できます" });
+          }
+          await updateLocalInventory(localInv.id, { ebayListingUrl: normalizedUrl });
+          return { success: true, ebayListingUrl: normalizedUrl };
+        }
+
+        const inv = await getInventory(input.inventoryId);
+        if (!isEbayManagementNo(inv.etc)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけ出品ページを登録できます" });
+        }
+        const existing = await getInventoryExtraByZaicoId(input.inventoryId);
+        await upsertInventoryExtra({
+          zaicoInventoryId: input.inventoryId,
+          supplierName: existing?.supplierName ?? null,
+          supplierUrl: existing?.supplierUrl ?? null,
+        }).catch(() => {});
+        return { success: true, ebayListingUrl: normalizedUrl };
       }),
 
     updateCategoryOnly: publicProcedure

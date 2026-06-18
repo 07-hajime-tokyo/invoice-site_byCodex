@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { PackageCheck, PackageMinus, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe } from "lucide-react";
+import { PackageCheck, PackageMinus, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe, Store } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -40,6 +40,8 @@ const menuItems = [
   { icon: CalendarDays, label: "月次棚卸し", path: "/inventory/monthly-report", color: "text-amber-500" },
   { icon: Settings, label: "設定", path: "/inventory/settings", color: "text-slate-500" },
 ];
+
+menuItems.splice(3, 0, { icon: Store, label: "eBay在庫", path: "/inventory/ebay-inventory", color: "text-cyan-500" });
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;

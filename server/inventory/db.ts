@@ -1,4 +1,4 @@
-import { eq, desc, and, inArray, gt, like, isNotNull } from "drizzle-orm";
+import { eq, desc, and, inArray, gt, like, isNotNull, sql } from "drizzle-orm";
 import {
   InsertUser,
   User,
@@ -64,6 +64,47 @@ import { createDrizzleDatabase, type AppDatabase } from "../_core/database";
 import { getLocalDumpTable } from "./localDump";
 
 let _db: AppDatabase | null = null;
+let _inventorySchemaReady: Promise<void> | null = null;
+
+function errorText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  while (current) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = (current as Error & { cause?: unknown }).cause;
+    } else if (typeof current === "object") {
+      const record = current as Record<string, unknown>;
+      if (typeof record.message === "string") parts.push(record.message);
+      if (typeof record.code === "string") parts.push(record.code);
+      current = record.cause;
+    } else {
+      parts.push(String(current));
+      current = undefined;
+    }
+  }
+  return parts.join(" ");
+}
+
+async function ensureInventoryRuntimeSchema(db: AppDatabase) {
+  try {
+    const existing = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayListingUrl'`);
+    const rows = Array.isArray(existing) ? existing : ((existing as { rows?: unknown[] }).rows ?? []);
+    if (Array.isArray(rows) && rows.length > 0) return;
+    await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayListingUrl text`);
+  } catch (error) {
+    const message = errorText(error);
+    if (
+      message.includes("Duplicate column") ||
+      message.includes("ER_DUP_FIELDNAME") ||
+      message.includes("already exists") ||
+      message.includes("1060")
+    ) {
+      return;
+    }
+    console.warn("[Inventory DB] Runtime schema check skipped:", message);
+  }
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -73,6 +114,10 @@ export async function getDb() {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
+  }
+  if (_db) {
+    _inventorySchemaReady ??= ensureInventoryRuntimeSchema(_db);
+    await _inventorySchemaReady;
   }
   return _db;
 }
@@ -673,6 +718,7 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
     etc: data.etc,
     supplierUrl: data.supplierUrl,
     supplierName: data.supplierName,
+    ebayListingUrl: data.ebayListingUrl,
     isDeleted: data.isDeleted,
   };
   await db.insert(localInventories).values(data).onDuplicateKeyUpdate({ set: updateSet });
@@ -785,6 +831,7 @@ export async function bulkUpsertLocalInventoriesFromCsv(
               etc: item.etc,
               supplierName: item.supplierName,
               supplierUrl: item.supplierUrl,
+              ebayListingUrl: item.ebayListingUrl,
               isDeleted: item.isDeleted ?? 0,
             })
             .where(eq(localInventories.zaicoId, item.zaicoId));
