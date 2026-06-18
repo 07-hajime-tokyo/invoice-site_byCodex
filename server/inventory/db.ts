@@ -58,6 +58,9 @@ import {
   manualShipments,
   InsertManualShipment,
   ManualShipment,
+  shaftSales,
+  ShaftSale,
+  InsertShaftSale,
 } from "../../drizzle/schema";
 import { ADMIN_EMAILS } from "../../shared/const";
 import { createDrizzleDatabase, type AppDatabase } from "../_core/database";
@@ -103,8 +106,29 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
   try {
     const existing = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayListingUrl'`);
     const rows = getRawRows(existing);
-    if (rows.length > 0) return;
-    await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayListingUrl text`);
+    if (rows.length === 0) {
+      await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayListingUrl text`);
+    }
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS shaft_sales (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        inventoryId int NULL,
+        managementNo varchar(200) NOT NULL,
+        title varchar(500) NOT NULL,
+        category varchar(200) NULL,
+        quantity int NOT NULL DEFAULT 1,
+        unitPrice decimal(10,2) NULL,
+        saleAmount decimal(12,2) NOT NULL,
+        soldAt varchar(20) NULL,
+        supplierName varchar(200) NULL,
+        supplierUrl text NULL,
+        snapshotJson text NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_shaft_sales_inventory_id (inventoryId),
+        INDEX idx_shaft_sales_management_no (managementNo)
+      )
+    `);
   } catch (error) {
     const message = errorText(error);
     if (
@@ -805,6 +829,49 @@ export async function countLocalInventories() {
   }
   const rows = await db.select().from(localInventories).where(eq(localInventories.isDeleted, 0));
   return rows.length;
+}
+
+export async function getShaftSales(): Promise<ShaftSale[]> {
+  const db = await getDb();
+  if (!db) return byUpdatedDesc(await getDumpRows<ShaftSale>("shaft_sales"));
+  return db.select().from(shaftSales).orderBy(desc(shaftSales.soldAt), desc(shaftSales.updatedAt));
+}
+
+export async function upsertShaftSale(data: InsertShaftSale): Promise<ShaftSale | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existingByInventory = data.inventoryId
+    ? await db.select().from(shaftSales).where(eq(shaftSales.inventoryId, data.inventoryId)).limit(1)
+    : [];
+  const existingByManagement = existingByInventory.length === 0
+    ? await db.select().from(shaftSales).where(eq(shaftSales.managementNo, data.managementNo)).orderBy(desc(shaftSales.updatedAt)).limit(1)
+    : [];
+  const existing = existingByInventory[0] ?? existingByManagement[0] ?? null;
+
+  if (existing) {
+    await db.update(shaftSales).set({
+      inventoryId: data.inventoryId ?? existing.inventoryId,
+      managementNo: data.managementNo,
+      title: data.title,
+      category: data.category,
+      quantity: data.quantity,
+      unitPrice: data.unitPrice,
+      saleAmount: data.saleAmount,
+      soldAt: data.soldAt,
+      supplierName: data.supplierName,
+      supplierUrl: data.supplierUrl,
+      snapshotJson: data.snapshotJson,
+    }).where(eq(shaftSales.id, existing.id));
+    const rows = await db.select().from(shaftSales).where(eq(shaftSales.id, existing.id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  const [result] = await db.insert(shaftSales).values(data);
+  const insertedId = Number((result as { insertId?: number }).insertId ?? 0);
+  if (!insertedId) return null;
+  const rows = await db.select().from(shaftSales).where(eq(shaftSales.id, insertedId)).limit(1);
+  return rows[0] ?? null;
 }
 
 // ============================================================

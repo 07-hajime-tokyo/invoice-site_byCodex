@@ -13,6 +13,8 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Save,
+  TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +65,21 @@ type EbayInventoryItem = InventoryItem & {
   ebayStockType: EbayStockType | null;
 };
 
+type ShaftSale = {
+  id: number;
+  inventoryId?: number | null;
+  managementNo: string;
+  title: string;
+  category?: string | null;
+  quantity: number;
+  unitPrice?: string | number | null;
+  saleAmount: string | number;
+  soldAt?: string | null;
+  supplierName?: string | null;
+  supplierUrl?: string | null;
+  updatedAt?: string | null;
+};
+
 type EditForm = {
   title: string;
   quantity: string;
@@ -85,6 +102,18 @@ const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
 function formatYen(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "-";
   return `¥${Math.round(value).toLocaleString()}`;
+}
+
+function formatProfit(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const prefix = value < 0 ? "-¥" : "¥";
+  return `${prefix}${Math.abs(Math.round(value)).toLocaleString()}`;
+}
+
+function numberFromValue(value: string | number | null | undefined) {
+  if (value == null || value === "") return null;
+  const num = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(num) ? num : null;
 }
 
 function stockQuantity(item: InventoryItem) {
@@ -117,6 +146,7 @@ export default function EbayInventory() {
   const [deliveryQty, setDeliveryQty] = useState(1);
   const [deliveryNo, setDeliveryNo] = useState("");
   const [editTarget, setEditTarget] = useState<EbayInventoryItem | null>(null);
+  const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [editForm, setEditForm] = useState<EditForm>({
     title: "",
     quantity: "0",
@@ -131,8 +161,10 @@ export default function EbayInventory() {
   });
 
   const { data, isLoading, refetch, isFetching } = trpc.inventory.zaico.getInventories.useQuery();
+  const shaftSalesQuery = trpc.inventory.zaico.getShaftSales.useQuery(undefined, { enabled: stockType === "shaft" });
   const createDeliveryMutation = trpc.inventory.zaico.createDelivery.useMutation();
   const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
+  const upsertShaftSaleMutation = trpc.inventory.zaico.upsertShaftSale.useMutation();
 
   const items = useMemo<EbayInventoryItem[]>(() => {
     const q = query.trim().toLowerCase();
@@ -164,6 +196,86 @@ export default function EbayInventory() {
   }, [data]);
 
   const totalQuantity = items.reduce((sum, item) => sum + stockQuantity(item), 0);
+  const shaftSales = ((shaftSalesQuery.data ?? []) as ShaftSale[]);
+  const shaftSaleMap = useMemo(() => {
+    const map = new Map<string, ShaftSale>();
+    for (const sale of shaftSales) {
+      if (sale.inventoryId != null) map.set(`id:${sale.inventoryId}`, sale);
+      map.set(`no:${sale.managementNo}`, sale);
+    }
+    return map;
+  }, [shaftSales]);
+  const shaftSummary = useMemo(() => {
+    return shaftSales.reduce((summary, sale) => {
+      const saleAmount = numberFromValue(sale.saleAmount) ?? 0;
+      const unitPrice = numberFromValue(sale.unitPrice) ?? 0;
+      const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
+      const cost = unitPrice * quantity;
+      return {
+        count: summary.count + 1,
+        saleAmount: summary.saleAmount + saleAmount,
+        cost: summary.cost + cost,
+        profit: summary.profit + saleAmount - cost,
+      };
+    }, { count: 0, saleAmount: 0, cost: 0, profit: 0 });
+  }, [shaftSales]);
+
+  function getShaftSale(item: EbayInventoryItem) {
+    return shaftSaleMap.get(`id:${item.id}`) ?? shaftSaleMap.get(`no:${item.managementNo}`) ?? null;
+  }
+
+  function getShaftSaleInput(item: EbayInventoryItem) {
+    const draft = shaftSaleInputs[item.id];
+    if (draft !== undefined) return draft;
+    const existing = getShaftSale(item);
+    const amount = numberFromValue(existing?.saleAmount);
+    return amount == null || amount === 0 ? "" : String(Math.round(amount));
+  }
+
+  async function handleShaftSaleSave(item: EbayInventoryItem) {
+    const raw = getShaftSaleInput(item).replace(/,/g, "").trim();
+    const saleAmount = raw ? Number(raw) : 0;
+    if (!Number.isFinite(saleAmount) || saleAmount < 0) {
+      toast.error("売上は0以上の数字で入力してください");
+      return;
+    }
+    const unitPrice = item.purchase_unit_price ?? item.unit_price ?? null;
+    const quantity = Math.max(1, stockQuantity(item));
+    try {
+      await upsertShaftSaleMutation.mutateAsync({
+        inventoryId: item.id,
+        managementNo: item.managementNo,
+        title: item.title,
+        category: item.category ?? item.categories?.[0] ?? null,
+        quantity,
+        unitPrice,
+        saleAmount,
+        soldAt: todayJst(),
+        supplierName: item.supplierName ?? null,
+        supplierUrl: item.supplierUrl ?? null,
+        snapshot: {
+          inventoryId: item.id,
+          title: item.title,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: item.category ?? item.categories?.[0] ?? null,
+          unitPrice,
+          managementNo: item.managementNo,
+          supplierName: item.supplierName ?? null,
+          supplierUrl: item.supplierUrl ?? null,
+        },
+      });
+      toast.success("シャフト売上を保存しました");
+      setShaftSaleInputs((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      await shaftSalesQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "売上の保存に失敗しました");
+    }
+  }
 
   function openEditDialog(item: EbayInventoryItem) {
     setEditTarget(item);
@@ -336,6 +448,87 @@ export default function EbayInventory() {
         </div>
       </div>
 
+      {stockType === "shaft" && (
+        <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-semibold">
+                <TrendingUp className="h-4 w-4 text-emerald-700" />
+                シャフト売上一覧
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">在庫カードを削除しても、ここに保存した売上は残ります。</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => shaftSalesQuery.refetch()} disabled={shaftSalesQuery.isFetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${shaftSalesQuery.isFetching ? "animate-spin" : ""}`} />
+              売上一覧を更新
+            </Button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">売上件数</p>
+              <p className="text-lg font-semibold">{shaftSummary.count}</p>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">売上合計</p>
+              <p className="text-lg font-semibold">{formatYen(shaftSummary.saleAmount)}</p>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">仕入合計</p>
+              <p className="text-lg font-semibold">{formatYen(shaftSummary.cost)}</p>
+            </div>
+            <div className="rounded-md border bg-emerald-50 p-3">
+              <p className="text-xs text-emerald-800">利益合計</p>
+              <p className={`text-lg font-semibold ${shaftSummary.profit < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                {formatProfit(shaftSummary.profit)}
+              </p>
+            </div>
+          </div>
+
+          {shaftSalesQuery.isLoading ? (
+            <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">売上一覧を読み込み中...</div>
+          ) : shaftSales.length === 0 ? (
+            <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">まだ売上登録はありません。</div>
+          ) : (
+            <div className="max-h-80 overflow-auto rounded-md border">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="sticky top-0 bg-muted/40">
+                  <tr className="border-b">
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">売上日</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">管理番号</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">商品名</th>
+                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">売上</th>
+                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">仕入</th>
+                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">利益</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shaftSales.map((sale) => {
+                    const saleAmount = numberFromValue(sale.saleAmount) ?? 0;
+                    const unitPrice = numberFromValue(sale.unitPrice) ?? 0;
+                    const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
+                    const cost = unitPrice * quantity;
+                    const profit = saleAmount - cost;
+                    return (
+                      <tr key={sale.id} className="border-b last:border-0">
+                        <td className="px-3 py-2 whitespace-nowrap">{sale.soldAt || "-"}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{sale.managementNo}</td>
+                        <td className="px-3 py-2">{sale.title}</td>
+                        <td className="px-3 py-2 text-right">{formatYen(saleAmount)}</td>
+                        <td className="px-3 py-2 text-right">{formatYen(cost)}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${profit < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                          {formatProfit(profit)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground">読み込み中...</div>
       ) : items.length === 0 ? (
@@ -352,6 +545,11 @@ export default function EbayInventory() {
             const qty = stockQuantity(item);
             const stockValue = unitPrice && qty > 0 ? unitPrice * qty : null;
             const purchaseDate = item.last_purchase_date?.slice(0, 10) ?? item.updated_at?.slice(0, 10) ?? "-";
+            const shaftSale = stockType === "shaft" ? getShaftSale(item) : null;
+            const shaftSaleInput = stockType === "shaft" ? getShaftSaleInput(item) : "";
+            const shaftSaleAmount = numberFromValue(shaftSaleInput) ?? numberFromValue(shaftSale?.saleAmount);
+            const shaftCost = (unitPrice ?? 0) * Math.max(1, qty);
+            const shaftProfit = shaftSaleAmount == null ? null : shaftSaleAmount - shaftCost;
             return (
               <div key={item.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
                 <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
@@ -404,6 +602,12 @@ export default function EbayInventory() {
                         <th className="px-4 py-2 text-right font-medium text-muted-foreground">仕入単価</th>
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">入庫日</th>
                         <th className="px-4 py-2 text-right font-medium text-muted-foreground">在庫金額</th>
+                        {stockType === "shaft" && (
+                          <>
+                            <th className="px-4 py-2 text-right font-medium text-muted-foreground">売上</th>
+                            <th className="px-4 py-2 text-right font-medium text-muted-foreground">利益</th>
+                          </>
+                        )}
                         <th className="px-4 py-2 text-center font-medium text-muted-foreground">在庫数</th>
                       </tr>
                     </thead>
@@ -440,6 +644,40 @@ export default function EbayInventory() {
                         <td className="px-4 py-3 text-right align-top">{formatYen(unitPrice)}</td>
                         <td className="px-4 py-3 align-top">{purchaseDate}</td>
                         <td className="px-4 py-3 text-right align-top">{formatYen(stockValue)}</td>
+                        {stockType === "shaft" && (
+                          <>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex justify-end gap-2">
+                                <Input
+                                  inputMode="numeric"
+                                  value={shaftSaleInput}
+                                  onChange={(event) => setShaftSaleInputs((current) => ({ ...current, [item.id]: event.target.value }))}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") handleShaftSaleSave(item);
+                                  }}
+                                  placeholder="売上"
+                                  className="h-8 w-28 text-right"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleShaftSaleSave(item)}
+                                  disabled={upsertShaftSaleMutation.isPending}
+                                  className="h-8"
+                                >
+                                  {upsertShaftSaleMutation.isPending ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Save className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            </td>
+                            <td className={`px-4 py-3 text-right align-top font-semibold ${shaftProfit != null && shaftProfit < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                              {formatProfit(shaftProfit)}
+                            </td>
+                          </>
+                        )}
                         <td className="px-4 py-3 align-top">
                           <div className="flex items-center justify-center gap-2">
                             <Button size="icon" variant="outline" className="h-7 w-7" disabled>

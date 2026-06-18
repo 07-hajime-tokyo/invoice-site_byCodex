@@ -84,6 +84,8 @@ import {
   getLocalInventoryUnitPriceByZaicoIds,
   getLocalInventoryInfoByZaicoIds,
   getDeletedInventoryUnitPriceByZaicoIds,
+  getShaftSales,
+  upsertShaftSale,
   getInvoiceManualItems,
   getInvoiceManualItemsByInvoiceNos,
   createInvoiceManualItem,
@@ -1968,6 +1970,46 @@ export const inventoryRouter = router({
           }
         }
         return result;
+      }),
+
+    getShaftSales: publicProcedure.query(async () => {
+      return getShaftSales();
+    }),
+
+    upsertShaftSale: publicProcedure
+      .input(z.object({
+        inventoryId: z.number().int().positive().nullable().optional(),
+        managementNo: z.string().min(1).max(200),
+        title: z.string().min(1).max(500),
+        category: z.string().max(200).nullable().optional(),
+        quantity: z.number().int().min(1).default(1),
+        unitPrice: z.number().nullable().optional(),
+        saleAmount: z.number().min(0),
+        soldAt: z.string().max(20).optional(),
+        supplierName: z.string().max(200).nullable().optional(),
+        supplierUrl: z.string().max(1000).nullable().optional(),
+        snapshot: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const sale = await upsertShaftSale({
+          inventoryId: input.inventoryId ?? null,
+          managementNo: input.managementNo.trim(),
+          title: input.title.trim(),
+          category: input.category ?? null,
+          quantity: input.quantity,
+          unitPrice: input.unitPrice == null ? null : String(input.unitPrice),
+          saleAmount: String(input.saleAmount),
+          soldAt: input.soldAt ?? new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Tokyo",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(new Date()),
+          supplierName: input.supplierName ?? null,
+          supplierUrl: input.supplierUrl ?? null,
+          snapshotJson: input.snapshot ? JSON.stringify(input.snapshot) : null,
+        });
+        return { success: true, sale };
       }),
 
     /**

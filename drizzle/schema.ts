@@ -548,6 +548,40 @@ export type LocalInventory = typeof localInventories.$inferSelect;
 export type InsertLocalInventory = typeof localInventories.$inferInsert;
 
 /**
+ * シャフト売上一覧テーブル
+ * 在庫削除後も売上・利益確認用に残すスナップショット
+ */
+export const shaftSales = mysqlTable("shaft_sales", {
+  id: int("id").autoincrement().primaryKey(),
+  /** localInventories.id（削除後も参照用に残す） */
+  inventoryId: int("inventoryId"),
+  /** 管理番号 */
+  managementNo: varchar("managementNo", { length: 200 }).notNull(),
+  /** 商品名スナップショット */
+  title: varchar("title", { length: 500 }).notNull(),
+  /** カテゴリ */
+  category: varchar("category", { length: 200 }),
+  /** 売上数量 */
+  quantity: int("quantity").default(1).notNull(),
+  /** 仕入単価 */
+  unitPrice: decimal("unitPrice", { precision: 10, scale: 2 }),
+  /** 売上金額 */
+  saleAmount: decimal("saleAmount", { precision: 12, scale: 2 }).notNull(),
+  /** 売上日 */
+  soldAt: varchar("soldAt", { length: 20 }),
+  /** 仕入先名 */
+  supplierName: varchar("supplierName", { length: 200 }),
+  /** 仕入先URL */
+  supplierUrl: text("supplierUrl"),
+  /** 登録時点の在庫データ */
+  snapshotJson: text("snapshotJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ShaftSale = typeof shaftSales.$inferSelect;
+export type InsertShaftSale = typeof shaftSales.$inferInsert;
+
+/**
  * ローカル発注テーブル
  * Zaicoから移行・またはサイト内で管理する発注データ
  * Zaico連携ON時はZaico APIと同期、OFF時はこのテーブルのみを参照する
