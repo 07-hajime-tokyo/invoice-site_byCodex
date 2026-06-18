@@ -11,6 +11,7 @@ type EbayListingUrlEditorProps = {
   inventoryId?: number | null;
   managementNo?: string | null;
   value?: string | null;
+  type?: "listing" | "order";
   compact?: boolean;
   className?: string;
 };
@@ -19,14 +20,19 @@ export function EbayListingUrlEditor({
   inventoryId,
   managementNo,
   value,
+  type = "listing",
   compact = false,
   className,
 }: EbayListingUrlEditorProps) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
-  const mutation = trpc.inventory.zaico.updateEbayListingUrl.useMutation();
+  const listingMutation = trpc.inventory.zaico.updateEbayListingUrl.useMutation();
+  const orderMutation = trpc.inventory.zaico.updateEbayOrderUrl.useMutation();
   const resolvedInventoryId = inventoryId ?? null;
+  const mutation = type === "order" ? orderMutation : listingMutation;
+  const label = type === "order" ? "Orderページ" : "出品ページ";
+  const placeholder = type === "order" ? "https://www.ebay.com/sh/ord/details?orderid=..." : "https://www.ebay.com/itm/...";
 
   useEffect(() => {
     if (!editing) setDraft(value ?? "");
@@ -37,19 +43,26 @@ export function EbayListingUrlEditor({
 
   async function save() {
     try {
-      await mutation.mutateAsync({
-        inventoryId: safeInventoryId,
-        ebayListingUrl: draft.trim() || null,
-      });
+      if (type === "order") {
+        await orderMutation.mutateAsync({
+          inventoryId: safeInventoryId,
+          ebayOrderUrl: draft.trim() || null,
+        });
+      } else {
+        await listingMutation.mutateAsync({
+          inventoryId: safeInventoryId,
+          ebayListingUrl: draft.trim() || null,
+        });
+      }
       await Promise.all([
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
       ]);
       setEditing(false);
-      toast.success("出品ページを保存しました");
+      toast.success(`${label}を保存しました`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "出品ページの保存に失敗しました";
+      const message = error instanceof Error ? error.message : `${label}の保存に失敗しました`;
       toast.error(message);
     }
   }
@@ -57,11 +70,11 @@ export function EbayListingUrlEditor({
   if (editing) {
     return (
       <div className={cn("flex flex-wrap items-center gap-1.5", compact ? "text-xs" : "text-sm", className)}>
-        <span className="text-muted-foreground">出品ページ</span>
+        <span className="text-muted-foreground">{label}</span>
         <Input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="https://www.ebay.com/itm/..."
+          placeholder={placeholder}
           className={cn("h-8", compact ? "w-56 text-xs" : "w-80")}
         />
         <Button size="sm" variant="outline" onClick={save} disabled={mutation.isPending} className="h-8">
@@ -84,7 +97,7 @@ export function EbayListingUrlEditor({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", compact ? "text-xs" : "text-sm", className)}>
-      <span className="text-muted-foreground">出品ページ:</span>
+      <span className="text-muted-foreground">{label}:</span>
       {value ? (
         <a
           href={value}

@@ -538,6 +538,8 @@ export const localInventories = mysqlTable("local_inventories", {
   supplierName: varchar("supplierName", { length: 200 }),
   /** eBay listing page URL */
   ebayListingUrl: text("ebayListingUrl"),
+  /** eBay order page URL */
+  ebayOrderUrl: text("ebayOrderUrl"),
   /** 削除済みフラグ */
   isDeleted: int("isDeleted").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

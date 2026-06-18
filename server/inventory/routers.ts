@@ -980,6 +980,7 @@ export const inventoryRouter = router({
           supplierUrl: inv.supplierUrl ?? null,
           supplierName: inv.supplierName ?? null,
           ebayListingUrl: inv.ebayListingUrl ?? null,
+          ebayOrderUrl: inv.ebayOrderUrl ?? null,
         }));
       }
       const [inventories, zaicoDateMap, dbDateMap, inventoryExtras, increaseMemosMap] = await Promise.all([
@@ -1368,6 +1369,7 @@ export const inventoryRouter = router({
             unit_price: localInv.unitPrice != null ? Number(localInv.unitPrice) : undefined,
             purchase_unit_price: localInv.unitPrice != null ? Number(localInv.unitPrice) : undefined,
             ebayListingUrl: localInv.ebayListingUrl ?? null,
+            ebayOrderUrl: localInv.ebayOrderUrl ?? null,
             code: undefined as string | undefined,
             optional_attributes: [] as Array<{ name: string; value: string | null }>,
             item_image: undefined,
@@ -1790,11 +1792,12 @@ export const inventoryRouter = router({
           supplierUrl: z.string().optional(),
           supplierName: z.string().max(200).optional(),
           ebayListingUrl: z.string().max(1000).nullable().optional(),
+          ebayOrderUrl: z.string().max(1000).nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { operatorKey, supplierUrl, supplierName, ebayListingUrl, ...payload } = input;
+        const { operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBに商品を作成
@@ -1810,6 +1813,7 @@ export const inventoryRouter = router({
             supplierUrl: supplierUrl || null,
             supplierName: supplierName || null,
             ebayListingUrl: normalizeListingUrl(ebayListingUrl),
+            ebayOrderUrl: normalizeListingUrl(ebayOrderUrl),
             isDeleted: 0,
           });
           return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: 0 };
@@ -1848,11 +1852,12 @@ export const inventoryRouter = router({
           supplierUrl: z.string().optional(),
           supplierName: z.string().max(200).optional(),
           ebayListingUrl: z.string().max(1000).nullable().optional(),
+          ebayOrderUrl: z.string().max(1000).nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ...payload } = input;
+        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBの商品を更新
@@ -1874,6 +1879,7 @@ export const inventoryRouter = router({
               supplierUrl: nextSupplierUrl,
               supplierName: nextSupplierName,
               ebayListingUrl: ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl),
+              ebayOrderUrl: ebayOrderUrl === undefined ? localInv.ebayOrderUrl : normalizeListingUrl(ebayOrderUrl),
             });
             const db = await getDb();
             if (db) {
@@ -2099,6 +2105,36 @@ export const inventoryRouter = router({
           supplierUrl: existing?.supplierUrl ?? null,
         }).catch(() => {});
         return { success: true, ebayListingUrl: normalizedUrl };
+      }),
+
+    updateEbayOrderUrl: publicProcedure
+      .input(
+        z.object({
+          inventoryId: z.number().int().positive(),
+          ebayOrderUrl: z.string().max(1000).nullable().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const zaicoEnabled = await isZaicoEnabled();
+        const normalizedUrl = normalizeListingUrl(input.ebayOrderUrl);
+
+        if (!zaicoEnabled) {
+          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
+          if (!localInv) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Inventory not found" });
+          }
+          if (!isEbayManagementNo(localInv.etc)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけOrderページを登録できます" });
+          }
+          await updateLocalInventory(localInv.id, { ebayOrderUrl: normalizedUrl });
+          return { success: true, ebayOrderUrl: normalizedUrl };
+        }
+
+        const inv = await getInventory(input.inventoryId);
+        if (!isEbayManagementNo(inv.etc)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけOrderページを登録できます" });
+        }
+        return { success: true, ebayOrderUrl: normalizedUrl };
       }),
 
     updateCategoryOnly: publicProcedure

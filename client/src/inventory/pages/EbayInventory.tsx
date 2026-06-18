@@ -41,6 +41,7 @@ import {
 
 const NINJA_MASTER_URL =
   "https://docs.google.com/spreadsheets/d/1xfiDJnNqnc12N-jJDGZavEEzsi-j_BCBxXHzZwzsaHo/edit?gid=1727357177#gid=1727357177";
+const YAHOO_AUCTION_SALES_URL = "https://salesmanagement.yahoo.co.jp/list";
 
 type InventoryItem = {
   id: number;
@@ -56,6 +57,7 @@ type InventoryItem = {
   supplierUrl?: string | null;
   supplierName?: string | null;
   ebayListingUrl?: string | null;
+  ebayOrderUrl?: string | null;
   last_purchase_date?: string | null;
   updated_at?: string | null;
 };
@@ -91,6 +93,7 @@ type EditForm = {
   supplierName: string;
   supplierUrl: string;
   ebayListingUrl: string;
+  ebayOrderUrl: string;
 };
 
 const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
@@ -158,6 +161,7 @@ export default function EbayInventory() {
     supplierName: "",
     supplierUrl: "",
     ebayListingUrl: "",
+    ebayOrderUrl: "",
   });
 
   const { data, isLoading, refetch, isFetching } = trpc.inventory.zaico.getInventories.useQuery();
@@ -196,7 +200,7 @@ export default function EbayInventory() {
   }, [data]);
 
   const totalQuantity = items.reduce((sum, item) => sum + stockQuantity(item), 0);
-  const shaftSales = ((shaftSalesQuery.data ?? []) as ShaftSale[]);
+  const shaftSales = ((shaftSalesQuery.data ?? []) as unknown as ShaftSale[]);
   const shaftSaleMap = useMemo(() => {
     const map = new Map<string, ShaftSale>();
     for (const sale of shaftSales) {
@@ -290,6 +294,7 @@ export default function EbayInventory() {
       supplierName: item.supplierName ?? "",
       supplierUrl: item.supplierUrl ?? "",
       ebayListingUrl: item.ebayListingUrl ?? "",
+      ebayOrderUrl: item.ebayOrderUrl ?? "",
     });
   }
 
@@ -317,6 +322,7 @@ export default function EbayInventory() {
         supplierName: editForm.supplierName.trim() || undefined,
         supplierUrl: editForm.supplierUrl.trim() || undefined,
         ebayListingUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayListingUrl.trim() || null) : undefined,
+        ebayOrderUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayOrderUrl.trim() || null) : undefined,
       });
       toast.success("在庫情報を更新しました");
       setEditTarget(null);
@@ -455,6 +461,12 @@ export default function EbayInventory() {
               <div className="flex items-center gap-2 font-semibold">
                 <TrendingUp className="h-4 w-4 text-emerald-700" />
                 シャフト売上一覧
+                <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs font-normal">
+                  <a href={YAHOO_AUCTION_SALES_URL} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                    ヤフオク売上金管理
+                  </a>
+                </Button>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">在庫カードを削除しても、ここに保存した売上は残ります。</p>
             </div>
@@ -694,11 +706,17 @@ export default function EbayInventory() {
                   </table>
                 </div>
 
-                <div className="flex justify-end border-t bg-muted/10 px-4 py-2">
+                <div className="flex flex-wrap justify-end gap-x-5 gap-y-2 border-t bg-muted/10 px-4 py-2">
                   <EbayListingUrlEditor
                     inventoryId={item.id}
                     managementNo={item.managementNo}
                     value={item.ebayListingUrl}
+                  />
+                  <EbayListingUrlEditor
+                    inventoryId={item.id}
+                    managementNo={item.managementNo}
+                    value={item.ebayOrderUrl}
+                    type="order"
                   />
                 </div>
               </div>
@@ -749,10 +767,16 @@ export default function EbayInventory() {
               <Input id="ebay-edit-supplier-url" value={editForm.supplierUrl} onChange={(event) => setEditForm((form) => ({ ...form, supplierUrl: event.target.value }))} />
             </div>
             {isEbayManagementNo(editForm.managementNo) && (
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="ebay-edit-listing-url">自社出品ページ</Label>
-                <Input id="ebay-edit-listing-url" value={editForm.ebayListingUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayListingUrl: event.target.value }))} />
-              </div>
+              <>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="ebay-edit-listing-url">自社出品ページ</Label>
+                  <Input id="ebay-edit-listing-url" value={editForm.ebayListingUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayListingUrl: event.target.value }))} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="ebay-edit-order-url">Orderページ</Label>
+                  <Input id="ebay-edit-order-url" value={editForm.ebayOrderUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayOrderUrl: event.target.value }))} />
+                </div>
+              </>
             )}
           </div>
           <DialogFooter>
