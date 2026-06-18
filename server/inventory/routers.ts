@@ -1587,8 +1587,12 @@ export const inventoryRouter = router({
               }
             }
             if (firstItem?.etc !== undefined) {
-              lpUpdateData.managementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
+              const nextManagementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
+              lpUpdateData.managementNo = nextManagementNo;
               updateFirstItemJson({ etc: firstItem.etc });
+              if (lp.localInventoryId) {
+                await db.update(liTbl).set({ etc: nextManagementNo ?? null }).where(eq(liTbl.id, lp.localInventoryId));
+              }
             }
             if (firstItem?.category !== undefined) {
               const nextCategory = normalizeCategoryName(firstItem.category) || null;
@@ -1625,7 +1629,9 @@ export const inventoryRouter = router({
         }
         await updatePurchase(input.purchaseId, payload, operatorToken);
         if (input.purchaseItems) {
-          const itemsWithInventoryChanges = input.purchaseItems.filter((item) => item.title !== undefined || item.unitPrice !== undefined || item.category !== undefined);
+          const itemsWithInventoryChanges = input.purchaseItems.filter(
+            (item) => item.title !== undefined || item.unitPrice !== undefined || item.category !== undefined || item.etc !== undefined
+          );
           await Promise.all(
             itemsWithInventoryChanges.map(async (item) => {
               try {
@@ -1640,7 +1646,7 @@ export const inventoryRouter = router({
                       ? (normalizeCategoryName(item.category) || undefined)
                       : inv.categories?.[0] ?? inv.category ?? undefined,
                     place: inv.place ?? undefined,
-                    etc: inv.etc ?? undefined,
+                    etc: item.etc !== undefined ? item.etc : inv.etc ?? undefined,
                     purchase_unit_price: item.unitPrice ?? inv.purchase_unit_price ?? undefined,
                   },
                   operatorToken
@@ -1850,18 +1856,80 @@ export const inventoryRouter = router({
           // Zaico連携OFF: ローカルDBの商品を更新
           const localInv = await getLocalInventoryByZaicoIdOrId(inventoryId);
           if (localInv) {
+            const nextSupplierUrl = supplierUrl === undefined ? localInv.supplierUrl : supplierUrl || null;
+            const nextSupplierName = supplierName === undefined ? localInv.supplierName : supplierName || null;
+            const nextUnitPrice = payload.purchase_unit_price != null ? String(payload.purchase_unit_price) : localInv.unitPrice;
+            const nextInventoryEtc = payload.etc ?? null;
+            const nextManagementNo = nextInventoryEtc?.split(",")[0]?.trim() || null;
             await updateLocalInventory(localInv.id, {
               title: payload.title,
               category: payload.category ?? null,
               place: payload.place ?? null,
               quantity: payload.quantity != null ? Math.round(parseFloat(payload.quantity) || 0) : localInv.quantity,
               unit: payload.unit ?? localInv.unit,
-              unitPrice: payload.purchase_unit_price != null ? String(payload.purchase_unit_price) : localInv.unitPrice,
-              etc: payload.etc ?? null,
-              supplierUrl: supplierUrl || null,
-              supplierName: supplierName || null,
+              unitPrice: nextUnitPrice,
+              etc: nextInventoryEtc,
+              supplierUrl: nextSupplierUrl,
+              supplierName: nextSupplierName,
               ebayListingUrl: ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl),
             });
+            const db = await getDb();
+            if (db) {
+              const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+              const localPurchaseRows = await getLocalPurchases();
+              const relatedPurchases = localPurchaseRows.filter((purchase) => {
+                if (purchase.localInventoryId === localInv.id) return true;
+                try {
+                  const items = JSON.parse(purchase.itemsJson ?? "[]");
+                  return Array.isArray(items) && items.some((item) => {
+                    const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? 0);
+                    return itemInventoryId === localInv.id || (localInv.zaicoId != null && itemInventoryId === localInv.zaicoId);
+                  });
+                } catch {
+                  return false;
+                }
+              });
+              await Promise.all(
+                relatedPurchases.map(async (purchase) => {
+                  let itemsJson = purchase.itemsJson;
+                  try {
+                    const items = JSON.parse(purchase.itemsJson ?? "[]");
+                    if (Array.isArray(items)) {
+                      const updatedItems = items.map((item) => {
+                        const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? 0);
+                        const shouldSync =
+                          itemInventoryId === localInv.id ||
+                          (localInv.zaicoId != null && itemInventoryId === localInv.zaicoId) ||
+                          (purchase.localInventoryId === localInv.id && items.length === 1);
+                        if (!shouldSync) return item;
+                        return {
+                          ...item,
+                          title: payload.title,
+                          category: payload.category ?? null,
+                          unit_price: payload.purchase_unit_price != null ? payload.purchase_unit_price : item.unit_price,
+                          unitPrice: payload.purchase_unit_price != null ? payload.purchase_unit_price : item.unitPrice,
+                          etc: nextInventoryEtc,
+                          managementNo: nextManagementNo,
+                          inventory_id: item.inventory_id ?? localInv.id,
+                        };
+                      });
+                      itemsJson = JSON.stringify(updatedItems);
+                    }
+                  } catch {
+                    itemsJson = purchase.itemsJson;
+                  }
+                  await db.update(lpTbl).set({
+                    title: payload.title,
+                    category: payload.category ?? null,
+                    unitPrice: nextUnitPrice,
+                    managementNo: nextManagementNo,
+                    supplierUrl: nextSupplierUrl,
+                    supplierName: nextSupplierName,
+                    itemsJson,
+                  }).where(eq(lpTbl.id, purchase.id));
+                })
+              );
+            }
           }
           return { code: 200, status: "ok", message: "商品を更新しました（ローカルDB）" };
         }

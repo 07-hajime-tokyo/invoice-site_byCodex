@@ -2491,15 +2491,15 @@ export default function Deliveries() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-etc">備考欄</Label>
+              <Label htmlFor="edit-etc">管理番号・備考</Label>
               <Textarea
                 id="edit-etc"
                 value={editForm.etc}
                 onChange={(e) => setEditForm(f => ({ ...f, etc: e.target.value }))}
-                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会社ABC）"
+                placeholder="例: E0618_01_A00001, 2024-01-15, 仕入先メモ"
                 rows={3}
               />
-              <p className="text-xs text-muted-foreground">管理番号はカンマ区切りの先頭に記入（例: 368-1, ...）</p>
+              <p className="text-xs text-muted-foreground">先頭（カンマ前）が管理番号として扱われます。</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-supplier-name">仕入先名</Label>
