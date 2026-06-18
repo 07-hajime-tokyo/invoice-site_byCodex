@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { isEbayManagementNo } from "@shared/ebayInventory";
+import { getEbayStockType, isEbayManagementNo } from "@shared/ebayInventory";
 import { toast } from "sonner";
 
 type EbayListingUrlEditorProps = {
@@ -39,6 +39,7 @@ export function EbayListingUrlEditor({
   }, [editing, value]);
 
   if (!resolvedInventoryId || !isEbayManagementNo(managementNo)) return null;
+  if (type === "listing" && getEbayStockType(managementNo) !== "stocked") return null;
   const safeInventoryId = resolvedInventoryId;
 
   async function save() {

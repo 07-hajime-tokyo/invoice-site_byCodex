@@ -321,7 +321,7 @@ export default function EbayInventory() {
         purchase_unit_price: price,
         supplierName: editForm.supplierName.trim() || undefined,
         supplierUrl: editForm.supplierUrl.trim() || undefined,
-        ebayListingUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayListingUrl.trim() || null) : undefined,
+        ebayListingUrl: getEbayStockType(editForm.managementNo) === "stocked" ? (editForm.ebayListingUrl.trim() || null) : undefined,
         ebayOrderUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayOrderUrl.trim() || null) : undefined,
       });
       toast.success("在庫情報を更新しました");
@@ -768,10 +768,12 @@ export default function EbayInventory() {
             </div>
             {isEbayManagementNo(editForm.managementNo) && (
               <>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="ebay-edit-listing-url">自社出品ページ</Label>
-                  <Input id="ebay-edit-listing-url" value={editForm.ebayListingUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayListingUrl: event.target.value }))} />
-                </div>
+                {getEbayStockType(editForm.managementNo) === "stocked" && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="ebay-edit-listing-url">自社出品ページ</Label>
+                    <Input id="ebay-edit-listing-url" value={editForm.ebayListingUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayListingUrl: event.target.value }))} />
+                  </div>
+                )}
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="ebay-edit-order-url">Orderページ</Label>
                   <Input id="ebay-edit-order-url" value={editForm.ebayOrderUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayOrderUrl: event.target.value }))} />

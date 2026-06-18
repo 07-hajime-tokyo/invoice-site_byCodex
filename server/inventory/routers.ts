@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
-import { isEbayManagementNo } from "@shared/ebayInventory";
+import { getEbayStockType, isEbayManagementNo } from "@shared/ebayInventory";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -1812,7 +1812,7 @@ export const inventoryRouter = router({
             etc: payload.etc ?? null,
             supplierUrl: supplierUrl || null,
             supplierName: supplierName || null,
-            ebayListingUrl: normalizeListingUrl(ebayListingUrl),
+            ebayListingUrl: getEbayStockType(payload.etc) === "stocked" ? normalizeListingUrl(ebayListingUrl) : null,
             ebayOrderUrl: normalizeListingUrl(ebayOrderUrl),
             isDeleted: 0,
           });
@@ -1868,6 +1868,7 @@ export const inventoryRouter = router({
             const nextUnitPrice = payload.purchase_unit_price != null ? String(payload.purchase_unit_price) : localInv.unitPrice;
             const nextInventoryEtc = payload.etc ?? null;
             const nextManagementNo = nextInventoryEtc?.split(",")[0]?.trim() || null;
+            const nextEbayStockType = getEbayStockType(nextInventoryEtc);
             await updateLocalInventory(localInv.id, {
               title: payload.title,
               category: payload.category ?? null,
@@ -1878,7 +1879,9 @@ export const inventoryRouter = router({
               etc: nextInventoryEtc,
               supplierUrl: nextSupplierUrl,
               supplierName: nextSupplierName,
-              ebayListingUrl: ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl),
+              ebayListingUrl: nextEbayStockType === "stocked"
+                ? (ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl))
+                : null,
               ebayOrderUrl: ebayOrderUrl === undefined ? localInv.ebayOrderUrl : normalizeListingUrl(ebayOrderUrl),
             });
             const db = await getDb();
@@ -2087,16 +2090,16 @@ export const inventoryRouter = router({
           if (!localInv) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Inventory not found" });
           }
-          if (!isEbayManagementNo(localInv.etc)) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけ出品ページを登録できます" });
+          if (getEbayStockType(localInv.etc) !== "stocked") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "有在庫のeBay商品だけ出品ページを登録できます" });
           }
           await updateLocalInventory(localInv.id, { ebayListingUrl: normalizedUrl });
           return { success: true, ebayListingUrl: normalizedUrl };
         }
 
         const inv = await getInventory(input.inventoryId);
-        if (!isEbayManagementNo(inv.etc)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけ出品ページを登録できます" });
+        if (getEbayStockType(inv.etc) !== "stocked") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "有在庫のeBay商品だけ出品ページを登録できます" });
         }
         const existing = await getInventoryExtraByZaicoId(input.inventoryId);
         await upsertInventoryExtra({

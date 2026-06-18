@@ -58,7 +58,7 @@ import { buildSupplierDisplay } from "@/inventory/lib/supplier";
 import { usePagination } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
-import { isEbayManagementNo } from "@shared/ebayInventory";
+import { getEbayStockType } from "@shared/ebayInventory";
 
 interface InventoryItem {
   id: number;
@@ -1016,7 +1016,7 @@ export default function Deliveries() {
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
         supplierUrl: editForm.supplierUrl || undefined,
         supplierName: editForm.supplierName || undefined,
-        ebayListingUrl: isEbayManagementNo(editForm.etc) ? (editForm.ebayListingUrl || null) : undefined,
+        ebayListingUrl: getEbayStockType(editForm.etc) === "stocked" ? (editForm.ebayListingUrl || null) : undefined,
       });
       toast.success(`「${editForm.title}」を更新しました`);
       setEditingItem(null);
@@ -1056,7 +1056,7 @@ export default function Deliveries() {
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
         supplierUrl: createForm.supplierUrl || undefined,
         supplierName: createForm.supplierName || undefined,
-        ebayListingUrl: isEbayManagementNo(createForm.etc) ? (createForm.ebayListingUrl || null) : undefined,
+        ebayListingUrl: getEbayStockType(createForm.etc) === "stocked" ? (createForm.ebayListingUrl || null) : undefined,
       });
       toast.success(`「${createForm.title}」を登録しました`);
       setShowCreateDialog(false);
@@ -2519,7 +2519,7 @@ export default function Deliveries() {
                 placeholder="https://..."
                 type="url"
               />
-              {isEbayManagementNo(editForm.etc) && (
+              {getEbayStockType(editForm.etc) === "stocked" && (
                 <div className="space-y-1.5 pt-2">
                   <Label htmlFor="edit-ebay-listing-url">自社出品ページ</Label>
                   <Input
