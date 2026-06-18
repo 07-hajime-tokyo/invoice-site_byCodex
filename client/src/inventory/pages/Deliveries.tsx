@@ -154,7 +154,7 @@ function getManagementNo(etc: string | undefined): string {
   // カンマ区切りまたはスペース区切りの先頭部分を管理番号として取得
   const firstPart = etc.split(",")[0].trim();
   const raw = firstPart.split(" ")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw)) return raw;
+  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw) || /^E/i.test(raw) || /^シャフト/i.test(raw)) return raw;
   return "";
 }
 

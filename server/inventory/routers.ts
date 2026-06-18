@@ -1591,7 +1591,7 @@ export const inventoryRouter = router({
               lpUpdateData.managementNo = nextManagementNo;
               updateFirstItemJson({ etc: firstItem.etc });
               if (lp.localInventoryId) {
-                await db.update(liTbl).set({ etc: nextManagementNo ?? null }).where(eq(liTbl.id, lp.localInventoryId));
+                await db.update(liTbl).set({ etc: firstItem.etc || nextManagementNo || null }).where(eq(liTbl.id, lp.localInventoryId));
               }
             }
             if (firstItem?.category !== undefined) {

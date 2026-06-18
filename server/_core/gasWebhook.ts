@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "crypto";
 import type { Express, Request, Response } from "express";
-import { and, desc, eq, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   localInventories,
@@ -126,6 +126,13 @@ function resolveSupplierName(supplier?: string | null, supplierDetail?: string |
     return `${base} ${detail}`;
   }
   return base || detail || null;
+}
+
+function buildInventoryEtc(managementNo: string, purchaseDate: string, supplierName: string | null) {
+  return [managementNo, purchaseDate, supplierName ?? ""]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 function resolveWebhookCategory(
@@ -297,6 +304,7 @@ export function registerGasWebhookRoutes(app: Express) {
       const sourceManagementNo = textField(payload, stringKeys.managementNo);
       const sourceKey = makeSourceKey(payload, sourceManagementNo, purchaseNum);
       const managementNo = sourceManagementNo || `gas:${sourceKey}`;
+      const inventoryEtc = buildInventoryEtc(managementNo, purchaseDate, supplierName);
       const gasZaicoId = syntheticZaicoId(sourceKey);
 
       if (dryRun) {
@@ -336,7 +344,7 @@ export function registerGasWebhookRoutes(app: Express) {
       let previousQuantity = 0;
       const inventoryConditions: SQL<unknown>[] = [];
       if (explicitInventoryId) inventoryConditions.push(eq(localInventories.id, explicitInventoryId));
-      if (managementNo) inventoryConditions.push(eq(localInventories.etc, managementNo));
+      if (managementNo) inventoryConditions.push(sql`substring_index(${localInventories.etc}, ',', 1) = ${managementNo}`);
       const inventoryWhere = combineOr(inventoryConditions);
       const existingInventory = inventoryWhere
         ? await db
@@ -360,7 +368,7 @@ export function registerGasWebhookRoutes(app: Express) {
               quantity: markPurchased && !alreadyReceived ? previousQuantity + quantity : previousQuantity,
               unit,
               unitPrice,
-              etc: managementNo,
+              etc: inventoryEtc,
               supplierUrl,
               supplierName,
               isDeleted: 0,
@@ -376,7 +384,7 @@ export function registerGasWebhookRoutes(app: Express) {
           quantity: markPurchased ? quantity : inventoryQuantity,
           unit,
           unitPrice,
-          etc: managementNo,
+          etc: inventoryEtc,
           supplierUrl,
           supplierName,
           isDeleted: 0,
@@ -389,7 +397,7 @@ export function registerGasWebhookRoutes(app: Express) {
         title,
         quantity: String(quantity),
         unit_price: unitPrice,
-        etc: managementNo,
+        etc: inventoryEtc,
         status: markPurchased ? "purchased" : "ordered",
         inventory_id: inventoryId,
         category,
