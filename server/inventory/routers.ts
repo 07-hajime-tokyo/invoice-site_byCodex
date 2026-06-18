@@ -1365,8 +1365,8 @@ export const inventoryRouter = router({
             categories: localInv.category ? [localInv.category] : undefined,
             place: localInv.place ?? undefined,
             etc: localInv.etc ?? undefined,
-            unit_price: localInv.unitPrice ? Number(localInv.unitPrice) : undefined,
-            purchase_unit_price: localInv.unitPrice ? Number(localInv.unitPrice) : undefined,
+            unit_price: localInv.unitPrice != null ? Number(localInv.unitPrice) : undefined,
+            purchase_unit_price: localInv.unitPrice != null ? Number(localInv.unitPrice) : undefined,
             ebayListingUrl: localInv.ebayListingUrl ?? null,
             code: undefined as string | undefined,
             optional_attributes: [] as Array<{ name: string; value: string | null }>,
@@ -3910,7 +3910,7 @@ export const inventoryRouter = router({
           category: snapshot.category,
           place: snapshot.place,
           etc: snapshot.etc,
-          purchase_unit_price: snapshot.unit_price ? parseFloat(snapshot.unit_price) : undefined,
+          purchase_unit_price: snapshot.unit_price != null ? parseFloat(snapshot.unit_price) : undefined,
         }, token);
         // DBから削除済みレコードを削除
         await removeDeletedInventory(input.id);
@@ -3995,7 +3995,7 @@ export const inventoryRouter = router({
               title: item.title,
               category: null,
               quantity: Math.round(parseFloat(item.quantity) || 1),
-              unitPrice: item.unit_price ? String(item.unit_price) : null,
+              unitPrice: item.unit_price != null ? String(item.unit_price) : null,
               managementNo: item.etc ?? null,
               purchaseDate: p.purchase_date ?? null,
               receivedDate: item.status === "purchased" ? (item.purchase_date ?? null) : null,
@@ -4534,7 +4534,7 @@ export const inventoryRouter = router({
         if (!invoiceMatch) continue;
         const invoiceNo = invoiceMatch[1];
         // 仕入単価
-        const unitPrice = ph.unitPrice ? parseFloat(ph.unitPrice) || null : null;
+        const unitPrice = ph.unitPrice != null ? parseFloat(ph.unitPrice) : null;
         const qty = parseInt(String(ph.quantity), 10) || 0;
         if (qty <= 0) continue;
         const item: StockItemForReport = {

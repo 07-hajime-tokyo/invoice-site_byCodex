@@ -27,8 +27,8 @@ function exportPurchaseHistoryCSV(items: PurchaseHistoryItem[]) {
   ];
   for (const h of items) {
     const qty = parseFloat(h.quantity ?? "0");
-    const unitPrice = h.unitPrice ? parseFloat(h.unitPrice) : null;
-    const totalValue = unitPrice && qty > 0 ? unitPrice * qty : null;
+    const unitPrice = h.unitPrice != null && h.unitPrice !== "" ? parseFloat(h.unitPrice) : null;
+    const totalValue = unitPrice != null && qty > 0 ? unitPrice * qty : null;
     rows.push([
       h.kanriNo ?? "-",
       h.title,
@@ -333,7 +333,7 @@ export default function PurchaseHistory() {
                       })()}
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      {h.unitPrice ? `¥${Number(h.unitPrice).toLocaleString()}` : "—"}
+                      {h.unitPrice != null && h.unitPrice !== "" ? `¥${Number(h.unitPrice).toLocaleString()}` : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       {h.quantity}

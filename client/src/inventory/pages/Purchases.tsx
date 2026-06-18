@@ -167,6 +167,14 @@ function parseEtc(etc?: string | null): { managementNo: string; supplierSite: st
   };
 }
 
+function hasUnitPrice(value: unknown): boolean {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function formatUnitPrice(value: unknown): string {
+  return hasUnitPrice(value) ? `¥${Number(value).toLocaleString()}` : "-";
+}
+
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -349,7 +357,7 @@ function PurchaseCardMobile({
                   <Badge variant="outline" className="text-xs py-0">{item.category || "未分類"}</Badge>
                   <span className="text-xs text-muted-foreground">
                     {item.quantity} {item.unit}
-                    {item.unit_price ? ` · ¥${Number(item.unit_price).toLocaleString()}` : ""}
+                    {hasUnitPrice(item.unit_price) ? ` · ${formatUnitPrice(item.unit_price)}` : ""}
                   </span>
                   {item.estimated_purchase_date && (
                     <span className="text-xs text-muted-foreground">予定: {item.estimated_purchase_date}</span>
@@ -635,7 +643,7 @@ export default function Purchases() {
         inventoryId: parseInt(orderedForm.inventoryId, 10),
         title: orderedForm.title.trim(),
         quantity: qty,
-        unitPrice: orderedForm.unitPrice ? parseFloat(orderedForm.unitPrice) : undefined,
+        unitPrice: orderedForm.unitPrice.trim() !== "" ? parseFloat(orderedForm.unitPrice) : undefined,
         customerName: orderedForm.customerName || undefined,
         num: orderedForm.num || undefined,
         estimatedPurchaseDate: orderedForm.estimatedPurchaseDate || undefined,
@@ -722,7 +730,7 @@ export default function Purchases() {
       const { managementNo } = parseEtc(item.etc);
       itemEdits[item.inventory_id] = {
         title: item.title ?? "",
-        unitPrice: item.unit_price ? String(item.unit_price) : "",
+        unitPrice: hasUnitPrice(item.unit_price) ? String(item.unit_price) : "",
         managementNo,
         estimatedDate: item.estimated_purchase_date ?? "",
         category: item.category ?? "",
@@ -865,7 +873,7 @@ export default function Purchases() {
           title: firstItem?.title ?? "",
           category: firstItem?.category || undefined,
           supplier: supplierSite || purchase.customer_name || undefined,
-          unitPrice: firstItem?.unit_price ? String(firstItem.unit_price) : undefined,
+          unitPrice: hasUnitPrice(firstItem?.unit_price) ? String(firstItem?.unit_price) : undefined,
           inventoryId: firstItem?.inventory_id || undefined,
         },
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
@@ -965,7 +973,7 @@ export default function Purchases() {
             title: firstItem?.title ?? "",
             category: firstItem?.category || undefined,
             supplier: supplierSite || purchase.customer_name || undefined,
-            unitPrice: firstItem?.unit_price ? String(firstItem.unit_price) : undefined,
+            unitPrice: hasUnitPrice(firstItem?.unit_price) ? String(firstItem?.unit_price) : undefined,
             inventoryId: firstItem?.inventory_id || undefined,
           },
           operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
@@ -1472,7 +1480,7 @@ export default function Purchases() {
                                   placeholder="単価"
                                 />
                               ) : (
-                                item.unit_price ? `¥${Number(item.unit_price).toLocaleString()}` : "-"
+                                formatUnitPrice(item.unit_price)
                               )}
                             </td>
                             <td data-label="発注数量" className="px-4 py-2 text-right">
@@ -1757,7 +1765,7 @@ export default function Purchases() {
                   <div>
                     <p className="text-xs text-muted-foreground">仕入れ単価</p>
                     <p className="font-medium">
-                      {firstItem?.unit_price ? `¥${Number(firstItem.unit_price).toLocaleString()}` : "-"}
+                      {formatUnitPrice(firstItem?.unit_price)}
                     </p>
                   </div>
                   <div>

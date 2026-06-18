@@ -575,7 +575,7 @@ function InventoryDetailPanel({ inventoryId, unitPrice: propUnitPrice, trackingN
     updated_at?: string | null;
   };
   // 仕入単価: props層渡し > Zaicoデータ
-  const displayUnitPrice = propUnitPrice ? Number(propUnitPrice) : (inv.purchase_unit_price ?? inv.unit_price);
+  const displayUnitPrice = propUnitPrice !== undefined && propUnitPrice !== "" ? Number(propUnitPrice) : (inv.purchase_unit_price ?? inv.unit_price);
   // 追跡番号・仕入先: props層渡しを優先
   const displayTracking = propTracking || null;
   const displaySupplierName = propSupplierName || null;
@@ -653,7 +653,7 @@ function DeliveryDetailPanel({ deliveryNo, deliveredAt, unitPrice, trackingNumbe
           )}
         </div>
       )}
-      {unitPrice && (
+      {unitPrice !== "" && (
         <div className="flex justify-between gap-2">
           <span className="text-muted-foreground flex-shrink-0">仕入単価</span>
           <span className="font-semibold text-right">¥{Number(unitPrice).toLocaleString()}</span>

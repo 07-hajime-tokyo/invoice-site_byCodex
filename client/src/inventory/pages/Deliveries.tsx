@@ -90,7 +90,7 @@ function exportInventoryCSV(inventories: InventoryItem[]) {
     const cat = inv.categories?.[0] ?? inv.category ?? "";
     const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
     const stockQty = parseFloat(inv.quantity ?? "0");
-    const stockValue = unitPrice && stockQty > 0 ? unitPrice * stockQty : null;
+    const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
     rows.push([
       managementNo || "-",
       inv.title,
@@ -1270,7 +1270,7 @@ export default function Deliveries() {
             const isZeroStock = stockQty <= 0;
             const displayCategory = inv.categories?.[0] ?? inv.category ?? "-";
             const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
-            const stockValue = unitPrice && stockQty > 0 ? unitPrice * stockQty : null;
+            const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
             const managementNo = getManagementNo(inv.etc);
 
             // 経過日数の計算

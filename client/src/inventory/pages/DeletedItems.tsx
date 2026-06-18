@@ -153,7 +153,7 @@ export default function DeletedItems() {
                       {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ""}` : "—"}
                     </span>
                   </span>
-                  {item.unitPrice && (
+                  {item.unitPrice != null && item.unitPrice !== "" && (
                     <span className="flex items-center gap-1">
                       <Tag className="w-3.5 h-3.5" />
                       仕入単価: <span className="font-medium text-foreground">

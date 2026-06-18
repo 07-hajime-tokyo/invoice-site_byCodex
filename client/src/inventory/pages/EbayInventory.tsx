@@ -543,7 +543,7 @@ export default function EbayInventory() {
             const category = item.category ?? item.categories?.[0] ?? "未分類";
             const unitPrice = item.purchase_unit_price ?? item.unit_price ?? null;
             const qty = stockQuantity(item);
-            const stockValue = unitPrice && qty > 0 ? unitPrice * qty : null;
+            const stockValue = unitPrice != null && qty > 0 ? unitPrice * qty : null;
             const purchaseDate = item.last_purchase_date?.slice(0, 10) ?? item.updated_at?.slice(0, 10) ?? "-";
             const shaftSale = stockType === "shaft" ? getShaftSale(item) : null;
             const shaftSaleInput = stockType === "shaft" ? getShaftSaleInput(item) : "";
