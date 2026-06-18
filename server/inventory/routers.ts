@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
-import { getEbayStockType, isEbayManagementNo } from "@shared/ebayInventory";
+import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -981,6 +981,7 @@ export const inventoryRouter = router({
           supplierName: inv.supplierName ?? null,
           ebayListingUrl: inv.ebayListingUrl ?? null,
           ebayOrderUrl: inv.ebayOrderUrl ?? null,
+          ebayOrderStatus: normalizeEbayOrderStatus(inv.ebayOrderStatus),
         }));
       }
       const [inventories, zaicoDateMap, dbDateMap, inventoryExtras, increaseMemosMap] = await Promise.all([
@@ -1370,6 +1371,7 @@ export const inventoryRouter = router({
             purchase_unit_price: localInv.unitPrice != null ? Number(localInv.unitPrice) : undefined,
             ebayListingUrl: localInv.ebayListingUrl ?? null,
             ebayOrderUrl: localInv.ebayOrderUrl ?? null,
+            ebayOrderStatus: normalizeEbayOrderStatus(localInv.ebayOrderStatus),
             code: undefined as string | undefined,
             optional_attributes: [] as Array<{ name: string; value: string | null }>,
             item_image: undefined,
@@ -1793,11 +1795,12 @@ export const inventoryRouter = router({
           supplierName: z.string().max(200).optional(),
           ebayListingUrl: z.string().max(1000).nullable().optional(),
           ebayOrderUrl: z.string().max(1000).nullable().optional(),
+          ebayOrderStatus: z.enum(["normal", "cancelled", "returned"]).optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ...payload } = input;
+        const { operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ebayOrderStatus, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBに商品を作成
@@ -1814,6 +1817,7 @@ export const inventoryRouter = router({
             supplierName: supplierName || null,
             ebayListingUrl: getEbayStockType(payload.etc) === "stocked" ? normalizeListingUrl(ebayListingUrl) : null,
             ebayOrderUrl: normalizeListingUrl(ebayOrderUrl),
+            ebayOrderStatus: isEbayManagementNo(payload.etc) ? normalizeEbayOrderStatus(ebayOrderStatus) : "normal",
             isDeleted: 0,
           });
           return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: 0 };
@@ -1853,11 +1857,12 @@ export const inventoryRouter = router({
           supplierName: z.string().max(200).optional(),
           ebayListingUrl: z.string().max(1000).nullable().optional(),
           ebayOrderUrl: z.string().max(1000).nullable().optional(),
+          ebayOrderStatus: z.enum(["normal", "cancelled", "returned"]).optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ...payload } = input;
+        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ebayOrderStatus, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBの商品を更新
@@ -1883,6 +1888,9 @@ export const inventoryRouter = router({
                 ? (ebayListingUrl === undefined ? localInv.ebayListingUrl : normalizeListingUrl(ebayListingUrl))
                 : null,
               ebayOrderUrl: ebayOrderUrl === undefined ? localInv.ebayOrderUrl : normalizeListingUrl(ebayOrderUrl),
+              ebayOrderStatus: isEbayManagementNo(nextInventoryEtc)
+                ? (ebayOrderStatus === undefined ? normalizeEbayOrderStatus(localInv.ebayOrderStatus) : normalizeEbayOrderStatus(ebayOrderStatus))
+                : "normal",
             });
             const db = await getDb();
             if (db) {
@@ -2138,6 +2146,36 @@ export const inventoryRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけOrderページを登録できます" });
         }
         return { success: true, ebayOrderUrl: normalizedUrl };
+      }),
+
+    updateEbayOrderStatus: publicProcedure
+      .input(
+        z.object({
+          inventoryId: z.number().int().positive(),
+          ebayOrderStatus: z.enum(["normal", "cancelled", "returned"]),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const zaicoEnabled = await isZaicoEnabled();
+        const normalizedStatus = normalizeEbayOrderStatus(input.ebayOrderStatus);
+
+        if (!zaicoEnabled) {
+          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
+          if (!localInv) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Inventory not found" });
+          }
+          if (!isEbayManagementNo(localInv.etc)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけOrder状態を登録できます" });
+          }
+          await updateLocalInventory(localInv.id, { ebayOrderStatus: normalizedStatus });
+          return { success: true, ebayOrderStatus: normalizedStatus };
+        }
+
+        const inv = await getInventory(input.inventoryId);
+        if (!isEbayManagementNo(inv.etc)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "eBay管理番号の商品だけOrder状態を登録できます" });
+        }
+        return { success: true, ebayOrderStatus: normalizedStatus };
       }),
 
     updateCategoryOnly: publicProcedure

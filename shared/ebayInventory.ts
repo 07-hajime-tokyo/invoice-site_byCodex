@@ -1,4 +1,5 @@
 export type EbayStockType = "stocked" | "dropship" | "shaft";
+export type EbayOrderStatus = "normal" | "cancelled" | "returned";
 
 export function extractManagementNo(value: string | null | undefined): string {
   const raw = (value ?? "").trim();
@@ -32,4 +33,16 @@ export function getEbayStockTypeLabel(type: EbayStockType | null): string {
   if (type === "dropship") return "無在庫";
   if (type === "shaft") return "シャフト";
   return "";
+}
+
+export function normalizeEbayOrderStatus(value: string | null | undefined): EbayOrderStatus {
+  if (value === "cancelled" || value === "returned") return value;
+  return "normal";
+}
+
+export function getEbayOrderStatusLabel(status: string | null | undefined): string {
+  const normalized = normalizeEbayOrderStatus(status);
+  if (normalized === "cancelled") return "キャンセル";
+  if (normalized === "returned") return "返品";
+  return "通常";
 }

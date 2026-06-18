@@ -540,6 +540,8 @@ export const localInventories = mysqlTable("local_inventories", {
   ebayListingUrl: text("ebayListingUrl"),
   /** eBay order page URL */
   ebayOrderUrl: text("ebayOrderUrl"),
+  /** eBay order status */
+  ebayOrderStatus: varchar("ebayOrderStatus", { length: 20 }).default("normal").notNull(),
   /** 削除済みフラグ */
   isDeleted: int("isDeleted").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

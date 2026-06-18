@@ -114,6 +114,11 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     if (orderUrlRows.length === 0) {
       await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayOrderUrl text`);
     }
+    const existingOrderStatus = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayOrderStatus'`);
+    const orderStatusRows = getRawRows(existingOrderStatus);
+    if (orderStatusRows.length === 0) {
+      await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayOrderStatus varchar(20) NOT NULL DEFAULT 'normal'`);
+    }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shaft_sales (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -762,6 +767,7 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
     supplierName: data.supplierName,
     ebayListingUrl: data.ebayListingUrl,
     ebayOrderUrl: data.ebayOrderUrl,
+    ebayOrderStatus: data.ebayOrderStatus,
     isDeleted: data.isDeleted,
   };
   await db.insert(localInventories).values(data).onDuplicateKeyUpdate({ set: updateSet });
@@ -919,6 +925,7 @@ export async function bulkUpsertLocalInventoriesFromCsv(
               supplierUrl: item.supplierUrl,
               ebayListingUrl: item.ebayListingUrl,
               ebayOrderUrl: item.ebayOrderUrl,
+              ebayOrderStatus: item.ebayOrderStatus,
               isDeleted: item.isDeleted ?? 0,
             })
             .where(eq(localInventories.zaicoId, item.zaicoId));

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  ChevronDown,
   ChevronRight,
   Clock,
   ExternalLink,
@@ -29,13 +30,23 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
+import { EbayListingUrlEditor, EbayOrderStatusEditor } from "@/inventory/components/EbayListingUrlEditor";
 import {
   extractManagementNo,
+  getEbayOrderStatusLabel,
   getEbayStockType,
   getEbayStockTypeLabel,
   isEbayManagementNo,
+  normalizeEbayOrderStatus,
+  type EbayOrderStatus,
   type EbayStockType,
 } from "@shared/ebayInventory";
 
@@ -58,6 +69,7 @@ type InventoryItem = {
   supplierName?: string | null;
   ebayListingUrl?: string | null;
   ebayOrderUrl?: string | null;
+  ebayOrderStatus?: EbayOrderStatus | string | null;
   last_purchase_date?: string | null;
   updated_at?: string | null;
 };
@@ -94,6 +106,7 @@ type EditForm = {
   supplierUrl: string;
   ebayListingUrl: string;
   ebayOrderUrl: string;
+  ebayOrderStatus: EbayOrderStatus;
 };
 
 const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
@@ -142,6 +155,13 @@ function stockTypeBadgeClass(type: EbayStockType) {
   return "bg-sky-600 text-white";
 }
 
+function orderStatusBadgeClass(status: string | null | undefined) {
+  const normalized = normalizeEbayOrderStatus(status);
+  if (normalized === "cancelled") return "border-red-200 bg-red-50 text-red-700";
+  if (normalized === "returned") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-muted bg-muted/40 text-muted-foreground";
+}
+
 export default function EbayInventory() {
   const [stockType, setStockType] = useState<EbayStockType>("stocked");
   const [query, setQuery] = useState("");
@@ -149,6 +169,7 @@ export default function EbayInventory() {
   const [deliveryQty, setDeliveryQty] = useState(1);
   const [deliveryNo, setDeliveryNo] = useState("");
   const [editTarget, setEditTarget] = useState<EbayInventoryItem | null>(null);
+  const [isShaftSalesOpen, setIsShaftSalesOpen] = useState(false);
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [editForm, setEditForm] = useState<EditForm>({
     title: "",
@@ -162,6 +183,7 @@ export default function EbayInventory() {
     supplierUrl: "",
     ebayListingUrl: "",
     ebayOrderUrl: "",
+    ebayOrderStatus: "normal",
   });
 
   const { data, isLoading, refetch, isFetching } = trpc.inventory.zaico.getInventories.useQuery();
@@ -295,6 +317,7 @@ export default function EbayInventory() {
       supplierUrl: item.supplierUrl ?? "",
       ebayListingUrl: item.ebayListingUrl ?? "",
       ebayOrderUrl: item.ebayOrderUrl ?? "",
+      ebayOrderStatus: normalizeEbayOrderStatus(item.ebayOrderStatus),
     });
   }
 
@@ -323,6 +346,7 @@ export default function EbayInventory() {
         supplierUrl: editForm.supplierUrl.trim() || undefined,
         ebayListingUrl: getEbayStockType(editForm.managementNo) === "stocked" ? (editForm.ebayListingUrl.trim() || null) : undefined,
         ebayOrderUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayOrderUrl.trim() || null) : undefined,
+        ebayOrderStatus: isEbayManagementNo(editForm.managementNo) ? editForm.ebayOrderStatus : undefined,
       });
       toast.success("在庫情報を更新しました");
       setEditTarget(null);
@@ -470,10 +494,25 @@ export default function EbayInventory() {
               </div>
               <p className="mt-1 text-sm text-muted-foreground">在庫カードを削除しても、ここに保存した売上は残ります。</p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => shaftSalesQuery.refetch()} disabled={shaftSalesQuery.isFetching}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${shaftSalesQuery.isFetching ? "animate-spin" : ""}`} />
-              売上一覧を更新
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsShaftSalesOpen((open) => !open)}
+                aria-expanded={isShaftSalesOpen}
+              >
+                {isShaftSalesOpen ? (
+                  <ChevronDown className="mr-2 h-4 w-4" />
+                ) : (
+                  <ChevronRight className="mr-2 h-4 w-4" />
+                )}
+                {isShaftSalesOpen ? "売上一覧を閉じる" : "売上一覧を開く"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => shaftSalesQuery.refetch()} disabled={shaftSalesQuery.isFetching}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${shaftSalesQuery.isFetching ? "animate-spin" : ""}`} />
+                売上一覧を更新
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-4">
@@ -497,7 +536,8 @@ export default function EbayInventory() {
             </div>
           </div>
 
-          {shaftSalesQuery.isLoading ? (
+          {isShaftSalesOpen && (
+            shaftSalesQuery.isLoading ? (
             <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">売上一覧を読み込み中...</div>
           ) : shaftSales.length === 0 ? (
             <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">まだ売上登録はありません。</div>
@@ -537,6 +577,7 @@ export default function EbayInventory() {
                 </tbody>
               </table>
             </div>
+            )
           )}
         </div>
       )}
@@ -568,6 +609,11 @@ export default function EbayInventory() {
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
                     <Checkbox checked={false} disabled className="shrink-0" />
                     <span className="text-sm font-bold">管理番号: {item.managementNo || "―"}</span>
+                    {normalizeEbayOrderStatus(item.ebayOrderStatus) !== "normal" && (
+                      <Badge variant="outline" className={`text-xs ${orderStatusBadgeClass(item.ebayOrderStatus)}`}>
+                        {getEbayOrderStatusLabel(item.ebayOrderStatus)}
+                      </Badge>
+                    )}
                     {qty <= 0 && <Badge variant="outline" className="text-xs text-muted-foreground">在庫なし</Badge>}
                     {item.ebayStockType && (
                       <Badge className={`text-xs ${stockTypeBadgeClass(item.ebayStockType)}`}>
@@ -718,6 +764,11 @@ export default function EbayInventory() {
                     value={item.ebayOrderUrl}
                     type="order"
                   />
+                  <EbayOrderStatusEditor
+                    inventoryId={item.id}
+                    managementNo={item.managementNo}
+                    value={item.ebayOrderStatus}
+                  />
                 </div>
               </div>
             );
@@ -777,6 +828,24 @@ export default function EbayInventory() {
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="ebay-edit-order-url">Orderページ</Label>
                   <Input id="ebay-edit-order-url" value={editForm.ebayOrderUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayOrderUrl: event.target.value }))} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="ebay-edit-order-status">Order状態</Label>
+                  <Select
+                    value={editForm.ebayOrderStatus}
+                    onValueChange={(value) => setEditForm((form) => ({ ...form, ebayOrderStatus: normalizeEbayOrderStatus(value) }))}
+                  >
+                    <SelectTrigger id="ebay-edit-order-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["normal", "cancelled", "returned"] as EbayOrderStatus[]).map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {getEbayOrderStatusLabel(status)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </>
             )}
