@@ -86,11 +86,24 @@ function errorText(error: unknown): string {
   return parts.join(" ");
 }
 
+function getRawRows(result: unknown): unknown[] {
+  if (Array.isArray(result)) {
+    const first = result[0];
+    if (Array.isArray(first)) return first;
+    return result;
+  }
+  if (result && typeof result === "object") {
+    const rows = (result as { rows?: unknown[] }).rows;
+    if (Array.isArray(rows)) return rows;
+  }
+  return [];
+}
+
 async function ensureInventoryRuntimeSchema(db: AppDatabase) {
   try {
     const existing = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayListingUrl'`);
-    const rows = Array.isArray(existing) ? existing : ((existing as { rows?: unknown[] }).rows ?? []);
-    if (Array.isArray(rows) && rows.length > 0) return;
+    const rows = getRawRows(existing);
+    if (rows.length > 0) return;
     await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayListingUrl text`);
   } catch (error) {
     const message = errorText(error);
