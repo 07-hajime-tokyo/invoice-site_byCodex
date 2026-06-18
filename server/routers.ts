@@ -23,6 +23,9 @@ const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4"
 const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
 const TRADE_VIEW_SHEET_NAME_KEYWORD = "発送管理";
 const TRADE_SHEET_WRITE_BACK_ENABLED = false;
+const NINJA_MASTER_SPREADSHEET_ID = "1xfiDJnNqnc12N-jJDGZavEEzsi-j_BCBxXHzZwzsaHo";
+const NINJA_MASTER_SHEET_ID = 1727357177;
+const NINJA_MASTER_CATALOG_SHEET_NAME = "商品カタログ";
 
 // 不可視文字（ゼロ幅スペース、WORD JOINERなど）を除去するヘルパー
 function sanitizeText(str: string | null | undefined): string | null {
@@ -389,6 +392,10 @@ function spreadsheetColumnName(index: number) {
     n = Math.floor((n - 1) / 26);
   }
   return name;
+}
+
+function normalizeCatalogCode(value: string | null | undefined) {
+  return String(value ?? "").normalize("NFKC").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 function quoteSheetName(sheetName: string) {
@@ -1577,6 +1584,61 @@ export const appRouter = router({
       }),
 
     // ─── Spreadsheet-backed procedures (kept for write-back) ─────────────────
+    findNinjaMasterCatalogCode: protectedProcedure
+      .input(z.object({ code: z.string().min(1).max(100) }))
+      .mutation(async ({ input }) => {
+        const code = input.code.trim();
+        const normalizedCode = normalizeCatalogCode(code);
+        const baseUrl = `https://docs.google.com/spreadsheets/d/${NINJA_MASTER_SPREADSHEET_ID}/edit?gid=${NINJA_MASTER_SHEET_ID}`;
+        if (!canSyncTradeSheet()) {
+          return { configured: false as const, found: false as const, code, url: baseUrl };
+        }
+
+        const sheets = getSheetsClient();
+        const metadata = await sheets.spreadsheets.get({
+          spreadsheetId: NINJA_MASTER_SPREADSHEET_ID,
+          fields: "sheets.properties(title,sheetId,index,hidden)",
+        }).catch((error) => {
+          throw getSheetsAccessError(error, NINJA_MASTER_SPREADSHEET_ID);
+        });
+        const catalogSheet = (metadata.data.sheets ?? [])
+          .map((sheet) => sheet.properties)
+          .find((sheet) =>
+            sheet?.sheetId === NINJA_MASTER_SHEET_ID ||
+            sheet?.title === NINJA_MASTER_CATALOG_SHEET_NAME ||
+            sheet?.title?.includes(NINJA_MASTER_CATALOG_SHEET_NAME)
+          );
+        const sheetTitle = catalogSheet?.title ?? NINJA_MASTER_CATALOG_SHEET_NAME;
+        const sheetId = catalogSheet?.sheetId ?? NINJA_MASTER_SHEET_ID;
+
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: NINJA_MASTER_SPREADSHEET_ID,
+          range: `${quoteSheetName(sheetTitle)}!A:A`,
+          valueRenderOption: "FORMATTED_VALUE",
+        }).catch((error) => {
+          throw getSheetsAccessError(error, NINJA_MASTER_SPREADSHEET_ID);
+        });
+
+        const rows = response.data.values ?? [];
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+          const cell = String(rows[rowIndex]?.[0] ?? "").trim();
+          if (!cell) continue;
+          if (cell === code || normalizeCatalogCode(cell) === normalizedCode) {
+            const row = rowIndex + 1;
+            return {
+              configured: true as const,
+              found: true as const,
+              code,
+              sheetName: sheetTitle,
+              row,
+              url: `https://docs.google.com/spreadsheets/d/${NINJA_MASTER_SPREADSHEET_ID}/edit?gid=${sheetId}&range=A${row}`,
+            };
+          }
+        }
+
+        return { configured: true as const, found: false as const, code, sheetName: sheetTitle, url: baseUrl };
+      }),
+
     getExchangeRates: protectedProcedure.query(async () => {
       const sheets = getSheetsClient();
       const response = await sheets.spreadsheets.values.get({
