@@ -1,4 +1,4 @@
-export type EbayStockType = "stocked" | "dropship";
+export type EbayStockType = "stocked" | "dropship" | "shaft";
 
 export function extractManagementNo(value: string | null | undefined): string {
   const raw = (value ?? "").trim();
@@ -13,6 +13,7 @@ export function isEbayManagementNo(value: string | null | undefined): boolean {
 
 export function getEbayStockType(value: string | null | undefined): EbayStockType | null {
   const managementNo = extractManagementNo(value);
+  if (/^シャフト/i.test(managementNo)) return "shaft";
   if (!/^E/i.test(managementNo)) return null;
 
   const dateMatch = managementNo.match(/^E(\d{4})(?:[_-]|$)/i);
@@ -29,6 +30,6 @@ export function getEbayStockType(value: string | null | undefined): EbayStockTyp
 export function getEbayStockTypeLabel(type: EbayStockType | null): string {
   if (type === "stocked") return "有在庫";
   if (type === "dropship") return "無在庫";
+  if (type === "shaft") return "シャフト";
   return "";
 }
-

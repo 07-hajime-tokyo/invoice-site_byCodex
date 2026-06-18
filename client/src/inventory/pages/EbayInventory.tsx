@@ -1,11 +1,15 @@
 import { useMemo, useState } from "react";
 import {
+  ChevronRight,
+  Clock,
   ExternalLink,
   FileSpreadsheet,
   Loader2,
   Minus,
+  PackageCheck,
   PackageMinus,
   PackageSearch,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -13,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +32,8 @@ import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEdito
 import {
   extractManagementNo,
   getEbayStockType,
+  getEbayStockTypeLabel,
+  isEbayManagementNo,
   type EbayStockType,
 } from "@shared/ebayInventory";
 
@@ -56,9 +63,23 @@ type EbayInventoryItem = InventoryItem & {
   ebayStockType: EbayStockType | null;
 };
 
+type EditForm = {
+  title: string;
+  quantity: string;
+  unit: string;
+  category: string;
+  unitPrice: string;
+  place: string;
+  managementNo: string;
+  supplierName: string;
+  supplierUrl: string;
+  ebayListingUrl: string;
+};
+
 const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
   { value: "stocked", label: "有在庫" },
   { value: "dropship", label: "無在庫" },
+  { value: "shaft", label: "シャフト" },
 ];
 
 function formatYen(value: number | null | undefined) {
@@ -83,11 +104,10 @@ function compactDate() {
   return todayJst().replace(/-/g, "");
 }
 
-function extractNinjaCatalogCode(managementNo: string) {
-  const firstPart = managementNo.split(",")[0]?.trim() ?? managementNo;
-  const parts = firstPart.split("_").map((part) => part.trim()).filter(Boolean);
-  if (parts.length >= 2) return parts.at(-1) ?? "";
-  return firstPart.replace(/^E/i, "").trim();
+function stockTypeBadgeClass(type: EbayStockType) {
+  if (type === "shaft") return "bg-zinc-700 text-white";
+  if (type === "stocked") return "bg-emerald-600 text-white";
+  return "bg-sky-600 text-white";
 }
 
 export default function EbayInventory() {
@@ -96,10 +116,23 @@ export default function EbayInventory() {
   const [deliveryTarget, setDeliveryTarget] = useState<EbayInventoryItem | null>(null);
   const [deliveryQty, setDeliveryQty] = useState(1);
   const [deliveryNo, setDeliveryNo] = useState("");
+  const [editTarget, setEditTarget] = useState<EbayInventoryItem | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({
+    title: "",
+    quantity: "0",
+    unit: "個",
+    category: "",
+    unitPrice: "",
+    place: "",
+    managementNo: "",
+    supplierName: "",
+    supplierUrl: "",
+    ebayListingUrl: "",
+  });
 
   const { data, isLoading, refetch, isFetching } = trpc.inventory.zaico.getInventories.useQuery();
   const createDeliveryMutation = trpc.inventory.zaico.createDelivery.useMutation();
-  const findNinjaCatalogMutation = trpc.trade.findNinjaMasterCatalogCode.useMutation();
+  const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
 
   const items = useMemo<EbayInventoryItem[]>(() => {
     const q = query.trim().toLowerCase();
@@ -122,7 +155,7 @@ export default function EbayInventory() {
   }, [data, query, stockType]);
 
   const counts = useMemo(() => {
-    const result: Record<EbayStockType, number> = { stocked: 0, dropship: 0 };
+    const result: Record<EbayStockType, number> = { stocked: 0, dropship: 0, shaft: 0 };
     for (const item of (data ?? []) as InventoryItem[]) {
       const type = getEbayStockType(item.etc);
       if (type) result[type] += 1;
@@ -131,6 +164,55 @@ export default function EbayInventory() {
   }, [data]);
 
   const totalQuantity = items.reduce((sum, item) => sum + stockQuantity(item), 0);
+
+  function openEditDialog(item: EbayInventoryItem) {
+    setEditTarget(item);
+    setEditForm({
+      title: item.title,
+      quantity: String(stockQuantity(item)),
+      unit: item.unit || "個",
+      category: item.category ?? item.categories?.[0] ?? "",
+      unitPrice: item.purchase_unit_price != null ? String(item.purchase_unit_price) : item.unit_price != null ? String(item.unit_price) : "",
+      place: item.place ?? "",
+      managementNo: item.managementNo,
+      supplierName: item.supplierName ?? "",
+      supplierUrl: item.supplierUrl ?? "",
+      ebayListingUrl: item.ebayListingUrl ?? "",
+    });
+  }
+
+  async function handleEditSave() {
+    if (!editTarget) return;
+    if (!editForm.title.trim()) {
+      toast.error("商品名を入力してください");
+      return;
+    }
+    const price = editForm.unitPrice.trim() ? Number(editForm.unitPrice.replace(/,/g, "")) : undefined;
+    if (price !== undefined && !Number.isFinite(price)) {
+      toast.error("仕入単価は数字で入力してください");
+      return;
+    }
+    try {
+      await updateInventoryMutation.mutateAsync({
+        inventoryId: editTarget.id,
+        title: editForm.title.trim(),
+        quantity: editForm.quantity.trim() || "0",
+        unit: editForm.unit.trim() || "個",
+        category: editForm.category.trim() || undefined,
+        place: editForm.place.trim() || undefined,
+        etc: editForm.managementNo.trim() || undefined,
+        purchase_unit_price: price,
+        supplierName: editForm.supplierName.trim() || undefined,
+        supplierUrl: editForm.supplierUrl.trim() || undefined,
+        ebayListingUrl: isEbayManagementNo(editForm.managementNo) ? (editForm.ebayListingUrl.trim() || null) : undefined,
+      });
+      toast.success("在庫情報を更新しました");
+      setEditTarget(null);
+      refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存に失敗しました");
+    }
+  }
 
   function openDeliveryDialog(item: EbayInventoryItem) {
     const maxQty = stockQuantity(item);
@@ -172,31 +254,13 @@ export default function EbayInventory() {
     }
   }
 
-  async function openNinjaCatalog(managementNo: string) {
-    const code = extractNinjaCatalogCode(managementNo);
-    if (!code) {
-      window.open(NINJA_MASTER_URL, "_blank", "noopener,noreferrer");
-      return;
-    }
-    try {
-      const result = await findNinjaCatalogMutation.mutateAsync({ code });
-      if (!result.found) {
-        toast.info(`商品カタログで ${code} が見つからなかったため、マスターファイルを開きます`);
-      }
-      window.open(result.url, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "商品カタログを検索できませんでした");
-      window.open(NINJA_MASTER_URL, "_blank", "noopener,noreferrer");
-    }
-  }
-
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="space-y-4 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">eBay在庫</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            E始まりの管理番号を表示します。E0618形式は有在庫、それ以外は無在庫です。
+            E0618形式は有在庫、その他のE始まりは無在庫、シャフト始まりはシャフトに表示します。
           </p>
         </div>
         <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
@@ -268,7 +332,7 @@ export default function EbayInventory() {
         </div>
         <div className="rounded-lg border bg-card p-4">
           <p className="text-sm text-muted-foreground">種別</p>
-          <p className="text-2xl font-semibold">{stockTypeOptions.find((option) => option.value === stockType)?.label}</p>
+          <p className="text-2xl font-semibold">{getEbayStockTypeLabel(stockType)}</p>
         </div>
       </div>
 
@@ -277,8 +341,8 @@ export default function EbayInventory() {
       ) : items.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
           <PackageSearch className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
-          <p className="font-medium">該当するeBay在庫はありません</p>
-          <p className="mt-1 text-sm text-muted-foreground">管理番号がE始まりの商品が対象です。</p>
+          <p className="font-medium">該当する在庫はありません</p>
+          <p className="mt-1 text-sm text-muted-foreground">E始まり、またはシャフト始まりの管理番号が対象です。</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -286,82 +350,184 @@ export default function EbayInventory() {
             const category = item.category ?? item.categories?.[0] ?? "未分類";
             const unitPrice = item.purchase_unit_price ?? item.unit_price ?? null;
             const qty = stockQuantity(item);
-            const catalogCode = extractNinjaCatalogCode(item.managementNo);
+            const stockValue = unitPrice && qty > 0 ? unitPrice * qty : null;
+            const purchaseDate = item.last_purchase_date?.slice(0, 10) ?? item.updated_at?.slice(0, 10) ?? "-";
             return (
               <div key={item.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
-                <div className="flex flex-col gap-3 border-b bg-muted/20 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openNinjaCatalog(item.managementNo)}
-                      className="rounded border bg-background px-2 py-1 font-mono text-xs font-semibold text-primary hover:bg-primary/5"
-                      title={catalogCode ? `商品カタログのCode # ${catalogCode} を開く` : "忍者マスターファイルを開く"}
-                    >
-                      管理番号: {item.managementNo}
-                    </button>
-                    <Badge className={stockType === "stocked" ? "bg-emerald-600" : "bg-sky-600"}>
-                      {stockTypeOptions.find((option) => option.value === stockType)?.label}
-                    </Badge>
-                    <Badge variant="secondary">{category}</Badge>
+                <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+                    <Checkbox checked={false} disabled className="shrink-0" />
+                    <span className="text-sm font-bold">管理番号: {item.managementNo || "―"}</span>
+                    {qty <= 0 && <Badge variant="outline" className="text-xs text-muted-foreground">在庫なし</Badge>}
+                    {item.ebayStockType && (
+                      <Badge className={`text-xs ${stockTypeBadgeClass(item.ebayStockType)}`}>
+                        {getEbayStockTypeLabel(item.ebayStockType)}
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <EbayListingUrlEditor
-                      inventoryId={item.id}
-                      managementNo={item.managementNo}
-                      value={item.ebayListingUrl}
-                    />
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="inline-flex h-8 items-center rounded-md border border-amber-400 px-2 text-xs font-medium text-amber-600">
+                      <PackageCheck className="mr-1 h-3.5 w-3.5" />
+                      発注済
+                    </span>
+                    <Button size="sm" variant="ghost" className="text-muted-foreground" title="在庫数変更履歴">
+                      <Clock className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => openDeliveryDialog(item)}
-                      disabled={qty <= 0}
-                      className="border-emerald-700 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => openEditDialog(item)}
+                      className="border-blue-400 text-blue-600 hover:bg-blue-50"
                     >
-                      <PackageMinus className="mr-1.5 h-4 w-4" />
+                      <Pencil className="mr-1 h-3.5 w-3.5" />
+                      編集
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={qty <= 0}
+                      onClick={() => openDeliveryDialog(item)}
+                      className="border-primary/40 text-primary hover:bg-primary/10"
+                    >
+                      <PackageMinus className="mr-1 h-3.5 w-3.5" />
                       出庫
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-y-3 px-4 py-3 text-sm md:grid-cols-[minmax(260px,1.5fr)_120px_140px_120px_minmax(220px,1fr)] md:items-center">
-                  <div className="col-span-2 md:col-span-1">
-                    <div className="text-xs text-muted-foreground">商品名</div>
-                    <div className="font-semibold">{item.title}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">仕入単価</div>
-                    <div>{formatYen(unitPrice)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">在庫数</div>
-                    <div className="font-semibold">{qty}{item.unit ?? ""}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">入庫日</div>
-                    <div>{item.last_purchase_date ?? item.updated_at?.slice(0, 10) ?? "-"}</div>
-                  </div>
-                  <div className="col-span-2 min-w-0 md:col-span-1">
-                    <div className="text-xs text-muted-foreground">仕入先</div>
-                    {item.supplierUrl ? (
-                      <a
-                        href={item.supplierUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex max-w-full items-center gap-1 truncate text-primary hover:underline"
-                      >
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{item.supplierName || item.supplierUrl}</span>
-                      </a>
-                    ) : (
-                      <span>{item.supplierName || "-"}</span>
-                    )}
-                  </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/20">
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">商品名</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">カテゴリ</th>
+                        <th className="px-4 py-2 text-right font-medium text-muted-foreground">仕入単価</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">入庫日</th>
+                        <th className="px-4 py-2 text-right font-medium text-muted-foreground">在庫金額</th>
+                        <th className="px-4 py-2 text-center font-medium text-muted-foreground">在庫数</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-start gap-2">
+                            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="font-medium">{item.title}</div>
+                              {(item.supplierName || item.supplierUrl) && (
+                                <div className="mt-1 text-xs">
+                                  {item.supplierUrl ? (
+                                    <a
+                                      href={item.supplierUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex max-w-full items-center gap-1 truncate text-primary hover:underline"
+                                    >
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">{item.supplierName || item.supplierUrl}</span>
+                                    </a>
+                                  ) : (
+                                    <span className="text-muted-foreground">{item.supplierName}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <Badge variant="outline" className="font-normal">{category}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right align-top">{formatYen(unitPrice)}</td>
+                        <td className="px-4 py-3 align-top">{purchaseDate}</td>
+                        <td className="px-4 py-3 text-right align-top">{formatYen(stockValue)}</td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center justify-center gap-2">
+                            <Button size="icon" variant="outline" className="h-7 w-7" disabled>
+                              <Minus className="h-3.5 w-3.5" />
+                            </Button>
+                            <span className="w-8 text-center font-medium">{qty}</span>
+                            <Button size="icon" variant="outline" className="h-7 w-7" disabled>
+                              <Plus className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end border-t bg-muted/10 px-4 py-2">
+                  <EbayListingUrlEditor
+                    inventoryId={item.id}
+                    managementNo={item.managementNo}
+                    value={item.ebayListingUrl}
+                  />
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      <Dialog open={Boolean(editTarget)} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" />
+              在庫情報を編集
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="ebay-edit-title">商品名</Label>
+              <Input id="ebay-edit-title" value={editForm.title} onChange={(event) => setEditForm((form) => ({ ...form, title: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-category">カテゴリ</Label>
+              <Input id="ebay-edit-category" value={editForm.category} onChange={(event) => setEditForm((form) => ({ ...form, category: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-price">仕入単価</Label>
+              <Input id="ebay-edit-price" inputMode="decimal" value={editForm.unitPrice} onChange={(event) => setEditForm((form) => ({ ...form, unitPrice: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-quantity">在庫数</Label>
+              <Input id="ebay-edit-quantity" inputMode="numeric" value={editForm.quantity} onChange={(event) => setEditForm((form) => ({ ...form, quantity: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-unit">単位</Label>
+              <Input id="ebay-edit-unit" value={editForm.unit} onChange={(event) => setEditForm((form) => ({ ...form, unit: event.target.value }))} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="ebay-edit-management-no">管理番号</Label>
+              <Input id="ebay-edit-management-no" value={editForm.managementNo} onChange={(event) => setEditForm((form) => ({ ...form, managementNo: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-supplier-name">仕入先名</Label>
+              <Input id="ebay-edit-supplier-name" value={editForm.supplierName} onChange={(event) => setEditForm((form) => ({ ...form, supplierName: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ebay-edit-supplier-url">仕入先URL</Label>
+              <Input id="ebay-edit-supplier-url" value={editForm.supplierUrl} onChange={(event) => setEditForm((form) => ({ ...form, supplierUrl: event.target.value }))} />
+            </div>
+            {isEbayManagementNo(editForm.managementNo) && (
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="ebay-edit-listing-url">自社出品ページ</Label>
+                <Input id="ebay-edit-listing-url" value={editForm.ebayListingUrl} onChange={(event) => setEditForm((form) => ({ ...form, ebayListingUrl: event.target.value }))} />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)} disabled={updateInventoryMutation.isPending}>
+              キャンセル
+            </Button>
+            <Button onClick={handleEditSave} disabled={updateInventoryMutation.isPending || !editForm.title.trim()}>
+              {updateInventoryMutation.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(deliveryTarget)} onOpenChange={(open) => !open && setDeliveryTarget(null)}>
         <DialogContent className="max-w-sm">
@@ -381,12 +547,7 @@ export default function EbayInventory() {
               <div className="space-y-2">
                 <Label>出庫数量 <span className="text-xs font-normal text-muted-foreground">在庫: {stockQuantity(deliveryTarget)}{deliveryTarget.unit ?? ""}</span></Label>
                 <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setDeliveryQty((qty) => Math.max(1, qty - 1))}
-                  >
+                  <Button type="button" variant="outline" size="icon" onClick={() => setDeliveryQty((qty) => Math.max(1, qty - 1))}>
                     <Minus className="h-4 w-4" />
                   </Button>
                   <Input
@@ -397,12 +558,7 @@ export default function EbayInventory() {
                     onChange={(event) => setDeliveryQty(Math.min(stockQuantity(deliveryTarget), Math.max(1, Number(event.target.value) || 1)))}
                     className="w-24 text-center"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setDeliveryQty((qty) => Math.min(stockQuantity(deliveryTarget), qty + 1))}
-                  >
+                  <Button type="button" variant="outline" size="icon" onClick={() => setDeliveryQty((qty) => Math.min(stockQuantity(deliveryTarget), qty + 1))}>
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
