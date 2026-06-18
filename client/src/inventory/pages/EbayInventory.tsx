@@ -413,20 +413,15 @@ export default function EbayInventory() {
 
       <div className="rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 font-semibold">
-              <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
-              忍者マスターファイル
-            </div>
-            <a
-              href={NINJA_MASTER_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="break-all text-sm text-primary hover:underline"
-            >
-              {NINJA_MASTER_URL}
-            </a>
-          </div>
+          <a
+            href={NINJA_MASTER_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-fit items-center gap-2 font-semibold text-foreground transition-colors hover:text-primary"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
+            <span>忍者マスターファイル</span>
+          </a>
           <Button asChild variant="outline" className="w-fit">
             <a href={NINJA_MASTER_URL} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-2 h-4 w-4" />

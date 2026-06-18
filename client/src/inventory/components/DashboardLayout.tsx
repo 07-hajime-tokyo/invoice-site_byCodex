@@ -27,7 +27,6 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { ScrollToTop } from "./ScrollToTop";
 
 const menuItems = [
   { icon: PackageCheck, label: "入庫管理", path: "/inventory/purchases", color: "text-emerald-500" },
@@ -284,7 +283,6 @@ function DashboardLayoutContent({
           </div>
         )}
         <main className="flex-1 p-4 pb-36">{children}</main>
-        <ScrollToTop />
       </SidebarInset>
     </>
   );

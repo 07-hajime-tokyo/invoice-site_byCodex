@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthGate } from "./components/AuthGate";
+import { ScrollToTop } from "@/components/ScrollToTop";
 
 const Home = lazy(() => import("./pages/Home"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
@@ -59,6 +60,7 @@ function App() {
           <Toaster />
           <AuthGate>
             <Router />
+            <ScrollToTop />
           </AuthGate>
         </TooltipProvider>
       </ThemeProvider>
