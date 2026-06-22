@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Save,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -163,6 +164,7 @@ function orderStatusBadgeClass(status: string | null | undefined) {
 }
 
 export default function EbayInventory() {
+  const utils = trpc.useUtils();
   const [stockType, setStockType] = useState<EbayStockType>("stocked");
   const [query, setQuery] = useState("");
   const [deliveryTarget, setDeliveryTarget] = useState<EbayInventoryItem | null>(null);
@@ -190,6 +192,8 @@ export default function EbayInventory() {
   const shaftSalesQuery = trpc.inventory.zaico.getShaftSales.useQuery(undefined, { enabled: stockType === "shaft" });
   const createDeliveryMutation = trpc.inventory.zaico.createDelivery.useMutation();
   const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
+  const createOrderedPurchaseMutation = trpc.inventory.zaico.createOrderedPurchase.useMutation();
+  const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
   const upsertShaftSaleMutation = trpc.inventory.zaico.upsertShaftSale.useMutation();
 
   const items = useMemo<EbayInventoryItem[]>(() => {
@@ -300,6 +304,50 @@ export default function EbayInventory() {
       await shaftSalesQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "売上の保存に失敗しました");
+    }
+  }
+
+  async function refreshAfterInventoryChange() {
+    await Promise.all([
+      refetch(),
+      utils.inventory.zaico.getInventories.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+    ]);
+    if (stockType === "shaft") {
+      await shaftSalesQuery.refetch();
+    }
+  }
+
+  async function handleMarkOrdered(item: EbayInventoryItem) {
+    const quantity = Math.max(1, stockQuantity(item));
+    const unitPrice = item.purchase_unit_price ?? item.unit_price ?? undefined;
+    try {
+      await createOrderedPurchaseMutation.mutateAsync({
+        inventoryId: item.id,
+        title: item.title,
+        quantity,
+        unitPrice: unitPrice ?? undefined,
+        customerName: item.supplierName ?? undefined,
+        num: item.managementNo || undefined,
+        managementNo: item.managementNo || undefined,
+      });
+      toast.success("発注済みとして登録しました");
+      await refreshAfterInventoryChange();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "発注済み登録に失敗しました");
+    }
+  }
+
+  async function handleDeleteInventory(item: EbayInventoryItem) {
+    const ok = window.confirm(`「${item.title}」を削除しますか？`);
+    if (!ok) return;
+    try {
+      await deleteInventoryMutation.mutateAsync({ inventoryId: item.id });
+      toast.success("在庫を削除しました");
+      await refreshAfterInventoryChange();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "削除に失敗しました");
     }
   }
 
@@ -617,10 +665,20 @@ export default function EbayInventory() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <span className="inline-flex h-8 items-center rounded-md border border-amber-400 px-2 text-xs font-medium text-amber-600">
-                      <PackageCheck className="mr-1 h-3.5 w-3.5" />
-                      発注済
-                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleMarkOrdered(item)}
+                      disabled={createOrderedPurchaseMutation.isPending}
+                      className="border-amber-400 text-amber-600 hover:bg-amber-50"
+                    >
+                      {createOrderedPurchaseMutation.isPending ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PackageCheck className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      発注済登録
+                    </Button>
                     <Button size="sm" variant="ghost" className="text-muted-foreground" title="在庫数変更履歴">
                       <Clock className="h-3.5 w-3.5" />
                     </Button>
@@ -642,6 +700,20 @@ export default function EbayInventory() {
                     >
                       <PackageMinus className="mr-1 h-3.5 w-3.5" />
                       出庫
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDeleteInventory(item)}
+                      disabled={deleteInventoryMutation.isPending}
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      title="削除"
+                    >
+                      {deleteInventoryMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
                     </Button>
                   </div>
                 </div>
