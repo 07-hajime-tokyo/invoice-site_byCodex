@@ -69,7 +69,12 @@ function textField(payload: Record<string, unknown>, keys: readonly string[]) {
 function numberField(payload: Record<string, unknown>, keys: readonly string[], fallback: number | null) {
   const value = getCandidate(payload, keys);
   if (value == null || value === "") return fallback;
-  const normalized = String(value).replace(/,/g, "").trim();
+  const normalized = String(value)
+    .normalize("NFKC")
+    .replace(/[,\s￥¥円]/g, "")
+    .replace(/[^\d.-]/g, "")
+    .trim();
+  if (!normalized || normalized === "-" || normalized === ".") return fallback;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 }

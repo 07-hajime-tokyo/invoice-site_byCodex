@@ -619,6 +619,18 @@ function resolveOperatorToken(_operatorKey?: string): string | undefined {
   return undefined;
 }
 
+function parseMoneyNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const normalized = String(value)
+    .normalize("NFKC")
+    .replace(/[,\s￥¥円]/g, "")
+    .replace(/[^\d.-]/g, "")
+    .trim();
+  if (!normalized || normalized === "-" || normalized === ".") return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 const publicProcedure = protectedProcedure;
 
 type PurchasePageInput = {
@@ -971,7 +983,7 @@ export const inventoryRouter = router({
           title: inv.title,
           quantity: String(inv.quantity ?? 0),
           unit: inv.unit ?? "個",
-          unit_price: inv.unitPrice != null ? Number(inv.unitPrice) : null,
+          unit_price: parseMoneyNumber(inv.unitPrice),
           category: inv.category ?? null,
           categories: inv.category ? [inv.category] : [],
           place: inv.place ?? null,
@@ -4392,10 +4404,10 @@ export const inventoryRouter = router({
         let unitPrice: number | null = null;
         if (inv.optional_attributes) {
           const priceAttr = inv.optional_attributes.find((a: { name: string; value: string | null }) => a.name === "仕入単価");
-          if (priceAttr?.value) unitPrice = parseFloat(priceAttr.value) || null;
+          if (priceAttr?.value) unitPrice = parseMoneyNumber(priceAttr.value);
         }
         if (unitPrice == null && inv.unit_price != null) {
-          unitPrice = parseFloat(String(inv.unit_price)) || null;
+          unitPrice = parseMoneyNumber(inv.unit_price);
         }
         const category = inv.categories?.[0] ?? inv.category ?? "未分類";
         inventorySummary.push({ category, title: inv.title, quantity: qty, unitPrice, totalValue: unitPrice != null ? unitPrice * qty : null });
@@ -4447,7 +4459,7 @@ export const inventoryRouter = router({
           const managementNo = itemEtcMatch ? itemEtcFirstPart : purchaseNum;
           let unitPrice: number | null = null;
           const upStr = pItem.unit_price != null ? String(pItem.unit_price) : "";
-          if (upStr) unitPrice = parseFloat(upStr) || null;
+          if (upStr) unitPrice = parseMoneyNumber(upStr);
           // Zaicoの仕入単価が未設定の場合、ローカルDB（local_purchases）の管理番号で補完
           if (unitPrice == null && managementNo) {
             unitPrice = localPurchaseUnitPriceMap.get(managementNo) ?? null;
@@ -4481,9 +4493,9 @@ export const inventoryRouter = router({
         let unitPrice: number | null = null;
         if (inv.optional_attributes) {
           const priceAttr = inv.optional_attributes.find((a: { name: string; value: string | null }) => a.name === "仕入単価");
-          if (priceAttr?.value) unitPrice = parseFloat(priceAttr.value) || null;
+          if (priceAttr?.value) unitPrice = parseMoneyNumber(priceAttr.value);
         }
-        if (unitPrice == null && inv.unit_price != null) unitPrice = parseFloat(String(inv.unit_price)) || null;
+        if (unitPrice == null && inv.unit_price != null) unitPrice = parseMoneyNumber(inv.unit_price);
         const category = inv.categories?.[0] ?? inv.category ?? "未分類";
         const item: StockItemForReport = { inventoryId: inv.id, title: inv.title, quantity: qty, unitPrice, managementNo: firstPart, category };
         const arr = stockByInvoice.get(invoiceNo) ?? [];

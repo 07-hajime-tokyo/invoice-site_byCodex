@@ -1032,7 +1032,7 @@ export default function MonthlyReport() {
                                         id: mi.id,
                                         title: edit.title,
                                         quantity: parseInt(edit.quantity, 10) || 1,
-                                        unitPrice: parseFloat(edit.unitPrice) || null,
+                                        unitPrice: edit.unitPrice.trim() === "" || Number.isNaN(parseFloat(edit.unitPrice)) ? null : parseFloat(edit.unitPrice),
                                       }, {
                                         onSuccess: () => {
                                           setManualEdits((prev) => { const next = { ...prev }; delete next[mi.id]; return next; });

@@ -144,7 +144,7 @@ interface DeliveryItem {
 }
 
 function formatPrice(price: number | undefined | null): string {
-  if (price === undefined || price === null) return "-";
+  if (price === undefined || price === null || !Number.isFinite(price)) return "-";
   return `¥${price.toLocaleString()}`;
 }
 
