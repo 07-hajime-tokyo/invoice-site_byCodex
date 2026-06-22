@@ -655,6 +655,91 @@ type PurchasePageRow = {
   }>;
 };
 
+type LocalInventoryRow = Awaited<ReturnType<typeof getLocalInventories>>[number];
+type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
+
+function getInventoryManagementNo(etc: string | null | undefined) {
+  return String(etc ?? "").split(",")[0]?.trim() ?? "";
+}
+
+function getInventoryEtcPart(etc: string | null | undefined, index: number) {
+  return String(etc ?? "").split(",")[index]?.trim() ?? "";
+}
+
+async function ensureShaftPurchases(
+  localPurchaseRows: LocalPurchaseRow[],
+  localInventoryRows: LocalInventoryRow[],
+): Promise<LocalPurchaseRow[]> {
+  const existingManagementNos = new Set<string>();
+  for (const purchase of localPurchaseRows) {
+    const purchaseManagementNo = String(purchase.managementNo ?? "").trim();
+    if (purchaseManagementNo) existingManagementNos.add(purchaseManagementNo);
+    try {
+      const items = JSON.parse(purchase.itemsJson ?? "[]");
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          const itemManagementNo = String(item?.etc ?? "").split(",")[0]?.trim() ?? "";
+          if (itemManagementNo) existingManagementNos.add(itemManagementNo);
+        }
+      }
+    } catch {
+      // ignore malformed legacy JSON
+    }
+  }
+
+  const missingShaftInventories = localInventoryRows.filter((inventory) => {
+    if (inventory.isDeleted) return false;
+    if (getEbayStockType(inventory.etc) !== "shaft") return false;
+    const managementNo = getInventoryManagementNo(inventory.etc);
+    return managementNo && !existingManagementNos.has(managementNo);
+  });
+
+  if (missingShaftInventories.length === 0) return localPurchaseRows;
+
+  let repaired = false;
+  for (const inventory of missingShaftInventories) {
+    const managementNo = getInventoryManagementNo(inventory.etc);
+    if (!managementNo) continue;
+    const quantity = Math.max(1, Number(inventory.quantity ?? 1) || 1);
+    try {
+      await upsertLocalPurchase({
+        zaicoId: null,
+        purchaseNum: managementNo,
+        status: "ordered",
+        itemsJson: JSON.stringify([{
+          id: 0,
+          inventory_id: inventory.id,
+          title: inventory.title,
+          quantity: String(quantity),
+          unit_price: inventory.unitPrice ?? null,
+          etc: managementNo,
+          status: "ordered",
+          category: inventory.category ?? null,
+        }]),
+        localInventoryId: inventory.id,
+        title: inventory.title,
+        category: inventory.category ?? null,
+        quantity,
+        unitPrice: inventory.unitPrice ?? null,
+        managementNo,
+        purchaseDate: getInventoryEtcPart(inventory.etc, 1) || null,
+        receivedDate: null,
+        supplierUrl: inventory.supplierUrl ?? null,
+        supplierName: inventory.supplierName ?? null,
+      });
+      repaired = true;
+    } catch (error) {
+      console.warn("[inventory] failed to backfill shaft purchase", {
+        inventoryId: inventory.id,
+        managementNo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return repaired ? getLocalPurchases() : localPurchaseRows;
+}
+
 function getEffectivePurchaseStatus(row: PurchasePageRow) {
   if (row.status !== "purchased" && row.extra?.trackingNumber) return "shipped";
   return row.status;
@@ -1088,11 +1173,22 @@ export const inventoryRouter = router({
         const zaicoEnabled = await isZaicoEnabled();
 
         if (!zaicoEnabled) {
-          const localPurchaseRows = await getLocalPurchases();
+          let [localPurchaseRows, localInventoryRows] = await Promise.all([
+            getLocalPurchases(),
+            getLocalInventories(),
+          ]);
+          localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
           const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
+          for (const inv of localInventoryRows) {
+            invSupplierMap.set(inv.id, {
+              supplierName: inv.supplierName ?? null,
+              supplierUrl: inv.supplierUrl ?? null,
+              ebayListingUrl: inv.ebayListingUrl ?? null,
+            });
+          }
 
           if (invIds.length > 0) {
             const { localInventories: localInvTbl } = await import("../../drizzle/schema");
@@ -1206,10 +1302,12 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        const [localPurchaseRows, purchaseHistRows] = await Promise.all([
+        let [localPurchaseRows, purchaseHistRows, localInventoryRows] = await Promise.all([
           getLocalPurchases(),
           getPurchaseHistories(2000),
+          getLocalInventories(),
         ]);
+        localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows
@@ -1221,6 +1319,13 @@ export const inventoryRouter = router({
           .map((p) => p.localInventoryId)
           .filter((id): id is number => id != null);
         const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
+        for (const inv of localInventoryRows) {
+          invSupplierMap.set(inv.id, {
+            supplierName: inv.supplierName ?? null,
+            supplierUrl: inv.supplierUrl ?? null,
+            ebayListingUrl: inv.ebayListingUrl ?? null,
+          });
+        }
         if (invIds.length > 0) {
           const { localInventories: localInvTbl } = await import("../../drizzle/schema");
           const { inArray } = await import("drizzle-orm");
