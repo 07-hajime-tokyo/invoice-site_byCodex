@@ -1118,6 +1118,7 @@ function InvoiceEditor({
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [currentInvoiceId, setCurrentInvoiceId] = useState<number | null>(invoiceId);
   // ─── 100万円超過確認ダイアログ
   const [showOverLimitConfirm, setShowOverLimitConfirm] = useState(false);
   const [overLimitJpy, setOverLimitJpy] = useState<number>(0);
@@ -1277,7 +1278,6 @@ function InvoiceEditor({
     onSuccess: () => {
       utils.invoices.list.invalidate();
       toast.success("請求書を保存しました");
-      onSaved();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1289,19 +1289,15 @@ function InvoiceEditor({
         utils.invoices.get.invalidate({ id: variables.id }),
       ]);
       toast.success("請求書を更新しました");
-      onSaved();
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const handleSave = async (skipOverLimitCheck = false) => {
-    if (!form.invoiceNumber.trim()) { toast.error("インボイス番号は必須です"); return; }
-    if (form.items.length === 0) { toast.error("明細を1件以上追加してください"); return; }
-
+  const buildSavePayload = () => {
     const selectedClient = clients.find(c => c.id === form.clientId);
     const clientSnapshot = selectedClient ?? null;
 
-    const payload = {
+    return {
       ...form,
       clientSnapshot,
       items: form.items.map(item => ({
@@ -1309,9 +1305,31 @@ function InvoiceEditor({
         variant: item.subText ?? undefined,
       })),
     };
+  };
+
+  const persistInvoice = async (payload: ReturnType<typeof buildSavePayload>) => {
+    if (currentInvoiceId !== null) {
+      await updateMutation.mutateAsync({ id: currentInvoiceId, ...payload });
+      return currentInvoiceId;
+    }
+
+    const result = await createMutation.mutateAsync(payload);
+    const newId = Number(result.id);
+    if (Number.isFinite(newId)) {
+      setCurrentInvoiceId(newId);
+      await utils.invoices.get.invalidate({ id: newId });
+    }
+    return newId;
+  };
+
+  const handleSave = async (skipOverLimitCheck = false, options: { stayOnPage?: boolean } = {}) => {
+    if (!form.invoiceNumber.trim()) { toast.error("インボイス番号は必須です"); return; }
+    if (form.items.length === 0) { toast.error("明細を1件以上追加してください"); return; }
+
+    const payload = buildSavePayload();
 
     // ─── 100万円超過チェック（新規作成時のみ・skipフラグなし時）
-    if (!skipOverLimitCheck && !invoiceId) {
+    if (!skipOverLimitCheck && currentInvoiceId === null) {
       try {
         let totalJpy = 0;
         if (form.currency === "JPY") {
@@ -1333,10 +1351,14 @@ function InvoiceEditor({
       }
     }
 
-    if (invoiceId) {
-      updateMutation.mutate({ id: invoiceId, ...payload });
-    } else {
-      createMutation.mutate(payload);
+    try {
+      await persistInvoice(payload);
+      initialDataRef.current = form;
+      setIsDirty(false);
+      if (!options.stayOnPage) onSaved();
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -1449,6 +1471,8 @@ function InvoiceEditor({
   const handleSavePdf = async () => {
     setIsPdfLoading(true);
     try {
+      const saved = await handleSave(false, { stayOnPage: true });
+      if (!saved) return;
       const selectedClient = clients.find(c => c.id === form.clientId) ?? null;
       await generateInvoicePdf(form, selectedClient, senderSettings ?? null);
     } catch (err) {
@@ -1550,11 +1574,16 @@ function InvoiceEditor({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
+              onClick={async () => {
                 setShowOverLimitConfirm(false);
                 if (pendingSavePayload) {
-                  createMutation.mutate(pendingSavePayload);
-                  setPendingSavePayload(null);
+                  try {
+                    await persistInvoice(pendingSavePayload);
+                    setPendingSavePayload(null);
+                    onSaved();
+                  } catch {
+                    // mutation error toast is handled by tRPC callbacks
+                  }
                 }
               }}
             >
