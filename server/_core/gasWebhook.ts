@@ -408,10 +408,11 @@ export function registerGasWebhookRoutes(app: Express) {
         category,
       }]);
 
-      const purchaseConditions: SQL<unknown>[] = [];
-      if (managementNo) purchaseConditions.push(eq(localPurchases.managementNo, managementNo));
-      if (purchaseNum) purchaseConditions.push(eq(localPurchases.purchaseNum, purchaseNum));
-      const purchaseWhere = combineOr(purchaseConditions);
+      const purchaseWhere = managementNo
+        ? eq(localPurchases.managementNo, managementNo)
+        : purchaseNum
+          ? eq(localPurchases.purchaseNum, purchaseNum)
+          : undefined;
       const existingPurchase = purchaseWhere
         ? await db
             .select()
