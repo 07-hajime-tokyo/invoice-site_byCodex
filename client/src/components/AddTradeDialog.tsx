@@ -45,6 +45,40 @@ interface FormState {
   shippingCost: string; // 送料（550×注文数で自動計算、手動編集可）
 }
 
+const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン"] as const;
+
+function getTodayDateString() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function createInitialForm(): FormState {
+  const today = getTodayDateString();
+  return {
+    month: String(new Date(`${today}T00:00:00`).getMonth() + 1),
+    partner: "",
+    invoiceNo: "",
+    paymentDate: today,
+    productName: "",
+    quantity: "",
+    unitPrice: "",
+    currency: "ユーロ",
+    status: "",
+    eurRate: "",
+    usdRate: "",
+    shippingCost: "",
+  };
+}
+
+function getCurrencyForPartner(partner: string): FormState["currency"] {
+  const normalized = partner.trim().toLowerCase();
+  if (normalized.includes("ルカ") || normalized.includes("luca")) return "ユーロ";
+  return "ドル";
+}
+
 // 取引相手名の英語→日本語マッピング
 const PARTNER_MAP: Record<string, string> = {
   "luca": "ルカ",
@@ -52,6 +86,8 @@ const PARTNER_MAP: Record<string, string> = {
   "samee": "サミー",
   "sami": "サミー",
   "sammy": "サミー",
+  "devon": "デボン",
+  "devon brako": "デボン",
 };
 
 // 商品名・フレーズの英語→日本語変換マッピング（部分一致・置換）
@@ -80,6 +116,7 @@ const PARTNER_PREFIX_MAP: Array<[RegExp, string]> = [
   [/^samee\b/i, "サミー"],
   [/^sami\b/i, "サミー"],
   [/^sammy\b/i, "サミー"],
+  [/^devon\b/i, "デボン"],
 ];
 
 function toJapanesePartner(name: string): string {
@@ -133,20 +170,7 @@ function normalizeDate(input: string): string | null {
 
 const STATUS_PRESETS = ["complete", "途中", "残1台", "残2台", "残3台", "残5台", "残10台"];
 
-const initialForm: FormState = {
-  month: String(new Date().getMonth() + 1),
-  partner: "",
-  invoiceNo: "",
-  paymentDate: "",
-  productName: "",
-  quantity: "",
-  unitPrice: "",
-  currency: "ユーロ",
-  status: "",
-  eurRate: "",
-  usdRate: "",
-  shippingCost: "",
-};
+const initialForm: FormState = createInitialForm();
 
 export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -159,6 +183,10 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [shippingManual, setShippingManual] = useState(false); // 送料を手動編集中かどうか
   const [rateQueryDate, setRateQueryDate] = useState<string>("latest");
   const [rateEnabled, setRateEnabled] = useState(false);
+
+  const { data: customers } = trpc.inventory.customer.list.useQuery(undefined, {
+    enabled: open,
+  });
 
   // 最新インボイスを取得（ダイアログが開いたときのみ）
   const { data: latestInvoice, isLoading: latestLoading } = trpc.invoices.getLatest.useQuery(
@@ -177,6 +205,14 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     { enabled: rateEnabled }
   );
 
+  const loadRate = useCallback((date?: string) => {
+    setRateEnabled(false);
+    setRateQueryDate(date ?? "latest");
+    setRateSource(date ? `${date} のレート` : "本日のレート");
+    setRateLoading(true);
+    setTimeout(() => setRateEnabled(true), 0);
+  }, []);
+
   // レートデータが取得できたらフォームに反映
   useEffect(() => {
     if (eurRateData && usdRateData) {
@@ -193,36 +229,17 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     setRateLoading(eurLoading || usdLoading);
   }, [eurLoading, usdLoading]);
 
-  // ダイアログが開いたとき、本日のレートを自動取得
+  // ダイアログが閉じたらレート取得を止める
   useEffect(() => {
-    if (open) {
-      // 必ずリセットして再フェッチを強制する
-      setRateEnabled(false);
-      setRateQueryDate("latest");
-      setRateSource("本日のレート");
-      setRateLoading(true);
-      // 次のtickでtrueにして再フェッチをトリガー
-      setTimeout(() => setRateEnabled(true), 0);
-    } else {
-      setRateEnabled(false);
-    }
+    if (!open) setRateEnabled(false);
   }, [open]);
 
   // 支払日が変わったとき、その日のレートを自動取得
   useEffect(() => {
     if (!open) return;
     const normalized = normalizeDate(form.paymentDate);
-    if (normalized) {
-      setRateQueryDate(normalized);
-      setRateEnabled(true);
-      setRateSource(`${normalized} のレート`);
-    } else if (form.paymentDate === "") {
-      // 支払日をクリアしたら本日のレートに戻す
-      setRateQueryDate("latest");
-      setRateEnabled(true);
-      setRateSource("本日のレート");
-    }
-  }, [form.paymentDate, open]);
+    loadRate(normalized ?? undefined);
+  }, [form.paymentDate, loadRate, open]);
 
   const addMutation = trpc.trade.addRecord.useMutation({
     onSuccess: () => {
@@ -230,7 +247,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
         description: "取引データを登録しました。",
       });
       setOpen(false);
-      setForm(initialForm);
+      setForm(createInitialForm());
       setSubmitError(null);
       setRateSource(null);
       setStatusMode("select");
@@ -244,6 +261,38 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
 
   const set = (key: keyof FormState, value: string) =>
     setForm(prev => ({ ...prev, [key]: value }));
+
+  const partnerOptions = (() => {
+    const options: string[] = [];
+    const seen = new Set<string>();
+    const add = (name: string | null | undefined) => {
+      const trimmed = name?.trim();
+      if (!trimmed || seen.has(trimmed)) return;
+      seen.add(trimmed);
+      options.push(trimmed);
+    };
+    DEFAULT_TRADE_PARTNERS.forEach(add);
+    (customers ?? []).forEach(customer => add(customer.displayName));
+    add(form.partner);
+    return options;
+  })();
+
+  const handlePartnerChange = (partner: string) => {
+    setForm(prev => ({
+      ...prev,
+      partner,
+      currency: getCurrencyForPartner(partner),
+    }));
+  };
+
+  const handlePaymentDateChange = (value: string) => {
+    const month = normalizeDate(value)?.slice(5, 7).replace(/^0/, "");
+    setForm(prev => ({
+      ...prev,
+      paymentDate: value,
+      ...(month ? { month } : {}),
+    }));
+  };
 
   // 注文数が変わったとき、手動編集中でなければ送料を自動計算
   useEffect(() => {
@@ -328,7 +377,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     const partner = toJapanesePartner(snapshot?.name ?? "");
 
     const currencyRaw = latestInvoice.currency ?? "EUR";
-    const currency: "ユーロ" | "ドル" = currencyRaw === "USD" ? "ドル" : "ユーロ";
+    const currency: "ユーロ" | "ドル" = partner ? getCurrencyForPartner(partner) : currencyRaw === "USD" ? "ドル" : "ユーロ";
 
     const firstItem = latestInvoice.items?.[0];
     const rawProductName = firstItem
@@ -338,24 +387,19 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     const quantity = firstItem ? String(Math.round(parseFloat(String(firstItem.quantity)))) : "";
     const unitPrice = firstItem ? String(parseFloat(String(firstItem.unitPrice))) : "";
 
-    let month = String(new Date().getMonth() + 1);
-    if (latestInvoice.invoiceDate) {
-      const d = new Date(latestInvoice.invoiceDate);
-      if (!isNaN(d.getTime())) month = String(d.getMonth() + 1);
-    }
+    const baseForm = createInitialForm();
 
-    setForm(prev => ({
-      ...prev,
+    setForm({
+      ...baseForm,
       invoiceNo,
       partner,
       currency,
       productName,
       quantity,
       unitPrice,
-      month,
       eurRate: "", // レートはダイアログ開いたときに自動取得
       usdRate: "",
-    }));
+    });
 
     setConfirmOpen(false);
     setOpen(true);
@@ -367,7 +411,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
 
   const handleSkipInvoice = () => {
     setConfirmOpen(false);
-    setForm(initialForm);
+    setForm(createInitialForm());
     setOpen(true);
   };
 
@@ -535,12 +579,16 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               </div>
               <div>
                 <Label className="text-xs">取引相手 <span className="text-destructive">*</span></Label>
-                <Input
-                  value={form.partner}
-                  onChange={e => set("partner", e.target.value)}
-                  placeholder="例: ルカ"
-                  className="h-8 text-sm mt-1"
-                />
+                <Select value={form.partner || undefined} onValueChange={handlePartnerChange}>
+                  <SelectTrigger className="h-8 text-sm mt-1">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {partnerOptions.map(partner => (
+                      <SelectItem key={partner} value={partner}>{partner}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -561,9 +609,9 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
                 </Label>
                 <Input
                   value={form.paymentDate}
-                  onChange={e => set("paymentDate", e.target.value)}
-                  placeholder="例: 2025/3/15"
+                  onChange={e => handlePaymentDateChange(e.target.value)}
                   className="h-8 text-sm mt-1"
+                  type="date"
                 />
               </div>
             </div>
