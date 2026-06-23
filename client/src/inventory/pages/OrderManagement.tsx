@@ -98,6 +98,10 @@ function extractColorFromCsvName(name: string): string {
     /^new\s*3ds\s*/i,
     /^3ds\s*ll\s*/i,
     /^3ds\s*/i,
+    /^ds\s*lite\s*/i,
+    /^dslite\s*/i,
+    /^dsi\s*ll\s*/i,
+    /^dsi\s*/i,
     /^ps\s*vita\s*2000\s*/i,
     /^ps\s*vita\s*1000\s*/i,
     /^ps\s*vita\s*/i,
@@ -219,6 +223,9 @@ function extractModelFromCsvName(name: string): string {
   if (n.includes("new 3ds") || n.includes("new3ds")) return "New3DS";
   if (n.includes("3ds ll") || n.includes("3dsll")) return "3DSLL";
   if (n.includes("3ds")) return "3DS";
+  if (n.includes("ds lite") || n.includes("dslite")) return "DSLite";
+  if (n.includes("dsi ll") || n.includes("dsi xl") || n.includes("dsill")) return "DSiLL";
+  if (n.includes("dsi")) return "DSi";
   if (n.includes("psp")) return "PSP";
   if (n.includes("ps5")) return "PS5";
   if (n.includes("ps4")) return "PS4";
@@ -243,6 +250,9 @@ function matchesModel(title: string, managementNo: string, model: string): boole
     case "New2DSLL": return t.includes("new 2ds ll") || t.includes("new2dsll") || m.includes("new2dsll");
     case "3DSLL": return (t.includes("3ds ll") || t.includes("3dsll") || m.includes("3dsll")) && !t.includes("new") && !m.includes("new");
     case "3DS": return (t.includes("3ds") || m.includes("3ds")) && !t.includes("ll") && !m.includes("ll") && !t.includes("new") && !m.includes("new");
+    case "DSLite": return t.includes("ds lite") || t.includes("dslite") || m.includes("dslite") || m.includes("ds lite");
+    case "DSiLL": return t.includes("dsi ll") || t.includes("dsi xl") || t.includes("dsill") || m.includes("dsill") || m.includes("dsi ll");
+    case "DSi": return (t.includes("dsi") || m.includes("dsi")) && !t.includes("ll") && !t.includes("xl") && !m.includes("ll") && !m.includes("xl");
     case "PSP": return t.includes("psp") || m.includes("psp");
     case "PS5": return t.includes("ps5") || m.includes("ps5");
     case "PS4": return t.includes("ps4") || m.includes("ps4");
@@ -266,7 +276,7 @@ function isColorlessRandomColor(colorName: string): boolean {
   if (!colorName.normalize("NFKC").trim()) return true;
   const compact = normalizeColorToken(colorName);
   if (!compact) return false;
-  if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds)$/.test(compact)) return true;
+  if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
   if (/^\d{3,4}$/.test(compact)) return true;
   if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
   if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
