@@ -173,6 +173,7 @@ export default function EbayInventory() {
   const [editTarget, setEditTarget] = useState<EbayInventoryItem | null>(null);
   const [isShaftSalesOpen, setIsShaftSalesOpen] = useState(false);
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
+  const [shaftSaleDateInputs, setShaftSaleDateInputs] = useState<Record<number, string>>({});
   const [editForm, setEditForm] = useState<EditForm>({
     title: "",
     quantity: "0",
@@ -195,6 +196,7 @@ export default function EbayInventory() {
   const createOrderedPurchaseMutation = trpc.inventory.zaico.createOrderedPurchase.useMutation();
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
   const upsertShaftSaleMutation = trpc.inventory.zaico.upsertShaftSale.useMutation();
+  const updateShaftSaleDateMutation = trpc.inventory.zaico.updateShaftSaleDate.useMutation();
 
   const items = useMemo<EbayInventoryItem[]>(() => {
     const q = query.trim().toLowerCase();
@@ -262,6 +264,12 @@ export default function EbayInventory() {
     return amount == null || amount === 0 ? "" : String(Math.round(amount));
   }
 
+  function getShaftSaleDateInput(sale: ShaftSale) {
+    const draft = shaftSaleDateInputs[sale.id];
+    if (draft !== undefined) return draft;
+    return sale.soldAt?.slice(0, 10) ?? "";
+  }
+
   async function handleShaftSaleSave(item: EbayInventoryItem) {
     const raw = getShaftSaleInput(item).replace(/,/g, "").trim();
     const saleAmount = raw ? Number(raw) : 0;
@@ -304,6 +312,26 @@ export default function EbayInventory() {
       await shaftSalesQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "売上の保存に失敗しました");
+    }
+  }
+
+  async function handleShaftSaleDateSave(sale: ShaftSale) {
+    const soldAt = getShaftSaleDateInput(sale).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(soldAt)) {
+      toast.error("売上日はYYYY-MM-DD形式で入力してください");
+      return;
+    }
+    try {
+      await updateShaftSaleDateMutation.mutateAsync({ id: sale.id, soldAt });
+      toast.success("売上日を保存しました");
+      setShaftSaleDateInputs((current) => {
+        const next = { ...current };
+        delete next[sale.id];
+        return next;
+      });
+      await shaftSalesQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "売上日の保存に失敗しました");
     }
   }
 
@@ -604,9 +632,30 @@ export default function EbayInventory() {
                     const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
                     const cost = unitPrice * quantity;
                     const profit = saleAmount - cost;
+                    const soldAtInput = getShaftSaleDateInput(sale);
                     return (
                       <tr key={sale.id} className="border-b last:border-0">
-                        <td className="px-3 py-2 whitespace-nowrap">{sale.soldAt || "-"}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              type="date"
+                              value={soldAtInput}
+                              onChange={(event) => setShaftSaleDateInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                              className="h-8 w-36 text-xs"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleShaftSaleDateSave(sale)}
+                              disabled={updateShaftSaleDateMutation.isPending || soldAtInput === (sale.soldAt?.slice(0, 10) ?? "")}
+                              title="売上日を保存"
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
                         <td className="px-3 py-2 font-mono text-xs">{sale.managementNo}</td>
                         <td className="px-3 py-2">{sale.title}</td>
                         <td className="px-3 py-2 text-right">{formatYen(saleAmount)}</td>

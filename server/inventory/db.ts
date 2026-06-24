@@ -886,6 +886,14 @@ export async function upsertShaftSale(data: InsertShaftSale): Promise<ShaftSale 
   return rows[0] ?? null;
 }
 
+export async function updateShaftSaleDate(id: number, soldAt: string): Promise<ShaftSale | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(shaftSales).set({ soldAt }).where(eq(shaftSales.id, id));
+  const rows = await db.select().from(shaftSales).where(eq(shaftSales.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
 // ============================================================
 // CSVインポート（Zaico CSV一括取り込み）
 // ============================================================

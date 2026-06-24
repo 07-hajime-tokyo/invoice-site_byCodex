@@ -86,6 +86,7 @@ import {
   getDeletedInventoryUnitPriceByZaicoIds,
   getShaftSales,
   upsertShaftSale,
+  updateShaftSaleDate,
   getInvoiceManualItems,
   getInvoiceManualItemsByInvoiceNos,
   createInvoiceManualItem,
@@ -2143,6 +2144,17 @@ export const inventoryRouter = router({
           supplierUrl: input.supplierUrl ?? null,
           snapshotJson: input.snapshot ? JSON.stringify(input.snapshot) : null,
         });
+        return { success: true, sale };
+      }),
+
+    updateShaftSaleDate: publicProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        soldAt: z.string().min(1).max(20),
+      }))
+      .mutation(async ({ input }) => {
+        const sale = await updateShaftSaleDate(input.id, input.soldAt);
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND", message: "シャフト売上が見つかりません" });
         return { success: true, sale };
       }),
 
