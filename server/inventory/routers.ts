@@ -333,6 +333,18 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
 
 type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number };
 
+function mergeShipmentGasItems(items: ShipmentGasItem[]): ShipmentGasItem[] {
+  const grouped = new Map<string, ShipmentGasItem>();
+  for (const item of items) {
+    const name = (item.productNameJa || item.productNameEn).trim();
+    if (!name || item.quantity <= 0) continue;
+    const current = grouped.get(name);
+    if (current) current.quantity += item.quantity;
+    else grouped.set(name, { productNameJa: name, productNameEn: item.productNameEn || name, quantity: item.quantity });
+  }
+  return Array.from(grouped.values()).filter((item) => item.quantity > 0);
+}
+
 function invoiceNoFromDeliveryNo(deliveryNo: string): string {
   return deliveryNo.match(/^(\d+)/)?.[1] ?? deliveryNo;
 }
@@ -416,7 +428,7 @@ function shipmentProductMatches(orderName: string, shippedName: string): boolean
     orderColors.delete("base");
   }
   if (orderColors.size === 0 || shippedColors.size === 0) return true;
-  for (const color of orderColors) {
+  for (const color of Array.from(orderColors)) {
     if (color === "metallic") continue;
     if (shippedColors.has(color)) return true;
   }
@@ -426,7 +438,7 @@ function shipmentProductMatches(orderName: string, shippedName: string): boolean
 async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentGasItem[]): Promise<ShipmentGasItem[]> {
   const orderRows = (await getOrderRowsFromTradeRecords().catch(() => []))
     .filter((row) => row.invoiceNo === invoiceNo && row.productName.trim());
-  if (orderRows.length === 0) return items;
+  if (orderRows.length === 0) return mergeShipmentGasItems(items);
 
   const sortedRows = [...orderRows].sort((a, b) => {
     const aRandom = isRandomShipmentName(a.productName) ? 1 : 0;
@@ -443,7 +455,7 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
     if (current) current.quantity += item.quantity;
     else grouped.set(name, { productNameJa: name, productNameEn: name, quantity: item.quantity });
   }
-  return Array.from(grouped.values()).filter((item) => item.quantity > 0);
+  return mergeShipmentGasItems(Array.from(grouped.values()));
 }
 
 const CATEGORY_SETTINGS_KEY = "inventory_categories";
@@ -5502,6 +5514,22 @@ export const inventoryRouter = router({
         const results: Array<{ deliveryNo: string; sheetName: string; trackingNumber: string; id: number; success: boolean; message: string }> = [];
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
+        const alignedShipments = await Promise.all(input.shipments.map(async (shipment) => {
+          const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
+          const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
+          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, shipment.items);
+          return { ...shipment, sheetName, invoiceNo, gasItems };
+        }));
+
+        function getBatchGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+          return mergeShipmentGasItems(alignedShipments
+            .filter((shipment) =>
+              shipment.sheetName === target.sheetName &&
+              shipment.trackingNumber === target.trackingNumber &&
+              shipment.invoiceNo === target.invoiceNo
+            )
+            .flatMap((shipment) => shipment.gasItems));
+        }
 
         async function callGasBatchWrite(sheetName: string, deliveryNo: string, trackingNumber: string, items: MergeItem[]): Promise<{ success: boolean; message?: string }> {
           if (!gasUrl) return { success: false, message: "GAS_WEBHOOK_URLが未設定" };
@@ -5517,10 +5545,33 @@ export const inventoryRouter = router({
         }
         const allRecords = await getAllFedexShipments();
 
-        for (const shipment of input.shipments) {
-          const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
-          const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
-          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, shipment.items);
+        function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
+          try {
+            return JSON.parse(itemsJson) as MergeItem[];
+          } catch {
+            return [];
+          }
+        }
+
+        function getExistingGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+          return mergeShipmentGasItems(allRecords
+            .filter((record) =>
+              record.sheetName === target.sheetName &&
+              record.trackingNumber === target.trackingNumber &&
+              invoiceNoFromDeliveryNo(record.deliveryNo) === target.invoiceNo
+            )
+            .flatMap((record) => parseShipmentRecordItems(record.itemsJson)));
+        }
+
+        function getGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+          return mergeShipmentGasItems([
+            ...getExistingGasItemsForWrite(target),
+            ...getBatchGasItemsForWrite(target),
+          ]);
+        }
+
+        for (const shipment of alignedShipments) {
+          const { sheetName, gasItems } = shipment;
           // 同一追跡番号かつ同一出庫Noの既存記録を確認
           const sameTracking = allRecords.filter((r) =>
             r.trackingNumber === shipment.trackingNumber &&
@@ -5530,27 +5581,17 @@ export const inventoryRouter = router({
 
           if (sameTracking.length > 0) {
             // 自動合算
-            const mergedMap = new Map<string, MergeItem>();
+            const existingItems: MergeItem[] = [];
             for (const rec of sameTracking) {
-              let items: MergeItem[] = [];
-              try { items = JSON.parse(rec.itemsJson); } catch { items = []; }
-              for (const item of items) {
-                const key = item.productNameJa;
-                if (mergedMap.has(key)) mergedMap.get(key)!.quantity += item.quantity;
-                else mergedMap.set(key, { ...item });
-              }
+              existingItems.push(...parseShipmentRecordItems(rec.itemsJson));
             }
-            for (const item of gasItems) {
-              const key = item.productNameJa;
-              if (mergedMap.has(key)) mergedMap.get(key)!.quantity += item.quantity;
-              else mergedMap.set(key, { ...item });
-            }
-            const mergedItems = Array.from(mergedMap.values());
+            const mergedItems = mergeShipmentGasItems([...existingItems, ...gasItems]);
+            const gasItemsForWrite = getGasItemsForWrite(shipment);
             const keepId = sameTracking[0].id;
             await updateFedexShipment(keepId, { sheetName, shippingDate: input.shippingDate, itemsJson: JSON.stringify(mergedItems), spreadsheetStatus: "pending" });
             for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
             await updateFedexShipmentHistoryAndDeliveryNo(keepId, shipment.historyId ?? null, shipment.deliveryNo);
-            const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, mergedItems);
+            const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, gasItemsForWrite);
             if (gasResult.success) {
               await updateFedexShipmentStatus(keepId, "success");
               results.push({ deliveryNo: shipment.deliveryNo, sheetName, trackingNumber: shipment.trackingNumber, id: keepId, success: true, message: `合算してスプシ更新` });
@@ -5562,6 +5603,7 @@ export const inventoryRouter = router({
           }
 
           // 通常登録
+          const gasItemsForWrite = getGasItemsForWrite(shipment);
           const id = await createFedexShipment({
             deliveryNo: shipment.deliveryNo,
             sheetName,
@@ -5577,7 +5619,7 @@ export const inventoryRouter = router({
             results.push({ deliveryNo: shipment.deliveryNo, sheetName, trackingNumber: shipment.trackingNumber, id, success: false, message: "GAS_WEBHOOK_URL が未設定です" });
             continue;
           }
-          const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, gasItems);
+          const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, gasItemsForWrite);
           if (gasResult.success) {
             await updateFedexShipmentStatus(id, "success");
             results.push({ deliveryNo: shipment.deliveryNo, sheetName, trackingNumber: shipment.trackingNumber, id, success: true, message: "書き込み完了" });
