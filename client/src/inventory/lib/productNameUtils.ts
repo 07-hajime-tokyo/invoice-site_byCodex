@@ -18,7 +18,9 @@ const PRODUCT_NAME_MAP: Array<{ patterns: string[]; en: string; canonical: strin
   // Nintendo Switch
   { patterns: ["switch", "スイッチ"], en: "Switch", canonical: "switch" },
   // New 3DS LL / XL
-  { patterns: ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl", "new3ds ll", "new3ds_ll", "new 3ds"], en: "New 3DS LL", canonical: "new3dsll" },
+  { patterns: ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl", "new3ds ll", "new3ds_ll"], en: "New 3DS LL", canonical: "new3dsll" },
+  // New 3DS
+  { patterns: ["new 3ds", "new3ds", "new_3ds", "n3ds"], en: "New 3DS", canonical: "new3ds" },
   // 3DS LL / XL
   { patterns: ["3ds ll", "3dsll", "3ds xl", "3dsxl", "3ds_ll"], en: "3DS LL", canonical: "3dsll" },
   // 3DS

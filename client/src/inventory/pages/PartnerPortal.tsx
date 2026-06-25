@@ -268,6 +268,22 @@ export default function PartnerPortal() {
     return summary;
   }, [shipments, csvData]);
 
+  const shipmentItemsByInvoice = useMemo(() => {
+    const map: Record<string, ShipmentItem[]> = {};
+    for (const shipment of shipments) {
+      const invoiceNo = shipment.deliveryNo.match(/^(\d+)/)?.[1] ?? shipment.deliveryNo;
+      let items: ShipmentItem[] = [];
+      try { items = JSON.parse(shipment.itemsJson); } catch { items = []; }
+      if (!map[invoiceNo]) map[invoiceNo] = [];
+      map[invoiceNo].push(...items.map((item) => ({
+        ...item,
+        productNameJa: normalizeProductName(item.productNameJa ?? ""),
+        productNameEn: normalizeProductName(item.productNameEn ?? ""),
+      })));
+    }
+    return map;
+  }, [shipments]);
+
   // セッション確認中
   if (sessionLoading) {
     return (
@@ -744,10 +760,13 @@ export default function PartnerPortal() {
                         const summary = invoiceSummary[row.invoiceNo];
                         const orderedQty = matchedProduct?.qty ?? summary?.orderedQty ?? 0;
                         const shippedQty = row.item.quantity;
-                        // インボイス全体の残数
-                        const invoiceRemaining = summary
-                          ? Math.max(0, summary.orderedQty - summary.shippedQty)
-                          : null;
+                        const productShippedQty = matchedProduct
+                          ? (shipmentItemsByInvoice[row.invoiceNo] ?? []).reduce((sum, item) =>
+                            matchesCsvProductName(item.productNameJa || item.productNameEn || "", matchedProduct.name)
+                              ? sum + item.quantity
+                              : sum, 0)
+                          : summary?.shippedQty ?? shippedQty;
+                        const remainingQty = orderedQty > 0 ? Math.max(0, orderedQty - productShippedQty) : null;
 
                         // 英語変換名を優先（CSV名が日本語の場合も英語表示）
                         const csvName = matchedProduct?.name ?? "";
@@ -769,9 +788,9 @@ export default function PartnerPortal() {
                             </td>
                             <td className="py-2 text-right font-semibold">{shippedQty}</td>
                             <td className="py-2 text-right">
-                              {invoiceRemaining !== null && invoiceRemaining > 0 ? (
-                                <span className="text-amber-600 font-medium">{invoiceRemaining}</span>
-                              ) : invoiceRemaining === 0 ? (
+                              {remainingQty !== null && remainingQty > 0 ? (
+                                <span className="text-amber-600 font-medium">{remainingQty}</span>
+                              ) : remainingQty === 0 ? (
                                 <span className="text-emerald-600 font-medium">0</span>
                               ) : (
                                 <span className="text-muted-foreground">-</span>

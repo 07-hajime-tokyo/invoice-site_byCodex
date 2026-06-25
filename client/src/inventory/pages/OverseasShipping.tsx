@@ -241,6 +241,21 @@ function PartnerView({
     return summary;
   }, [shipments, csvData]);
 
+  const shipmentItemsByInvoice = useMemo(() => {
+    const map: Record<string, ShipmentItem[]> = {};
+    for (const shipment of shipments) {
+      const invoiceNo = shipment.deliveryNo.match(/^(\d+)/)?.[1] ?? shipment.deliveryNo;
+      let items: ShipmentItem[] = [];
+      try { items = JSON.parse(shipment.itemsJson); } catch { items = []; }
+      if (!map[invoiceNo]) map[invoiceNo] = [];
+      map[invoiceNo].push(...items.map((item) => isReturnProduct(item.productNameJa)
+        ? { ...item, productNameJa: normalizeProductName(item.productNameJa), productNameEn: normalizeProductName(item.productNameEn) }
+        : item
+      ));
+    }
+    return map;
+  }, [shipments]);
+
   // 初回ロード時に直近のグループのみ展開
   useEffect(() => {
     if (!initialized && shipmentGroups.length > 0) {
@@ -327,7 +342,13 @@ function PartnerView({
                       const summary = invoiceSummary[row.invoiceNo];
                       const orderedQty = matchedProduct?.qty ?? summary?.orderedQty ?? 0;
                       const shippedQty = row.item.quantity;
-                      const invoiceRemaining = summary ? Math.max(0, summary.orderedQty - summary.shippedQty) : null;
+                      const productShippedQty = matchedProduct
+                        ? (shipmentItemsByInvoice[row.invoiceNo] ?? []).reduce((sum, item) =>
+                          matchesCsvProductName(item.productNameJa || item.productNameEn || "", matchedProduct.name)
+                            ? sum + item.quantity
+                            : sum, 0)
+                        : summary?.shippedQty ?? shippedQty;
+                      const remainingQty = orderedQty > 0 ? Math.max(0, orderedQty - productShippedQty) : null;
                       const displayName = matchedProduct?.name || rowProductEn || row.item.productNameEn || row.item.productNameJa;
                       return (
                         <tr key={i} className="border-b border-border/50 last:border-0">
@@ -336,9 +357,9 @@ function PartnerView({
                           <td className="py-2 text-right text-muted-foreground">{orderedQty > 0 ? orderedQty : "-"}</td>
                           <td className="py-2 text-right font-semibold">{shippedQty}</td>
                           <td className="py-2 text-right">
-                            {invoiceRemaining !== null && invoiceRemaining > 0 ? (
-                              <span className="text-amber-600 font-medium">{invoiceRemaining}</span>
-                            ) : invoiceRemaining === 0 ? (
+                            {remainingQty !== null && remainingQty > 0 ? (
+                              <span className="text-amber-600 font-medium">{remainingQty}</span>
+                            ) : remainingQty === 0 ? (
                               <span className="text-emerald-600 font-medium">0</span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
