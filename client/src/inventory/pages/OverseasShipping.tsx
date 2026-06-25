@@ -333,6 +333,7 @@ function PartnerView({
                         const jaLower = (row.item.productNameJa ?? "").toLowerCase();
                         const enLower = (row.item.productNameEn ?? "").toLowerCase();
                         const rowEnLower = rowProductEn.toLowerCase();
+                        if (matchesCsvProductName(row.item.productNameJa || row.item.productNameEn || "", p.name)) return true;
                         return (
                           pLower.includes(jaLower) || jaLower.includes(pLower) ||
                           pLower.includes(enLower) || enLower.includes(pLower) ||
