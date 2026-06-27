@@ -1714,6 +1714,11 @@ export const inventoryRouter = router({
                 await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, lp.localInventoryId));
               }
             }
+            if (firstItem?.quantity !== undefined) {
+              const quantity = Math.max(1, Math.round(Number(firstItem.quantity) || 1));
+              lpUpdateData.quantity = quantity;
+              updateFirstItemJson({ quantity: String(quantity) });
+            }
             if (firstItem?.title !== undefined) {
               const nextTitle = firstItem.title.trim();
               (lpUpdateData as Record<string, unknown>).title = nextTitle;

@@ -98,7 +98,7 @@ interface EditState {
   supplierName: string;
   supplierUrl: string;
   // 商品別編集: inventory_id -> { title, unitPrice, managementNo, estimatedDate, category }
-  itemEdits: Record<number, { title: string; unitPrice: string; managementNo: string; estimatedDate: string; category: string }>;
+  itemEdits: Record<number, { title: string; unitPrice: string; quantity: string; managementNo: string; estimatedDate: string; category: string }>;
 }
 
 const CARRIER_OPTIONS = [
@@ -731,6 +731,7 @@ export default function Purchases() {
       itemEdits[item.inventory_id] = {
         title: item.title ?? "",
         unitPrice: hasUnitPrice(item.unit_price) ? String(item.unit_price) : "",
+        quantity: String(item.quantity ?? "1"),
         managementNo,
         estimatedDate: item.estimated_purchase_date ?? "",
         category: item.category ?? "",
@@ -764,6 +765,16 @@ export default function Purchases() {
         toast.error("商品名は空欄にできません");
         return;
       }
+      const invalidQuantity = purchase.purchase_items.find((item) => {
+        const edit = editState.itemEdits[item.inventory_id];
+        if (!edit) return false;
+        const quantity = Number.parseInt(edit.quantity, 10);
+        return !Number.isFinite(quantity) || quantity < 1;
+      });
+      if (invalidQuantity) {
+        toast.error("発注数量は1以上で入力してください");
+        return;
+      }
 
       // 入庫補足情報（発送日・追跡番号・備考）を保存
       await upsertExtraMutation.mutateAsync({
@@ -789,11 +800,14 @@ export default function Purchases() {
           const currentCategory = item.category || "";
           const nextTitle = edit.title.trim();
           const currentTitle = item.title || "";
+          const nextQuantity = Math.max(1, Number.parseInt(edit.quantity, 10));
+          const currentQuantity = Math.max(1, Number.parseInt(String(item.quantity ?? "1"), 10) || 1);
           return {
             ...(item.id > 0 && { id: item.id }),
             inventoryId: item.inventory_id,
             ...(nextTitle !== currentTitle && { title: nextTitle }),
             ...(edit.unitPrice !== "" && { unitPrice: parseFloat(edit.unitPrice) }),
+            ...(nextQuantity !== currentQuantity && { quantity: nextQuantity }),
             ...(edit.estimatedDate !== "" && { estimatedPurchaseDate: edit.estimatedDate }),
             ...(newManagementNo !== parseEtc(item.etc).managementNo && { etc: newEtc }),
             ...(nextCategory !== currentCategory && { category: nextCategory || null }),
@@ -1484,7 +1498,25 @@ export default function Purchases() {
                               )}
                             </td>
                             <td data-label="発注数量" className="px-4 py-2 text-right">
-                              {item.quantity} {item.unit}
+                              {isEditing && itemEdit ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={itemEdit.quantity}
+                                    onChange={(e) => setEditState((s) => ({
+                                      ...s,
+                                      itemEdits: { ...s.itemEdits, [item.inventory_id]: { ...itemEdit, quantity: e.target.value } }
+                                    }))}
+                                    className="h-7 w-20 text-right text-xs"
+                                    placeholder="数量"
+                                  />
+                                  <span className="text-xs text-muted-foreground">{item.unit}</span>
+                                </div>
+                              ) : (
+                                <>{item.quantity} {item.unit}</>
+                              )}
                             </td>
                             <td data-label="入庫予定日" className="px-4 py-2">
                               {isEditing && itemEdit ? (
