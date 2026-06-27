@@ -362,6 +362,14 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     } else {
       // 通常カラー: Zaico商品名にカラー名が含まれるか確認
       const zaicoColor = extractColorFromCsvName(zaicoTitle);
+      if (
+        entry.model === "Vita2000" &&
+        entry.colorOnly.includes("アクア") &&
+        zaicoTitle.includes("駿河屋誤発送") &&
+        zaicoTitle.includes("ブルー")
+      ) {
+        return 4;
+      }
       // 「×」区切りの複合カラーの場合は分割して各キーワードを取得
       const csvKeywords = getColorKeywords(entry.colorOnly);
       // 「×」区切りも分割する
