@@ -122,6 +122,7 @@ function dbRecordToTradeRecord(r: {
     return decimals === 0 ? Math.round(n) : Math.round(n * 10 ** decimals) / 10 ** decimals;
   };
   return {
+    id: r.id,
     month: r.month ?? "",
     year,
     yearMonth,

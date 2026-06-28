@@ -1651,13 +1651,24 @@ export const appRouter = router({
         const db = await getDb();
         let existing: TradeRow[] = [];
         let target: TradeRow | undefined;
-        if (db && no !== null) {
+        if (db && input.id) {
+          [target] = await db.select().from(tradeRecords)
+            .where(eq(tradeRecords.id, input.id))
+            .limit(1);
+        }
+        const lookupNo = Number(target?.no ?? no);
+        const lookupInvoiceNo = Number.isFinite(lookupNo) && lookupNo > 0
+          ? String(lookupNo)
+          : input.invoiceNo.trim();
+        if (db && lookupNo !== null && Number.isFinite(lookupNo) && lookupNo > 0) {
           existing = await db.select().from(tradeRecords)
-            .where(eq(tradeRecords.no, no))
+            .where(eq(tradeRecords.no, lookupNo))
             .orderBy(asc(tradeRecords.id));
-          target = input.id
-            ? existing.find(r => r.id === input.id)
-            : existing.find(r => r.productName === input.productName);
+          if (target) {
+            target = existing.find(r => r.id === target!.id) ?? target;
+          } else {
+            target = existing.find(r => r.productName === input.productName);
+          }
           target ??= existing[0];
         }
 
@@ -1725,7 +1736,7 @@ export const appRouter = router({
           }
           const invoiceCell = currentInvoiceNo;
           const productCell = String(rows[i]?.[2] ?? "").trim();
-          if (invoiceCell !== input.invoiceNo.trim()) continue;
+          if (invoiceCell !== lookupInvoiceNo) continue;
           invoiceOccurrenceIndex++;
           if (targetOccurrenceIndex >= 0 && invoiceOccurrenceIndex === targetOccurrenceIndex) {
             targetRow = i + 1;
@@ -1742,7 +1753,7 @@ export const appRouter = router({
         // 商品名で見つからない場合はインボイスNoのみで最初の行を使用
         targetRow ??= fallbackByCurrentProduct ?? fallbackByNewProduct ?? fallbackByInvoice;
         if (targetRow === null) {
-          throw new Error(`インボイスNo. ${input.invoiceNo} の行が見つかりませんでした。`);
+          throw new Error(`インボイスNo. ${lookupInvoiceNo} の行が見つかりませんでした。`);
         }
         // A〜H列（商品価格(円)のI列は数式のため書き込まない）とJ列（状況）を別々に更新
         await sheets.spreadsheets.values.batchUpdate({
