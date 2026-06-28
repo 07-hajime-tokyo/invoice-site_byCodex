@@ -262,6 +262,7 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
 
     const customsDutyVal = parseFloat(form.customsDuty);
     updateMutation.mutate({
+      id: record.id,
       invoiceNo: form.invoiceNo,
       month,
       partner: form.partner,

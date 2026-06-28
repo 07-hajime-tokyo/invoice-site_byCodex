@@ -262,7 +262,7 @@ export function DataTable({
               </tr>
             ) : (
               pageRecords.map((row, i) => {
-                const rowKey = `${row.no}-${i}`;
+                const rowKey = row.id ? `trade-${row.id}` : `${row.no}-${i}`;
                 const isExpanded = expandedShipment === rowKey;
                 return (
                   <React.Fragment key={rowKey}>

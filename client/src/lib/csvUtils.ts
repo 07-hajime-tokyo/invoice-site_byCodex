@@ -8,6 +8,7 @@ export const CSV_URL =
   "https://raw.githubusercontent.com/rara-wq/csv-data-site/refs/heads/main/data.csv";
 
 export interface TradeRecord {
+  id?: number;
   month: string;
   year: string;          // 抽出した年 (e.g. "2025", "2026")
   yearMonth: string;     // "YYYY-MM" 形式 (フィルター用)
@@ -31,7 +32,7 @@ export interface TradeRecord {
   cumulativeProfit: number;
 }
 
-export const COLUMN_LABELS: Record<keyof TradeRecord, string> = {
+export const COLUMN_LABELS: Partial<Record<keyof TradeRecord, string>> = {
   month: "月",
   year: "年",
   yearMonth: "年月",

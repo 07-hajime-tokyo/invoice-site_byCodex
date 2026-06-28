@@ -1626,6 +1626,7 @@ export const appRouter = router({
 
     updateRecord: protectedProcedure
       .input(z.object({
+        id: z.number().int().positive().optional(),
         invoiceNo: z.string().min(1),
         month: z.number().min(1).max(12),
         partner: z.string().min(1),
@@ -1643,18 +1644,26 @@ export const appRouter = router({
         shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
+        const no = parseInt(input.invoiceNo) || null;
+        const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
+          ? input.paymentDate
+          : null;
+        const db = await getDb();
+        let existing: TradeRow[] = [];
+        let target: TradeRow | undefined;
+        if (db && no !== null) {
+          existing = await db.select().from(tradeRecords)
+            .where(eq(tradeRecords.no, no))
+            .orderBy(asc(tradeRecords.id));
+          target = input.id
+            ? existing.find(r => r.id === input.id)
+            : existing.find(r => r.productName === input.productName);
+          target ??= existing[0];
+        }
+
         if (!TRADE_SHEET_WRITE_BACK_ENABLED || !canSyncTradeSheet()) {
-          const db = await getDb();
           if (db) {
-            const no = parseInt(input.invoiceNo) || null;
-            const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
-              ? input.paymentDate
-              : null;
             if (no === null) return { success: true, updatedRow: null, sheetSync: "skipped" as const };
-            const existing = await db.select().from(tradeRecords)
-              .where(eq(tradeRecords.no, no))
-              .orderBy(asc(tradeRecords.id));
-            const target = existing.find(r => r.productName === input.productName) ?? existing[0];
             if (target) {
               const shouldRecalculateSales =
                 changedNumber(target.quantity, input.quantity) ||
@@ -1701,24 +1710,37 @@ export const appRouter = router({
         });
         const rows = searchResponse.data.values ?? [];
         let targetRow: number | null = null;
+        let fallbackByCurrentProduct: number | null = null;
+        let fallbackByNewProduct: number | null = null;
+        let fallbackByInvoice: number | null = null;
+        const targetOccurrenceIndex = target ? existing.findIndex((row) => row.id === target!.id) : -1;
+        let currentInvoiceNo = "";
+        let invoiceOccurrenceIndex = -1;
         for (let i = 3; i < rows.length; i++) {
-          const invoiceCell = String(rows[i]?.[0] ?? "").trim();
+          const rawInvoiceCell = String(rows[i]?.[0] ?? "").trim();
+          if (/^\d+$/.test(rawInvoiceCell)) {
+            currentInvoiceNo = rawInvoiceCell;
+          } else if (rawInvoiceCell) {
+            currentInvoiceNo = "";
+          }
+          const invoiceCell = currentInvoiceNo;
           const productCell = String(rows[i]?.[2] ?? "").trim();
-          if (invoiceCell === input.invoiceNo.trim() && productCell === input.productName.trim()) {
+          if (invoiceCell !== input.invoiceNo.trim()) continue;
+          invoiceOccurrenceIndex++;
+          if (targetOccurrenceIndex >= 0 && invoiceOccurrenceIndex === targetOccurrenceIndex) {
             targetRow = i + 1;
             break;
           }
-        }
-        // 商品名で見つからない場合はインボイスNoのみで最初の行を使用
-        if (targetRow === null) {
-          for (let i = 3; i < rows.length; i++) {
-            const invoiceCell = String(rows[i]?.[0] ?? "").trim();
-            if (invoiceCell === input.invoiceNo.trim()) {
-              targetRow = i + 1;
-              break;
-            }
+          if (fallbackByInvoice === null) fallbackByInvoice = i + 1;
+          if (target?.productName && productCell === String(target.productName).trim()) {
+            fallbackByCurrentProduct ??= i + 1;
+          }
+          if (productCell === input.productName.trim()) {
+            fallbackByNewProduct ??= i + 1;
           }
         }
+        // 商品名で見つからない場合はインボイスNoのみで最初の行を使用
+        targetRow ??= fallbackByCurrentProduct ?? fallbackByNewProduct ?? fallbackByInvoice;
         if (targetRow === null) {
           throw new Error(`インボイスNo. ${input.invoiceNo} の行が見つかりませんでした。`);
         }
@@ -1750,20 +1772,10 @@ export const appRouter = router({
         });
 
         // DBも同時更新
-        const db = await getDb();
-        if (db) {
-          const no = parseInt(input.invoiceNo) || null;
-          const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
-            ? input.paymentDate
-            : null;
+        if (db && target) {
           // noが一致するレコードを更新（noが同じ行が複数ある場合は商品名でも絞り込む）
           if (no === null) return { success: false, updatedRow: targetRow };
-          const existing = await db.select().from(tradeRecords)
-            .where(eq(tradeRecords.no, no))
-            .orderBy(asc(tradeRecords.id));
-          if (existing.length > 0) {
             // 商品名が一致するレコードを更新、なければ最初のレコードを更新
-            const target = existing.find(r => r.productName === input.productName) ?? existing[0];
             // 商品価格(円)・売上合計・還付込利益を自動計算
             const normalizedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate);
             const shouldRecalculateSales =
@@ -1801,7 +1813,6 @@ export const appRouter = router({
                 ...(profitWithRefund !== null ? { profitWithRefund: String(profitWithRefund) } : {}),
               })
               .where(eq(tradeRecords.id, target.id));
-          }
         }
 
         return { success: true, updatedRow: targetRow };
