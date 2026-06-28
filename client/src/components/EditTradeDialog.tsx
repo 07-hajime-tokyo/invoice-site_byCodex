@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Pencil, RefreshCw, AlertCircle, Loader2 } from "lucide-react";
+import { Pencil, RefreshCw, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { TradeRecord } from "@/lib/csvUtils";
 
@@ -243,6 +243,20 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
     },
   });
 
+  const deleteMutation = trpc.trade.deleteFromDb.useMutation({
+    onSuccess: () => {
+      toast.success("削除しました", {
+        description: `No.${record.no} の取引データを削除しました。`,
+      });
+      setOpen(false);
+      setSubmitError(null);
+      onSuccess?.();
+    },
+    onError: (err) => {
+      setSubmitError(err.message);
+    },
+  });
+
   const handleSubmit = () => {
     setSubmitError(null);
     const month = parseInt(form.month);
@@ -279,6 +293,17 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
       shippingCost: parseFloat(form.shippingCost) || 0,
       customsDuty: isNaN(customsDutyVal) ? 0 : customsDutyVal,
     });
+  };
+
+  const handleDelete = () => {
+    setSubmitError(null);
+    if (!record.id) {
+      setSubmitError("Delete failed: record id is missing. Please reload the page and try again.");
+      return;
+    }
+    const ok = window.confirm(`Delete No.${record.no} "${record.productName}"?\nThis action cannot be undone.`);
+    if (!ok) return;
+    deleteMutation.mutate({ id: record.id });
   };
 
   const formatJpy = (v: number) => `¥${v.toLocaleString()}`;
@@ -595,13 +620,31 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
           </div>
 
           <DialogFooter className="gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              disabled={updateMutation.isPending || deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <RefreshCw size={12} className="animate-spin mr-1" />
+                  削除中...
+                </>
+              ) : (
+                <>
+                  <Trash2 size={12} className="mr-1" />
+                  削除
+                </>
+              )}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
               キャンセル
             </Button>
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={updateMutation.isPending}
+              disabled={updateMutation.isPending || deleteMutation.isPending}
             >
               {updateMutation.isPending ? (
                 <>
