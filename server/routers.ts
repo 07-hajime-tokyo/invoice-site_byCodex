@@ -544,6 +544,15 @@ function applySheetShipmentStatuses<T extends { no: number | null; productName: 
   });
 }
 
+function isClosedTradeYear(row: { paymentDate?: string | null }) {
+  const paymentDate = String(row.paymentDate ?? "").trim();
+  return /^2025[/-]/.test(paymentDate);
+}
+
+function applyClosedTradeYearStatuses<T extends { paymentDate?: string | null; status: string | null }>(rows: T[]) {
+  return rows.map((row) => (isClosedTradeYear(row) ? { ...row, status: "complete" } : row));
+}
+
 function isTradeStatusComplete(status: unknown) {
   const normalized = String(status ?? "").trim().toLowerCase();
   return normalized === "complete" || normalized === "\u5b8c\u4e86";
@@ -1236,9 +1245,6 @@ export const appRouter = router({
         if (input.currency) {
           conditions.push(eq(tradeRecords.currency, input.currency));
         }
-        if (input.status) {
-          conditions.push(eq(tradeRecords.status, input.status));
-        }
         const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
         const sortColumn = (() => {
           switch (input.sortKey) {
@@ -1272,9 +1278,17 @@ export const appRouter = router({
         const rowsWithSheetStatus = sheetProgress
           ? applySheetShipmentStatuses(baseRows, sheetProgress)
           : baseRows;
+        const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithSheetStatus);
+        const statusFilter = input.status.trim().toLowerCase();
+        const statusFilteredRows = statusFilter
+          ? rowsWithComputedStatus.filter((row) => {
+              const rowStatus = String(row.status ?? "").trim();
+              return rowStatus === input.status || (isTradeStatusComplete(input.status) && isTradeStatusComplete(rowStatus));
+            })
+          : rowsWithComputedStatus;
         const matchingRows = input.incompleteOnly
-          ? rowsWithSheetStatus.filter((row) => !isTradeStatusComplete(row.status))
-          : rowsWithSheetStatus;
+          ? statusFilteredRows.filter((row) => !isTradeStatusComplete(row.status))
+          : statusFilteredRows;
         const rows = matchingRows.slice(offset, offset + input.pageSize);
         const completedRowsForProfit = matchingRows.filter((row) => isTradeStatusComplete(row.status));
         const partnerCount = new Set(

@@ -242,7 +242,7 @@ export default function AiInvestigation() {
 
   const runInvestigation = () => {
     const trimmed = question.trim();
-    if (trimmed.length < 2) return;
+    if (!canSubmit) return;
     setDisplayResult(null);
     investigate.mutate({ question: trimmed, includeEbay });
   };
@@ -273,6 +273,12 @@ export default function AiInvestigation() {
           <Textarea
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                runInvestigation();
+              }
+            }}
             placeholder="例: No.392のアクアブルーが5台発送済みのはずなのに3/5になっています"
             className="min-h-[120px] resize-y"
           />
