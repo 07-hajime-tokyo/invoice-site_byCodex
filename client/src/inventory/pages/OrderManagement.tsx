@@ -304,6 +304,19 @@ function isOtherColor(colorName: string): boolean {
 
 type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string };
 
+function normalizeLooseText(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/[\s　・･_\-ー,、]/g, "");
+}
+
+function isVita2000AquaBlueMisdelivery(title: string, entry: ColorSummaryWithModel): boolean {
+  const normalizedTitle = normalizeLooseText(title);
+  const normalizedColor = normalizeLooseText(entry.colorOnly);
+  return entry.model === "Vita2000" &&
+    normalizedColor.includes("アクア") &&
+    normalizedTitle.includes("駿河屋誤発送") &&
+    (normalizedTitle.includes("ブルー") || normalizedTitle.includes("blue") || normalizedTitle.includes("青"));
+}
+
 function buildColorSummary(item: SummaryItem): ColorSummary[] {
   if (item.csvProducts.length === 0) return [];
 
@@ -345,6 +358,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     if (entry.model && !matchesModel(zaicoTitle, "", entry.model)) return -1;
     const zt = zaicoTitle.toLowerCase();
     const zaicoModel = extractModelFromCsvName(zaicoTitle);
+    if (isVita2000AquaBlueMisdelivery(zaicoTitle, entry)) return 5;
 
     if (isRandomColor(entry.colorOnly) || isColorlessRandomColor(entry.colorOnly)) {
       if (isColorlessRandomColor(entry.colorOnly) && !colorlessQualifierMatches(entry.colorOnly, zaicoTitle)) return -1;
