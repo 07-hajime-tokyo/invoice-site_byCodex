@@ -1,21 +1,33 @@
 import { useMemo, useState } from "react";
-import { Bot, Database, ExternalLink, Loader2, Search, Sparkles } from "lucide-react";
+import { Bot, Database, ExternalLink, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 type EvidenceRow = Record<string, string | number | boolean | null>;
 type EvidenceSection = { title: string; rows: EvidenceRow[] };
 
-const examples = [
-  "No.392のアクアブルーが5台発送済みのはずなのに3/5になっています",
+const DEFAULT_EXAMPLES = [
   "FedEx発送登録漏れがないか確認してください",
-  "ebay_1675のOrderページがキャンセルか確認してください",
 ];
+const EXAMPLES_STORAGE_KEY = "invoice-site-ai-investigation-examples";
+
+function loadExamples() {
+  if (typeof window === "undefined") return DEFAULT_EXAMPLES;
+  try {
+    const saved = JSON.parse(localStorage.getItem(EXAMPLES_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(saved)) return DEFAULT_EXAMPLES;
+    const custom = saved.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    return Array.from(new Set([...DEFAULT_EXAMPLES, ...custom]));
+  } catch {
+    return DEFAULT_EXAMPLES;
+  }
+}
 
 function formatCellValue(value: unknown) {
   if (value == null || value === "") return "-";
@@ -120,10 +132,32 @@ function EvidenceTable({ section }: { section: EvidenceSection }) {
 export default function AiInvestigation() {
   const [question, setQuestion] = useState("");
   const [includeEbay, setIncludeEbay] = useState(true);
+  const [examples, setExamples] = useState(loadExamples);
+  const [newExample, setNewExample] = useState("");
   const investigate = trpc.inventory.aiInvestigation.investigate.useMutation();
   const result = investigate.data;
 
   const canSubmit = question.trim().length >= 2 && !investigate.isPending;
+
+  const saveExamples = (next: string[]) => {
+    const normalized = Array.from(new Set(next.map((value) => value.trim()).filter(Boolean)));
+    setExamples(normalized);
+    localStorage.setItem(
+      EXAMPLES_STORAGE_KEY,
+      JSON.stringify(normalized.filter((value) => !DEFAULT_EXAMPLES.includes(value))),
+    );
+  };
+
+  const addExample = () => {
+    const trimmed = newExample.trim();
+    if (trimmed.length < 2) return;
+    saveExamples([...examples, trimmed]);
+    setNewExample("");
+  };
+
+  const removeExample = (example: string) => {
+    saveExamples(examples.filter((value) => value !== example));
+  };
 
   return (
     <div className="space-y-4">
@@ -157,16 +191,55 @@ export default function AiInvestigation() {
             </div>
             <div className="flex flex-wrap gap-2">
               {examples.map((example) => (
+                <div key={example} className="flex items-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-r-none"
+                    onClick={() => setQuestion(example)}
+                  >
+                    {example.length > 22 ? `${example.slice(0, 22)}...` : example}
+                  </Button>
+                  {!DEFAULT_EXAMPLES.includes(example) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-8 rounded-l-none border-l-0"
+                      onClick={() => removeExample(example)}
+                      aria-label="候補を削除"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+              <div className="flex items-center">
+                <Input
+                  value={newExample}
+                  onChange={(event) => setNewExample(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addExample();
+                    }
+                  }}
+                  placeholder="候補を追加"
+                  className="h-9 w-[180px] rounded-r-none"
+                />
                 <Button
-                  key={example}
                   type="button"
                   variant="outline"
-                  size="sm"
-                  onClick={() => setQuestion(example)}
+                  size="icon"
+                  className="h-9 w-9 rounded-l-none border-l-0"
+                  onClick={addExample}
+                  disabled={newExample.trim().length < 2}
+                  aria-label="候補を追加"
                 >
-                  {example.length > 22 ? `${example.slice(0, 22)}...` : example}
+                  <Plus className="h-4 w-4" />
                 </Button>
-              ))}
+              </div>
               <Button
                 type="button"
                 disabled={!canSubmit}
