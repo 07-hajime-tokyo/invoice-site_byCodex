@@ -102,6 +102,9 @@ EBAY_ACCESS_TOKEN=
 # 任意 | AI調査で使用するモデル名（未設定時は gpt-4o）
 AI_INVESTIGATION_MODEL=gpt-4o
 
+# 任意 | AI調査でGeminiを使う場合のモデル名（未設定時は GEMINI_MODEL を使用）
+AI_INVESTIGATION_GEMINI_MODEL=gemini-2.5-flash-lite
+
 # =============================================================================
 # AWS S3（ロゴ・WhatsApp解析ファイル・ナレッジベースファイルの保存）
 # =============================================================================
@@ -184,6 +187,7 @@ GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 | `EBAY_SCOPES` | 任意 | eBay OAuth scope | eBay Developer |
 | `EBAY_ACCESS_TOKEN` | 任意 | eBay access token直接指定 | eBay Developer |
 | `AI_INVESTIGATION_MODEL` | 任意 | AI調査のモデル名 | Forge/OpenAI互換API |
+| `AI_INVESTIGATION_GEMINI_MODEL` | 任意 | AI調査用Geminiモデル名 | Google AI Studio |
 | `AWS_ACCESS_KEY_ID` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_SECRET_ACCESS_KEY` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_REGION` | **必須** | S3バケットリージョン | AWS Console |

@@ -298,10 +298,6 @@ async function generateAiReport(input: {
   evidence: EvidenceSection[];
   ebayOrders: EbayOrderSummary[];
 }) {
-  const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
-  const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
-  if (!forgeUrl || !forgeKey) return makeFallbackReport(input);
-
   const context = JSON.stringify({
     question: input.question,
     identifiers: input.identifiers,
@@ -329,24 +325,54 @@ ${input.question}
 根拠データ(JSON):
 ${context}`;
 
-  const res = await fetch(`${forgeUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+  const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
+  const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
+  if (forgeUrl && forgeKey) {
+    const res = await fetch(`${forgeUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${forgeKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.AI_INVESTIGATION_MODEL || "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1200,
+      }),
+    });
+    if (!res.ok) {
+      return `${makeFallbackReport(input)}\n\n---\n\nAI API error: ${res.status}`;
+    }
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    return data.choices?.[0]?.message?.content?.trim() || makeFallbackReport(input);
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return makeFallbackReport(input);
+  const geminiModel = process.env.AI_INVESTIGATION_GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${forgeKey}`,
+      "x-goog-api-key": geminiKey,
     },
     body: JSON.stringify({
-      model: process.env.AI_INVESTIGATION_MODEL || "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.1,
-      max_tokens: 1200,
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 1200,
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
+      },
     }),
   });
   if (!res.ok) {
-    return `${makeFallbackReport(input)}\n\n---\n\nAI API error: ${res.status}`;
+    return `${makeFallbackReport(input)}\n\n---\n\nGemini API error: ${res.status}`;
   }
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-  return data.choices?.[0]?.message?.content?.trim() || makeFallbackReport(input);
+  const data = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  return data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() || makeFallbackReport(input);
 }
 
 async function collectInvestigationContext(question: string, includeEbay: boolean) {
