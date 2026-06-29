@@ -150,6 +150,15 @@ GAS_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
 # 任意 | GAS連携で使用する共有シークレット
 GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
+# 任意 | Vercel Cron認証用。設定した場合はVercel側にも同じ値を設定してください。
+CRON_SECRET=replace-with-a-long-random-secret
+
+# 任意 | FedEx発送登録漏れの自動チェック対象日数（未設定時: 7日）
+FEDEX_MISSING_LOOKBACK_DAYS=7
+
+# 任意 | 出庫登録から何時間後に漏れ判定するか（未設定時: 6時間）
+FEDEX_MISSING_GRACE_HOURS=6
+
 # =============================================================================
 # 移行時に追加が必要な環境変数（Manus OAuth置き換え後）
 # =============================================================================
@@ -197,3 +206,6 @@ GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 | `VITE_ANALYTICS_ENDPOINT` | 任意 | アナリティクスURL | Umami等 |
 | `VITE_ANALYTICS_WEBSITE_ID` | 任意 | アナリティクスID | Umami等 |
 | `GAS_WEBHOOK_SECRET` | 任意 | GASから発注済みデータを登録するWebhook認証 | 任意の長いランダム文字列 |
+| `CRON_SECRET` | 任意 | Vercel Cron API認証 | 任意の長いランダム文字列 |
+| `FEDEX_MISSING_LOOKBACK_DAYS` | 任意 | FedEx発送登録漏れチェック対象日数 | 例: 7 |
+| `FEDEX_MISSING_GRACE_HOURS` | 任意 | 出庫登録後、漏れ判定まで待つ時間 | 例: 6 |

@@ -3,6 +3,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerChatRoutes } from "./chat";
 import { registerGasWebhookRoutes } from "./gasWebhook";
+import { registerCronRoutes } from "./cron";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { generateInvoicePdf } from "../pdfGenerator";
@@ -16,6 +17,7 @@ export async function createApiApp() {
   registerOAuthRoutes(app);
   registerChatRoutes(app);
   registerGasWebhookRoutes(app);
+  registerCronRoutes(app);
 
   app.post("/api/invoice-pdf", async (req, res) => {
     try {

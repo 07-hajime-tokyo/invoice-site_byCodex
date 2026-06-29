@@ -165,15 +165,27 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         detail text NOT NULL,
         status varchar(20) NOT NULL DEFAULT 'open',
         source varchar(50) NULL,
+        sourceKey varchar(255) NULL,
         sourceQuestion text NULL,
         createdBy varchar(200) NULL,
         completedAt timestamp NULL,
         createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_action_items_status (status),
-        INDEX idx_action_items_assignee (assignee)
+        INDEX idx_action_items_assignee (assignee),
+        INDEX idx_action_items_source_key (sourceKey)
       )
     `);
+    const existingActionSourceKey = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'sourceKey'`);
+    const actionSourceKeyRows = getRawRows(existingActionSourceKey);
+    if (actionSourceKeyRows.length === 0) {
+      await db.execute(sql`ALTER TABLE action_items ADD COLUMN sourceKey varchar(255) NULL`);
+    }
+    const existingActionSourceKeyIndex = await db.execute(sql`SHOW INDEX FROM action_items WHERE Key_name = 'idx_action_items_source_key'`);
+    const actionSourceKeyIndexRows = getRawRows(existingActionSourceKeyIndex);
+    if (actionSourceKeyIndexRows.length === 0) {
+      await db.execute(sql`ALTER TABLE action_items ADD INDEX idx_action_items_source_key (sourceKey)`);
+    }
     await db.execute(sql`
       INSERT IGNORE INTO action_item_assignees (name, sortOrder)
       VALUES ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3), ('その他', 4)

@@ -50,6 +50,7 @@ export const actionItemsRouter = router({
       assignee: z.string().min(1).max(100),
       detail: z.string().min(1).max(5000),
       source: z.string().max(50).optional(),
+      sourceKey: z.string().max(255).optional(),
       sourceQuestion: z.string().max(2000).optional(),
       saveTitlePreset: z.boolean().optional().default(false),
     }))
@@ -64,6 +65,7 @@ export const actionItemsRouter = router({
         detail,
         status: "open",
         source: input.source ?? null,
+        sourceKey: input.sourceKey ?? null,
         sourceQuestion: input.sourceQuestion ?? null,
         createdBy: ctx.user.email ?? ctx.user.name ?? null,
       });

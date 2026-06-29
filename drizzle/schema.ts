@@ -863,6 +863,7 @@ export const actionItems = mysqlTable("action_items", {
   detail: text("detail").notNull(),
   status: varchar("status", { length: 20 }).notNull().default("open"),
   source: varchar("source", { length: 50 }),
+  sourceKey: varchar("sourceKey", { length: 255 }),
   sourceQuestion: text("sourceQuestion"),
   createdBy: varchar("createdBy", { length: 200 }),
   completedAt: timestamp("completedAt"),
