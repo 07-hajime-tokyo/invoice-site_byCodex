@@ -544,6 +544,11 @@ function applySheetShipmentStatuses<T extends { no: number | null; productName: 
   });
 }
 
+function isTradeStatusComplete(status: unknown) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return normalized === "complete" || normalized === "\u5b8c\u4e86";
+}
+
 async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({
@@ -1234,11 +1239,6 @@ export const appRouter = router({
         if (input.status) {
           conditions.push(eq(tradeRecords.status, input.status));
         }
-        if (input.incompleteOnly) {
-          conditions.push(
-            sql`LOWER(${tradeRecords.status}) != 'complete'`
-          );
-        }
         const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
         const sortColumn = (() => {
           switch (input.sortKey) {
@@ -1261,44 +1261,38 @@ export const appRouter = router({
         })();
         const orderExpr = input.sortDir === "desc" ? desc(sortColumn) : asc(sortColumn);
         const offset = (input.page - 1) * input.pageSize;
-        const aggregateSelect = {
-          totalCount: sql<string>`COUNT(*)`,
-          totalProfit: sql<string>`COALESCE(SUM(${tradeRecords.profitWithRefund}), 0)`,
-          totalSales: sql<string>`COALESCE(SUM(${tradeRecords.totalSales}), 0)`,
-          totalQty: sql<string>`COALESCE(SUM(${tradeRecords.quantity}), 0)`,
-          partners: sql<string>`COUNT(DISTINCT ${tradeRecords.partner})`,
-          totalRefund: sql<string>`COALESCE(SUM(${tradeRecords.refund}), 0)`,
-          totalShipping: sql<string>`COALESCE(SUM(${tradeRecords.shippingCost}), 0)`,
-          totalCustomsDuty: sql<string>`COALESCE(SUM(${tradeRecords.customsDuty}), 0)`,
-        };
-        const [rows, aggregateRows] = await Promise.all([
-          whereClause
-            ? db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr).limit(input.pageSize).offset(offset)
-            : db.select().from(tradeRecords).orderBy(orderExpr).limit(input.pageSize).offset(offset),
-          whereClause
-            ? db.select(aggregateSelect).from(tradeRecords).where(whereClause)
-            : db.select(aggregateSelect).from(tradeRecords),
-        ]);
+        const toNumber = (value: unknown) => Number(value ?? 0) || 0;
         const sheetProgress = await getSheetShipmentProgressByInvoice().catch((error) => {
           console.warn("[Trade] Failed to load sheet shipment progress", error);
           return null;
         });
+        const baseRows = whereClause
+          ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
+          : await db.select().from(tradeRecords).orderBy(orderExpr);
         const rowsWithSheetStatus = sheetProgress
-          ? applySheetShipmentStatuses(rows, sheetProgress)
-          : rows;
-        const aggregate = aggregateRows[0] ?? {};
-        const toNumber = (value: unknown) => Number(value ?? 0) || 0;
+          ? applySheetShipmentStatuses(baseRows, sheetProgress)
+          : baseRows;
+        const matchingRows = input.incompleteOnly
+          ? rowsWithSheetStatus.filter((row) => !isTradeStatusComplete(row.status))
+          : rowsWithSheetStatus;
+        const rows = matchingRows.slice(offset, offset + input.pageSize);
+        const completedRowsForProfit = matchingRows.filter((row) => isTradeStatusComplete(row.status));
+        const partnerCount = new Set(
+          matchingRows
+            .map((row) => row.partner?.trim())
+            .filter((partner): partner is string => !!partner),
+        ).size;
         return {
-          rows: rowsWithSheetStatus,
-          totalCount: toNumber(aggregate.totalCount),
+          rows,
+          totalCount: matchingRows.length,
           summary: {
-            totalProfit: toNumber(aggregate.totalProfit),
-            totalSales: toNumber(aggregate.totalSales),
-            totalQty: toNumber(aggregate.totalQty),
-            partners: toNumber(aggregate.partners),
-            totalRefund: toNumber(aggregate.totalRefund),
-            totalShipping: toNumber(aggregate.totalShipping),
-            totalCustomsDuty: toNumber(aggregate.totalCustomsDuty),
+            totalProfit: completedRowsForProfit.reduce((sum, row) => sum + toNumber(row.profitWithRefund), 0),
+            totalSales: matchingRows.reduce((sum, row) => sum + toNumber(row.totalSales), 0),
+            totalQty: matchingRows.reduce((sum, row) => sum + toNumber(row.quantity), 0),
+            partners: partnerCount,
+            totalRefund: matchingRows.reduce((sum, row) => sum + toNumber(row.refund), 0),
+            totalShipping: matchingRows.reduce((sum, row) => sum + toNumber(row.shippingCost), 0),
+            totalCustomsDuty: matchingRows.reduce((sum, row) => sum + toNumber(row.customsDuty), 0),
           },
         };
       }),

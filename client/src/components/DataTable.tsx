@@ -173,7 +173,8 @@ export function DataTable({
     }
     if (key === "status") {
       const s = String(val);
-      const isComplete = s === "complete";
+      const normalizedStatus = s.trim().toLowerCase();
+      const isComplete = normalizedStatus === "complete" || s.trim() === "\u5b8c\u4e86";
       return (
         <span
           className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
