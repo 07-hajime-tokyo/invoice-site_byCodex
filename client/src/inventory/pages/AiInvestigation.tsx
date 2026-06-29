@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, Database, ExternalLink, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
+import { Bot, Database, ExternalLink, History, Loader2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,11 +11,32 @@ import { trpc } from "@/lib/trpc";
 
 type EvidenceRow = Record<string, string | number | boolean | null>;
 type EvidenceSection = { title: string; rows: EvidenceRow[] };
+type InvestigationResult = {
+  answer: string;
+  evidence: EvidenceSection[];
+  ebayOrders?: Array<{
+    orderId: string;
+    ok: boolean;
+    status?: {
+      orderFulfillmentStatus?: string | null;
+      cancelState?: string | null;
+    };
+    error?: string;
+  }>;
+};
+type InvestigationHistoryItem = {
+  id: string;
+  question: string;
+  includeEbay: boolean;
+  createdAt: string;
+  result: InvestigationResult;
+};
 
 const DEFAULT_EXAMPLES = [
   "FedEx発送登録漏れがないか確認してください",
 ];
 const EXAMPLES_STORAGE_KEY = "invoice-site-ai-investigation-examples";
+const HISTORY_STORAGE_KEY = "invoice-site-ai-investigation-history";
 
 function loadExamples() {
   if (typeof window === "undefined") return DEFAULT_EXAMPLES;
@@ -27,6 +48,37 @@ function loadExamples() {
   } catch {
     return DEFAULT_EXAMPLES;
   }
+}
+
+function loadHistory(): InvestigationHistoryItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((item): item is InvestigationHistoryItem =>
+      item &&
+      typeof item === "object" &&
+      typeof item.id === "string" &&
+      typeof item.question === "string" &&
+      typeof item.createdAt === "string" &&
+      item.result &&
+      typeof item.result === "object" &&
+      typeof item.result.answer === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function formatHistoryDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatCellValue(value: unknown) {
@@ -45,9 +97,15 @@ function EvidenceTable({ section }: { section: EvidenceSection }) {
       "title",
       "productName",
       "quantity",
+      "deliveryQuantity",
+      "fedexQuantity",
+      "missingQuantity",
       "status",
       "trackingNumber",
       "shippingDate",
+      "directTradeTarget",
+      "fedexExcluded",
+      "managementNos",
       "spreadsheetStatus",
       "ebayOrderStatus",
     ];
@@ -134,8 +192,31 @@ export default function AiInvestigation() {
   const [includeEbay, setIncludeEbay] = useState(true);
   const [examples, setExamples] = useState(loadExamples);
   const [newExample, setNewExample] = useState("");
-  const investigate = trpc.inventory.aiInvestigation.investigate.useMutation();
-  const result = investigate.data;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState(loadHistory);
+  const [displayResult, setDisplayResult] = useState<InvestigationResult | null>(null);
+  const saveHistory = (next: InvestigationHistoryItem[]) => {
+    const limited = next.slice(0, 30);
+    setHistoryItems(limited);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(limited));
+  };
+  const investigate = trpc.inventory.aiInvestigation.investigate.useMutation({
+    onSuccess(data, variables) {
+      const result = data as InvestigationResult;
+      setDisplayResult(result);
+      saveHistory([
+        {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          question: variables.question,
+          includeEbay: variables.includeEbay,
+          createdAt: new Date().toISOString(),
+          result,
+        },
+        ...historyItems,
+      ]);
+    },
+  });
+  const result = displayResult;
 
   const canSubmit = question.trim().length >= 2 && !investigate.isPending;
 
@@ -157,6 +238,23 @@ export default function AiInvestigation() {
 
   const removeExample = (example: string) => {
     saveExamples(examples.filter((value) => value !== example));
+  };
+
+  const runInvestigation = () => {
+    const trimmed = question.trim();
+    if (trimmed.length < 2) return;
+    setDisplayResult(null);
+    investigate.mutate({ question: trimmed, includeEbay });
+  };
+
+  const openHistoryItem = (item: InvestigationHistoryItem) => {
+    setQuestion(item.question);
+    setIncludeEbay(item.includeEbay);
+    setDisplayResult(item.result);
+  };
+
+  const deleteHistoryItem = (id: string) => {
+    saveHistory(historyItems.filter((item) => item.id !== id));
   };
 
   return (
@@ -243,7 +341,7 @@ export default function AiInvestigation() {
               <Button
                 type="button"
                 disabled={!canSubmit}
-                onClick={() => investigate.mutate({ question: question.trim(), includeEbay })}
+                onClick={runInvestigation}
               >
                 {investigate.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -256,6 +354,59 @@ export default function AiInvestigation() {
           </div>
         </CardContent>
       </Card>
+
+      <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+        <Card className="rounded-lg">
+          <CollapsibleTrigger asChild>
+            <button className="w-full">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2">
+                    <History className="h-4 w-4 text-muted-foreground" />
+                    調査履歴
+                  </span>
+                  <Badge variant="outline">{historyItems.length}件</Badge>
+                </CardTitle>
+              </CardHeader>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              {historyItems.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-3">まだ履歴はありません</div>
+              ) : (
+                <div className="space-y-2">
+                  {historyItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 text-left flex-1"
+                        onClick={() => openHistoryItem(item)}
+                      >
+                        <div className="text-sm truncate">{item.question}</div>
+                        <div className="text-xs text-muted-foreground">{formatHistoryDate(item.createdAt)}</div>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => deleteHistoryItem(item.id)}
+                        aria-label="履歴を削除"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {investigate.error ? (
         <Card className="rounded-lg border-destructive/40">

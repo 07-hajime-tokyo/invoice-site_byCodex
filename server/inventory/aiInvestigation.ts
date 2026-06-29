@@ -208,6 +208,20 @@ function getItemManagementNo(item: Record<string, unknown>) {
   return String(item.etc ?? item.managementNo ?? item.kanriNo ?? "").split(",")[0]?.trim() ?? "";
 }
 
+function isFedexExcludedManagementNo(managementNo: string) {
+  const raw = managementNo.normalize("NFKC").trim();
+  if (!raw) return false;
+  return /^(ebay|e\d|在庫|シャフト|shaft)/i.test(raw) || /ebay/i.test(raw);
+}
+
+function isDirectTradeFedexTarget(deliveryNo: unknown, managementNo: string) {
+  const raw = managementNo.normalize("NFKC").trim();
+  if (isFedexExcludedManagementNo(raw)) return false;
+  if (/^\d{3,4}(?:$|[_-])/.test(raw)) return true;
+  // 管理番号が空でも、直取の出庫Noは数字始まりで登録されるため対象に残す。
+  return !raw && /^\d{3,4}(?:$|[_-])/.test(String(deliveryNo ?? ""));
+}
+
 function matchesNeedle(value: unknown, needles: string[], compactNeedles: string[]) {
   const raw = String(value ?? "");
   if (!raw) return false;
@@ -358,49 +372,71 @@ function rowsTotal(rows: EvidenceRow[], key = "quantity") {
 }
 
 function summarizeFedexRegistration(deliveryRows: EvidenceRow[], fedexRows: EvidenceRow[]) {
-  const deliveryByNo = new Map<string, { quantity: number; titles: Set<string>; date: string }>();
-  const fedexByNo = new Map<string, { quantity: number; trackingNumbers: Set<string>; date: string }>();
+  const deliveryByKey = new Map<string, {
+    deliveryNo: string;
+    quantity: number;
+    titles: Set<string>;
+    managementNos: Set<string>;
+    date: string;
+  }>();
+  const fedexByKey = new Map<string, { quantity: number; trackingNumbers: Set<string>; date: string }>();
 
   for (const row of deliveryRows) {
     if (row.deleted === true) continue;
+    if (row.directTradeTarget !== true) continue;
     const deliveryNo = String(row.deliveryNo ?? "").trim();
     if (!deliveryNo) continue;
-    const existing = deliveryByNo.get(deliveryNo) ?? { quantity: 0, titles: new Set<string>(), date: "" };
+    const historyId = String(row.historyId ?? "").trim();
+    const key = historyId ? `history:${historyId}` : `delivery:${deliveryNo}`;
+    const existing = deliveryByKey.get(key) ?? {
+      deliveryNo,
+      quantity: 0,
+      titles: new Set<string>(),
+      managementNos: new Set<string>(),
+      date: "",
+    };
     existing.quantity += parseNumber(row.quantity);
     const title = String(row.title ?? "").trim();
     if (title) existing.titles.add(title);
+    const managementNo = String(row.managementNo ?? "").trim();
+    if (managementNo) existing.managementNos.add(managementNo);
     existing.date ||= normalizeDateValue(row.createdAt) ?? "";
-    deliveryByNo.set(deliveryNo, existing);
+    deliveryByKey.set(key, existing);
   }
 
   for (const row of fedexRows) {
     const deliveryNo = String(row.deliveryNo ?? "").trim();
     if (!deliveryNo) continue;
-    const existing = fedexByNo.get(deliveryNo) ?? { quantity: 0, trackingNumbers: new Set<string>(), date: "" };
+    const historyId = String(row.historyId ?? "").trim();
+    const key = historyId ? `history:${historyId}` : `delivery:${deliveryNo}`;
+    const existing = fedexByKey.get(key) ?? { quantity: 0, trackingNumbers: new Set<string>(), date: "" };
     existing.quantity += parseNumber(row.quantity);
     const trackingNumber = String(row.trackingNumber ?? "").trim();
     if (trackingNumber) existing.trackingNumbers.add(trackingNumber);
     existing.date ||= normalizeDateValue(row.shippingDate ?? row.createdAt) ?? "";
-    fedexByNo.set(deliveryNo, existing);
+    fedexByKey.set(key, existing);
   }
 
-  return Array.from(deliveryByNo.entries()).map(([deliveryNo, delivery]) => {
-    const fedex = fedexByNo.get(deliveryNo);
+  return Array.from(deliveryByKey.entries()).map(([key, delivery]) => {
+    const fedex = fedexByKey.get(key);
     const fedexQty = fedex?.quantity ?? 0;
+    const trackingNumbers = fedex ? Array.from(fedex.trackingNumbers).join(", ") : "";
+    const missingQuantity = Math.max(0, delivery.quantity - fedexQty);
     return {
-      deliveryNo,
+      deliveryNo: delivery.deliveryNo,
       deliveryDate: delivery.date,
       deliveryQuantity: delivery.quantity,
       fedexQuantity: fedexQty,
-      missingQuantity: Math.max(0, delivery.quantity - fedexQty),
-      trackingNumbers: fedex ? Array.from(fedex.trackingNumbers).join(", ") : "",
-      status: fedexQty >= delivery.quantity ? "登録済み" : fedexQty > 0 ? "一部不足" : "FedEx未登録",
+      missingQuantity,
+      trackingNumbers,
+      status: trackingNumbers && missingQuantity === 0 ? "登録済み" : fedexQty > 0 ? "一部不足" : "追跡番号なし",
       sampleProducts: Array.from(delivery.titles).slice(0, 3).join(" / "),
+      managementNos: Array.from(delivery.managementNos).slice(0, 5).join(" / "),
     };
   }).sort((a, b) => {
     if (a.status === b.status) return a.deliveryNo.localeCompare(b.deliveryNo);
-    if (a.status === "FedEx未登録") return -1;
-    if (b.status === "FedEx未登録") return 1;
+    if (a.status === "追跡番号なし") return -1;
+    if (b.status === "追跡番号なし") return 1;
     if (a.status === "一部不足") return -1;
     if (b.status === "一部不足") return 1;
     return 0;
@@ -419,7 +455,7 @@ function makeFallbackReport(input: {
   const deliveryQty = rowsTotal(input.evidence.find((s) => s.title === "出庫履歴")?.rows ?? [], "quantity");
   const fedexQty = rowsTotal(input.evidence.find((s) => s.title === "FedEx発送登録")?.rows ?? [], "quantity");
   const comparisonRows = input.evidence.find((s) => s.title === "FedEx発送登録照合")?.rows ?? [];
-  const missingRows = comparisonRows.filter((row) => parseNumber(row.missingQuantity) > 0);
+  const missingRows = comparisonRows.filter((row) => parseNumber(row.missingQuantity) > 0 || row.status !== "登録済み");
   const ebayNotes = input.ebayOrders.length
     ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
     : "- eBay注文IDが見つからない、または対象データにOrderページがありません。";
@@ -427,10 +463,20 @@ function makeFallbackReport(input: {
   const fedexResult = comparisonRows.length === 0
     ? "対象条件に合う出庫履歴が見つかりませんでした。出庫日または検索条件を確認してください。"
     : missingRows.length === 0
-      ? "出庫履歴とサイト内FedEx発送登録データの数量は一致しています。"
-    : missingRows.map((row) => `- ${row.deliveryNo}: 出庫${row.deliveryQuantity} / FedEx登録${row.fedexQuantity} / 不足${row.missingQuantity}（${row.sampleProducts ?? ""}）`).join("\n");
+      ? "直取対象の出庫履歴にはFedEx追跡番号が付いています。"
+    : missingRows.map((row) => `- ${row.deliveryNo}: 出庫${row.deliveryQuantity} / FedEx登録${row.fedexQuantity} / 不足${row.missingQuantity} / 状態:${row.status}（${row.sampleProducts ?? ""}）`).join("\n");
 
-  return `## 結論\n${scopeLine}${fedexResult}\n\n## 数量サマリー\n| 項目 | 数量 |\n|---|---:|\n| 取引データ注文数 | ${orderQty} |\n| 入庫管理 発注数 | ${purchaseQty} |\n| サイト在庫数 | ${stockQty} |\n| 出庫履歴数 | ${deliveryQty} |\n| FedEx発送登録数 | ${fedexQty} |\n\n## eBay確認\n${ebayNotes}\n\n## 次に見るところ\n- 「一部不足」または「FedEx未登録」の出庫Noがあれば、サイト内のFedEx発送登録を確認してください。\n- 出庫履歴に削除済みの商品がある場合、その分は照合から除外しています。\n- eBay確認は注文状態の参考情報で、FedEx発送登録漏れの判定はサイト内FedEx発送登録データを使っています。`;
+  return `## 結論\n${scopeLine}${fedexResult}\n\n## 数量サマリー\n| 項目 | 数量 |\n|---|---:|\n| 取引データ注文数 | ${orderQty} |\n| 入庫管理 発注数 | ${purchaseQty} |\n| サイト在庫数 | ${stockQty} |\n| 出庫履歴数 | ${deliveryQty} |\n| FedEx発送登録数 | ${fedexQty} |\n\n## eBay確認\n${ebayNotes}\n\n## 次に見るところ\n- 「追跡番号なし」または「一部不足」の出庫Noがあれば、出庫履歴からFedEx発送登録を追加してください。\n- 判定対象は直取のみです。管理番号が ebay / E始まり / シャフト / 在庫 のものは除外しています。\n- 出庫履歴に削除済みの商品がある場合、その分は照合から除外しています。\n- eBay確認は注文状態の参考情報で、FedEx発送登録漏れの判定はサイト内FedEx発送登録データを使っています。`;
+}
+
+function isFedexLeakQuestion(question: string) {
+  const compact = compactText(question);
+  return compact.includes("fedex") && (
+    compact.includes("漏れ") ||
+    compact.includes("未登録") ||
+    compact.includes("追跡番号") ||
+    compact.includes("発送登録")
+  );
 }
 
 async function generateAiReport(input: {
@@ -461,6 +507,8 @@ async function generateAiReport(input: {
 - eBay APIの結果がある場合は、キャンセル/返品/発送状態を明示する。
 - FedEx発送登録漏れは、FedEx公式APIではなくサイト内のFedEx発送登録データで判定する。
 - 「FedEx発送登録照合」セクションがある場合は、status / missingQuantity / deliveryNo を最優先で結論に使う。
+- FedEx発送登録漏れの判定対象は直取のみ。管理番号が ebay / E始まり / シャフト / 在庫 のものは対象外。
+- 出庫履歴に追跡番号が付いていない直取の出庫Noは「追跡番号なし」として漏れ扱いにする。
 - 足りない情報がある場合は「確認が必要」と書く。
 - 出力はMarkdown。
 
@@ -469,6 +517,10 @@ ${input.question}
 
 根拠データ(JSON):
 ${context}`;
+
+  if (isFedexLeakQuestion(input.question)) {
+    return makeFallbackReport(input);
+  }
 
   const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
   const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
@@ -527,6 +579,11 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const identifiers = extractIdentifiers(question);
   const dateRange = extractDateRange(question);
   const hasDateFilter = Boolean(dateRange);
+  const hasSpecificTarget = identifiers.invoiceNos.length > 0 ||
+    identifiers.trackingNumbers.length > 0 ||
+    identifiers.ebayOrderIds.length > 0 ||
+    identifiers.managementTerms.length > 0;
+  const fedexLeakQuestion = isFedexLeakQuestion(question);
   const matcher = buildMatchers(question, identifiers);
   const [tradeRows, purchaseRows, inventoryRows, deliveryRows, fedexRows] = await Promise.all([
     db.select().from(tradeRecords).orderBy(desc(tradeRecords.updatedAt)),
@@ -539,7 +596,8 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const invoiceSet = new Set(identifiers.invoiceNos);
   const filterOrRecent = <T>(rows: T[], predicate: (row: T) => boolean, recentCount = 30) => {
     const matched = rows.filter(predicate);
-    if (matched.length > 0 || matcher.hasTarget || hasDateFilter) return matched.slice(0, 120);
+    if (matched.length > 0 || hasSpecificTarget || hasDateFilter) return matched.slice(0, 120);
+    if (fedexLeakQuestion) return rows.slice(0, 200);
     return rows.slice(0, recentCount);
   };
 
@@ -626,21 +684,30 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     for (const item of parseJsonArray(row.itemsJson)) {
       const inventoryId = String(item.inventoryId ?? item.inventory_id ?? item.id ?? item.zaicoId ?? "");
       const title = getItemTitle(item);
+      const managementNo = getItemManagementNo(item);
       const deleted = deletedIds.has(inventoryId) || cancelledKeys.has(`${inventoryId}:${title}`) || Boolean(item.deleted);
+      const directTradeTarget = isDirectTradeFedexTarget(row.deliveryNo, managementNo);
       deliveryEvidence.push({
         historyId: row.id,
         deliveryNo: row.deliveryNo,
         status: row.status,
         title,
         quantity: getItemQuantity(item),
-        managementNo: getItemManagementNo(item),
+        managementNo,
         inventoryId: inventoryId || null,
         deleted,
+        directTradeTarget,
+        fedexExcluded: !directTradeTarget,
         createdAt: row.createdAt ? String(row.createdAt) : "",
       });
     }
   }
 
+  const selectedHistoryIds = new Set(
+    deliveryEvidence
+      .map((row) => Number(row.historyId))
+      .filter((value) => Number.isFinite(value)),
+  );
   const selectedDeliveryNos = new Set(
     deliveryEvidence
       .map((row) => String(row.deliveryNo ?? "").trim())
@@ -650,7 +717,9 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   for (const row of filterOrRecent(fedexRows, (shipment) => {
     const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
     const deliveryNo = String(shipment.deliveryNo ?? "").trim();
+    const historyId = Number(shipment.historyId);
     return invoiceSet.has(invoiceNo) ||
+      (Number.isFinite(historyId) && selectedHistoryIds.has(historyId)) ||
       selectedDeliveryNos.has(deliveryNo) ||
       isDateInRange(shipment.shippingDate, dateRange) ||
       isDateInRange(shipment.createdAt, dateRange) ||
@@ -663,6 +732,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     if (items.length === 0) {
       fedexEvidence.push({
         id: row.id,
+        historyId: row.historyId ?? null,
         deliveryNo: row.deliveryNo,
         sheetName: row.sheetName,
         shippingDate: row.shippingDate,
@@ -677,6 +747,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     for (const item of items) {
       fedexEvidence.push({
         id: row.id,
+        historyId: row.historyId ?? null,
         deliveryNo: row.deliveryNo,
         sheetName: row.sheetName,
         shippingDate: row.shippingDate,
