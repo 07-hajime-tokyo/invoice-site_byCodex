@@ -17,6 +17,12 @@ type EvidenceSection = {
   rows: EvidenceRow[];
 };
 
+type InvestigationDateRange = {
+  startDate: string | null;
+  endDate: string | null;
+  label: string;
+};
+
 type EbayOrderSummary = {
   orderId: string;
   ok: boolean;
@@ -69,6 +75,82 @@ function parseJsonList(value: string | null | undefined): unknown[] {
 function parseNumber(value: unknown) {
   const num = Number(String(value ?? "").replace(/,/g, ""));
   return Number.isFinite(num) ? num : 0;
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function toIsoDate(year: number, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function currentJstYear() {
+  return Number(new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+  }).format(new Date()));
+}
+
+function normalizeDateValue(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(value);
+  }
+
+  const text = String(value).normalize("NFKC").trim();
+  const ymd = text.match(/(20\d{2})[\/.\-年](\d{1,2})[\/.\-月](\d{1,2})/);
+  if (ymd) return toIsoDate(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
+
+  const md = text.match(/(?:^|[^\d])(\d{1,2})[\/.月](\d{1,2})(?:日)?/);
+  if (md) return toIsoDate(currentJstYear(), Number(md[1]), Number(md[2]));
+
+  return null;
+}
+
+function extractDateRange(question: string): InvestigationDateRange | null {
+  const text = question.normalize("NFKC");
+  const matches = Array.from(text.matchAll(/(?:(20\d{2})[\/.\-年])?(\d{1,2})[\/.月](\d{1,2})(?:日)?/g));
+  if (matches.length === 0) return null;
+
+  const toDate = (match: RegExpMatchArray) => {
+    const year = match[1] ? Number(match[1]) : currentJstYear();
+    return toIsoDate(year, Number(match[2]), Number(match[3]));
+  };
+
+  const firstDate = toDate(matches[0]);
+  if (!firstDate) return null;
+  const secondDate = matches[1] ? toDate(matches[1]) : null;
+  const hasAfterWord = /以降|以後|から|〜|～|~/.test(text);
+  const hasUntilWord = /以前|まで/.test(text);
+
+  if (secondDate) {
+    const startDate = firstDate <= secondDate ? firstDate : secondDate;
+    const endDate = firstDate <= secondDate ? secondDate : firstDate;
+    return { startDate, endDate, label: `${startDate}〜${endDate}` };
+  }
+  if (hasUntilWord && !hasAfterWord) {
+    return { startDate: null, endDate: firstDate, label: `${firstDate}以前` };
+  }
+  if (hasAfterWord) {
+    return { startDate: firstDate, endDate: null, label: `${firstDate}以降` };
+  }
+  return { startDate: firstDate, endDate: firstDate, label: firstDate };
+}
+
+function isDateInRange(value: unknown, range: InvestigationDateRange | null) {
+  if (!range) return false;
+  const date = normalizeDateValue(value);
+  if (!date) return false;
+  if (range.startDate && date < range.startDate) return false;
+  if (range.endDate && date > range.endDate) return false;
+  return true;
 }
 
 function extractIdentifiers(question: string) {
@@ -275,8 +357,59 @@ function rowsTotal(rows: EvidenceRow[], key = "quantity") {
   return rows.reduce((sum, row) => sum + parseNumber(row[key]), 0);
 }
 
+function summarizeFedexRegistration(deliveryRows: EvidenceRow[], fedexRows: EvidenceRow[]) {
+  const deliveryByNo = new Map<string, { quantity: number; titles: Set<string>; date: string }>();
+  const fedexByNo = new Map<string, { quantity: number; trackingNumbers: Set<string>; date: string }>();
+
+  for (const row of deliveryRows) {
+    if (row.deleted === true) continue;
+    const deliveryNo = String(row.deliveryNo ?? "").trim();
+    if (!deliveryNo) continue;
+    const existing = deliveryByNo.get(deliveryNo) ?? { quantity: 0, titles: new Set<string>(), date: "" };
+    existing.quantity += parseNumber(row.quantity);
+    const title = String(row.title ?? "").trim();
+    if (title) existing.titles.add(title);
+    existing.date ||= normalizeDateValue(row.createdAt) ?? "";
+    deliveryByNo.set(deliveryNo, existing);
+  }
+
+  for (const row of fedexRows) {
+    const deliveryNo = String(row.deliveryNo ?? "").trim();
+    if (!deliveryNo) continue;
+    const existing = fedexByNo.get(deliveryNo) ?? { quantity: 0, trackingNumbers: new Set<string>(), date: "" };
+    existing.quantity += parseNumber(row.quantity);
+    const trackingNumber = String(row.trackingNumber ?? "").trim();
+    if (trackingNumber) existing.trackingNumbers.add(trackingNumber);
+    existing.date ||= normalizeDateValue(row.shippingDate ?? row.createdAt) ?? "";
+    fedexByNo.set(deliveryNo, existing);
+  }
+
+  return Array.from(deliveryByNo.entries()).map(([deliveryNo, delivery]) => {
+    const fedex = fedexByNo.get(deliveryNo);
+    const fedexQty = fedex?.quantity ?? 0;
+    return {
+      deliveryNo,
+      deliveryDate: delivery.date,
+      deliveryQuantity: delivery.quantity,
+      fedexQuantity: fedexQty,
+      missingQuantity: Math.max(0, delivery.quantity - fedexQty),
+      trackingNumbers: fedex ? Array.from(fedex.trackingNumbers).join(", ") : "",
+      status: fedexQty >= delivery.quantity ? "登録済み" : fedexQty > 0 ? "一部不足" : "FedEx未登録",
+      sampleProducts: Array.from(delivery.titles).slice(0, 3).join(" / "),
+    };
+  }).sort((a, b) => {
+    if (a.status === b.status) return a.deliveryNo.localeCompare(b.deliveryNo);
+    if (a.status === "FedEx未登録") return -1;
+    if (b.status === "FedEx未登録") return 1;
+    if (a.status === "一部不足") return -1;
+    if (b.status === "一部不足") return 1;
+    return 0;
+  });
+}
+
 function makeFallbackReport(input: {
   question: string;
+  dateRange: InvestigationDateRange | null;
   evidence: EvidenceSection[];
   ebayOrders: EbayOrderSummary[];
 }) {
@@ -285,22 +418,32 @@ function makeFallbackReport(input: {
   const stockQty = rowsTotal(input.evidence.find((s) => s.title === "在庫一覧")?.rows ?? [], "quantity");
   const deliveryQty = rowsTotal(input.evidence.find((s) => s.title === "出庫履歴")?.rows ?? [], "quantity");
   const fedexQty = rowsTotal(input.evidence.find((s) => s.title === "FedEx発送登録")?.rows ?? [], "quantity");
+  const comparisonRows = input.evidence.find((s) => s.title === "FedEx発送登録照合")?.rows ?? [];
+  const missingRows = comparisonRows.filter((row) => parseNumber(row.missingQuantity) > 0);
   const ebayNotes = input.ebayOrders.length
     ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
     : "- eBay注文IDが見つからない、または対象データにOrderページがありません。";
+  const scopeLine = input.dateRange ? `対象期間: ${input.dateRange.label}\n\n` : "";
+  const fedexResult = comparisonRows.length === 0
+    ? "対象条件に合う出庫履歴が見つかりませんでした。出庫日または検索条件を確認してください。"
+    : missingRows.length === 0
+      ? "出庫履歴とサイト内FedEx発送登録データの数量は一致しています。"
+    : missingRows.map((row) => `- ${row.deliveryNo}: 出庫${row.deliveryQuantity} / FedEx登録${row.fedexQuantity} / 不足${row.missingQuantity}（${row.sampleProducts ?? ""}）`).join("\n");
 
-  return `## 結論\nAI APIが未設定のため、DBとeBay APIの取得結果から自動サマリーを作成しました。\n\n## 数量サマリー\n| 項目 | 数量 |\n|---|---:|\n| 取引データ注文数 | ${orderQty} |\n| 入庫管理 発注数 | ${purchaseQty} |\n| サイト在庫数 | ${stockQty} |\n| 出庫履歴数 | ${deliveryQty} |\n| FedEx発送登録数 | ${fedexQty} |\n\n## eBay確認\n${ebayNotes}\n\n## 次に見るところ\n- 出庫履歴数とFedEx発送登録数が違う場合、FedEx発送登録漏れの可能性があります。\n- 取引データ注文数と出庫履歴数が違う場合、未出庫または表記ゆれ集計漏れの可能性があります。\n- サイト在庫数と手元在庫が違う場合、削除済み/取消済み/入庫漏れを確認してください。`;
+  return `## 結論\n${scopeLine}${fedexResult}\n\n## 数量サマリー\n| 項目 | 数量 |\n|---|---:|\n| 取引データ注文数 | ${orderQty} |\n| 入庫管理 発注数 | ${purchaseQty} |\n| サイト在庫数 | ${stockQty} |\n| 出庫履歴数 | ${deliveryQty} |\n| FedEx発送登録数 | ${fedexQty} |\n\n## eBay確認\n${ebayNotes}\n\n## 次に見るところ\n- 「一部不足」または「FedEx未登録」の出庫Noがあれば、サイト内のFedEx発送登録を確認してください。\n- 出庫履歴に削除済みの商品がある場合、その分は照合から除外しています。\n- eBay確認は注文状態の参考情報で、FedEx発送登録漏れの判定はサイト内FedEx発送登録データを使っています。`;
 }
 
 async function generateAiReport(input: {
   question: string;
   identifiers: ReturnType<typeof extractIdentifiers>;
+  dateRange: InvestigationDateRange | null;
   evidence: EvidenceSection[];
   ebayOrders: EbayOrderSummary[];
 }) {
   const context = JSON.stringify({
     question: input.question,
     identifiers: input.identifiers,
+    dateRange: input.dateRange,
     evidence: input.evidence.map((section) => ({
       title: section.title,
       rows: section.rows.slice(0, 80),
@@ -316,6 +459,8 @@ async function generateAiReport(input: {
 - 推測だけで断定しない。
 - 根拠データにある数字を優先する。
 - eBay APIの結果がある場合は、キャンセル/返品/発送状態を明示する。
+- FedEx発送登録漏れは、FedEx公式APIではなくサイト内のFedEx発送登録データで判定する。
+- 「FedEx発送登録照合」セクションがある場合は、status / missingQuantity / deliveryNo を最優先で結論に使う。
 - 足りない情報がある場合は「確認が必要」と書く。
 - 出力はMarkdown。
 
@@ -380,6 +525,8 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   if (!db) throw new Error("DB not available");
 
   const identifiers = extractIdentifiers(question);
+  const dateRange = extractDateRange(question);
+  const hasDateFilter = Boolean(dateRange);
   const matcher = buildMatchers(question, identifiers);
   const [tradeRows, purchaseRows, inventoryRows, deliveryRows, fedexRows] = await Promise.all([
     db.select().from(tradeRecords).orderBy(desc(tradeRecords.updatedAt)),
@@ -392,13 +539,14 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const invoiceSet = new Set(identifiers.invoiceNos);
   const filterOrRecent = <T>(rows: T[], predicate: (row: T) => boolean, recentCount = 30) => {
     const matched = rows.filter(predicate);
-    if (matched.length > 0 || matcher.hasTarget) return matched.slice(0, 120);
+    if (matched.length > 0 || matcher.hasTarget || hasDateFilter) return matched.slice(0, 120);
     return rows.slice(0, recentCount);
   };
 
   const tradeEvidence = filterOrRecent(tradeRows, (row) => {
     const no = row.no == null ? "" : String(row.no);
     return invoiceSet.has(no) ||
+      isDateInRange(row.paymentDate ?? row.updatedAt, dateRange) ||
       matcher.matches(row.productName) ||
       matcher.matches(row.partner) ||
       matcher.matches(row.paymentDate);
@@ -416,6 +564,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
 
   const purchaseEvidence = filterOrRecent(purchaseRows, (row) => {
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
+      isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
       matcher.matches(row.managementNo) ||
       matcher.matches(row.title) ||
       matcher.matches(row.itemsJson) ||
@@ -437,6 +586,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
 
   const inventoryEvidence = filterOrRecent(inventoryRows, (row) => {
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
+      isDateInRange(row.updatedAt, dateRange) ||
       matcher.matches(row.etc) ||
       matcher.matches(row.title) ||
       matcher.matches(row.supplierName) ||
@@ -460,6 +610,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   for (const row of filterOrRecent(deliveryRows, (history) => {
     const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
     return invoiceSet.has(invoiceNo) ||
+      isDateInRange(history.createdAt, dateRange) ||
       matcher.matches(history.deliveryNo) ||
       matcher.matches(history.itemsJson);
   })) {
@@ -490,10 +641,19 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     }
   }
 
+  const selectedDeliveryNos = new Set(
+    deliveryEvidence
+      .map((row) => String(row.deliveryNo ?? "").trim())
+      .filter(Boolean),
+  );
   const fedexEvidence: EvidenceRow[] = [];
   for (const row of filterOrRecent(fedexRows, (shipment) => {
     const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
+    const deliveryNo = String(shipment.deliveryNo ?? "").trim();
     return invoiceSet.has(invoiceNo) ||
+      selectedDeliveryNos.has(deliveryNo) ||
+      isDateInRange(shipment.shippingDate, dateRange) ||
+      isDateInRange(shipment.createdAt, dateRange) ||
       matcher.matches(shipment.deliveryNo) ||
       matcher.matches(shipment.trackingNumber) ||
       matcher.matches(shipment.itemsJson) ||
@@ -510,6 +670,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
         quantity: 0,
         spreadsheetStatus: row.spreadsheetStatus,
         spreadsheetError: row.spreadsheetError ?? "",
+        createdAt: row.createdAt ? String(row.createdAt) : "",
       });
       continue;
     }
@@ -524,9 +685,12 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
         quantity: getItemQuantity(item),
         spreadsheetStatus: row.spreadsheetStatus,
         spreadsheetError: row.spreadsheetError ?? "",
+        createdAt: row.createdAt ? String(row.createdAt) : "",
       });
     }
   }
+
+  const fedexComparisonEvidence = summarizeFedexRegistration(deliveryEvidence, fedexEvidence);
 
   const orderIdsFromInventory = inventoryEvidence
     .map((row) => extractEbayOrderId(String(row.ebayOrderUrl ?? "")))
@@ -535,15 +699,17 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const ebayOrders = includeEbay ? await fetchEbayOrders(ebayOrderIds) : [];
 
   const evidence: EvidenceSection[] = [
+    ...(dateRange ? [{ title: "調査条件", rows: [{ dateRange: dateRange.label, startDate: dateRange.startDate, endDate: dateRange.endDate }] }] : []),
     { title: "取引データ", rows: tradeEvidence },
     { title: "入庫管理 発注", rows: purchaseEvidence },
     { title: "在庫一覧", rows: inventoryEvidence },
     { title: "出庫履歴", rows: deliveryEvidence },
     { title: "FedEx発送登録", rows: fedexEvidence },
+    { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
   ];
 
-  const answer = await generateAiReport({ question, identifiers, evidence, ebayOrders });
-  return { identifiers, evidence, ebayOrders, answer };
+  const answer = await generateAiReport({ question, identifiers, dateRange, evidence, ebayOrders });
+  return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };
 }
 
 export const aiInvestigationRouter = router({
