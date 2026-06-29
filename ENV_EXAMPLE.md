@@ -79,6 +79,30 @@ GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-2.5-flash-lite
 
 # =============================================================================
+# eBay API（AI調査のOrderページ確認）
+# =============================================================================
+# 任意 | eBay本番APIは production、Sandboxを使う場合のみ sandbox
+EBAY_ENV=production
+
+# 任意 | eBay Developer App ID。EBAY_CLIENT_ID の代わりに EBAY_APP_ID でも可
+EBAY_CLIENT_ID=your-ebay-client-id
+
+# 任意 | eBay Developer Cert ID。EBAY_CLIENT_SECRET の代わりに EBAY_CERT_ID でも可
+EBAY_CLIENT_SECRET=your-ebay-client-secret
+
+# 任意 | eBay OAuth refresh token（Sell Fulfillment APIの読み取り権限が必要）
+EBAY_REFRESH_TOKEN=your-ebay-refresh-token
+
+# 任意 | refresh tokenで使用するscope。未設定時はSell Fulfillment読み取りのみ
+EBAY_SCOPES=https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly
+
+# 任意 | 一時的なaccess tokenを直接使う場合のみ設定（通常はrefresh token推奨）
+EBAY_ACCESS_TOKEN=
+
+# 任意 | AI調査で使用するモデル名（未設定時は gpt-4o）
+AI_INVESTIGATION_MODEL=gpt-4o
+
+# =============================================================================
 # AWS S3（ロゴ・WhatsApp解析ファイル・ナレッジベースファイルの保存）
 # =============================================================================
 # 必須 | AWSアクセスキーID
@@ -153,6 +177,13 @@ GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | **必須** | Google Sheets API認証 | Google Cloud Console |
 | `GEMINI_API_KEY` | 任意 | インボイス画像解析（無料枠利用） | Google AI Studio |
 | `GEMINI_MODEL` | 任意 | Geminiモデル名 | Google AI Studio |
+| `EBAY_ENV` | 任意 | eBay API環境（production/sandbox） | eBay Developer |
+| `EBAY_CLIENT_ID` | 任意 | eBay API App ID | eBay Developer |
+| `EBAY_CLIENT_SECRET` | 任意 | eBay API Cert ID | eBay Developer |
+| `EBAY_REFRESH_TOKEN` | 任意 | eBay OAuth refresh token | eBay Developer |
+| `EBAY_SCOPES` | 任意 | eBay OAuth scope | eBay Developer |
+| `EBAY_ACCESS_TOKEN` | 任意 | eBay access token直接指定 | eBay Developer |
+| `AI_INVESTIGATION_MODEL` | 任意 | AI調査のモデル名 | Forge/OpenAI互換API |
 | `AWS_ACCESS_KEY_ID` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_SECRET_ACCESS_KEY` | **必須** | S3ファイルストレージ | AWS Console |
 | `AWS_REGION` | **必須** | S3バケットリージョン | AWS Console |

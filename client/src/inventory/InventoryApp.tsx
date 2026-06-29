@@ -13,6 +13,7 @@ const DeletedItems = lazy(() => import("@/inventory/pages/DeletedItems"));
 const MonthlyReport = lazy(() => import("@/inventory/pages/MonthlyReport"));
 const OverseasShipping = lazy(() => import("@/inventory/pages/OverseasShipping"));
 const PartnerPortal = lazy(() => import("@/inventory/pages/PartnerPortal"));
+const AiInvestigation = lazy(() => import("@/inventory/pages/AiInvestigation"));
 const NotFound = lazy(() => import("@/inventory/pages/NotFound"));
 
 function InventoryPageLoading() {
@@ -36,6 +37,7 @@ const REMEMBERED_PATHS = [
   "/inventory/monthly-report",
   "/inventory/settings",
   "/inventory/overseas-shipping",
+  "/inventory/ai-investigation",
 ];
 
 const LAST_PATH_KEY = "invoice_site_inventory_last_path";
@@ -89,6 +91,7 @@ export default function InventoryApp() {
           <Route path={"/inventory/monthly-report"} component={MonthlyReport} />
           <Route path={"/inventory/settings"} component={Settings} />
           <Route path={"/inventory/overseas-shipping"} component={OverseasShipping} />
+          <Route path={"/inventory/ai-investigation"} component={AiInvestigation} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
