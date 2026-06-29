@@ -42,7 +42,7 @@ const menuItems = [
 
 menuItems.splice(3, 0, { icon: Store, label: "eBay在庫", path: "/inventory/ebay-inventory", color: "text-cyan-500" });
 
-menuItems.splice(6, 0, { icon: Sparkles, label: "AI調査", path: "/inventory/ai-investigation", color: "text-emerald-500" });
+menuItems.splice(7, 0, { icon: Sparkles, label: "AI調査", path: "/inventory/ai-investigation", color: "text-emerald-500" });
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
