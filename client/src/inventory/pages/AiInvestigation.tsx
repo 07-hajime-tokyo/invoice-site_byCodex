@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
-import { Markdown } from "@/components/Markdown";
 import { trpc } from "@/lib/trpc";
 
 type EvidenceRow = Record<string, string | number | boolean | null>;
@@ -203,7 +202,9 @@ export default function AiInvestigation() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Markdown className="text-sm">{result.answer}</Markdown>
+              <div className="text-sm whitespace-pre-wrap leading-6">
+                {result.answer}
+              </div>
             </CardContent>
           </Card>
 
