@@ -37,6 +37,7 @@ function Router() {
         <Route path={"/inventory/settings"} component={Home} />
         <Route path={"/inventory/overseas-shipping"} component={Home} />
         <Route path={"/inventory/ai-investigation"} component={Home} />
+        <Route path={"/inventory/action-items"} component={Home} />
         <Route path={"/inventory/partner/:code"} component={Home} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}

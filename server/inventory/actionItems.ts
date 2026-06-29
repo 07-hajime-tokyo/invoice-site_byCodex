@@ -9,6 +9,7 @@ import {
 import { getDb } from "./db";
 
 const actionItemStatusSchema = z.enum(["open", "done"]);
+const defaultAssignees = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
 
 function cleanText(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -78,6 +79,19 @@ export const actionItemsRouter = router({
     .mutation(async ({ input }) => {
       const db = await requireDb();
       await db.insert(actionItemAssignees).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
+      return { success: true };
+    }),
+
+  deleteAssignee: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const [assignee] = await db.select().from(actionItemAssignees).where(eq(actionItemAssignees.id, input.id)).limit(1);
+      if (!assignee) return { success: true };
+      if (defaultAssignees.has(assignee.name)) {
+        throw new Error("初期宛先は削除できません");
+      }
+      await db.delete(actionItemAssignees).where(eq(actionItemAssignees.id, input.id));
       return { success: true };
     }),
 

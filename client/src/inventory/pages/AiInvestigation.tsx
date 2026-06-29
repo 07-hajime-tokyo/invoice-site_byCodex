@@ -88,7 +88,144 @@ function formatCellValue(value: unknown) {
   return String(value);
 }
 
-function EvidenceTable({ section }: { section: EvidenceSection }) {
+function toNumber(value: unknown) {
+  const num = Number(String(value ?? "").replace(/,/g, ""));
+  return Number.isFinite(num) ? num : 0;
+}
+
+function invoiceNoFromDeliveryNo(value: unknown) {
+  return String(value ?? "").match(/^(\d+)/)?.[1] ?? "-";
+}
+
+function displayDate(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  return text.replaceAll("-", "/");
+}
+
+function summarizeProducts(rows: EvidenceRow[]) {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const title = String(row.title ?? row.productName ?? "-").trim() || "-";
+    map.set(title, (map.get(title) ?? 0) + (toNumber(row.quantity) || 1));
+  }
+  return Array.from(map.entries()).map(([title, quantity]) => `${title} x${quantity}`);
+}
+
+function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSection; allSections: EvidenceSection[] }) {
+  const comparisonRows = allSections.find((item) => item.title === "FedEx発送登録照合")?.rows ?? [];
+  const comparisonByDeliveryNo = useMemo(() => {
+    const map = new Map<string, EvidenceRow>();
+    for (const row of comparisonRows) {
+      const deliveryNo = String(row.deliveryNo ?? "").trim();
+      if (deliveryNo) map.set(deliveryNo, row);
+    }
+    return map;
+  }, [comparisonRows]);
+
+  const groups = useMemo(() => {
+    const dateMap = new Map<string, Map<string, Map<string, EvidenceRow[]>>>();
+    for (const row of section.rows) {
+      const date = String(row.deliveryDate ?? row.createdAt ?? "").slice(0, 10) || "-";
+      const invoiceNo = invoiceNoFromDeliveryNo(row.deliveryNo);
+      const deliveryNo = String(row.deliveryNo ?? "-").trim() || "-";
+      if (!dateMap.has(date)) dateMap.set(date, new Map());
+      const invoiceMap = dateMap.get(date)!;
+      if (!invoiceMap.has(invoiceNo)) invoiceMap.set(invoiceNo, new Map());
+      const deliveryMap = invoiceMap.get(invoiceNo)!;
+      if (!deliveryMap.has(deliveryNo)) deliveryMap.set(deliveryNo, []);
+      deliveryMap.get(deliveryNo)!.push(row);
+    }
+    return Array.from(dateMap.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, invoiceMap]) => ({
+        date,
+        invoices: Array.from(invoiceMap.entries())
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([invoiceNo, deliveryMap]) => {
+            const deliveries = Array.from(deliveryMap.entries()).map(([deliveryNo, rows]) => {
+              const comparison = comparisonByDeliveryNo.get(deliveryNo);
+              const quantity = rows.reduce((sum, row) => sum + (toNumber(row.quantity) || 1), 0);
+              return {
+                deliveryNo,
+                rows,
+                quantity,
+                comparison,
+                products: summarizeProducts(rows),
+              };
+            }).sort((a, b) => a.deliveryNo.localeCompare(b.deliveryNo));
+            return {
+              invoiceNo,
+              deliveries,
+              quantity: deliveries.reduce((sum, delivery) => sum + delivery.quantity, 0),
+              products: summarizeProducts(deliveries.flatMap((delivery) => delivery.rows)),
+            };
+          }),
+      }));
+  }, [comparisonByDeliveryNo, section.rows]);
+
+  if (section.rows.length === 0) {
+    return <div className="text-sm text-muted-foreground py-3">該当データなし</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {groups.map((dateGroup) => (
+        <div key={dateGroup.date} className="space-y-2">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            <span>{displayDate(dateGroup.date)}</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          {dateGroup.invoices.map((invoice) => (
+            <div key={`${dateGroup.date}-${invoice.invoiceNo}`} className="rounded-lg border bg-background">
+              <div className="px-4 py-3 border-b">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">No.{invoice.invoiceNo}</span>
+                  <span className="text-xs text-muted-foreground">{displayDate(dateGroup.date)}</span>
+                  <Badge variant="secondary">{invoice.quantity}商品</Badge>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                  {invoice.products.slice(0, 4).join("　")}
+                </div>
+              </div>
+              <div className="divide-y">
+                {invoice.deliveries.map((delivery) => {
+                  const status = String(delivery.comparison?.status ?? "追跡番号なし");
+                  const missingQuantity = toNumber(delivery.comparison?.missingQuantity);
+                  const trackingNumbers = String(delivery.comparison?.trackingNumbers ?? "").trim();
+                  const isMissing = status !== "登録済み" || missingQuantity > 0;
+                  return (
+                    <div key={delivery.deliveryNo} className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">出庫No: {delivery.deliveryNo}</span>
+                        <Badge variant={isMissing ? "destructive" : "default"}>
+                          {isMissing ? status : "登録済み"}
+                        </Badge>
+                        {missingQuantity > 0 ? <Badge variant="outline">不足 {missingQuantity}</Badge> : null}
+                        {trackingNumbers ? <Badge variant="outline">{trackingNumbers}</Badge> : null}
+                        <span className="ml-auto text-xs text-muted-foreground">{delivery.quantity}商品</span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {delivery.products.map((product) => (
+                          <div key={product} className="rounded-md bg-muted/40 px-3 py-1.5 text-sm">
+                            {product}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EvidenceTable({ section, allSections }: { section: EvidenceSection; allSections: EvidenceSection[] }) {
   const [open, setOpen] = useState(section.rows.length > 0);
   const keys = useMemo(() => {
     const preferred = [
@@ -135,7 +272,9 @@ function EvidenceTable({ section }: { section: EvidenceSection }) {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="pt-0">
-            {section.rows.length === 0 ? (
+            {section.title === "出庫履歴" ? (
+              <DeliveryEvidenceGroups section={section} allSections={allSections} />
+            ) : section.rows.length === 0 ? (
               <div className="text-sm text-muted-foreground py-3">該当データなし</div>
             ) : (
               <div className="overflow-x-auto border rounded-md">
@@ -474,7 +613,7 @@ export default function AiInvestigation() {
 
           <div className="space-y-2">
             {(result.evidence as EvidenceSection[]).map((section) => (
-              <EvidenceTable key={section.title} section={section} />
+              <EvidenceTable key={section.title} section={section} allSections={result.evidence as EvidenceSection[]} />
             ))}
           </div>
         </div>

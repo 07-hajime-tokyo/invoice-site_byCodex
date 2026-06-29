@@ -169,7 +169,7 @@ function extractIdentifiers(question: string) {
   const invoiceNos = uniq([
     ...Array.from(question.matchAll(/(?:No\.?|NO\.?|番号|インボイス|invoice)\s*[:：#]?\s*(\d{3,4})/gi)).map((m) => m[1]),
     ...Array.from(question.matchAll(/\b(\d{3,4})\b/g)).map((m) => m[1]),
-  ]).filter(Boolean);
+  ]).filter((value) => Boolean(value) && !/^20\d{2}$/.test(value));
 
   const trackingNumbers = uniq(
     Array.from(question.matchAll(/\b\d{10,22}\b/g)).map((m) => m[0]),
@@ -606,6 +606,12 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   ]);
 
   const invoiceSet = new Set(identifiers.invoiceNos);
+  const matchesDeliveryTarget = (history: typeof deliveryRows[number]) => {
+    const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
+    return invoiceSet.has(invoiceNo) ||
+      matcher.matches(history.deliveryNo) ||
+      matcher.matches(history.itemsJson);
+  };
   const filterOrRecent = <T>(rows: T[], predicate: (row: T) => boolean, recentCount = 30) => {
     const matched = rows.filter(predicate);
     if (matched.length > 0 || hasSpecificTarget || hasDateFilter) return matched.slice(0, 120);
@@ -679,8 +685,12 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const deliveryEvidence: EvidenceRow[] = [];
   for (const row of filterOrRecent(deliveryRows, (history) => {
     const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
+    const dateMatches = isDateInRange(getDeliveryHistoryDate(history), dateRange);
+    if (fedexLeakQuestion && hasDateFilter) {
+      return dateMatches && (!hasSpecificTarget || matchesDeliveryTarget(history));
+    }
     return invoiceSet.has(invoiceNo) ||
-      isDateInRange(getDeliveryHistoryDate(history), dateRange) ||
+      dateMatches ||
       matcher.matches(history.deliveryNo) ||
       matcher.matches(history.itemsJson);
   })) {
@@ -715,14 +725,17 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       });
     }
   }
+  const scopedDeliveryEvidence = fedexLeakQuestion
+    ? deliveryEvidence.filter((row) => row.directTradeTarget === true)
+    : deliveryEvidence;
 
   const selectedHistoryIds = new Set(
-    deliveryEvidence
+    scopedDeliveryEvidence
       .map((row) => Number(row.historyId))
       .filter((value) => Number.isFinite(value)),
   );
   const selectedDeliveryNos = new Set(
-    deliveryEvidence
+    scopedDeliveryEvidence
       .map((row) => String(row.deliveryNo ?? "").trim())
       .filter(Boolean),
   );
@@ -776,7 +789,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     }
   }
 
-  const fedexComparisonEvidence = summarizeFedexRegistration(deliveryEvidence, fedexEvidence);
+  const fedexComparisonEvidence = summarizeFedexRegistration(scopedDeliveryEvidence, fedexEvidence);
 
   const orderIdsFromInventory = fedexLeakQuestion ? [] : inventoryEvidence
     .map((row) => extractEbayOrderId(String(row.ebayOrderUrl ?? "")))
@@ -790,7 +803,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   const evidence: EvidenceSection[] = fedexLeakQuestion
     ? [
         ...scopeEvidence,
-        { title: "出庫履歴", rows: deliveryEvidence },
+        { title: "出庫履歴", rows: scopedDeliveryEvidence },
         { title: "FedEx発送登録", rows: fedexEvidence },
         { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
       ]
