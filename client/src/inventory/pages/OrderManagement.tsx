@@ -397,10 +397,16 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
       // カラー照合: CSVキーワードとZaicoカラーキーワードのいずれかが部分一致
       const colorMatch = allCsvKeywords.some((kw) => {
         const k = kw.toLowerCase();
+        const normalizedK = normalizeLooseText(k);
+        const normalizedTitle = normalizeLooseText(zt);
         return zaicoColorParts.some((zp) => {
           const zc = zp.toLowerCase();
-          return zc.includes(k) || k.includes(zc);
-        }) || zt.includes(k);
+          const normalizedZc = normalizeLooseText(zc);
+          return zc.includes(k) ||
+            k.includes(zc) ||
+            normalizedZc.includes(normalizedK) ||
+            normalizedK.includes(normalizedZc);
+        }) || zt.includes(k) || normalizedTitle.includes(normalizedK);
       });
       if (!colorMatch) return -1;
       // 機種が完全一致する場合は高スコア
