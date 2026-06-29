@@ -836,6 +836,42 @@ export const authorizedUsers = mysqlTable("authorized_users", {
 export type AuthorizedUser = typeof authorizedUsers.$inferSelect;
 export type InsertAuthorizedUser = typeof authorizedUsers.$inferInsert;
 
+export const actionItemAssignees = mysqlTable("action_item_assignees", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ActionItemAssignee = typeof actionItemAssignees.$inferSelect;
+export type InsertActionItemAssignee = typeof actionItemAssignees.$inferInsert;
+
+export const actionItemTitlePresets = mysqlTable("action_item_title_presets", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull().unique(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ActionItemTitlePreset = typeof actionItemTitlePresets.$inferSelect;
+export type InsertActionItemTitlePreset = typeof actionItemTitlePresets.$inferInsert;
+
+export const actionItems = mysqlTable("action_items", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  assignee: varchar("assignee", { length: 100 }).notNull(),
+  detail: text("detail").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("open"),
+  source: varchar("source", { length: 50 }),
+  sourceQuestion: text("sourceQuestion"),
+  createdBy: varchar("createdBy", { length: 200 }),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ActionItem = typeof actionItems.$inferSelect;
+export type InsertActionItem = typeof actionItems.$inferInsert;
+
 /**
  * FedEx発送記録テーブル
  * 出庫グループ（deliveryNo）に紐づくFedEx発送情報を管理する

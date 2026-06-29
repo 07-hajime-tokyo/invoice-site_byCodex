@@ -139,6 +139,45 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_shaft_sales_management_no (managementNo)
       )
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_item_assignees (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name varchar(100) NOT NULL UNIQUE,
+        sortOrder int NOT NULL DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_item_title_presets (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        title varchar(255) NOT NULL UNIQUE,
+        sortOrder int NOT NULL DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_items (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        title varchar(255) NOT NULL,
+        assignee varchar(100) NOT NULL,
+        detail text NOT NULL,
+        status varchar(20) NOT NULL DEFAULT 'open',
+        source varchar(50) NULL,
+        sourceQuestion text NULL,
+        createdBy varchar(200) NULL,
+        completedAt timestamp NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_action_items_status (status),
+        INDEX idx_action_items_assignee (assignee)
+      )
+    `);
+    await db.execute(sql`
+      INSERT IGNORE INTO action_item_assignees (name, sortOrder)
+      VALUES ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3), ('その他', 4)
+    `);
   } catch (error) {
     const message = errorText(error);
     if (

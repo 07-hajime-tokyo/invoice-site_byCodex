@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ActionItemForm } from "@/inventory/components/ActionItemForm";
 import { trpc } from "@/lib/trpc";
 
 type EvidenceRow = Record<string, string | number | boolean | null>;
@@ -210,7 +211,7 @@ export default function AiInvestigation() {
         {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
           question: variables.question,
-          includeEbay: variables.includeEbay,
+          includeEbay: variables.includeEbay ?? true,
           createdAt: new Date().toISOString(),
           result,
         },
@@ -468,6 +469,8 @@ export default function AiInvestigation() {
               </CardContent>
             </Card>
           ) : null}
+
+          <ActionItemForm sourceQuestion={question} />
 
           <div className="space-y-2">
             {(result.evidence as EvidenceSection[]).map((section) => (

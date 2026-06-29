@@ -7,6 +7,7 @@ import { getSessionCookieOptions } from "../_core/cookies";
 import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
+import { actionItemsRouter } from "./actionItems";
 import {
   testConnection,
   getPurchases,
@@ -851,6 +852,7 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
 
 export const inventoryRouter = router({
   system: systemRouter,
+  actionItems: actionItemsRouter,
   aiInvestigation: aiInvestigationRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
