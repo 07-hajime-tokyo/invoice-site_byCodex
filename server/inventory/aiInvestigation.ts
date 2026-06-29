@@ -114,6 +114,18 @@ function normalizeDateValue(value: unknown): string | null {
   return null;
 }
 
+function dateFromDeliveryNo(deliveryNo: unknown): string | null {
+  const text = String(deliveryNo ?? "").normalize("NFKC");
+  const match = text.match(/20\d{6}/);
+  if (!match) return null;
+  const raw = match[0];
+  return toIsoDate(Number(raw.slice(0, 4)), Number(raw.slice(4, 6)), Number(raw.slice(6, 8)));
+}
+
+function getDeliveryHistoryDate(row: { deliveryNo?: string | null; createdAt?: unknown }) {
+  return dateFromDeliveryNo(row.deliveryNo) ?? normalizeDateValue(row.createdAt);
+}
+
 function extractDateRange(question: string): InvestigationDateRange | null {
   const text = question.normalize("NFKC");
   const matches = Array.from(text.matchAll(/(?:(20\d{2})[\/.\-年])?(\d{1,2})[\/.月](\d{1,2})(?:日)?/g));
@@ -400,7 +412,7 @@ function summarizeFedexRegistration(deliveryRows: EvidenceRow[], fedexRows: Evid
     if (title) existing.titles.add(title);
     const managementNo = String(row.managementNo ?? "").trim();
     if (managementNo) existing.managementNos.add(managementNo);
-    existing.date ||= normalizeDateValue(row.createdAt) ?? "";
+    existing.date ||= normalizeDateValue(row.deliveryDate ?? row.createdAt) ?? "";
     deliveryByKey.set(key, existing);
   }
 
@@ -620,7 +632,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     paymentDate: row.paymentDate ?? "",
   }));
 
-  const purchaseEvidence = filterOrRecent(purchaseRows, (row) => {
+  const purchaseEvidence = fedexLeakQuestion ? [] : filterOrRecent(purchaseRows, (row) => {
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
       isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
       matcher.matches(row.managementNo) ||
@@ -642,7 +654,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     supplierName: row.supplierName ?? "",
   }));
 
-  const inventoryEvidence = filterOrRecent(inventoryRows, (row) => {
+  const inventoryEvidence = fedexLeakQuestion ? [] : filterOrRecent(inventoryRows, (row) => {
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
       isDateInRange(row.updatedAt, dateRange) ||
       matcher.matches(row.etc) ||
@@ -668,7 +680,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   for (const row of filterOrRecent(deliveryRows, (history) => {
     const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
     return invoiceSet.has(invoiceNo) ||
-      isDateInRange(history.createdAt, dateRange) ||
+      isDateInRange(getDeliveryHistoryDate(history), dateRange) ||
       matcher.matches(history.deliveryNo) ||
       matcher.matches(history.itemsJson);
   })) {
@@ -698,6 +710,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
         deleted,
         directTradeTarget,
         fedexExcluded: !directTradeTarget,
+        deliveryDate: getDeliveryHistoryDate(row) ?? "",
         createdAt: row.createdAt ? String(row.createdAt) : "",
       });
     }
@@ -718,11 +731,13 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
     const deliveryNo = String(shipment.deliveryNo ?? "").trim();
     const historyId = Number(shipment.historyId);
+    const selectedDelivery = (Number.isFinite(historyId) && selectedHistoryIds.has(historyId)) ||
+      selectedDeliveryNos.has(deliveryNo);
+    if (fedexLeakQuestion) return selectedDelivery;
     return invoiceSet.has(invoiceNo) ||
-      (Number.isFinite(historyId) && selectedHistoryIds.has(historyId)) ||
-      selectedDeliveryNos.has(deliveryNo) ||
+      selectedDelivery ||
       isDateInRange(shipment.shippingDate, dateRange) ||
-      isDateInRange(shipment.createdAt, dateRange) ||
+      isDateInRange(getDeliveryHistoryDate(shipment), dateRange) ||
       matcher.matches(shipment.deliveryNo) ||
       matcher.matches(shipment.trackingNumber) ||
       matcher.matches(shipment.itemsJson) ||
@@ -763,21 +778,31 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
 
   const fedexComparisonEvidence = summarizeFedexRegistration(deliveryEvidence, fedexEvidence);
 
-  const orderIdsFromInventory = inventoryEvidence
+  const orderIdsFromInventory = fedexLeakQuestion ? [] : inventoryEvidence
     .map((row) => extractEbayOrderId(String(row.ebayOrderUrl ?? "")))
     .filter((value): value is string => Boolean(value));
   const ebayOrderIds = uniq([...identifiers.ebayOrderIds, ...orderIdsFromInventory]);
-  const ebayOrders = includeEbay ? await fetchEbayOrders(ebayOrderIds) : [];
+  const ebayOrders = includeEbay && !fedexLeakQuestion ? await fetchEbayOrders(ebayOrderIds) : [];
 
-  const evidence: EvidenceSection[] = [
-    ...(dateRange ? [{ title: "調査条件", rows: [{ dateRange: dateRange.label, startDate: dateRange.startDate, endDate: dateRange.endDate }] }] : []),
-    { title: "取引データ", rows: tradeEvidence },
-    { title: "入庫管理 発注", rows: purchaseEvidence },
-    { title: "在庫一覧", rows: inventoryEvidence },
-    { title: "出庫履歴", rows: deliveryEvidence },
-    { title: "FedEx発送登録", rows: fedexEvidence },
-    { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
-  ];
+  const scopeEvidence = dateRange
+    ? [{ title: "調査条件", rows: [{ dateRange: dateRange.label, startDate: dateRange.startDate, endDate: dateRange.endDate }] }]
+    : [];
+  const evidence: EvidenceSection[] = fedexLeakQuestion
+    ? [
+        ...scopeEvidence,
+        { title: "出庫履歴", rows: deliveryEvidence },
+        { title: "FedEx発送登録", rows: fedexEvidence },
+        { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
+      ]
+    : [
+        ...scopeEvidence,
+        { title: "取引データ", rows: tradeEvidence },
+        { title: "入庫管理 発注", rows: purchaseEvidence },
+        { title: "在庫一覧", rows: inventoryEvidence },
+        { title: "出庫履歴", rows: deliveryEvidence },
+        { title: "FedEx発送登録", rows: fedexEvidence },
+        { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
+      ];
 
   const answer = await generateAiReport({ question, identifiers, dateRange, evidence, ebayOrders });
   return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };

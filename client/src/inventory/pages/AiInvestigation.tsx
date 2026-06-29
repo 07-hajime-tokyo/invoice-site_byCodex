@@ -193,6 +193,7 @@ export default function AiInvestigation() {
   const [examples, setExamples] = useState(loadExamples);
   const [newExample, setNewExample] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [resultOpen, setResultOpen] = useState(true);
   const [historyItems, setHistoryItems] = useState(loadHistory);
   const [displayResult, setDisplayResult] = useState<InvestigationResult | null>(null);
   const saveHistory = (next: InvestigationHistoryItem[]) => {
@@ -204,6 +205,7 @@ export default function AiInvestigation() {
     onSuccess(data, variables) {
       const result = data as InvestigationResult;
       setDisplayResult(result);
+      setResultOpen(true);
       saveHistory([
         {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -251,6 +253,7 @@ export default function AiInvestigation() {
     setQuestion(item.question);
     setIncludeEbay(item.includeEbay);
     setDisplayResult(item.result);
+    setResultOpen(true);
   };
 
   const deleteHistoryItem = (id: string) => {
@@ -424,19 +427,30 @@ export default function AiInvestigation() {
 
       {result ? (
         <div className="space-y-4">
-          <Card className="rounded-lg border-emerald-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Bot className="h-4 w-4 text-emerald-600" />
-                調査結果
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-sm whitespace-pre-wrap leading-6">
-                {result.answer}
-              </div>
-            </CardContent>
-          </Card>
+          <Collapsible open={resultOpen} onOpenChange={setResultOpen}>
+            <Card className="rounded-lg border-emerald-200">
+              <CollapsibleTrigger asChild>
+                <button type="button" className="w-full text-left">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-2">
+                        <Bot className="h-4 w-4 text-emerald-600" />
+                        調査結果
+                      </span>
+                      <Badge variant="outline">{resultOpen ? "表示中" : "非表示"}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="pt-0">
+                  <div className="text-sm whitespace-pre-wrap leading-6">
+                    {result.answer}
+                  </div>
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
 
           {result.ebayOrders?.length ? (
             <Card className="rounded-lg">
