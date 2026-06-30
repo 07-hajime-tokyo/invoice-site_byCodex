@@ -409,6 +409,7 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
   ).slice(0, 5);
   const brandOrNameTokens = nonSpecTokens.filter((token) => !alphaNumericModelTokens.includes(token));
   const modelTokens = alphaNumericModelTokens;
+  const specTokens = Array.from(numericSpecTokens);
   const compactQuestion = compactText(question);
   const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(question.normalize("NFKC"));
   const hasFocus = hasProductIntent && requiredTokens.length > 0 && !compactQuestion.includes("fedex");
@@ -425,6 +426,7 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
     requiredTokens,
     modelTokens,
     brandOrNameTokens,
+    specTokens,
     hasFocus,
     matches(...values: unknown[]) {
       if (!hasFocus) return false;
@@ -437,9 +439,10 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
       // 例: 「テーラーメイド M4 9.5°」と「TaylorMade M4 9.5」
       if (modelTokens.length > 0) {
         const modelMatch = modelTokens.some((token) => tokenMatches(haystack, haystackNoDots, token));
+        const specMatch = specTokens.some((token) => tokenMatches(haystack, haystackNoDots, token));
         const brandMatch = brandOrNameTokens.length === 0 ||
           brandOrNameTokens.some((token) => tokenMatches(haystack, haystackNoDots, token));
-        return modelMatch && brandMatch;
+        return modelMatch && (brandMatch || specMatch || (brandOrNameTokens.length === 0 && specTokens.length === 0));
       }
 
       return false;
@@ -1021,7 +1024,8 @@ async function collectInvestigationContext(
     const dateMatches = isDateInRange(getDeliveryHistoryDate(history), dateRange);
     const deliveryItems = parseJsonArray(history.itemsJson);
     const productMatches = hasProductTarget
-      ? deliveryItems.some((item) => productQuery.matches(getItemTitle(item), getItemManagementNo(item)))
+      ? productQuery.matches(history.itemsJson) ||
+        deliveryItems.some((item) => productQuery.matches(getItemTitle(item), getItemManagementNo(item), JSON.stringify(item)))
       : false;
     const managementMatches = matchesManagementTarget(
       history.deliveryNo,
@@ -1059,7 +1063,7 @@ async function collectInvestigationContext(
       const inventoryId = getItemInventoryId(item);
       const title = getItemTitle(item);
       const managementNo = getItemManagementNo(item);
-      if (hasProductTarget && !productQuery.matches(title, managementNo)) continue;
+      if (hasProductTarget && !productQuery.matches(title, managementNo, JSON.stringify(item))) continue;
       if (!matchesManagementTarget(row.deliveryNo, title, managementNo)) continue;
       const itemQuantity = getItemQuantity(item);
       const cancelledQuantity = inventoryId
