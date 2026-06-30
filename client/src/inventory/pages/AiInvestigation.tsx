@@ -441,6 +441,7 @@ export default function AiInvestigation() {
   const [resultOpen, setResultOpen] = useState(true);
   const [historyItems, setHistoryItems] = useState(loadHistory);
   const [displayResult, setDisplayResult] = useState<InvestigationResult | null>(null);
+  const [activeContext, setActiveContext] = useState<{ question: string; result: InvestigationResult } | null>(null);
   const saveHistory = (next: InvestigationHistoryItem[]) => {
     const limited = next.slice(0, 30);
     setHistoryItems(limited);
@@ -450,6 +451,7 @@ export default function AiInvestigation() {
     onSuccess(data, variables) {
       const result = data as InvestigationResult;
       setDisplayResult(result);
+      setActiveContext({ question: variables.question, result });
       setResultOpen(true);
       saveHistory([
         {
@@ -490,14 +492,30 @@ export default function AiInvestigation() {
   const runInvestigation = () => {
     const trimmed = question.trim();
     if (!canSubmit) return;
+    const contextSource = [
+      activeContext,
+      ...historyItems.map((item) => ({ question: item.question, result: item.result })),
+    ];
+    const seen = new Set<string>();
+    const conversationContext = contextSource
+      .filter((item): item is { question: string; result: InvestigationResult } => Boolean(item?.question && item.result?.answer))
+      .filter((item) => {
+        const key = `${item.question}\n${item.result.answer}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return item.question !== trimmed;
+      })
+      .slice(0, 5)
+      .map((item) => ({ question: item.question, answer: item.result.answer }));
     setDisplayResult(null);
-    investigate.mutate({ question: trimmed, includeEbay });
+    investigate.mutate({ question: trimmed, includeEbay, conversationContext });
   };
 
   const openHistoryItem = (item: InvestigationHistoryItem) => {
     setQuestion(item.question);
     setIncludeEbay(item.includeEbay);
     setDisplayResult(item.result);
+    setActiveContext({ question: item.question, result: item.result });
     setResultOpen(true);
   };
 

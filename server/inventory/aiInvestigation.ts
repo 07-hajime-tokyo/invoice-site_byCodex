@@ -23,6 +23,11 @@ type InvestigationDateRange = {
   label: string;
 };
 
+type InvestigationConversationTurn = {
+  question: string;
+  answer?: string | null;
+};
+
 type EbayOrderSummary = {
   orderId: string;
   ok: boolean;
@@ -205,9 +210,16 @@ function getItemTitle(item: Record<string, unknown>) {
   return String(
     item.title ??
     item.name ??
+    item.itemName ??
+    item.item_name ??
     item.productName ??
+    item.product_name ??
     item.productNameJa ??
+    item.product_name_ja ??
+    item.nameJa ??
     item.productNameEn ??
+    item.product_name_en ??
+    item.nameEn ??
     "",
   );
 }
@@ -364,7 +376,7 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
   const modelTokens = tokens.filter((token) => /[a-z0-9]/i.test(token));
   const requiredTokens = (modelTokens.length > 0 ? modelTokens : tokens).slice(0, 5);
   const compactQuestion = compactText(question);
-  const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況/.test(question.normalize("NFKC"));
+  const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(question.normalize("NFKC"));
   const hasFocus = hasProductIntent && requiredTokens.length > 0 && !compactQuestion.includes("fedex");
 
   return {
@@ -383,6 +395,35 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
       });
     },
   };
+}
+
+function hasExplicitInvestigationTarget(question: string) {
+  const text = question.normalize("NFKC");
+  return /(?:No\.?|NO\.?|invoice|orderid|orderId|order_id|商品名|対象商品|型番|管理番号|出庫No|出庫番号|追跡番号)\s*[:：#]?/i.test(text) ||
+    /\b\d{2}-\d{5}-\d{5}\b/.test(text) ||
+    /\b\d{10,22}\b/.test(text) ||
+    /[A-Za-z0-9ァ-ヶー一-龥]+[_-][A-Za-z0-9ァ-ヶー一-龥_\/&-]+/.test(text);
+}
+
+function isLikelyFollowUpQuestion(question: string) {
+  const text = question.normalize("NFKC").trim();
+  if (!text) return false;
+  return /^(それ|これ|この|さっき|先ほど|前回|では|じゃあ|あと|追加で|もう一度|出庫履歴にも|発注にも|在庫にも|管理番号)/.test(text) ||
+    /(もなかった|もない|でも調べて|で調べて|も確認|再確認|もう一回|詳しく|なぜ|なんで|どういうこと)/.test(text);
+}
+
+function buildContextualQuestion(question: string, conversationContext: InvestigationConversationTurn[] = []) {
+  const trimmed = question.trim();
+  const previous = conversationContext.find((turn) => turn.question.trim().length > 0);
+  if (!previous) return trimmed;
+  if (!isLikelyFollowUpQuestion(trimmed) && hasExplicitInvestigationTarget(trimmed)) return trimmed;
+
+  const previousAnswer = String(previous.answer ?? "").trim().slice(0, 1200);
+  return [
+    `前回の質問: ${previous.question.trim()}`,
+    previousAnswer ? `前回の結論: ${previousAnswer}` : "",
+    `今回の追加質問: ${trimmed}`,
+  ].filter(Boolean).join("\n");
 }
 
 function extractEbayOrderId(value: string | null | undefined) {
@@ -605,7 +646,7 @@ function makeFallbackReport(input: {
 
 function isInventoryStatusQuestion(question: string) {
   const text = question.normalize("NFKC");
-  return /在庫|発注|仕入|注文|何個|何台|何件|あります|ある|現状|現在|状況/.test(text);
+  return /在庫|発注|仕入|注文|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(text);
 }
 
 function makeProductStatusReport(input: {
@@ -784,14 +825,19 @@ ${context}`;
   return data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() || makeFallbackReport(input);
 }
 
-async function collectInvestigationContext(question: string, includeEbay: boolean) {
+async function collectInvestigationContext(
+  question: string,
+  includeEbay: boolean,
+  conversationContext: InvestigationConversationTurn[] = [],
+) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  const identifiers = extractIdentifiers(question);
-  const dateRange = extractDateRange(question);
-  const fedexLeakQuestion = isFedexLeakQuestion(question);
-  const productQuery = buildProductQuery(question, identifiers);
+  const investigationQuestion = buildContextualQuestion(question, conversationContext);
+  const identifiers = extractIdentifiers(investigationQuestion);
+  const dateRange = extractDateRange(investigationQuestion);
+  const fedexLeakQuestion = isFedexLeakQuestion(investigationQuestion);
+  const productQuery = buildProductQuery(investigationQuestion, identifiers);
   const hasProductTarget = productQuery.hasFocus && !fedexLeakQuestion;
   const hasDateFilter = Boolean(dateRange);
   const hasSpecificTarget = identifiers.invoiceNos.length > 0 ||
@@ -799,7 +845,10 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     identifiers.ebayOrderIds.length > 0 ||
     identifiers.managementTerms.length > 0 ||
     hasProductTarget;
-  const matcher = buildMatchers(question, identifiers);
+  const matcher = buildMatchers(investigationQuestion, identifiers);
+  const hasManagementTerms = identifiers.managementTerms.length > 0;
+  const matchesManagementTarget = (...values: unknown[]) =>
+    !hasManagementTerms || values.some((value) => matcher.matches(value));
   const [tradeRows, purchaseRows, inventoryRows, deliveryRows, fedexRows] = await Promise.all([
     db.select().from(tradeRecords).orderBy(desc(tradeRecords.updatedAt)),
     db.select().from(localPurchases).orderBy(desc(localPurchases.updatedAt)),
@@ -827,7 +876,8 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     if (hasProductTarget) {
       const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(no);
       const dateMatches = !dateRange || isDateInRange(row.paymentDate ?? row.updatedAt, dateRange);
-      return invoiceMatches && dateMatches && productQuery.matches(row.productName);
+      return invoiceMatches && dateMatches && productQuery.matches(row.productName) &&
+        matchesManagementTarget(row.productName, row.no);
     }
     return invoiceSet.has(no) ||
       isDateInRange(row.paymentDate ?? row.updatedAt, dateRange) ||
@@ -851,7 +901,8 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       const invoiceMatches = identifiers.invoiceNos.length === 0 ||
         identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no));
       const dateMatches = !dateRange || isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange);
-      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.itemsJson);
+      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.itemsJson, row.managementNo, row.purchaseNum) &&
+        matchesManagementTarget(row.managementNo, row.purchaseNum, row.itemsJson, row.title);
     }
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
       isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
@@ -879,7 +930,8 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       const invoiceMatches = identifiers.invoiceNos.length === 0 ||
         identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no));
       const dateMatches = !dateRange || isDateInRange(row.updatedAt, dateRange);
-      return invoiceMatches && dateMatches && productQuery.matches(row.title);
+      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.etc) &&
+        matchesManagementTarget(row.etc, row.title);
     }
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
       isDateInRange(row.updatedAt, dateRange) ||
@@ -906,16 +958,22 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   for (const row of filterOrRecent(deliveryRows, (history) => {
     const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
     const dateMatches = isDateInRange(getDeliveryHistoryDate(history), dateRange);
+    const deliveryItems = parseJsonArray(history.itemsJson);
     const productMatches = hasProductTarget
-      ? parseJsonArray(history.itemsJson).some((item) => productQuery.matches(getItemTitle(item), getItemManagementNo(item)))
+      ? deliveryItems.some((item) => productQuery.matches(getItemTitle(item), getItemManagementNo(item)))
       : false;
+    const managementMatches = matchesManagementTarget(
+      history.deliveryNo,
+      history.itemsJson,
+      ...deliveryItems.flatMap((item) => [getItemTitle(item), getItemManagementNo(item)]),
+    );
     if (fedexLeakQuestion && hasDateFilter) {
       return dateMatches && (!hasSpecificTarget || matchesDeliveryTarget(history));
     }
     if (hasProductTarget) {
       const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(invoiceNo);
       const dateOk = !dateRange || dateMatches;
-      return invoiceMatches && dateOk && productMatches;
+      return invoiceMatches && dateOk && productMatches && managementMatches;
     }
     return invoiceSet.has(invoiceNo) ||
       dateMatches ||
@@ -936,6 +994,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       const title = getItemTitle(item);
       const managementNo = getItemManagementNo(item);
       if (hasProductTarget && !productQuery.matches(title, managementNo)) continue;
+      if (!matchesManagementTarget(row.deliveryNo, title, managementNo)) continue;
       const deleted = deletedIds.has(inventoryId) || cancelledKeys.has(`${inventoryId}:${title}`) || Boolean(item.deleted);
       const directTradeTarget = isDirectTradeFedexTarget(row.deliveryNo, managementNo);
       deliveryEvidence.push({
@@ -1006,6 +1065,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     }
     for (const item of items) {
       if (hasProductTarget && !productQuery.matches(getItemTitle(item))) continue;
+      if (!matchesManagementTarget(row.deliveryNo, getItemTitle(item), getItemManagementNo(item))) continue;
       fedexEvidence.push({
         id: row.id,
         historyId: row.historyId ?? null,
@@ -1050,9 +1110,9 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
         { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
       ];
 
-  const answer = hasProductTarget && isInventoryStatusQuestion(question)
-    ? makeProductStatusReport({ question, productLabel: productQuery.label, evidence, ebayOrders })
-    : await generateAiReport({ question, identifiers, dateRange, evidence, ebayOrders });
+  const answer = hasProductTarget && isInventoryStatusQuestion(investigationQuestion)
+    ? makeProductStatusReport({ question: investigationQuestion, productLabel: productQuery.label, evidence, ebayOrders })
+    : await generateAiReport({ question: investigationQuestion, identifiers, dateRange, evidence, ebayOrders });
   return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };
 }
 
@@ -1061,8 +1121,12 @@ export const aiInvestigationRouter = router({
     .input(z.object({
       question: z.string().min(2).max(2000),
       includeEbay: z.boolean().default(true),
+      conversationContext: z.array(z.object({
+        question: z.string().min(1).max(2000),
+        answer: z.string().max(6000).optional(),
+      })).max(5).default([]),
     }))
     .mutation(async ({ input }) => {
-      return collectInvestigationContext(input.question, input.includeEbay);
+      return collectInvestigationContext(input.question, input.includeEbay, input.conversationContext);
     }),
 });
