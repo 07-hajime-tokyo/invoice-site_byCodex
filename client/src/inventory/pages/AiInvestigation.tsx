@@ -442,6 +442,8 @@ export default function AiInvestigation() {
   const [historyItems, setHistoryItems] = useState(loadHistory);
   const [displayResult, setDisplayResult] = useState<InvestigationResult | null>(null);
   const [activeContext, setActiveContext] = useState<{ question: string; result: InvestigationResult } | null>(null);
+  const [followUpQuestion, setFollowUpQuestion] = useState("");
+  const [submittedQuestion, setSubmittedQuestion] = useState("");
   const saveHistory = (next: InvestigationHistoryItem[]) => {
     const limited = next.slice(0, 30);
     setHistoryItems(limited);
@@ -452,6 +454,8 @@ export default function AiInvestigation() {
       const result = data as InvestigationResult;
       setDisplayResult(result);
       setActiveContext({ question: variables.question, result });
+      setSubmittedQuestion(variables.question);
+      setFollowUpQuestion("");
       setResultOpen(true);
       saveHistory([
         {
@@ -468,6 +472,7 @@ export default function AiInvestigation() {
   const result = displayResult;
 
   const canSubmit = question.trim().length >= 2 && !investigate.isPending;
+  const canSubmitFollowUp = followUpQuestion.trim().length >= 2 && Boolean(activeContext) && !investigate.isPending;
 
   const saveExamples = (next: string[]) => {
     const normalized = Array.from(new Set(next.map((value) => value.trim()).filter(Boolean)));
@@ -489,15 +494,16 @@ export default function AiInvestigation() {
     saveExamples(examples.filter((value) => value !== example));
   };
 
-  const runInvestigation = () => {
-    const trimmed = question.trim();
-    if (!canSubmit) return;
+  const buildConversationContext = (
+    trimmed: string,
+    priorityContext: Array<{ question: string; result: InvestigationResult } | null> = [activeContext],
+  ) => {
     const contextSource = [
-      activeContext,
+      ...priorityContext,
       ...historyItems.map((item) => ({ question: item.question, result: item.result })),
     ];
     const seen = new Set<string>();
-    const conversationContext = contextSource
+    return contextSource
       .filter((item): item is { question: string; result: InvestigationResult } => Boolean(item?.question && item.result?.answer))
       .filter((item) => {
         const key = `${item.question}\n${item.result.answer}`;
@@ -507,8 +513,25 @@ export default function AiInvestigation() {
       })
       .slice(0, 5)
       .map((item) => ({ question: item.question, answer: item.result.answer }));
+  };
+
+  const runInvestigationWithText = (
+    text: string,
+    priorityContext?: Array<{ question: string; result: InvestigationResult } | null>,
+  ) => {
+    const trimmed = text.trim();
+    if (trimmed.length < 2 || investigate.isPending) return;
+    const conversationContext = buildConversationContext(trimmed, priorityContext);
     setDisplayResult(null);
     investigate.mutate({ question: trimmed, includeEbay, conversationContext });
+  };
+
+  const runInvestigation = () => {
+    runInvestigationWithText(question);
+  };
+
+  const runFollowUpInvestigation = () => {
+    runInvestigationWithText(followUpQuestion, [activeContext]);
   };
 
   const openHistoryItem = (item: InvestigationHistoryItem) => {
@@ -516,6 +539,8 @@ export default function AiInvestigation() {
     setIncludeEbay(item.includeEbay);
     setDisplayResult(item.result);
     setActiveContext({ question: item.question, result: item.result });
+    setSubmittedQuestion(item.question);
+    setFollowUpQuestion("");
     setResultOpen(true);
   };
 
@@ -712,6 +737,39 @@ export default function AiInvestigation() {
             </Card>
           </Collapsible>
 
+          <Card className="rounded-lg">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">追加で質問</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              <Textarea
+                value={followUpQuestion}
+                onChange={(event) => setFollowUpQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    runFollowUpInvestigation();
+                  }
+                }}
+                className="min-h-[88px] resize-y"
+              />
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  disabled={!canSubmitFollowUp}
+                  onClick={runFollowUpInvestigation}
+                >
+                  {investigate.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4 mr-2" />
+                  )}
+                  調査する
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {result.ebayOrders?.length ? (
             <Card className="rounded-lg">
               <CardHeader className="py-3">
@@ -729,7 +787,7 @@ export default function AiInvestigation() {
             </Card>
           ) : null}
 
-          <ActionItemForm sourceQuestion={question} />
+          <ActionItemForm sourceQuestion={submittedQuestion || question} />
 
           <div className="space-y-2">
             {(result.evidence as EvidenceSection[]).map((section) => (
