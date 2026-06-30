@@ -21,7 +21,9 @@ type InvestigationResult = {
     ok: boolean;
     status?: {
       orderFulfillmentStatus?: string | null;
+      orderPaymentStatus?: string | null;
       cancelState?: string | null;
+      refundStatus?: string | null;
     };
     error?: string;
   }>;
@@ -137,6 +139,29 @@ function firstSearchTerm(value: string) {
   return value.split(/\s+\/\s+|,/)[0]?.trim() ?? value;
 }
 
+function formatEbayStatus(value: string | null | undefined) {
+  const status = String(value ?? "").trim();
+  if (!status) return "-";
+  const labels: Record<string, string> = {
+    FULFILLED: "発送済み",
+    IN_PROGRESS: "処理中",
+    NOT_STARTED: "未発送",
+    PAID: "支払い済み",
+    PENDING: "保留",
+    NOT_PAID: "未払い",
+    NONE: "なし",
+    NONE_REQUESTED: "キャンセル申請なし",
+    NOT_CANCELED: "キャンセルなし",
+    CANCELED: "キャンセル済み",
+    CANCELLED: "キャンセル済み",
+    CANCEL_REQUESTED: "キャンセル申請中",
+    CANCEL_REJECTED: "キャンセル却下",
+    REFUNDED: "返金済み",
+    PARTIALLY_REFUNDED: "一部返金",
+  };
+  return labels[status] ? `${labels[status]} (${status})` : status;
+}
+
 function getEvidenceCellLink(sectionTitle: string, key: string, row: EvidenceRow, text: string) {
   if (!text || text === "-") return null;
   if (key === "deliveryNo") return buildDeliveryHistoryUrl(row);
@@ -151,7 +176,7 @@ function getEvidenceCellLink(sectionTitle: string, key: string, row: EvidenceRow
 
 function splitInvestigationAnswer(answer: string) {
   const trimmed = answer.trim();
-  const detailsStart = trimmed.search(/\n##\s*(?:詳細|数量サマリー|eBay確認|次に見るところ|原因候補|次にするべき行動)/);
+  const detailsStart = trimmed.search(/\n##\s*(?:詳細|数量サマリー|次に見るところ|原因候補|次にするべき行動)/);
   if (detailsStart <= 0) return { summary: trimmed, details: "" };
   return {
     summary: trimmed.slice(0, detailsStart).trim(),
@@ -905,7 +930,7 @@ export default function AiInvestigation() {
                 {result.ebayOrders.map((order) => (
                   <Badge key={order.orderId} variant={order.ok ? "default" : "destructive"}>
                     {order.orderId}: {order.ok
-                      ? `${order.status?.orderFulfillmentStatus ?? "-"} / ${order.status?.cancelState ?? "cancelなし"}`
+                      ? `発送=${formatEbayStatus(order.status?.orderFulfillmentStatus)} / キャンセル=${formatEbayStatus(order.status?.cancelState)}`
                       : order.error}
                   </Badge>
                 ))}

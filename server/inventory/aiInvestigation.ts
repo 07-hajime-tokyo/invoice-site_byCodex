@@ -635,6 +635,49 @@ function rowsTotal(rows: EvidenceRow[], key = "quantity") {
   return rows.reduce((sum, row) => sum + parseNumber(row[key]), 0);
 }
 
+function formatEbayOrderStatus(value: string | null | undefined) {
+  const status = String(value ?? "").trim();
+  if (!status) return "-";
+  const labels: Record<string, string> = {
+    FULFILLED: "発送済み",
+    IN_PROGRESS: "処理中",
+    NOT_STARTED: "未発送",
+    PAID: "支払い済み",
+    PENDING: "保留",
+    NOT_PAID: "未払い",
+    NONE: "なし",
+    NONE_REQUESTED: "キャンセル申請なし",
+    NOT_CANCELED: "キャンセルなし",
+    CANCELED: "キャンセル済み",
+    CANCELLED: "キャンセル済み",
+    CANCEL_REQUESTED: "キャンセル申請中",
+    CANCEL_REJECTED: "キャンセル却下",
+    REFUNDED: "返金済み",
+    PARTIALLY_REFUNDED: "一部返金",
+  };
+  return labels[status] ? `${labels[status]} (${status})` : status;
+}
+
+function formatEbayOrderNotes(orders: EbayOrderSummary[]) {
+  if (orders.length === 0) {
+    return "- OrderページURLまたはOrder IDが見つからないため、eBay APIは照会できませんでした。";
+  }
+  return orders.map((order) => {
+    if (!order.ok) return `- ${order.orderId}: ${order.error}`;
+    const itemText = order.items?.length
+      ? ` / 商品: ${order.items.map((item) => `${item.title} x${item.quantity}`).join("、")}`
+      : "";
+    return [
+      `- ${order.orderId}:`,
+      `発送=${formatEbayOrderStatus(order.status?.orderFulfillmentStatus)}`,
+      `支払い=${formatEbayOrderStatus(order.status?.orderPaymentStatus)}`,
+      `キャンセル=${formatEbayOrderStatus(order.status?.cancelState)}`,
+      `返金=${formatEbayOrderStatus(order.status?.refundStatus)}`,
+      itemText,
+    ].join(" ");
+  }).join("\n");
+}
+
 function summarizeFedexRegistration(deliveryRows: EvidenceRow[], fedexRows: EvidenceRow[]) {
   const deliveryByKey = new Map<string, {
     deliveryNo: string;
@@ -720,9 +763,7 @@ function makeFallbackReport(input: {
   const fedexQty = rowsTotal(input.evidence.find((s) => s.title === "FedEx発送登録")?.rows ?? [], "quantity");
   const comparisonRows = input.evidence.find((s) => s.title === "FedEx発送登録照合")?.rows ?? [];
   const missingRows = comparisonRows.filter((row) => parseNumber(row.missingQuantity) > 0 || row.status !== "登録済み");
-  const ebayNotes = input.ebayOrders.length
-    ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
-    : "- eBay注文IDが見つからない、または対象データにOrderページがありません。";
+  const ebayNotes = formatEbayOrderNotes(input.ebayOrders);
   const scopeLine = input.dateRange ? `対象期間: ${input.dateRange.label}\n\n` : "";
   const fedexResult = comparisonRows.length === 0
     ? "対象条件に合う出庫履歴が見つかりませんでした。出庫日または検索条件を確認してください。"
@@ -870,12 +911,13 @@ function makeProductStatusReport(input: {
     ...activeStockRows,
     ...deliveryRows,
   ].map((row) => String(row.managementNo ?? row.deliveryNo ?? "").trim()).filter(Boolean)).slice(0, 8);
-  const ebayNotes = input.ebayOrders.length
-    ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
-    : "- eBay Orderページが登録されている該当データは見つかりませんでした。";
+  const ebayNotes = formatEbayOrderNotes(input.ebayOrders);
 
   return `## 結論
 ${conclusionLines.join("\n")}
+
+## eBay確認
+${ebayNotes}
 
 ## 現在の状況
 | 項目 | 数量 |
@@ -895,9 +937,6 @@ ${conclusionLines.join("\n")}
 - 出庫済み（有効）は、出庫履歴の削除済み商品を除外して数えています。
 - 削除済みとして残っている出庫履歴は、現在の有効な出庫数とは別に表示しています。
 - 該当管理番号・出庫No: ${sampleManagementNos.length ? sampleManagementNos.join(" / ") : "該当なし"}
-
-### eBay確認
-${ebayNotes}
 
 ### 次にするべき行動
 - 下の根拠データで、入庫管理 発注・在庫一覧・出庫履歴の該当行を確認してください。
