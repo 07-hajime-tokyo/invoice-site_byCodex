@@ -216,6 +216,8 @@ function extractIdentifiers(question: string) {
       .split(/[\s　,、。:：\n\r]+/)
       .map((value) => value.trim())
       .filter((value) => value.length >= 3 && !/^\d+$/.test(value))
+      .filter((value) => !/^(ebay|order|id|orderid)$/i.test(value))
+      .filter((value) => !/^\d{2}-\d{5}-\d{5}$/.test(value))
       .slice(0, 12),
   );
 
@@ -725,6 +727,49 @@ function describeEbayOrder(order: EbayOrderSummary) {
   return [`注文 ${order.orderId}: ${summary || "eBay注文情報を確認しました。"}`, itemText].filter(Boolean).join(" ");
 }
 
+function describeEbayOrderConclusion(order: EbayOrderSummary) {
+  if (!order.ok) return `注文 ${order.orderId} は確認できませんでした。${order.error ?? ""}`.trim();
+  const refunded = isEbayRefunded(order);
+  const canceled = isEbayCanceled(order);
+  const fulfillment = getEbayStatusCode(order.status?.orderFulfillmentStatus);
+  const payment = getEbayStatusCode(order.status?.orderPaymentStatus);
+  const parts: string[] = [];
+
+  if (canceled && refunded) {
+    parts.push("キャンセル返金済みです。");
+  } else if (canceled) {
+    parts.push("キャンセルされています。");
+  } else if (refunded) {
+    parts.push("返品/返金済みです。");
+  } else if (fulfillment === "FULFILLED") {
+    parts.push("発送済みです。");
+  } else if (fulfillment === "NOT_STARTED") {
+    parts.push("未発送です。");
+  } else if (fulfillment) {
+    parts.push(`発送状況は「${formatEbayOrderStatus(fulfillment)}」です。`);
+  }
+
+  if (payment === "PAID") parts.push("支払いは完了しています。");
+  if (!canceled) parts.push("キャンセル申請はありません。");
+  if (!refunded) parts.push("返品/返金は確認できません。");
+
+  return `注文 ${order.orderId} は${parts.join("")}`;
+}
+
+function formatEbayOrderDetail(order: EbayOrderSummary) {
+  if (!order.ok) return `- 注文 ${order.orderId}: ${order.error ?? "確認できませんでした"}`;
+  const itemText = order.items?.length
+    ? `\n- 対象商品: ${order.items.map((item) => `${item.title} x${item.quantity}`).join("、")}`
+    : "";
+  return [
+    `- 注文ID: ${order.orderId}`,
+    `- 発送: ${formatEbayOrderStatus(order.status?.orderFulfillmentStatus)}`,
+    `- 支払い: ${formatEbayOrderStatus(order.status?.orderPaymentStatus)}`,
+    `- キャンセル: ${formatEbayOrderStatus(order.status?.cancelState)}`,
+    `- 返品/返金: ${formatEbayOrderStatus(order.status?.refundStatus)}`,
+  ].join("\n") + itemText;
+}
+
 function formatEbayOrderNotes(orders: EbayOrderSummary[]) {
   if (orders.length === 0) {
     return "- OrderページURLまたはOrder IDが見つからないため、eBay APIは照会できませんでした。";
@@ -756,21 +801,18 @@ function makeEbayOrderReport(input: { ebayOrders: EbayOrderSummary[] }) {
     return `## 結論
 eBay Order IDを確認できなかったため、eBay API照会は行っていません。
 
-## eBay確認
-${formatEbayOrderNotes(input.ebayOrders)}
-
 ## 詳細
 - eBay Order IDだけを確認する質問では、在庫一覧や入庫管理の有無は結論に含めません。`;
   }
 
-  const summaries = input.ebayOrders.map(describeEbayOrder);
+  const summaries = input.ebayOrders.map(describeEbayOrderConclusion);
+  const details = input.ebayOrders.map(formatEbayOrderDetail);
   return `## 結論
 ${summaries.join("\n")}
 
-## eBay確認
-${formatEbayOrderNotes(input.ebayOrders)}
-
 ## 詳細
+${details.join("\n\n")}
+
 - eBay Order IDだけを確認する質問として扱いました。
 - 在庫一覧や入庫管理の有無は、この回答の結論には含めていません。`;
 }
@@ -1437,10 +1479,12 @@ async function collectInvestigationContext(
 
   const fedexComparisonEvidence = summarizeFedexRegistration(scopedDeliveryEvidence, fedexEvidence);
 
-  const orderIdsFromInventory = fedexLeakQuestion ? [] : inventoryEvidence
+  const orderIdsFromInventory = fedexLeakQuestion || ebayOrderOnlyQuestion ? [] : inventoryEvidence
     .map((row) => extractEbayOrderId(String(row.ebayOrderUrl ?? "")))
     .filter((value): value is string => Boolean(value));
-  const ebayOrderIds = uniq([...identifiers.ebayOrderIds, ...orderIdsFromInventory]);
+  const ebayOrderIds = ebayOrderOnlyQuestion
+    ? uniq(identifiers.ebayOrderIds)
+    : uniq([...identifiers.ebayOrderIds, ...orderIdsFromInventory]);
   const ebayOrders = includeEbay && !fedexLeakQuestion ? await fetchEbayOrders(ebayOrderIds) : [];
 
   const scopeEvidence = dateRange
