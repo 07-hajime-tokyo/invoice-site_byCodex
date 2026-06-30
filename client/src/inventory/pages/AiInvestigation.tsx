@@ -24,6 +24,8 @@ type InvestigationResult = {
       orderPaymentStatus?: string | null;
       cancelState?: string | null;
       refundStatus?: string | null;
+      refundCount?: number;
+      cancelRequestCount?: number;
     };
     error?: string;
   }>;
@@ -159,7 +161,33 @@ function formatEbayStatus(value: string | null | undefined) {
     REFUNDED: "返金済み",
     PARTIALLY_REFUNDED: "一部返金",
   };
-  return labels[status] ? `${labels[status]} (${status})` : status;
+  return labels[status] ?? status;
+}
+
+function getEbayStatusCode(value: string | null | undefined) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function formatEbayOrderSummary(order: NonNullable<InvestigationResult["ebayOrders"]>[number]) {
+  if (!order.ok) return order.error ?? "eBay APIで確認できませんでした";
+  const refunded = (order.status?.refundCount ?? 0) > 0 ||
+    getEbayStatusCode(order.status?.refundStatus).includes("REFUND");
+  const cancelState = getEbayStatusCode(order.status?.cancelState);
+  const canceled = (order.status?.cancelRequestCount ?? 0) > 0 ||
+    (!!cancelState && cancelState !== "NONE" && cancelState !== "NONE_REQUESTED" && cancelState !== "NOT_CANCELED");
+  const fulfillment = getEbayStatusCode(order.status?.orderFulfillmentStatus);
+  const payment = getEbayStatusCode(order.status?.orderPaymentStatus);
+
+  if (canceled && refunded) return "キャンセル返金済み";
+  if (canceled) return "キャンセル済み";
+  if (refunded) return "返金済み";
+  if (fulfillment === "FULFILLED") return payment === "PAID" ? "発送済み・支払い済み" : "発送済み";
+  if (fulfillment === "NOT_STARTED") return "未発送";
+  return [
+    formatEbayStatus(order.status?.orderFulfillmentStatus),
+    formatEbayStatus(order.status?.orderPaymentStatus),
+    formatEbayStatus(order.status?.cancelState),
+  ].filter((value) => value && value !== "-").join(" / ") || "確認済み";
 }
 
 function getEvidenceCellLink(sectionTitle: string, key: string, row: EvidenceRow, text: string) {
@@ -929,9 +957,7 @@ export default function AiInvestigation() {
               <CardContent className="pt-0 flex flex-wrap gap-2">
                 {result.ebayOrders.map((order) => (
                   <Badge key={order.orderId} variant={order.ok ? "default" : "destructive"}>
-                    {order.orderId}: {order.ok
-                      ? `発送=${formatEbayStatus(order.status?.orderFulfillmentStatus)} / キャンセル=${formatEbayStatus(order.status?.cancelState)}`
-                      : order.error}
+                    {order.orderId}: {formatEbayOrderSummary(order)}
                   </Badge>
                 ))}
               </CardContent>

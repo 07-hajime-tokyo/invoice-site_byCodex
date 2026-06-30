@@ -36,6 +36,8 @@ type EbayOrderSummary = {
     orderPaymentStatus?: string | null;
     cancelState?: string | null;
     refundStatus?: string | null;
+    refundCount?: number;
+    cancelRequestCount?: number;
   };
   buyer?: string | null;
   items?: Array<{
@@ -183,7 +185,8 @@ function normalizeManagementTerm(value: string) {
 
 function extractIdentifiers(question: string) {
   const rawManagementTerms = Array.from(question.matchAll(/[A-Za-z0-9ァ-ヶー一-龥]+[_-][A-Za-z0-9ァ-ヶー一-龥_\/&-]+/g))
-    .map((m) => m[0]);
+    .map((m) => m[0])
+    .filter((value) => !/^\d{2}-\d{5}-\d{5}$/.test(value));
   const managementTerms = uniq(
     rawManagementTerms
       .map(normalizeManagementTerm)
@@ -401,6 +404,7 @@ function cleanupProductCandidateText(value: string, identifiers: ReturnType<type
   }
 
   return candidate
+    .replace(/(?:eBay\s*Order\s*ID|Order\s*ID)\s*[:：]?/gi, " ")
     .replace(/20\d{2}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}(?:日)?/g, " ")
     .replace(/(?:^|[^\d])\d{1,2}[\/月]\d{1,2}(?:日)?/g, " ")
     .replace(/(?:調査対象|知りたいこと|商品名|対象商品|検索語|条件)\s*[:：]/g, " ")
@@ -608,14 +612,27 @@ async function fetchEbayOrders(orderIds: string[]): Promise<EbayOrderSummary[]> 
       const paymentSummary = order.paymentSummary && typeof order.paymentSummary === "object"
         ? order.paymentSummary as Record<string, unknown>
         : null;
+      const refunds = Array.isArray(paymentSummary?.refunds)
+        ? paymentSummary.refunds as Array<Record<string, unknown>>
+        : [];
+      const cancelRequests = Array.isArray(cancelStatus?.cancelRequests)
+        ? cancelStatus.cancelRequests as Array<Record<string, unknown>>
+        : [];
+      const refundStatusFromRefunds = refunds
+        .map((refund) => String(refund.refundStatus ?? refund.status ?? ""))
+        .find(Boolean);
       results.push({
         orderId,
         ok: true,
         status: {
           orderFulfillmentStatus: String(order.orderFulfillmentStatus ?? "") || null,
           orderPaymentStatus: String(paymentSummary?.paymentStatus ?? order.orderPaymentStatus ?? "") || null,
-          cancelState: String(cancelStatus?.cancelState ?? "") || null,
-          refundStatus: String(order.refundStatus ?? "") || null,
+          cancelState: String(cancelStatus?.cancelState ?? "") ||
+            (cancelRequests.length > 0 ? "CANCEL_REQUESTED" : null),
+          refundStatus: String(order.refundStatus ?? paymentSummary?.refundStatus ?? refundStatusFromRefunds ?? "") ||
+            (refunds.length > 0 ? "REFUNDED" : null),
+          refundCount: refunds.length,
+          cancelRequestCount: cancelRequests.length,
         },
         buyer,
         items: lineItems.map((item) => ({
@@ -655,7 +672,57 @@ function formatEbayOrderStatus(value: string | null | undefined) {
     REFUNDED: "返金済み",
     PARTIALLY_REFUNDED: "一部返金",
   };
-  return labels[status] ? `${labels[status]} (${status})` : status;
+  return labels[status] ?? status;
+}
+
+function getEbayStatusCode(value: string | null | undefined) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function isEbayRefunded(order: EbayOrderSummary) {
+  const status = getEbayStatusCode(order.status?.refundStatus);
+  return (order.status?.refundCount ?? 0) > 0 || status.includes("REFUND");
+}
+
+function isEbayCanceled(order: EbayOrderSummary) {
+  const status = getEbayStatusCode(order.status?.cancelState);
+  if ((order.status?.cancelRequestCount ?? 0) > 0) return true;
+  if (!status || status === "NONE" || status === "NONE_REQUESTED" || status === "NOT_CANCELED") return false;
+  return status.includes("CANCEL");
+}
+
+function describeEbayOrder(order: EbayOrderSummary) {
+  if (!order.ok) return `注文 ${order.orderId} は確認できませんでした。${order.error ?? ""}`.trim();
+  const itemText = order.items?.length
+    ? `対象商品: ${order.items.map((item) => `${item.title} x${item.quantity}`).join("、")}`
+    : "";
+  const refunded = isEbayRefunded(order);
+  const canceled = isEbayCanceled(order);
+  const fulfillment = getEbayStatusCode(order.status?.orderFulfillmentStatus);
+  const payment = getEbayStatusCode(order.status?.orderPaymentStatus);
+  const statusParts: string[] = [];
+
+  if (canceled && refunded) {
+    statusParts.push("こちらの商品はキャンセル返金済みです。");
+  } else if (canceled) {
+    statusParts.push("こちらの商品はキャンセルされています。");
+  } else if (refunded) {
+    statusParts.push("こちらの商品は返金済みです。");
+  } else if (fulfillment === "FULFILLED") {
+    statusParts.push("こちらの商品は発送済みです。");
+  } else if (fulfillment === "NOT_STARTED") {
+    statusParts.push("こちらの商品はまだ発送されていません。");
+  } else if (fulfillment) {
+    statusParts.push(`発送状況は「${formatEbayOrderStatus(fulfillment)}」です。`);
+  }
+
+  if (payment === "PAID") statusParts.push("支払いは完了しています。");
+  if (!canceled && getEbayStatusCode(order.status?.cancelState) === "NONE_REQUESTED") {
+    statusParts.push("キャンセル申請はありません。");
+  }
+
+  const summary = statusParts.join("");
+  return [`注文 ${order.orderId}: ${summary || "eBay注文情報を確認しました。"}`, itemText].filter(Boolean).join(" ");
 }
 
 function formatEbayOrderNotes(orders: EbayOrderSummary[]) {
@@ -663,19 +730,49 @@ function formatEbayOrderNotes(orders: EbayOrderSummary[]) {
     return "- OrderページURLまたはOrder IDが見つからないため、eBay APIは照会できませんでした。";
   }
   return orders.map((order) => {
-    if (!order.ok) return `- ${order.orderId}: ${order.error}`;
-    const itemText = order.items?.length
-      ? ` / 商品: ${order.items.map((item) => `${item.title} x${item.quantity}`).join("、")}`
-      : "";
-    return [
-      `- ${order.orderId}:`,
-      `発送=${formatEbayOrderStatus(order.status?.orderFulfillmentStatus)}`,
-      `支払い=${formatEbayOrderStatus(order.status?.orderPaymentStatus)}`,
-      `キャンセル=${formatEbayOrderStatus(order.status?.cancelState)}`,
-      `返金=${formatEbayOrderStatus(order.status?.refundStatus)}`,
-      itemText,
-    ].join(" ");
+    if (!order.ok) return `- ${describeEbayOrder(order)}`;
+    const rawStatus = [
+      `発送: ${formatEbayOrderStatus(order.status?.orderFulfillmentStatus)}`,
+      `支払い: ${formatEbayOrderStatus(order.status?.orderPaymentStatus)}`,
+      `キャンセル: ${formatEbayOrderStatus(order.status?.cancelState)}`,
+      `返金: ${formatEbayOrderStatus(order.status?.refundStatus)}`,
+    ].join(" / ");
+    return `- ${describeEbayOrder(order)}（${rawStatus}）`;
   }).join("\n");
+}
+
+function isEbayOrderOnlyQuestion(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
+  if (identifiers.ebayOrderIds.length === 0) return false;
+  const text = question.normalize("NFKC");
+  const hasProductLine = /(?:^|[\n\r])\s*(?:商品名|対象商品|型番|検索語)\s*[:：]\s*\S+/i.test(text);
+  const hasOtherTarget = identifiers.invoiceNos.length > 0 ||
+    identifiers.trackingNumbers.length > 0 ||
+    identifiers.managementTerms.length > 0;
+  return !hasProductLine && !hasOtherTarget;
+}
+
+function makeEbayOrderReport(input: { ebayOrders: EbayOrderSummary[] }) {
+  if (input.ebayOrders.length === 0) {
+    return `## 結論
+eBay Order IDを確認できなかったため、eBay API照会は行っていません。
+
+## eBay確認
+${formatEbayOrderNotes(input.ebayOrders)}
+
+## 詳細
+- eBay Order IDだけを確認する質問では、在庫一覧や入庫管理の有無は結論に含めません。`;
+  }
+
+  const summaries = input.ebayOrders.map(describeEbayOrder);
+  return `## 結論
+${summaries.join("\n")}
+
+## eBay確認
+${formatEbayOrderNotes(input.ebayOrders)}
+
+## 詳細
+- eBay Order IDだけを確認する質問として扱いました。
+- 在庫一覧や入庫管理の有無は、この回答の結論には含めていません。`;
 }
 
 function summarizeFedexRegistration(deliveryRows: EvidenceRow[], fedexRows: EvidenceRow[]) {
@@ -1061,7 +1158,8 @@ async function collectInvestigationContext(
   const purchaseStatusIntent = getPurchaseStatusIntent(investigationQuestion);
   const purchaseActionDateMode = isPurchaseActionDateQuestion(investigationQuestion);
   const productQuery = buildProductQuery(investigationQuestion, identifiers);
-  const hasProductTarget = productQuery.hasFocus && !fedexLeakQuestion;
+  const ebayOrderOnlyQuestion = isEbayOrderOnlyQuestion(investigationQuestion, identifiers);
+  const hasProductTarget = productQuery.hasFocus && !fedexLeakQuestion && !ebayOrderOnlyQuestion;
   const hasDateFilter = Boolean(dateRange);
   const hasSpecificTarget = identifiers.invoiceNos.length > 0 ||
     identifiers.trackingNumbers.length > 0 ||
@@ -1365,7 +1463,9 @@ async function collectInvestigationContext(
         { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
       ];
 
-  const answer = purchaseStatusIntent && !hasProductTarget
+  const answer = ebayOrderOnlyQuestion
+    ? makeEbayOrderReport({ ebayOrders })
+    : purchaseStatusIntent && !hasProductTarget
     ? makePurchaseListReport({ question: investigationQuestion, dateRange, statusIntent: purchaseStatusIntent, evidence })
     : hasProductTarget && isInventoryStatusQuestion(investigationQuestion)
       ? makeProductStatusReport({ question: investigationQuestion, productLabel: productQuery.label, evidence, ebayOrders })
