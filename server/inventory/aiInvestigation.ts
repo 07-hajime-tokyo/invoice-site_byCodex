@@ -92,10 +92,12 @@ function toIsoDate(year: number, month: number, day: number) {
 }
 
 function currentJstYear() {
-  return Number(new Intl.DateTimeFormat("ja-JP", {
+  const formatted = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
-  }).format(new Date()));
+  }).format(new Date());
+  const year = formatted.match(/20\d{2}/)?.[0];
+  return year ? Number(year) : new Date().getFullYear();
 }
 
 function normalizeDateValue(value: unknown): string | null {
@@ -110,10 +112,10 @@ function normalizeDateValue(value: unknown): string | null {
   }
 
   const text = String(value).normalize("NFKC").trim();
-  const ymd = text.match(/(20\d{2})[\/.\-年](\d{1,2})[\/.\-月](\d{1,2})/);
+  const ymd = text.match(/(20\d{2})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
   if (ymd) return toIsoDate(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
 
-  const md = text.match(/(?:^|[^\d])(\d{1,2})[\/.月](\d{1,2})(?:日)?/);
+  const md = text.match(/(?:^|[^\d])(\d{1,2})[\/月](\d{1,2})(?:日)?/);
   if (md) return toIsoDate(currentJstYear(), Number(md[1]), Number(md[2]));
 
   return null;
@@ -133,7 +135,7 @@ function getDeliveryHistoryDate(row: { deliveryNo?: string | null; createdAt?: u
 
 function extractDateRange(question: string): InvestigationDateRange | null {
   const text = question.normalize("NFKC");
-  const matches = Array.from(text.matchAll(/(?:(20\d{2})[\/.\-年])?(\d{1,2})[\/.月](\d{1,2})(?:日)?/g));
+  const matches = Array.from(text.matchAll(/(?:(20\d{2})[\/\-年])?(\d{1,2})[\/月](\d{1,2})(?:日)?/g));
   if (matches.length === 0) return null;
 
   const toDate = (match: RegExpMatchArray) => {
@@ -467,7 +469,7 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
 
 function hasExplicitInvestigationTarget(question: string) {
   const text = question.normalize("NFKC");
-  return /(?:No\.?|NO\.?|invoice|orderid|orderId|order_id|商品名|対象商品|型番|管理番号|出庫No|出庫番号|追跡番号)\s*[:：#]?/i.test(text) ||
+  return /(?:No\.?|NO\.?|invoice|orderid|orderId|order_id|商品名|対象商品|型番|管理番号|管理No|出庫No|出庫番号|追跡番号)\s*[:：#]?/i.test(text) ||
     /\b\d{2}-\d{5}-\d{5}\b/.test(text) ||
     /\b\d{10,22}\b/.test(text) ||
     /[A-Za-z0-9ァ-ヶー一-龥]+[_-][A-Za-z0-9ァ-ヶー一-龥_\/&-]+/.test(text);
@@ -482,9 +484,11 @@ function isLikelyFollowUpQuestion(question: string) {
 
 function buildContextualQuestion(question: string, conversationContext: InvestigationConversationTurn[] = []) {
   const trimmed = question.trim();
+  if (isFedexLeakQuestion(trimmed)) return trimmed;
   const previous = conversationContext.find((turn) => turn.question.trim().length > 0);
   if (!previous) return trimmed;
-  if (!isLikelyFollowUpQuestion(trimmed) && hasExplicitInvestigationTarget(trimmed)) return trimmed;
+  if (hasExplicitInvestigationTarget(trimmed)) return trimmed;
+  if (!isLikelyFollowUpQuestion(trimmed)) return trimmed;
 
   const previousAnswer = String(previous.answer ?? "").trim().slice(0, 1200);
   return [
