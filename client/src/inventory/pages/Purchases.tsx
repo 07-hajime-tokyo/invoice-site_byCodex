@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -493,6 +494,7 @@ function PurchaseCardMobile({
 }
 
 export default function Purchases() {
+  const [location] = useLocation();
   const utils = trpc.useUtils();
   const { data: inventories, refetch: refetchInventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
     enabled: false,
@@ -542,7 +544,19 @@ export default function Purchases() {
       return next;
     });
   }, []);
-  const [searchQuery, setSearchQuery] = useState("");
+  const urlSearchQuery = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") ?? "";
+  }, [location]);
+  const [searchQuery, setSearchQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") ?? "";
+  });
+  useEffect(() => {
+    if (!urlSearchQuery || urlSearchQuery === searchQuery) return;
+    setPurchasePage(1);
+    setSearchQuery(urlSearchQuery);
+  }, [searchQuery, setPurchasePage, urlSearchQuery]);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 250);
   const purchaseQueryInput = useMemo(() => ({
     page: purchasePage,

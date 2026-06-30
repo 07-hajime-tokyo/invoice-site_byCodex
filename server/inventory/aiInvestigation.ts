@@ -263,6 +263,95 @@ function buildMatchers(question: string, identifiers: ReturnType<typeof extractI
   };
 }
 
+const PRODUCT_STOP_WORDS = new Set([
+  "現状",
+  "現在",
+  "今",
+  "いま",
+  "何個",
+  "何台",
+  "何件",
+  "いくつ",
+  "発注",
+  "発注済み",
+  "在庫",
+  "仕入",
+  "仕入れ",
+  "注文",
+  "商品",
+  "状況",
+  "ありますか",
+  "あります",
+  "ある",
+  "ない",
+  "教えて",
+  "確認",
+  "してください",
+]);
+
+function normalizeProductSearchText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/(?:degrees?|deg\.?|°|度)/g, "")
+    .replace(/[^0-9a-zぁ-んァ-ヶ一-龠々ー.]+/gi, "");
+}
+
+function extractProductCandidateText(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
+  const text = question.normalize("NFKC");
+  const targetMatch = text.match(/^(.+?)(?:で|について|の)(?:現状|現在|今|いま|何個|何台|いくつ|発注|在庫|あります|ある|ない|状況)/);
+  let candidate = targetMatch?.[1] ?? text;
+
+  for (const value of [
+    ...identifiers.invoiceNos,
+    ...identifiers.trackingNumbers,
+    ...identifiers.ebayOrderIds,
+    ...identifiers.managementTerms,
+  ]) {
+    candidate = candidate.replaceAll(value, " ");
+  }
+
+  return candidate
+    .replace(/20\d{2}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}(?:日)?/g, " ")
+    .replace(/(?:現状|現在|今|いま|何個|何台|何件|いくつ|発注済み|発注|在庫|仕入れ?|注文|商品|状況|ありますか|あります|ある|ない|教えて|確認|してください|ですか|です|ますか|ください)/g, " ")
+    .replace(/[？?]/g, " ")
+    .trim();
+}
+
+function buildProductQuery(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
+  const candidate = extractProductCandidateText(question, identifiers);
+  const tokens = uniq(
+    candidate
+      .split(/[\s　,、。・･_\/()（）[\]【】]+/)
+      .map((token) => token.trim())
+      .map((token) => token.replace(/[-ー]+$/g, ""))
+      .map(normalizeProductSearchText)
+      .filter((token) => token.length >= 2 && !PRODUCT_STOP_WORDS.has(token) && !/^\d{4}$/.test(token)),
+  ).slice(0, 8);
+  const modelTokens = tokens.filter((token) => /[a-z0-9]/i.test(token));
+  const requiredTokens = (modelTokens.length > 0 ? modelTokens : tokens).slice(0, 5);
+  const compactQuestion = compactText(question);
+  const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況/.test(question.normalize("NFKC"));
+  const hasFocus = hasProductIntent && requiredTokens.length > 0 && !compactQuestion.includes("fedex");
+
+  return {
+    label: candidate || requiredTokens.join(" "),
+    tokens,
+    requiredTokens,
+    hasFocus,
+    matches(...values: unknown[]) {
+      if (!hasFocus) return false;
+      const haystack = normalizeProductSearchText(values.filter((value) => value != null).join(" "));
+      const haystackNoDots = haystack.replace(/\./g, "");
+      return requiredTokens.every((token) => {
+        if (haystack.includes(token)) return true;
+        if (token.includes(".")) return haystackNoDots.includes(token.replace(/\./g, ""));
+        return false;
+      });
+    },
+  };
+}
+
 function extractEbayOrderId(value: string | null | undefined) {
   const text = String(value ?? "");
   if (!text) return null;
@@ -481,6 +570,84 @@ function makeFallbackReport(input: {
   return `## 結論\n${scopeLine}${fedexResult}\n\n## 数量サマリー\n| 項目 | 数量 |\n|---|---:|\n| 取引データ注文数 | ${orderQty} |\n| 入庫管理 発注数 | ${purchaseQty} |\n| サイト在庫数 | ${stockQty} |\n| 出庫履歴数 | ${deliveryQty} |\n| FedEx発送登録数 | ${fedexQty} |\n\n## eBay確認\n${ebayNotes}\n\n## 次に見るところ\n- 「追跡番号なし」または「一部不足」の出庫Noがあれば、出庫履歴からFedEx発送登録を追加してください。\n- 判定対象は直取のみです。管理番号が ebay / E始まり / シャフト / 在庫 のものは除外しています。\n- 出庫履歴に削除済みの商品がある場合、その分は照合から除外しています。\n- eBay確認は注文状態の参考情報で、FedEx発送登録漏れの判定はサイト内FedEx発送登録データを使っています。`;
 }
 
+function isInventoryStatusQuestion(question: string) {
+  const text = question.normalize("NFKC");
+  return /在庫|発注|仕入|注文|何個|何台|何件|あります|ある|現状|現在|状況/.test(text);
+}
+
+function makeProductStatusReport(input: {
+  question: string;
+  productLabel: string;
+  evidence: EvidenceSection[];
+  ebayOrders: EbayOrderSummary[];
+}) {
+  const tradeRows = input.evidence.find((section) => section.title === "取引データ")?.rows ?? [];
+  const purchaseRows = input.evidence.find((section) => section.title === "入庫管理 発注")?.rows ?? [];
+  const inventoryRows = input.evidence.find((section) => section.title === "在庫一覧")?.rows ?? [];
+  const deliveryRows = input.evidence.find((section) => section.title === "出庫履歴")?.rows ?? [];
+  const orderedRows = purchaseRows.filter((row) => String(row.status ?? "") !== "purchased");
+  const purchasedRows = purchaseRows.filter((row) => String(row.status ?? "") === "purchased");
+  const activeStockRows = inventoryRows.filter((row) => {
+    const isDeleted = row.isDeleted === 1 || row.isDeleted === true;
+    return !isDeleted && parseNumber(row.quantity) > 0;
+  });
+  const activeDeliveryRows = deliveryRows.filter((row) => row.deleted !== true);
+
+  const tradeQty = rowsTotal(tradeRows, "quantity");
+  const orderedQty = rowsTotal(orderedRows, "quantity");
+  const purchasedQty = rowsTotal(purchasedRows, "quantity");
+  const stockQty = rowsTotal(activeStockRows, "quantity");
+  const deliveryQty = rowsTotal(activeDeliveryRows, "quantity");
+  const productLabel = input.productLabel || "対象商品";
+
+  const conclusionLines = [
+    stockQty > 0
+      ? `現時点で「${productLabel}」の在庫は ${stockQty} 個あります。`
+      : `現時点で「${productLabel}」の在庫はありません。`,
+    orderedQty > 0
+      ? `入庫管理の発注済みは ${orderedQty} 個あります。`
+      : "入庫管理の発注済みデータも見つかりませんでした。",
+  ];
+  if (tradeQty > 0) conclusionLines.push(`取引データ上の注文数は ${tradeQty} 個です。`);
+  if (deliveryQty > 0) conclusionLines.push(`過去の出庫履歴には ${deliveryQty} 個分の記録があります。`);
+  if (purchasedQty > 0) conclusionLines.push(`入庫済み扱いの発注データは ${purchasedQty} 個分あります。`);
+
+  const sampleManagementNos = uniq([
+    ...orderedRows,
+    ...activeStockRows,
+    ...activeDeliveryRows,
+  ].map((row) => String(row.managementNo ?? row.deliveryNo ?? "").trim()).filter(Boolean)).slice(0, 8);
+  const ebayNotes = input.ebayOrders.length
+    ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
+    : "- eBay Orderページが登録されている該当データは見つかりませんでした。";
+
+  return `## 結論
+${conclusionLines.join("\n")}
+
+## 現在の状況
+| 項目 | 数量 |
+|---|---:|
+| 在庫一覧の現在庫 | ${stockQty} |
+| 入庫管理の発注済み | ${orderedQty} |
+| 入庫済み扱いの発注 | ${purchasedQty} |
+| 取引データの注文数 | ${tradeQty} |
+| 出庫済み | ${deliveryQty} |
+
+## 詳細
+### 原因候補
+- 在庫一覧は、削除済みではなく数量が1以上のデータだけを現在庫として数えています。
+- 入庫管理の発注済みは、status が purchased ではない発注データだけを数えています。
+- 出庫済みは、出庫履歴の削除済み商品を除外して数えています。
+- 該当管理番号・出庫No: ${sampleManagementNos.length ? sampleManagementNos.join(" / ") : "該当なし"}
+
+### eBay確認
+${ebayNotes}
+
+### 次にするべき行動
+- 下の根拠データで、入庫管理 発注・在庫一覧・出庫履歴の該当行を確認してください。
+- 管理番号または出庫Noをクリックすると該当ページに移動できます。`;
+}
+
 function isFedexLeakQuestion(question: string) {
   const compact = compactText(question);
   return compact.includes("fedex") && (
@@ -590,12 +757,15 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
 
   const identifiers = extractIdentifiers(question);
   const dateRange = extractDateRange(question);
+  const fedexLeakQuestion = isFedexLeakQuestion(question);
+  const productQuery = buildProductQuery(question, identifiers);
+  const hasProductTarget = productQuery.hasFocus && !fedexLeakQuestion;
   const hasDateFilter = Boolean(dateRange);
   const hasSpecificTarget = identifiers.invoiceNos.length > 0 ||
     identifiers.trackingNumbers.length > 0 ||
     identifiers.ebayOrderIds.length > 0 ||
-    identifiers.managementTerms.length > 0;
-  const fedexLeakQuestion = isFedexLeakQuestion(question);
+    identifiers.managementTerms.length > 0 ||
+    hasProductTarget;
   const matcher = buildMatchers(question, identifiers);
   const [tradeRows, purchaseRows, inventoryRows, deliveryRows, fedexRows] = await Promise.all([
     db.select().from(tradeRecords).orderBy(desc(tradeRecords.updatedAt)),
@@ -621,6 +791,11 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
 
   const tradeEvidence = filterOrRecent(tradeRows, (row) => {
     const no = row.no == null ? "" : String(row.no);
+    if (hasProductTarget) {
+      const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(no);
+      const dateMatches = !dateRange || isDateInRange(row.paymentDate ?? row.updatedAt, dateRange);
+      return invoiceMatches && dateMatches && productQuery.matches(row.productName);
+    }
     return invoiceSet.has(no) ||
       isDateInRange(row.paymentDate ?? row.updatedAt, dateRange) ||
       matcher.matches(row.productName) ||
@@ -639,6 +814,12 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   }));
 
   const purchaseEvidence = fedexLeakQuestion ? [] : filterOrRecent(purchaseRows, (row) => {
+    if (hasProductTarget) {
+      const invoiceMatches = identifiers.invoiceNos.length === 0 ||
+        identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no));
+      const dateMatches = !dateRange || isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange);
+      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.itemsJson);
+    }
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
       isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
       matcher.matches(row.managementNo) ||
@@ -661,6 +842,12 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   }));
 
   const inventoryEvidence = fedexLeakQuestion ? [] : filterOrRecent(inventoryRows, (row) => {
+    if (hasProductTarget) {
+      const invoiceMatches = identifiers.invoiceNos.length === 0 ||
+        identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no));
+      const dateMatches = !dateRange || isDateInRange(row.updatedAt, dateRange);
+      return invoiceMatches && dateMatches && productQuery.matches(row.title);
+    }
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
       isDateInRange(row.updatedAt, dateRange) ||
       matcher.matches(row.etc) ||
@@ -686,8 +873,16 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
   for (const row of filterOrRecent(deliveryRows, (history) => {
     const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
     const dateMatches = isDateInRange(getDeliveryHistoryDate(history), dateRange);
+    const productMatches = hasProductTarget
+      ? parseJsonArray(history.itemsJson).some((item) => productQuery.matches(getItemTitle(item), getItemManagementNo(item)))
+      : false;
     if (fedexLeakQuestion && hasDateFilter) {
       return dateMatches && (!hasSpecificTarget || matchesDeliveryTarget(history));
+    }
+    if (hasProductTarget) {
+      const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(invoiceNo);
+      const dateOk = !dateRange || dateMatches;
+      return invoiceMatches && dateOk && productMatches;
     }
     return invoiceSet.has(invoiceNo) ||
       dateMatches ||
@@ -707,6 +902,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       const inventoryId = String(item.inventoryId ?? item.inventory_id ?? item.id ?? item.zaicoId ?? "");
       const title = getItemTitle(item);
       const managementNo = getItemManagementNo(item);
+      if (hasProductTarget && !productQuery.matches(title, managementNo)) continue;
       const deleted = deletedIds.has(inventoryId) || cancelledKeys.has(`${inventoryId}:${title}`) || Boolean(item.deleted);
       const directTradeTarget = isDirectTradeFedexTarget(row.deliveryNo, managementNo);
       deliveryEvidence.push({
@@ -747,6 +943,9 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
     const selectedDelivery = (Number.isFinite(historyId) && selectedHistoryIds.has(historyId)) ||
       selectedDeliveryNos.has(deliveryNo);
     if (fedexLeakQuestion) return selectedDelivery;
+    if (hasProductTarget) {
+      return selectedDelivery || productQuery.matches(shipment.itemsJson);
+    }
     return invoiceSet.has(invoiceNo) ||
       selectedDelivery ||
       isDateInRange(shipment.shippingDate, dateRange) ||
@@ -773,6 +972,7 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
       continue;
     }
     for (const item of items) {
+      if (hasProductTarget && !productQuery.matches(getItemTitle(item))) continue;
       fedexEvidence.push({
         id: row.id,
         historyId: row.historyId ?? null,
@@ -817,7 +1017,9 @@ async function collectInvestigationContext(question: string, includeEbay: boolea
         { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
       ];
 
-  const answer = await generateAiReport({ question, identifiers, dateRange, evidence, ebayOrders });
+  const answer = hasProductTarget && isInventoryStatusQuestion(question)
+    ? makeProductStatusReport({ question, productLabel: productQuery.label, evidence, ebayOrders })
+    : await generateAiReport({ question, identifiers, dateRange, evidence, ebayOrders });
   return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };
 }
 

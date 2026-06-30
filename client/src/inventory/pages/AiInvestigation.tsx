@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Bot, Database, ExternalLink, History, Loader2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Database, ExternalLink, History, Loader2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +104,78 @@ function displayDate(value: unknown) {
   return text.replaceAll("-", "/");
 }
 
+function buildDeliveryHistoryUrl(row: EvidenceRow) {
+  const params = new URLSearchParams();
+  const group = invoiceNoFromDeliveryNo(row.deliveryNo);
+  const historyId = String(row.historyId ?? "").trim();
+  if (group && group !== "-") params.set("group", group);
+  if (historyId) params.set("historyId", historyId);
+  const query = params.toString();
+  return `/inventory/delivery-history${query ? `?${query}` : ""}`;
+}
+
+function buildSearchUrl(path: string, query: string) {
+  const params = new URLSearchParams();
+  params.set("q", query);
+  return `${path}?${params.toString()}`;
+}
+
+function firstSearchTerm(value: string) {
+  return value.split(/\s+\/\s+|,/)[0]?.trim() ?? value;
+}
+
+function getEvidenceCellLink(sectionTitle: string, key: string, row: EvidenceRow, text: string) {
+  if (!text || text === "-") return null;
+  if (key === "deliveryNo") return buildDeliveryHistoryUrl(row);
+  if (key === "managementNo" || key === "managementNos") {
+    const query = firstSearchTerm(text);
+    if (!query || query === "-") return null;
+    if (sectionTitle === "入庫管理 発注") return buildSearchUrl("/inventory/purchases", query);
+    return buildSearchUrl("/inventory/deliveries", query);
+  }
+  return null;
+}
+
+function splitInvestigationAnswer(answer: string) {
+  const trimmed = answer.trim();
+  const detailsStart = trimmed.search(/\n##\s*(?:詳細|数量サマリー|eBay確認|次に見るところ|原因候補|次にするべき行動)/);
+  if (detailsStart <= 0) return { summary: trimmed, details: "" };
+  return {
+    summary: trimmed.slice(0, detailsStart).trim(),
+    details: trimmed.slice(detailsStart).trim(),
+  };
+}
+
+function InvestigationAnswer({ answer }: { answer: string }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const parts = useMemo(() => splitInvestigationAnswer(answer), [answer]);
+
+  return (
+    <div className="space-y-3">
+      <div className="text-sm whitespace-pre-wrap leading-6">{parts.summary}</div>
+      {parts.details ? (
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            {detailsOpen ? "詳細を隠す" : "詳細を表示"}
+          </Button>
+          {detailsOpen ? (
+            <div className="rounded-md border bg-muted/20 p-3 text-sm whitespace-pre-wrap leading-6">
+              {parts.details}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function summarizeProducts(rows: EvidenceRow[]) {
   const map = new Map<string, number>();
   for (const row of rows) {
@@ -113,6 +186,7 @@ function summarizeProducts(rows: EvidenceRow[]) {
 }
 
 function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSection; allSections: EvidenceSection[] }) {
+  const [, setLocation] = useLocation();
   const comparisonRows = allSections.find((item) => item.title === "FedEx発送登録照合")?.rows ?? [];
   const comparisonByDeliveryNo = useMemo(() => {
     const map = new Map<string, EvidenceRow>();
@@ -152,6 +226,7 @@ function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSec
                 quantity,
                 comparison,
                 products: summarizeProducts(rows),
+                managementNos: Array.from(new Set(rows.map((row) => String(row.managementNo ?? "").trim()).filter(Boolean))),
               };
             }).sort((a, b) => a.deliveryNo.localeCompare(b.deliveryNo));
             return {
@@ -198,7 +273,13 @@ function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSec
                   return (
                     <div key={delivery.deliveryNo} className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">出庫No: {delivery.deliveryNo}</span>
+                        <button
+                          type="button"
+                          className="font-medium text-primary underline-offset-2 hover:underline"
+                          onClick={() => setLocation(buildDeliveryHistoryUrl(delivery.rows[0]))}
+                        >
+                          出庫No: {delivery.deliveryNo}
+                        </button>
                         <Badge variant={isMissing ? "destructive" : "default"}>
                           {isMissing ? status : "登録済み"}
                         </Badge>
@@ -212,6 +293,20 @@ function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSec
                             {product}
                           </div>
                         ))}
+                        {delivery.managementNos.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {delivery.managementNos.map((managementNo) => (
+                              <button
+                                key={managementNo}
+                                type="button"
+                                className="rounded border px-2 py-1 text-xs text-primary underline-offset-2 hover:underline"
+                                onClick={() => setLocation(buildSearchUrl("/inventory/deliveries", managementNo))}
+                              >
+                                管理番号: {managementNo}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -227,6 +322,7 @@ function DeliveryEvidenceGroups({ section, allSections }: { section: EvidenceSec
 
 function EvidenceTable({ section, allSections }: { section: EvidenceSection; allSections: EvidenceSection[] }) {
   const [open, setOpen] = useState(section.rows.length > 0);
+  const [, setLocation] = useLocation();
   const keys = useMemo(() => {
     const preferred = [
       "no",
@@ -294,9 +390,18 @@ function EvidenceTable({ section, allSections }: { section: EvidenceSection; all
                         {keys.map((key) => {
                           const text = formatCellValue(row[key]);
                           const isUrl = /^https?:\/\//i.test(text);
+                          const internalLink = getEvidenceCellLink(section.title, key, row, text);
                           return (
                             <td key={key} className="px-3 py-2 max-w-[320px] truncate whitespace-nowrap">
-                              {isUrl ? (
+                              {internalLink ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setLocation(internalLink)}
+                                  className="text-primary underline-offset-2 hover:underline"
+                                >
+                                  {text}
+                                </button>
+                              ) : isUrl ? (
                                 <a
                                   href={text}
                                   target="_blank"
@@ -584,9 +689,7 @@ export default function AiInvestigation() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <CardContent className="pt-0">
-                  <div className="text-sm whitespace-pre-wrap leading-6">
-                    {result.answer}
-                  </div>
+                  <InvestigationAnswer answer={result.answer} />
                 </CardContent>
               </CollapsibleContent>
             </Card>

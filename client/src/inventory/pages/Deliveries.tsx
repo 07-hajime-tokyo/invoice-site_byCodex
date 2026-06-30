@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -188,6 +189,7 @@ const emptyForm: InventoryFormData = {
 };
 
 export default function Deliveries() {
+  const [location] = useLocation();
   const utils = trpc.useUtils();
   const [loadSecondaryData, setLoadSecondaryData] = useState(false);
   useEffect(() => {
@@ -357,7 +359,18 @@ export default function Deliveries() {
     }
   }
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const urlSearchQuery = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") ?? "";
+  }, [location]);
+  const [searchQuery, setSearchQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") ?? "";
+  });
+  useEffect(() => {
+    if (!urlSearchQuery || urlSearchQuery === searchQuery) return;
+    setSearchQuery(urlSearchQuery);
+  }, [searchQuery, urlSearchQuery]);
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
     return typeof window !== 'undefined' ? (localStorage.getItem('deliveries-selectedCategory') ?? 'すべて') : 'すべて';
   });
