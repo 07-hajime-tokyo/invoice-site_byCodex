@@ -280,6 +280,20 @@ const PRODUCT_STOP_WORDS = new Set([
   "注文",
   "商品",
   "状況",
+  "対象",
+  "調査",
+  "調査対象",
+  "条件",
+  "知りたいこと",
+  "出庫",
+  "出庫履歴",
+  "履歴",
+  "だけ",
+  "のみ",
+  "です",
+  "ですが",
+  "ですか",
+  "ますか",
   "ありますか",
   "あります",
   "ある",
@@ -297,25 +311,43 @@ function normalizeProductSearchText(value: unknown) {
     .replace(/[^0-9a-zぁ-んァ-ヶ一-龠々ー.]+/gi, "");
 }
 
-function extractProductCandidateText(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
-  const text = question.normalize("NFKC");
-  const targetMatch = text.match(/^(.+?)(?:で|について|の)(?:現状|現在|今|いま|何個|何台|いくつ|発注|在庫|あります|ある|ない|状況)/);
-  let candidate = targetMatch?.[1] ?? text;
+function stripProductTokenNoise(value: string) {
+  return value
+    .replace(/(?:がありますか|ありますか|あります|ありません|ですけど|ですが|ですか|です|ますか|ください)$/g, "")
+    .replace(/[はをがにやの]$/g, "");
+}
 
-  for (const value of [
+function cleanupProductCandidateText(value: string, identifiers: ReturnType<typeof extractIdentifiers>) {
+  let candidate = value;
+  for (const id of [
     ...identifiers.invoiceNos,
     ...identifiers.trackingNumbers,
     ...identifiers.ebayOrderIds,
     ...identifiers.managementTerms,
   ]) {
-    candidate = candidate.replaceAll(value, " ");
+    candidate = candidate.replaceAll(id, " ");
   }
 
   return candidate
     .replace(/20\d{2}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}(?:日)?/g, " ")
-    .replace(/(?:現状|現在|今|いま|何個|何台|何件|いくつ|発注済み|発注|在庫|仕入れ?|注文|商品|状況|ありますか|あります|ある|ない|教えて|確認|してください|ですか|です|ますか|ください)/g, " ")
+    .replace(/(?:調査対象|知りたいこと|商品名|対象商品|検索語|条件)\s*[:：]/g, " ")
+    .replace(/(?:現状|現在|今|いま|何個|何台|何件|いくつ|発注済み|発注|在庫|仕入れ?|注文|商品|状況|出庫履歴|出庫|履歴|ありますか|あります|ありません|ある|ない|教えて|確認|してください|ですけど|ですが|ですか|です|ますか|ください)/g, " ")
     .replace(/[？?]/g, " ")
     .trim();
+}
+
+function extractProductCandidateText(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
+  const text = question.normalize("NFKC");
+  const explicitProduct = text.match(/(?:^|[\n\r])\s*(?:商品名|対象商品|型番|検索語)\s*[:：]\s*([^\n\r]+)/i)?.[1];
+  if (explicitProduct) return cleanupProductCandidateText(explicitProduct, identifiers);
+
+  const quotedProduct = text.match(/[「『"]([^」』"\n\r]{2,80})[」』"](?:の商品|について|に関して|だけ|のみ|を|は|が)?/)?.[1];
+  let candidate = quotedProduct ?? text;
+  const targetMatch = candidate.match(/^(.+?)(?:で|について|に関して|の|は|が)(?:現状|現在|今|いま|何個|何台|いくつ|発注|在庫|出庫|出庫履歴|あります|ある|ない|状況)/);
+  candidate = targetMatch?.[1] ?? candidate;
+  candidate = candidate.split(/(?:なんですが|なのですが|ですが|ですけど|だけど|について|に関して|を対象に|の商品だけ|の商品のみ)/)[0] ?? candidate;
+  candidate = candidate.split(/[\n\r]/)[0] ?? candidate;
+  return cleanupProductCandidateText(candidate, identifiers);
 }
 
 function buildProductQuery(question: string, identifiers: ReturnType<typeof extractIdentifiers>) {
@@ -325,6 +357,7 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
       .split(/[\s　,、。・･_\/()（）[\]【】]+/)
       .map((token) => token.trim())
       .map((token) => token.replace(/[-ー]+$/g, ""))
+      .map(stripProductTokenNoise)
       .map(normalizeProductSearchText)
       .filter((token) => token.length >= 2 && !PRODUCT_STOP_WORDS.has(token) && !/^\d{4}$/.test(token)),
   ).slice(0, 8);
