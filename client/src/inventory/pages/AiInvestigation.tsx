@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { Markdown } from "@/components/Markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
 import { trpc } from "@/lib/trpc";
@@ -164,9 +163,7 @@ function InvestigationAnswer({ answer }: { answer: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-sm leading-6">
-        <Markdown>{parts.summary}</Markdown>
-      </div>
+      <div className="text-sm whitespace-pre-wrap leading-6">{parts.summary}</div>
       {parts.details ? (
         <div className="space-y-2">
           <Button
@@ -180,8 +177,8 @@ function InvestigationAnswer({ answer }: { answer: string }) {
             {detailsOpen ? "詳細を隠す" : "詳細を表示"}
           </Button>
           {detailsOpen ? (
-            <div className="rounded-md border bg-muted/20 p-3 text-sm leading-6">
-              <Markdown>{parts.details}</Markdown>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm whitespace-pre-wrap leading-6">
+              {parts.details}
             </div>
           ) : null}
         </div>
