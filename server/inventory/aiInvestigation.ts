@@ -232,6 +232,10 @@ function getItemManagementNo(item: Record<string, unknown>) {
   return String(item.etc ?? item.managementNo ?? item.kanriNo ?? "").split(",")[0]?.trim() ?? "";
 }
 
+function getItemInventoryId(item: Record<string, unknown>) {
+  return String(item.inventoryId ?? item.inventory_id ?? item.id ?? item.zaicoId ?? "");
+}
+
 function isFedexExcludedManagementNo(managementNo: string) {
   const raw = managementNo.normalize("NFKC").trim();
   if (!raw) return false;
@@ -403,26 +407,42 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
     ? uniq([...nonSpecTokens, ...alphaNumericModelTokens])
     : tokens
   ).slice(0, 5);
+  const brandOrNameTokens = nonSpecTokens.filter((token) => !alphaNumericModelTokens.includes(token));
+  const modelTokens = alphaNumericModelTokens;
   const compactQuestion = compactText(question);
   const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(question.normalize("NFKC"));
   const hasFocus = hasProductIntent && requiredTokens.length > 0 && !compactQuestion.includes("fedex");
+  const tokenMatches = (haystack: string, haystackNoDots: string, token: string) =>
+    productTokenVariants(token).some((variant) => {
+      if (haystack.includes(variant)) return true;
+      if (variant.includes(".")) return haystackNoDots.includes(variant.replace(/\./g, ""));
+      return false;
+    });
 
   return {
     label: candidate || requiredTokens.join(" "),
     tokens,
     requiredTokens,
+    modelTokens,
+    brandOrNameTokens,
     hasFocus,
     matches(...values: unknown[]) {
       if (!hasFocus) return false;
       const haystack = normalizeProductSearchText(values.filter((value) => value != null).join(" "));
       const haystackNoDots = haystack.replace(/\./g, "");
-      return requiredTokens.every((token) => {
-        return productTokenVariants(token).some((variant) => {
-          if (haystack.includes(variant)) return true;
-          if (variant.includes(".")) return haystackNoDots.includes(variant.replace(/\./g, ""));
-          return false;
-        });
-      });
+      const strictMatch = requiredTokens.every((token) => tokenMatches(haystack, haystackNoDots, token));
+      if (strictMatch) return true;
+
+      // 型番がある商品は、ブランド表記ゆれやロフト角の有無で落ちやすい。
+      // 例: 「テーラーメイド M4 9.5°」と「TaylorMade M4 9.5」
+      if (modelTokens.length > 0) {
+        const modelMatch = modelTokens.some((token) => tokenMatches(haystack, haystackNoDots, token));
+        const brandMatch = brandOrNameTokens.length === 0 ||
+          brandOrNameTokens.some((token) => tokenMatches(haystack, haystackNoDots, token));
+        return modelMatch && brandMatch;
+      }
+
+      return false;
     },
   };
 }
@@ -1022,6 +1042,12 @@ async function collectInvestigationContext(
       matcher.matches(history.itemsJson);
   })) {
     const cancelled = parseJsonArray(row.cancelledItemsJson);
+    const cancelledQtyByInventoryId = new Map<string, number>();
+    for (const item of cancelled) {
+      const inventoryId = getItemInventoryId(item);
+      if (!inventoryId) continue;
+      cancelledQtyByInventoryId.set(inventoryId, (cancelledQtyByInventoryId.get(inventoryId) ?? 0) + getItemQuantity(item));
+    }
     const deletedIds = new Set(parseJsonList(row.deletedInventoryIdsJson).map((item) => {
       if (item && typeof item === "object") {
         const obj = item as Record<string, unknown>;
@@ -1029,21 +1055,24 @@ async function collectInvestigationContext(
       }
       return String(item ?? "");
     }).filter(Boolean));
-    const cancelledKeys = new Set(cancelled.map((item) => `${item.inventoryId ?? item.id ?? item.zaicoId ?? ""}:${getItemTitle(item)}`));
     for (const item of parseJsonArray(row.itemsJson)) {
-      const inventoryId = String(item.inventoryId ?? item.inventory_id ?? item.id ?? item.zaicoId ?? "");
+      const inventoryId = getItemInventoryId(item);
       const title = getItemTitle(item);
       const managementNo = getItemManagementNo(item);
       if (hasProductTarget && !productQuery.matches(title, managementNo)) continue;
       if (!matchesManagementTarget(row.deliveryNo, title, managementNo)) continue;
-      const deleted = deletedIds.has(inventoryId) || cancelledKeys.has(`${inventoryId}:${title}`) || Boolean(item.deleted);
+      const itemQuantity = getItemQuantity(item);
+      const cancelledQuantity = inventoryId
+        ? Math.min(itemQuantity, cancelledQtyByInventoryId.get(inventoryId) ?? 0)
+        : 0;
+      const itemDeleted = deletedIds.has(inventoryId) || Boolean(item.deleted);
       const directTradeTarget = isDirectTradeFedexTarget(row.deliveryNo, managementNo);
-      deliveryEvidence.push({
+      const pushEvidence = (quantity: number, deleted: boolean) => deliveryEvidence.push({
         historyId: row.id,
         deliveryNo: row.deliveryNo,
         status: row.status,
         title,
-        quantity: getItemQuantity(item),
+        quantity,
         managementNo,
         inventoryId: inventoryId || null,
         deleted,
@@ -1052,6 +1081,15 @@ async function collectInvestigationContext(
         deliveryDate: getDeliveryHistoryDate(row) ?? "",
         createdAt: row.createdAt ? String(row.createdAt) : "",
       });
+
+      if (itemDeleted) {
+        pushEvidence(itemQuantity, true);
+        continue;
+      }
+
+      const activeQuantity = Math.max(0, itemQuantity - cancelledQuantity);
+      if (activeQuantity > 0) pushEvidence(activeQuantity, false);
+      if (cancelledQuantity > 0) pushEvidence(cancelledQuantity, true);
     }
   }
   const scopedDeliveryEvidence = fedexLeakQuestion
