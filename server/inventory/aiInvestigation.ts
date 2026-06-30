@@ -170,10 +170,31 @@ function isDateInRange(value: unknown, range: InvestigationDateRange | null) {
   return true;
 }
 
+function normalizeManagementTerm(value: string) {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/(?:で)?(?:調べて|確認して|見て|検索して|教えて).*$/g, "")
+    .replace(/[でをはがにの]$/g, "")
+    .trim();
+}
+
 function extractIdentifiers(question: string) {
+  const rawManagementTerms = Array.from(question.matchAll(/[A-Za-z0-9ァ-ヶー一-龥]+[_-][A-Za-z0-9ァ-ヶー一-龥_\/&-]+/g))
+    .map((m) => m[0]);
+  const managementTerms = uniq(
+    rawManagementTerms
+      .map(normalizeManagementTerm)
+      .filter((value) => value.length >= 4),
+  );
+  const questionWithoutManagementTerms = rawManagementTerms.reduce(
+    (text, term) => text.replaceAll(term, " "),
+    question,
+  );
+
   const invoiceNos = uniq([
-    ...Array.from(question.matchAll(/(?:No\.?|NO\.?|番号|インボイス|invoice)\s*[:：#]?\s*(\d{3,4})/gi)).map((m) => m[1]),
-    ...Array.from(question.matchAll(/\b(\d{3,4})\b/g)).map((m) => m[1]),
+    ...Array.from(questionWithoutManagementTerms.matchAll(/(?:No\.?|NO\.?|番号|インボイス|invoice)\s*[:：#]?\s*(\d{3,4})/gi)).map((m) => m[1]),
+    ...Array.from(questionWithoutManagementTerms.matchAll(/\b(\d{3,4})\b/g)).map((m) => m[1]),
   ]).filter((value) => Boolean(value) && !/^20\d{2}$/.test(value));
 
   const trackingNumbers = uniq(
@@ -184,12 +205,6 @@ function extractIdentifiers(question: string) {
     ...Array.from(question.matchAll(/\b\d{2}-\d{5}-\d{5}\b/g)).map((m) => m[0]),
     ...Array.from(question.matchAll(/(?:orderid|orderId|order_id)=([^&\s]+)/g)).map((m) => decodeURIComponent(m[1] ?? "")),
   ]).filter(Boolean);
-
-  const managementTerms = uniq(
-    Array.from(question.matchAll(/[A-Za-z0-9ァ-ヶー一-龥]+[_-][A-Za-z0-9ァ-ヶー一-龥_\/&-]+/g))
-      .map((m) => m[0])
-      .filter((value) => value.length >= 4),
-  );
 
   const productTerms = uniq(
     question
@@ -965,8 +980,9 @@ async function collectInvestigationContext(
       const invoiceMatches = identifiers.invoiceNos.length === 0 ||
         identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no));
       const dateMatches = !dateRange || isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange);
-      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.itemsJson, row.managementNo, row.purchaseNum) &&
-        matchesManagementTarget(row.managementNo, row.purchaseNum, row.itemsJson, row.title);
+      const managementMatches = matchesManagementTarget(row.managementNo, row.purchaseNum, row.itemsJson, row.title);
+      const productMatches = productQuery.matches(row.title, row.itemsJson, row.managementNo, row.purchaseNum);
+      return invoiceMatches && dateMatches && managementMatches && (productMatches || hasManagementTerms);
     }
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
       isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
@@ -994,8 +1010,9 @@ async function collectInvestigationContext(
       const invoiceMatches = identifiers.invoiceNos.length === 0 ||
         identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no));
       const dateMatches = !dateRange || isDateInRange(row.updatedAt, dateRange);
-      return invoiceMatches && dateMatches && productQuery.matches(row.title, row.etc) &&
-        matchesManagementTarget(row.etc, row.title);
+      const managementMatches = matchesManagementTarget(row.etc, row.title);
+      const productMatches = productQuery.matches(row.title, row.etc);
+      return invoiceMatches && dateMatches && managementMatches && (productMatches || hasManagementTerms);
     }
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
       isDateInRange(row.updatedAt, dateRange) ||
@@ -1038,7 +1055,7 @@ async function collectInvestigationContext(
     if (hasProductTarget) {
       const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(invoiceNo);
       const dateOk = !dateRange || dateMatches;
-      return invoiceMatches && dateOk && productMatches && managementMatches;
+      return invoiceMatches && dateOk && managementMatches && (productMatches || hasManagementTerms);
     }
     return invoiceSet.has(invoiceNo) ||
       dateMatches ||
@@ -1063,8 +1080,10 @@ async function collectInvestigationContext(
       const inventoryId = getItemInventoryId(item);
       const title = getItemTitle(item);
       const managementNo = getItemManagementNo(item);
-      if (hasProductTarget && !productQuery.matches(title, managementNo, JSON.stringify(item))) continue;
-      if (!matchesManagementTarget(row.deliveryNo, title, managementNo)) continue;
+      const managementMatches = matchesManagementTarget(row.deliveryNo, title, managementNo);
+      if (!managementMatches) continue;
+      const productMatches = productQuery.matches(title, managementNo, JSON.stringify(item));
+      if (hasProductTarget && !productMatches && !hasManagementTerms) continue;
       const itemQuantity = getItemQuantity(item);
       const cancelledQuantity = inventoryId
         ? Math.min(itemQuantity, cancelledQtyByInventoryId.get(inventoryId) ?? 0)
