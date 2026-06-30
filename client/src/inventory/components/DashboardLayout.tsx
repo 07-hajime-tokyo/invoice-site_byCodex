@@ -13,6 +13,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -140,8 +141,17 @@ function DashboardLayoutContent({
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
   const { data: operators } = trpc.inventory.zaico.getOperators.useQuery(undefined, { enabled: !!user });
+  const { data: openActionItems = [] } = trpc.inventory.actionItems.list.useQuery(
+    { status: "open" },
+    {
+      enabled: !!user,
+      refetchOnWindowFocus: true,
+      refetchInterval: 60000,
+    },
+  );
   // メールアドレスに紐づく操作者名を取得（一致しない場合はGoogleアカウント名を使用）
   const displayName = operators?.find(op => op.email === user?.email)?.name ?? user?.name;
+  const openActionItemCount = openActionItems.length;
 
   useEffect(() => {
     if (isCollapsed) {
@@ -210,6 +220,7 @@ function DashboardLayoutContent({
             <SidebarMenu className="px-2 py-1">
               {menuItems.map(item => {
                 const isActive = location === item.path;
+                const badgeCount = item.path === "/inventory/action-items" ? openActionItemCount : 0;
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
@@ -223,6 +234,11 @@ function DashboardLayoutContent({
                       />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
+                    {badgeCount > 0 ? (
+                      <SidebarMenuBadge className="bg-red-600 px-1.5 text-[10px] font-semibold text-white">
+                        {badgeCount > 99 ? "99+" : badgeCount}
+                      </SidebarMenuBadge>
+                    ) : null}
                   </SidebarMenuItem>
                 );
               })}

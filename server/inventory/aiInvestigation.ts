@@ -333,6 +333,14 @@ const PRODUCT_STOP_WORDS = new Set([
   "ない",
   "教えて",
   "確認",
+  "表示",
+  "表示して",
+  "一覧",
+  "リスト",
+  "にした",
+  "した",
+  "登録",
+  "登録した",
   "してください",
 ]);
 
@@ -387,7 +395,7 @@ function cleanupProductCandidateText(value: string, identifiers: ReturnType<type
   return candidate
     .replace(/20\d{2}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}(?:日)?/g, " ")
     .replace(/(?:調査対象|知りたいこと|商品名|対象商品|検索語|条件)\s*[:：]/g, " ")
-    .replace(/(?:現状|現在|今|いま|何個|何台|何件|いくつ|発注済み|発注|在庫|仕入れ?|注文|商品|状況|出庫履歴|出庫|履歴|ありますか|あります|ありません|ある|ない|教えて|確認|してください|ですけど|ですが|ですか|です|ますか|ください)/g, " ")
+    .replace(/(?:現状|現在|今|いま|何個|何台|何件|いくつ|発注済みにした|発注済み登録|発注済み|発注|入庫済みにした|入庫済み|在庫|仕入れ?|注文|商品|状況|出庫履歴|出庫|履歴|表示して|表示|一覧|リスト|登録した|登録|にした|した|ありますか|あります|ありません|ある|ない|教えて|確認|してください|ですけど|ですが|ですか|です|ますか|ください)/g, " ")
     .replace(/[？?]/g, " ")
     .trim();
 }
@@ -721,6 +729,88 @@ function isInventoryStatusQuestion(question: string) {
   return /在庫|発注|仕入|注文|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(text);
 }
 
+function getPurchaseStatusIntent(question: string): "ordered" | "purchased" | "shipped" | null {
+  const text = question.normalize("NFKC");
+  if (/入庫済み|入庫した|入庫登録/.test(text)) return "purchased";
+  if (/発送済み|発送した/.test(text)) return "shipped";
+  if (/発注済み|発注した|発注登録|発注にした/.test(text)) return "ordered";
+  return null;
+}
+
+function isPurchaseActionDateQuestion(question: string) {
+  return /にした|登録した|登録|作成|追加|変更/.test(question.normalize("NFKC"));
+}
+
+function purchaseStatusMatches(row: { status?: string | null; trackingNumber?: string | null }, status: "ordered" | "purchased" | "shipped" | null) {
+  if (!status) return true;
+  if (status === "purchased") return row.status === "purchased";
+  if (status === "shipped") return row.status !== "purchased" && Boolean(row.trackingNumber);
+  return row.status !== "purchased" && !row.trackingNumber;
+}
+
+function purchaseDateMatches(
+  row: { purchaseDate?: unknown; receivedDate?: unknown; createdAt?: unknown; updatedAt?: unknown },
+  range: InvestigationDateRange | null,
+  actionDateMode: boolean,
+) {
+  if (!range) return true;
+  if (actionDateMode) return isDateInRange(row.createdAt, range) || isDateInRange(row.updatedAt, range);
+  return isDateInRange(row.purchaseDate, range) || isDateInRange(row.receivedDate, range) ||
+    isDateInRange(row.createdAt, range) || isDateInRange(row.updatedAt, range);
+}
+
+function makePurchaseListReport(input: {
+  question: string;
+  dateRange: InvestigationDateRange | null;
+  statusIntent: "ordered" | "purchased" | "shipped" | null;
+  evidence: EvidenceSection[];
+}) {
+  const purchaseRows = input.evidence.find((section) => section.title === "入庫管理 発注")?.rows ?? [];
+  const label = input.statusIntent === "purchased"
+    ? "入庫済み"
+    : input.statusIntent === "shipped"
+      ? "発送済み"
+      : input.statusIntent === "ordered"
+        ? "発注済み"
+        : "入庫管理";
+  const qty = rowsTotal(purchaseRows, "quantity");
+  const period = input.dateRange ? `対象日: ${input.dateRange.label}\n` : "";
+  const sample = purchaseRows.slice(0, 12)
+    .map((row) => `- ${row.managementNo || row.purchaseNum || row.id}: ${row.title} ×${row.quantity}`)
+    .join("\n");
+
+  if (purchaseRows.length === 0) {
+    return `## 結論
+${period}${label}の条件に合う商品は見つかりませんでした。
+
+## 現在の状況
+| 項目 | 数量 |
+|---|---:|
+| 該当件数 | 0 |
+| 該当数量 | 0 |
+
+## 詳細
+- 「商品名」ではなく、日付・ステータス条件として検索しました。
+- 下の根拠データも0件です。`;
+  }
+
+  return `## 結論
+${period}${label}の条件に合う商品が ${purchaseRows.length}件、合計 ${qty}個 見つかりました。
+
+## 現在の状況
+| 項目 | 数量 |
+|---|---:|
+| 該当件数 | ${purchaseRows.length} |
+| 該当数量 | ${qty} |
+
+## 該当商品
+${sample}${purchaseRows.length > 12 ? `\n- ほか ${purchaseRows.length - 12}件` : ""}
+
+## 詳細
+- 「発注済みにした商品」は商品名検索ではなく、入庫管理のステータスと日付で検索しています。
+- 下の「入庫管理 発注」の根拠データで詳細を確認できます。`;
+}
+
 function makeProductStatusReport(input: {
   question: string;
   productLabel: string;
@@ -920,6 +1010,8 @@ async function collectInvestigationContext(
   const identifiers = extractIdentifiers(investigationQuestion);
   const dateRange = extractDateRange(investigationQuestion);
   const fedexLeakQuestion = isFedexLeakQuestion(investigationQuestion);
+  const purchaseStatusIntent = getPurchaseStatusIntent(investigationQuestion);
+  const purchaseActionDateMode = isPurchaseActionDateQuestion(investigationQuestion);
   const productQuery = buildProductQuery(investigationQuestion, identifiers);
   const hasProductTarget = productQuery.hasFocus && !fedexLeakQuestion;
   const hasDateFilter = Boolean(dateRange);
@@ -982,16 +1074,21 @@ async function collectInvestigationContext(
   }));
 
   const purchaseEvidence = fedexLeakQuestion ? [] : filterOrRecent(purchaseRows, (row) => {
+    if (purchaseStatusIntent && !hasProductTarget) {
+      return purchaseStatusMatches(row, purchaseStatusIntent) &&
+        purchaseDateMatches(row, dateRange, purchaseActionDateMode) &&
+        matchesManagementTarget(row.managementNo, row.purchaseNum, row.itemsJson, row.title);
+    }
     if (hasProductTarget) {
       const invoiceMatches = identifiers.invoiceNos.length === 0 ||
         identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no));
-      const dateMatches = !dateRange || isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange);
+      const dateMatches = purchaseDateMatches(row, dateRange, purchaseActionDateMode);
       const managementMatches = matchesManagementTarget(row.managementNo, row.purchaseNum, row.itemsJson, row.title);
       const productMatches = productQuery.matches(row.title, row.itemsJson, row.managementNo, row.purchaseNum);
-      return invoiceMatches && dateMatches && managementMatches && (productMatches || hasManagementTerms);
+      return invoiceMatches && dateMatches && managementMatches && productMatches;
     }
     return identifiers.invoiceNos.some((no) => String(row.managementNo ?? "").startsWith(no) || String(row.purchaseNum ?? "").startsWith(no)) ||
-      isDateInRange(row.purchaseDate ?? row.receivedDate ?? row.updatedAt, dateRange) ||
+      purchaseDateMatches(row, dateRange, purchaseActionDateMode) ||
       matcher.matches(row.managementNo) ||
       matcher.matches(row.title) ||
       matcher.matches(row.itemsJson) ||
@@ -1009,6 +1106,8 @@ async function collectInvestigationContext(
     receivedDate: row.receivedDate ?? "",
     trackingNumber: row.trackingNumber ?? "",
     supplierName: row.supplierName ?? "",
+    createdAt: row.createdAt ? String(row.createdAt) : "",
+    updatedAt: row.updatedAt ? String(row.updatedAt) : "",
   }));
 
   const inventoryEvidence = fedexLeakQuestion ? [] : filterOrRecent(inventoryRows, (row) => {
@@ -1018,7 +1117,7 @@ async function collectInvestigationContext(
       const dateMatches = !dateRange || isDateInRange(row.updatedAt, dateRange);
       const managementMatches = matchesManagementTarget(row.etc, row.title);
       const productMatches = productQuery.matches(row.title, row.etc);
-      return invoiceMatches && dateMatches && managementMatches && (productMatches || hasManagementTerms);
+      return invoiceMatches && dateMatches && managementMatches && productMatches;
     }
     return identifiers.invoiceNos.some((no) => String(row.etc ?? "").startsWith(no)) ||
       isDateInRange(row.updatedAt, dateRange) ||
@@ -1061,7 +1160,7 @@ async function collectInvestigationContext(
     if (hasProductTarget) {
       const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(invoiceNo);
       const dateOk = !dateRange || dateMatches;
-      return invoiceMatches && dateOk && managementMatches && (productMatches || hasManagementTerms);
+      return invoiceMatches && dateOk && managementMatches && productMatches;
     }
     return invoiceSet.has(invoiceNo) ||
       dateMatches ||
@@ -1089,7 +1188,7 @@ async function collectInvestigationContext(
       const managementMatches = matchesManagementTarget(row.deliveryNo, title, managementNo);
       if (!managementMatches) continue;
       const productMatches = productQuery.matches(title, managementNo, JSON.stringify(item));
-      if (hasProductTarget && !productMatches && !hasManagementTerms) continue;
+      if (hasProductTarget && !productMatches) continue;
       const itemQuantity = getItemQuantity(item);
       const cancelledQuantity = inventoryId
         ? Math.min(itemQuantity, cancelledQtyByInventoryId.get(inventoryId) ?? 0)
@@ -1218,9 +1317,11 @@ async function collectInvestigationContext(
         { title: "FedEx発送登録照合", rows: fedexComparisonEvidence },
       ];
 
-  const answer = hasProductTarget && isInventoryStatusQuestion(investigationQuestion)
-    ? makeProductStatusReport({ question: investigationQuestion, productLabel: productQuery.label, evidence, ebayOrders })
-    : await generateAiReport({ question: investigationQuestion, identifiers, dateRange, evidence, ebayOrders });
+  const answer = purchaseStatusIntent && !hasProductTarget
+    ? makePurchaseListReport({ question: investigationQuestion, dateRange, statusIntent: purchaseStatusIntent, evidence })
+    : hasProductTarget && isInventoryStatusQuestion(investigationQuestion)
+      ? makeProductStatusReport({ question: investigationQuestion, productLabel: productQuery.label, evidence, ebayOrders })
+      : await generateAiReport({ question: investigationQuestion, identifiers, dateRange, evidence, ebayOrders });
   return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };
 }
 
