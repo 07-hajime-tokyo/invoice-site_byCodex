@@ -1092,6 +1092,14 @@ function isFedexLeakQuestion(question: string) {
   );
 }
 
+function shouldUseGenerativeReport(question: string) {
+  if (process.env.AI_INVESTIGATION_DISABLE_GEMINI === "1") return false;
+  if (process.env.AI_INVESTIGATION_FORCE_GEMINI === "1") return true;
+
+  const text = question.normalize("NFKC").toLowerCase();
+  return /原因|なぜ|何故|どうして|理由|可能性|推測|分析|特定|考えて|次に|対応|やること|すべき|不一致|合わない|ずれ/.test(text);
+}
+
 async function generateAiReport(input: {
   question: string;
   identifiers: ReturnType<typeof extractIdentifiers>;
@@ -1513,7 +1521,9 @@ async function collectInvestigationContext(
     ? makePurchaseListReport({ question: investigationQuestion, dateRange, statusIntent: purchaseStatusIntent, evidence })
     : hasProductTarget && isInventoryStatusQuestion(investigationQuestion)
       ? makeProductStatusReport({ question: investigationQuestion, productLabel: productQuery.label, evidence, ebayOrders })
-      : await generateAiReport({ question: investigationQuestion, identifiers, dateRange, evidence, ebayOrders });
+      : shouldUseGenerativeReport(investigationQuestion)
+        ? await generateAiReport({ question: investigationQuestion, identifiers, dateRange, evidence, ebayOrders })
+        : makeFallbackReport({ question: investigationQuestion, dateRange, evidence, ebayOrders });
   return { identifiers: { ...identifiers, dateRange }, evidence, ebayOrders, answer };
 }
 
