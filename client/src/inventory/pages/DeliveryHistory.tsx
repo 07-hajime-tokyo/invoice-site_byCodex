@@ -1487,8 +1487,12 @@ export default function DeliveryHistory() {
   const urlParams = useMemo(() => {
     const search = window.location.search;
     const params = new URLSearchParams(search);
-    return { group: params.get("group"), date: params.get("date") };
+    return { group: params.get("group"), date: params.get("date"), historyId: params.get("historyId") };
   }, [location]);
+  const highlightedHistoryId = useMemo(() => {
+    const id = Number(urlParams.historyId);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }, [urlParams.historyId]);
 
   // ソート順（desc: 新しい順, asc: 古い順）- localStorage永続化
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">(() => {
@@ -1608,6 +1612,15 @@ export default function DeliveryHistory() {
     startIndex: delivHistStartIndex,
     endIndex: delivHistEndIndex,
   } = usePagination(groupedHistories);
+
+  useEffect(() => {
+    if (!highlightedHistoryId) return;
+    const timer = window.setTimeout(() => {
+      const element = document.getElementById(`delivery-history-${highlightedHistoryId}`);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [highlightedHistoryId, pagedGroups]);
 
   const activeInventoryIds = useMemo(() => {
     if (!inventories) return null;
@@ -2327,7 +2340,13 @@ export default function DeliveryHistory() {
             const isBatchMode = batchSelectMode === history.id;
 
             return (
-              <div key={history.id} className="border-t bg-card overflow-hidden">
+              <div
+                key={history.id}
+                id={`delivery-history-${history.id}`}
+                className={`border-t bg-card overflow-hidden scroll-mt-24 ${
+                  highlightedHistoryId === history.id ? "ring-2 ring-emerald-500 bg-emerald-50/40" : ""
+                }`}
+              >
                 {/* 履歴ヘッダー */}
                 <div className={`flex items-center justify-between px-4 py-3 border-b ${hasDeletedItems ? "bg-amber-50/60" : hasCancelledItems ? "bg-blue-50/40" : "bg-muted/20"}`}>
                   <div className="flex items-center gap-2 flex-wrap">

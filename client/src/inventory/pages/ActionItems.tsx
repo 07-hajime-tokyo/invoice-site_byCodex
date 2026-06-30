@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, ClipboardCheck, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, ExternalLink, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,57 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
+
+function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | null }) {
+  const historyId = item.sourceKey?.match(/^fedex-missing-history:(\d+)$/)?.[1];
+  if (!historyId) return null;
+  const deliveryNo = item.detail.match(/出庫No:\s*([^\n]+)/)?.[1]?.trim();
+  if (!deliveryNo) return null;
+  const group = deliveryNo.match(/^(\d{3,4})/)?.[1] ?? deliveryNo.split("_")[0] ?? deliveryNo;
+  return {
+    historyId,
+    deliveryNo,
+    url: `/inventory/delivery-history?group=${encodeURIComponent(group)}&historyId=${encodeURIComponent(historyId)}`,
+  };
+}
+
+function ActionItemDetail({
+  detail,
+  deliveryLink,
+  onNavigate,
+}: {
+  detail: string;
+  deliveryLink: ReturnType<typeof getDeliveryHistoryLink>;
+  onNavigate: (url: string) => void;
+}) {
+  return (
+    <div className="text-sm whitespace-pre-wrap leading-6">
+      {detail.split("\n").map((line, index) => {
+        const lineDeliveryLink = deliveryLink && line.trim().startsWith("出庫No:") ? deliveryLink : null;
+        return (
+          <div key={`${index}-${line}`}>
+            {lineDeliveryLink ? (
+              <span>
+                出庫No:{" "}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 align-baseline font-mono text-sm"
+                  onClick={() => onNavigate(lineDeliveryLink.url)}
+                >
+                  {lineDeliveryLink.deliveryNo}
+                  <ExternalLink className="ml-1 h-3 w-3" />
+                </Button>
+              </span>
+            ) : (
+              line || "\u00a0"
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function formatDate(value: string | Date | null) {
   if (!value) return "";
@@ -25,6 +77,7 @@ function formatDate(value: string | Date | null) {
 
 export default function ActionItems() {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const [status, setStatus] = useState<StatusFilter>("open");
   const [search, setSearch] = useState("");
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
@@ -111,6 +164,7 @@ export default function ActionItems() {
         <div className="space-y-3">
           {filteredItems.map((item) => {
             const done = item.status === "done";
+            const deliveryLink = getDeliveryHistoryLink(item);
             return (
               <Card key={item.id} className={`rounded-lg ${done ? "opacity-65" : ""}`}>
                 <CardContent className="p-4">
@@ -134,7 +188,11 @@ export default function ActionItems() {
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="text-sm whitespace-pre-wrap leading-6">{item.detail}</p>
+                        <ActionItemDetail
+                          detail={item.detail}
+                          deliveryLink={deliveryLink}
+                          onNavigate={setLocation}
+                        />
                         <div className="text-xs text-muted-foreground">
                           登録: {formatDate(item.createdAt)}
                           {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
