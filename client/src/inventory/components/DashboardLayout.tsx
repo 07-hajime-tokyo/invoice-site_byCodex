@@ -13,7 +13,6 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -233,12 +232,12 @@ function DashboardLayoutContent({
                         className={`h-4 w-4 ${item.color}`}
                       />
                       <span>{item.label}</span>
+                      {badgeCount > 0 && !isCollapsed ? (
+                        <div className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-semibold leading-none text-emerald-700 ring-1 ring-emerald-200">
+                          {badgeCount > 9 ? "9+" : badgeCount}
+                        </div>
+                      ) : null}
                     </SidebarMenuButton>
-                    {badgeCount > 0 ? (
-                      <SidebarMenuBadge className="bg-red-600 px-1.5 text-[10px] font-semibold text-white">
-                        {badgeCount > 99 ? "99+" : badgeCount}
-                      </SidebarMenuBadge>
-                    ) : null}
                   </SidebarMenuItem>
                 );
               })}
