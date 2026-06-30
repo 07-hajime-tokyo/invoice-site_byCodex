@@ -696,12 +696,15 @@ function makeProductStatusReport(input: {
     return !isDeleted && parseNumber(row.quantity) > 0;
   });
   const activeDeliveryRows = deliveryRows.filter((row) => row.deleted !== true);
+  const deletedDeliveryRows = deliveryRows.filter((row) => row.deleted === true);
 
   const tradeQty = rowsTotal(tradeRows, "quantity");
   const orderedQty = rowsTotal(orderedRows, "quantity");
   const purchasedQty = rowsTotal(purchasedRows, "quantity");
   const stockQty = rowsTotal(activeStockRows, "quantity");
   const deliveryQty = rowsTotal(activeDeliveryRows, "quantity");
+  const deletedDeliveryQty = rowsTotal(deletedDeliveryRows, "quantity");
+  const totalDeliveryQty = deliveryQty + deletedDeliveryQty;
   const productLabel = input.productLabel || "対象商品";
 
   const conclusionLines = [
@@ -714,12 +717,17 @@ function makeProductStatusReport(input: {
   ];
   if (tradeQty > 0) conclusionLines.push(`取引データ上の注文数は ${tradeQty} 個です。`);
   if (deliveryQty > 0) conclusionLines.push(`過去の出庫履歴には ${deliveryQty} 個分の記録があります。`);
+  if (deliveryQty === 0 && deletedDeliveryQty > 0) {
+    conclusionLines.push(`出庫履歴には削除済みとして ${deletedDeliveryQty} 個分の記録があります。`);
+  } else if (deletedDeliveryQty > 0) {
+    conclusionLines.push(`別途、削除済みの出庫履歴が ${deletedDeliveryQty} 個分あります。`);
+  }
   if (purchasedQty > 0) conclusionLines.push(`入庫済み扱いの発注データは ${purchasedQty} 個分あります。`);
 
   const sampleManagementNos = uniq([
     ...orderedRows,
     ...activeStockRows,
-    ...activeDeliveryRows,
+    ...deliveryRows,
   ].map((row) => String(row.managementNo ?? row.deliveryNo ?? "").trim()).filter(Boolean)).slice(0, 8);
   const ebayNotes = input.ebayOrders.length
     ? input.ebayOrders.map((order) => `- ${order.orderId}: ${order.ok ? `${order.status?.orderFulfillmentStatus ?? "-"} / cancel=${order.status?.cancelState ?? "-"}` : order.error}`).join("\n")
@@ -735,13 +743,16 @@ ${conclusionLines.join("\n")}
 | 入庫管理の発注済み | ${orderedQty} |
 | 入庫済み扱いの発注 | ${purchasedQty} |
 | 取引データの注文数 | ${tradeQty} |
-| 出庫済み | ${deliveryQty} |
+| 出庫済み（有効） | ${deliveryQty} |
+| 出庫履歴（削除済み） | ${deletedDeliveryQty} |
+| 出庫履歴合計 | ${totalDeliveryQty} |
 
 ## 詳細
 ### 原因候補
 - 在庫一覧は、削除済みではなく数量が1以上のデータだけを現在庫として数えています。
 - 入庫管理の発注済みは、status が purchased ではない発注データだけを数えています。
-- 出庫済みは、出庫履歴の削除済み商品を除外して数えています。
+- 出庫済み（有効）は、出庫履歴の削除済み商品を除外して数えています。
+- 削除済みとして残っている出庫履歴は、現在の有効な出庫数とは別に表示しています。
 - 該当管理番号・出庫No: ${sampleManagementNos.length ? sampleManagementNos.join(" / ") : "該当なし"}
 
 ### eBay確認

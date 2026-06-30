@@ -32,6 +32,8 @@ type InvestigationHistoryItem = {
   includeEbay: boolean;
   createdAt: string;
   result: InvestigationResult;
+  messages?: InvestigationChatMessage[];
+  updatedAt?: string;
 };
 type InvestigationChatMessage = {
   id: string;
@@ -453,6 +455,7 @@ export default function AiInvestigation() {
   const [historyItems, setHistoryItems] = useState(loadHistory);
   const [displayResult, setDisplayResult] = useState<InvestigationResult | null>(null);
   const [activeContext, setActiveContext] = useState<{ question: string; result: InvestigationResult } | null>(null);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const [submittedQuestion, setSubmittedQuestion] = useState("");
   const [chatMessages, setChatMessages] = useState<InvestigationChatMessage[]>([]);
@@ -460,6 +463,13 @@ export default function AiInvestigation() {
     const limited = next.slice(0, 30);
     setHistoryItems(limited);
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(limited));
+  };
+  const updateHistory = (updater: (items: InvestigationHistoryItem[]) => InvestigationHistoryItem[]) => {
+    setHistoryItems((items) => {
+      const limited = updater(items).slice(0, 30);
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(limited));
+      return limited;
+    });
   };
   const investigate = trpc.inventory.aiInvestigation.investigate.useMutation();
   const result = displayResult;
@@ -515,6 +525,8 @@ export default function AiInvestigation() {
   ) => {
     const trimmed = text.trim();
     if (trimmed.length < 2 || investigate.isPending) return;
+    const isNewConversation = options.resetConversation === true;
+    const currentHistoryId = isNewConversation ? makeMessageId() : activeHistoryId;
     const conversationContext = buildConversationContext(trimmed, priorityContext);
     const userMessage: InvestigationChatMessage = {
       id: makeMessageId(),
@@ -523,10 +535,11 @@ export default function AiInvestigation() {
       createdAt: new Date().toISOString(),
     };
     setResultOpen(true);
-    setChatMessages((messages) => options.resetConversation ? [userMessage] : [...messages, userMessage]);
-    if (options.resetConversation) {
+    setChatMessages((messages) => isNewConversation ? [userMessage] : [...messages, userMessage]);
+    if (isNewConversation) {
       setDisplayResult(null);
       setActiveContext(null);
+      setActiveHistoryId(null);
       setSubmittedQuestion("");
     }
     try {
@@ -545,16 +558,44 @@ export default function AiInvestigation() {
       setFollowUpQuestion("");
       setResultOpen(true);
       setChatMessages((messages) => [...messages, assistantMessage]);
-      saveHistory([
-        {
-          id: makeMessageId(),
-          question: trimmed,
-          includeEbay,
-          createdAt: new Date().toISOString(),
-          result: nextResult,
-        },
-        ...historyItems,
-      ]);
+      const nextMessages = isNewConversation
+        ? [userMessage, assistantMessage]
+        : [...chatMessages, userMessage, assistantMessage];
+      const existingHistory = currentHistoryId
+        ? historyItems.find((item) => item.id === currentHistoryId)
+        : null;
+      const historyId = currentHistoryId ?? makeMessageId();
+      const historyQuestion = isNewConversation
+        ? trimmed
+        : (existingHistory?.question ?? activeContext?.question ?? trimmed);
+      setActiveHistoryId(historyId);
+      updateHistory((items) => {
+        const existing = items.find((item) => item.id === historyId);
+        if (!existing) {
+          return [
+            {
+              id: historyId,
+              question: historyQuestion,
+              includeEbay,
+              createdAt: userMessage.createdAt,
+              updatedAt: assistantMessage.createdAt,
+              result: nextResult,
+              messages: nextMessages,
+            },
+            ...items,
+          ];
+        }
+        return [
+          {
+            ...existing,
+            includeEbay,
+            updatedAt: assistantMessage.createdAt,
+            result: nextResult,
+            messages: nextMessages,
+          },
+          ...items.filter((item) => item.id !== historyId),
+        ];
+      });
     } catch {
       // tRPC exposes the error through investigate.error; keep the typed question visible.
     }
@@ -573,9 +614,10 @@ export default function AiInvestigation() {
     setIncludeEbay(item.includeEbay);
     setDisplayResult(item.result);
     setActiveContext({ question: item.question, result: item.result });
+    setActiveHistoryId(item.id);
     setSubmittedQuestion(item.question);
     setFollowUpQuestion("");
-    setChatMessages([
+    setChatMessages(item.messages?.length ? item.messages : [
       {
         id: makeMessageId(),
         role: "user",
@@ -595,6 +637,7 @@ export default function AiInvestigation() {
 
   const deleteHistoryItem = (id: string) => {
     saveHistory(historyItems.filter((item) => item.id !== id));
+    if (activeHistoryId === id) setActiveHistoryId(null);
   };
 
   return (
@@ -731,8 +774,17 @@ export default function AiInvestigation() {
                         className="min-w-0 text-left flex-1"
                         onClick={() => openHistoryItem(item)}
                       >
-                        <div className="text-sm truncate">{item.question}</div>
-                        <div className="text-xs text-muted-foreground">{formatHistoryDate(item.createdAt)}</div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="text-sm truncate">{item.question}</div>
+                          {(item.messages?.filter((message) => message.role === "user").length ?? 1) > 1 ? (
+                            <Badge variant="secondary" className="shrink-0">
+                              {item.messages?.filter((message) => message.role === "user").length}質問
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatHistoryDate(item.updatedAt ?? item.createdAt)}
+                        </div>
                       </button>
                       <Button
                         type="button"
