@@ -323,6 +323,29 @@ function normalizeProductSearchText(value: unknown) {
     .replace(/[^0-9a-zぁ-んァ-ヶ一-龠々ー.]+/gi, "");
 }
 
+function productTokenVariants(token: string) {
+  const normalized = normalizeProductSearchText(token);
+  const variants = [normalized];
+  const aliasMap: Record<string, string[]> = {
+    "テーラーメイド": ["taylormade", "tailormade"],
+    "taylormade": ["テーラーメイド"],
+    "tailormade": ["テーラーメイド", "taylormade"],
+    "キャロウェイ": ["callaway"],
+    "callaway": ["キャロウェイ"],
+    "タイトリスト": ["titleist"],
+    "titleist": ["タイトリスト"],
+    "ピン": ["ping"],
+    "ping": ["ピン"],
+    "ダンロップ": ["dunlop"],
+    "dunlop": ["ダンロップ"],
+    "スリクソン": ["srixon"],
+    "srixon": ["スリクソン"],
+  };
+  return uniq([...variants, ...(aliasMap[normalized] ?? [])])
+    .map(normalizeProductSearchText)
+    .filter(Boolean);
+}
+
 function stripProductTokenNoise(value: string) {
   return value
     .replace(/(?:がありますか|ありますか|あります|ありません|ですけど|ですが|ですか|です|ますか|ください)$/g, "")
@@ -373,8 +396,13 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
       .map(normalizeProductSearchText)
       .filter((token) => token.length >= 2 && !PRODUCT_STOP_WORDS.has(token) && !/^\d{4}$/.test(token)),
   ).slice(0, 8);
-  const modelTokens = tokens.filter((token) => /[a-z0-9]/i.test(token));
-  const requiredTokens = (modelTokens.length > 0 ? modelTokens : tokens).slice(0, 5);
+  const alphaNumericModelTokens = tokens.filter((token) => /[a-z]/i.test(token) && /\d/.test(token));
+  const numericSpecTokens = new Set(tokens.filter((token) => /^\d+(?:\.\d+)?$/.test(token)));
+  const nonSpecTokens = tokens.filter((token) => !numericSpecTokens.has(token));
+  const requiredTokens = (alphaNumericModelTokens.length > 0
+    ? uniq([...nonSpecTokens, ...alphaNumericModelTokens])
+    : tokens
+  ).slice(0, 5);
   const compactQuestion = compactText(question);
   const hasProductIntent = /在庫|発注|仕入|注文|商品|型番|何個|何台|何件|あります|ある|現状|現在|状況|出庫|出庫履歴|履歴/.test(question.normalize("NFKC"));
   const hasFocus = hasProductIntent && requiredTokens.length > 0 && !compactQuestion.includes("fedex");
@@ -389,9 +417,11 @@ function buildProductQuery(question: string, identifiers: ReturnType<typeof extr
       const haystack = normalizeProductSearchText(values.filter((value) => value != null).join(" "));
       const haystackNoDots = haystack.replace(/\./g, "");
       return requiredTokens.every((token) => {
-        if (haystack.includes(token)) return true;
-        if (token.includes(".")) return haystackNoDots.includes(token.replace(/\./g, ""));
-        return false;
+        return productTokenVariants(token).some((variant) => {
+          if (haystack.includes(variant)) return true;
+          if (variant.includes(".")) return haystackNoDots.includes(variant.replace(/\./g, ""));
+          return false;
+        });
       });
     },
   };

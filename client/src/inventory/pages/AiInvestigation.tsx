@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Markdown } from "@/components/Markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
 import { trpc } from "@/lib/trpc";
@@ -33,12 +34,23 @@ type InvestigationHistoryItem = {
   createdAt: string;
   result: InvestigationResult;
 };
+type InvestigationChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  result?: InvestigationResult;
+};
 
 const DEFAULT_EXAMPLES = [
   "FedEx発送登録漏れがないか確認してください",
 ];
 const EXAMPLES_STORAGE_KEY = "invoice-site-ai-investigation-examples";
 const HISTORY_STORAGE_KEY = "invoice-site-ai-investigation-history";
+
+function makeMessageId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
 
 function loadExamples() {
   if (typeof window === "undefined") return DEFAULT_EXAMPLES;
@@ -152,7 +164,9 @@ function InvestigationAnswer({ answer }: { answer: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-sm whitespace-pre-wrap leading-6">{parts.summary}</div>
+      <div className="text-sm leading-6">
+        <Markdown>{parts.summary}</Markdown>
+      </div>
       {parts.details ? (
         <div className="space-y-2">
           <Button
@@ -166,8 +180,8 @@ function InvestigationAnswer({ answer }: { answer: string }) {
             {detailsOpen ? "詳細を隠す" : "詳細を表示"}
           </Button>
           {detailsOpen ? (
-            <div className="rounded-md border bg-muted/20 p-3 text-sm whitespace-pre-wrap leading-6">
-              {parts.details}
+            <div className="rounded-md border bg-muted/20 p-3 text-sm leading-6">
+              <Markdown>{parts.details}</Markdown>
             </div>
           ) : null}
         </div>
@@ -444,35 +458,17 @@ export default function AiInvestigation() {
   const [activeContext, setActiveContext] = useState<{ question: string; result: InvestigationResult } | null>(null);
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const [submittedQuestion, setSubmittedQuestion] = useState("");
+  const [chatMessages, setChatMessages] = useState<InvestigationChatMessage[]>([]);
   const saveHistory = (next: InvestigationHistoryItem[]) => {
     const limited = next.slice(0, 30);
     setHistoryItems(limited);
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(limited));
   };
-  const investigate = trpc.inventory.aiInvestigation.investigate.useMutation({
-    onSuccess(data, variables) {
-      const result = data as InvestigationResult;
-      setDisplayResult(result);
-      setActiveContext({ question: variables.question, result });
-      setSubmittedQuestion(variables.question);
-      setFollowUpQuestion("");
-      setResultOpen(true);
-      saveHistory([
-        {
-          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          question: variables.question,
-          includeEbay: variables.includeEbay ?? true,
-          createdAt: new Date().toISOString(),
-          result,
-        },
-        ...historyItems,
-      ]);
-    },
-  });
+  const investigate = trpc.inventory.aiInvestigation.investigate.useMutation();
   const result = displayResult;
 
   const canSubmit = question.trim().length >= 2 && !investigate.isPending;
-  const canSubmitFollowUp = followUpQuestion.trim().length >= 2 && Boolean(activeContext) && !investigate.isPending;
+  const canSubmitFollowUp = followUpQuestion.trim().length >= 2 && chatMessages.length > 0 && !investigate.isPending;
 
   const saveExamples = (next: string[]) => {
     const normalized = Array.from(new Set(next.map((value) => value.trim()).filter(Boolean)));
@@ -515,19 +511,60 @@ export default function AiInvestigation() {
       .map((item) => ({ question: item.question, answer: item.result.answer }));
   };
 
-  const runInvestigationWithText = (
+  const runInvestigationWithText = async (
     text: string,
     priorityContext?: Array<{ question: string; result: InvestigationResult } | null>,
+    options: { resetConversation?: boolean } = {},
   ) => {
     const trimmed = text.trim();
     if (trimmed.length < 2 || investigate.isPending) return;
     const conversationContext = buildConversationContext(trimmed, priorityContext);
-    setDisplayResult(null);
-    investigate.mutate({ question: trimmed, includeEbay, conversationContext });
+    const userMessage: InvestigationChatMessage = {
+      id: makeMessageId(),
+      role: "user",
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setResultOpen(true);
+    setChatMessages((messages) => options.resetConversation ? [userMessage] : [...messages, userMessage]);
+    if (options.resetConversation) {
+      setDisplayResult(null);
+      setActiveContext(null);
+      setSubmittedQuestion("");
+    }
+    try {
+      const data = await investigate.mutateAsync({ question: trimmed, includeEbay, conversationContext });
+      const nextResult = data as InvestigationResult;
+      const assistantMessage: InvestigationChatMessage = {
+        id: makeMessageId(),
+        role: "assistant",
+        content: nextResult.answer,
+        createdAt: new Date().toISOString(),
+        result: nextResult,
+      };
+      setDisplayResult(nextResult);
+      setActiveContext({ question: trimmed, result: nextResult });
+      setSubmittedQuestion(trimmed);
+      setFollowUpQuestion("");
+      setResultOpen(true);
+      setChatMessages((messages) => [...messages, assistantMessage]);
+      saveHistory([
+        {
+          id: makeMessageId(),
+          question: trimmed,
+          includeEbay,
+          createdAt: new Date().toISOString(),
+          result: nextResult,
+        },
+        ...historyItems,
+      ]);
+    } catch {
+      // tRPC exposes the error through investigate.error; keep the typed question visible.
+    }
   };
 
   const runInvestigation = () => {
-    runInvestigationWithText(question);
+    runInvestigationWithText(question, undefined, { resetConversation: true });
   };
 
   const runFollowUpInvestigation = () => {
@@ -541,6 +578,21 @@ export default function AiInvestigation() {
     setActiveContext({ question: item.question, result: item.result });
     setSubmittedQuestion(item.question);
     setFollowUpQuestion("");
+    setChatMessages([
+      {
+        id: makeMessageId(),
+        role: "user",
+        content: item.question,
+        createdAt: item.createdAt,
+      },
+      {
+        id: makeMessageId(),
+        role: "assistant",
+        content: item.result.answer,
+        createdAt: item.createdAt,
+        result: item.result,
+      },
+    ]);
     setResultOpen(true);
   };
 
@@ -712,7 +764,7 @@ export default function AiInvestigation() {
         </Card>
       ) : null}
 
-      {result ? (
+      {chatMessages.length > 0 ? (
         <div className="space-y-4">
           <Collapsible open={resultOpen} onOpenChange={setResultOpen}>
             <Card className="rounded-lg border-emerald-200">
@@ -722,7 +774,7 @@ export default function AiInvestigation() {
                     <CardTitle className="text-base flex items-center justify-between gap-3">
                       <span className="flex items-center gap-2">
                         <Bot className="h-4 w-4 text-emerald-600" />
-                        調査結果
+                        調査チャット
                       </span>
                       <Badge variant="outline">{resultOpen ? "表示中" : "非表示"}</Badge>
                     </CardTitle>
@@ -730,8 +782,33 @@ export default function AiInvestigation() {
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <InvestigationAnswer answer={result.answer} />
+                <CardContent className="pt-0 space-y-3">
+                  {chatMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={message.role === "user"
+                        ? "ml-auto max-w-[82%] rounded-lg border bg-primary/5 px-3 py-2"
+                        : "max-w-[92%] rounded-lg border bg-background px-3 py-2"}
+                    >
+                      <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant={message.role === "user" ? "secondary" : "outline"}>
+                          {message.role === "user" ? "質問" : "回答"}
+                        </Badge>
+                        <span>{formatHistoryDate(message.createdAt)}</span>
+                      </div>
+                      {message.role === "assistant" ? (
+                        <InvestigationAnswer answer={message.content} />
+                      ) : (
+                        <div className="text-sm whitespace-pre-wrap leading-6">{message.content}</div>
+                      )}
+                    </div>
+                  ))}
+                  {investigate.isPending ? (
+                    <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      調査中です
+                    </div>
+                  ) : null}
                 </CardContent>
               </CollapsibleContent>
             </Card>
@@ -739,7 +816,7 @@ export default function AiInvestigation() {
 
           <Card className="rounded-lg">
             <CardHeader className="py-3">
-              <CardTitle className="text-sm">追加で質問</CardTitle>
+              <CardTitle className="text-sm">続けて質問</CardTitle>
             </CardHeader>
             <CardContent className="pt-0 space-y-3">
               <Textarea
@@ -770,7 +847,7 @@ export default function AiInvestigation() {
             </CardContent>
           </Card>
 
-          {result.ebayOrders?.length ? (
+          {result?.ebayOrders?.length ? (
             <Card className="rounded-lg">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm">eBay API確認</CardTitle>
@@ -787,13 +864,15 @@ export default function AiInvestigation() {
             </Card>
           ) : null}
 
-          <ActionItemForm sourceQuestion={submittedQuestion || question} />
+          {result ? <ActionItemForm sourceQuestion={submittedQuestion || question} /> : null}
 
-          <div className="space-y-2">
-            {(result.evidence as EvidenceSection[]).map((section) => (
-              <EvidenceTable key={section.title} section={section} allSections={result.evidence as EvidenceSection[]} />
-            ))}
-          </div>
+          {result ? (
+            <div className="space-y-2">
+              {(result.evidence as EvidenceSection[]).map((section) => (
+                <EvidenceTable key={section.title} section={section} allSections={result.evidence as EvidenceSection[]} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
