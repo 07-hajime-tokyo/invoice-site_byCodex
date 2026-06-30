@@ -929,9 +929,11 @@ async function collectInvestigationContext(
     identifiers.managementTerms.length > 0 ||
     hasProductTarget;
   const matcher = buildMatchers(investigationQuestion, identifiers);
-  const hasManagementTerms = identifiers.managementTerms.length > 0;
+  const managementNeedles = identifiers.managementTerms.filter(Boolean);
+  const managementCompactNeedles = managementNeedles.map(compactText).filter(Boolean);
+  const hasManagementTerms = managementNeedles.length > 0;
   const matchesManagementTarget = (...values: unknown[]) =>
-    !hasManagementTerms || values.some((value) => matcher.matches(value));
+    !hasManagementTerms || values.some((value) => matchesNeedle(value, managementNeedles, managementCompactNeedles));
   const [tradeRows, purchaseRows, inventoryRows, deliveryRows, fedexRows] = await Promise.all([
     db.select().from(tradeRecords).orderBy(desc(tradeRecords.updatedAt)),
     db.select().from(localPurchases).orderBy(desc(localPurchases.updatedAt)),
