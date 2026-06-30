@@ -545,7 +545,6 @@ export default function AiInvestigation() {
                 runInvestigation();
               }
             }}
-            placeholder="例: No.392のアクアブルーが5台発送済みのはずなのに3/5になっています"
             className="min-h-[120px] resize-y"
           />
           <div className="flex flex-wrap items-center justify-between gap-3">
