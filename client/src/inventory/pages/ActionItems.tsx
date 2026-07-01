@@ -114,6 +114,11 @@ function formatDate(value: string | Date | null) {
   });
 }
 
+function formatAuthorName(value: string | null | undefined) {
+  if (!value) return "未設定";
+  return value === "cron" ? "自動" : value;
+}
+
 function getTimestamp(value: string | Date | null) {
   if (!value) return 0;
   const date = new Date(value);
@@ -170,6 +175,7 @@ export default function ActionItems() {
       (!q ||
         item.title.toLowerCase().includes(q) ||
         (item.assignee || "").toLowerCase().includes(q) ||
+        (item.createdBy || "").toLowerCase().includes(q) ||
         item.detail.toLowerCase().includes(q)),
     );
   }, [assigneeFilter, items, search]);
@@ -322,6 +328,9 @@ export default function ActionItems() {
                             <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
                               {item.assignee}
                             </Badge>
+                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                              記載者: {formatAuthorName(item.createdBy)}
+                            </Badge>
                             {item.assignee === "出荷担当" ? (
                               <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
                                 {SHIPPING_REVIEWERS.map((reviewer) => (
@@ -352,7 +361,7 @@ export default function ActionItems() {
                           </div>
                           <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
                           <div className="text-xs text-muted-foreground">
-                            登録: {formatDate(item.createdAt)}
+                            登録: {formatDate(item.createdAt)} / 記載者: {formatAuthorName(item.createdBy)}
                             {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
                           </div>
                         </div>
@@ -392,6 +401,7 @@ export default function ActionItems() {
                       title: item.title,
                       assignee: item.assignee,
                       detail: item.detail,
+                      createdBy: item.createdBy,
                     }}
                     onUpdated={() => {
                       setEditingItemId(null);

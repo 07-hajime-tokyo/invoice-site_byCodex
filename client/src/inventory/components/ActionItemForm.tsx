@@ -18,6 +18,7 @@ type ActionItemFormProps = {
     title: string;
     assignee: string;
     detail: string;
+    createdBy?: string | null;
   };
   mode?: "create" | "edit";
   onCreated?: () => void;
@@ -27,6 +28,7 @@ type ActionItemFormProps = {
 
 const DEFAULT_ASSIGNEES = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
 const ADD_ASSIGNEE_VALUE = "__add_assignee__";
+const ADD_AUTHOR_VALUE = "__add_author__";
 
 export function ActionItemForm({
   sourceQuestion,
@@ -42,12 +44,16 @@ export function ActionItemForm({
   const { data: options } = trpc.inventory.actionItems.options.useQuery();
   const assignees = options?.assignees ?? [];
   const titles = options?.titles ?? [];
+  const authors = options?.authors ?? [];
   const [title, setTitle] = useState(initialItem?.title ?? "");
   const [assignee, setAssignee] = useState(initialItem?.assignee ?? "");
+  const [createdBy, setCreatedBy] = useState(initialItem?.createdBy ?? "");
   const [customAssignee, setCustomAssignee] = useState("");
   const [detail, setDetail] = useState(initialItem?.detail ?? defaultDetail);
   const [newAssignee, setNewAssignee] = useState("");
+  const [newAuthor, setNewAuthor] = useState("");
   const [showAssigneeAdd, setShowAssigneeAdd] = useState(false);
+  const [showAuthorAdd, setShowAuthorAdd] = useState(false);
   const [saveTitlePreset, setSaveTitlePreset] = useState(false);
   const selectedAssignee = assignees.find((item) => item.name === assignee);
   const canDeleteSelectedAssignee = Boolean(selectedAssignee && !DEFAULT_ASSIGNEES.has(selectedAssignee.name));
@@ -56,10 +62,12 @@ export function ActionItemForm({
     if (!isEditing || !initialItem) return;
     setTitle(initialItem.title);
     setAssignee(initialItem.assignee);
+    setCreatedBy(initialItem.createdBy ?? "");
     setDetail(initialItem.detail);
     setSaveTitlePreset(false);
     setCustomAssignee("");
     setShowAssigneeAdd(false);
+    setShowAuthorAdd(false);
   }, [initialItem?.id, isEditing]);
 
   useEffect(() => {
@@ -67,6 +75,12 @@ export function ActionItemForm({
       setAssignee(assignees.find((item) => item.name === "出荷担当")?.name ?? assignees[0].name);
     }
   }, [assignee, assignees]);
+
+  useEffect(() => {
+    if (!createdBy && authors.length > 0) {
+      setCreatedBy(authors.find((item) => item.name === "村上")?.name ?? authors[0].name);
+    }
+  }, [authors, createdBy]);
 
   useEffect(() => {
     if (!isEditing) setDetail(defaultDetail);
@@ -85,6 +99,7 @@ export function ActionItemForm({
       setCustomAssignee("");
       setDetail(defaultDetail);
       setSaveTitlePreset(false);
+      setShowAuthorAdd(false);
       await Promise.all([
         utils.inventory.actionItems.list.invalidate(),
         utils.inventory.actionItems.options.invalidate(),
@@ -119,6 +134,18 @@ export function ActionItemForm({
     onError: (error) => toast.error(`追加失敗: ${error.message}`),
   });
 
+  const addAuthorMutation = trpc.inventory.actionItems.addAuthor.useMutation({
+    onSuccess: async () => {
+      const name = newAuthor.trim();
+      setCreatedBy(name);
+      setNewAuthor("");
+      setShowAuthorAdd(false);
+      await utils.inventory.actionItems.options.invalidate();
+      toast.success("記載者を追加しました");
+    },
+    onError: (error) => toast.error(`追加失敗: ${error.message}`),
+  });
+
   const deleteAssigneeMutation = trpc.inventory.actionItems.deleteAssignee.useMutation({
     onSuccess: async () => {
       toast.success("宛先を削除しました");
@@ -135,6 +162,15 @@ export function ActionItemForm({
     }
     setAssignee(value);
     setShowAssigneeAdd(false);
+  };
+
+  const handleAuthorChange = (value: string) => {
+    if (value === ADD_AUTHOR_VALUE) {
+      setShowAuthorAdd(true);
+      return;
+    }
+    setCreatedBy(value);
+    setShowAuthorAdd(false);
   };
 
   const submit = () => {
@@ -155,6 +191,10 @@ export function ActionItemForm({
       toast.error("詳細を入力してください");
       return;
     }
+    if (!createdBy.trim()) {
+      toast.error("記載者を選択してください");
+      return;
+    }
     if (isEditing) {
       if (!initialItem) {
         toast.error("編集対象が見つかりません");
@@ -165,6 +205,7 @@ export function ActionItemForm({
         title,
         assignee: resolvedAssignee,
         detail,
+        createdBy,
         saveTitlePreset,
       });
       return;
@@ -175,6 +216,7 @@ export function ActionItemForm({
       detail,
       source: "ai-investigation",
       sourceQuestion,
+      createdBy,
       saveTitlePreset,
     });
   };
@@ -189,7 +231,7 @@ export function ActionItemForm({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_220px_190px]">
           <div className="space-y-2">
             <div className="flex gap-2">
               <Input
@@ -273,6 +315,48 @@ export function ActionItemForm({
                   disabled={newAssignee.trim().length === 0 || addAssigneeMutation.isPending}
                   onClick={() => addAssigneeMutation.mutate({ name: newAssignee })}
                   aria-label="宛先を追加"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-2">
+            <Select value={createdBy || undefined} onValueChange={handleAuthorChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="記載者" />
+              </SelectTrigger>
+              <SelectContent>
+                {authors.map((item) => (
+                  <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                ))}
+                <SelectSeparator />
+                <SelectItem value={ADD_AUTHOR_VALUE}>
+                  <Plus className="h-4 w-4" />
+                  記載者を追加
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {showAuthorAdd ? (
+              <div className="flex gap-2">
+                <Input
+                  value={newAuthor}
+                  onChange={(event) => setNewAuthor(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      if (newAuthor.trim()) addAuthorMutation.mutate({ name: newAuthor });
+                    }
+                  }}
+                  placeholder="追加する記載者"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  disabled={newAuthor.trim().length === 0 || addAuthorMutation.isPending}
+                  onClick={() => addAuthorMutation.mutate({ name: newAuthor })}
+                  aria-label="記載者を追加"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>

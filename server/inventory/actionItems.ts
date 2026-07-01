@@ -3,6 +3,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   actionItemAssignees,
+  actionItemAuthors,
   actionItems,
   actionItemTitlePresets,
 } from "../../drizzle/schema";
@@ -53,11 +54,12 @@ export const actionItemsRouter = router({
 
   options: protectedProcedure.query(async () => {
     const db = await requireDb();
-    const [assignees, titles] = await Promise.all([
+    const [assignees, titles, authors] = await Promise.all([
       db.select().from(actionItemAssignees).orderBy(asc(actionItemAssignees.sortOrder), asc(actionItemAssignees.name)),
       db.select().from(actionItemTitlePresets).orderBy(asc(actionItemTitlePresets.sortOrder), asc(actionItemTitlePresets.title)),
+      db.select().from(actionItemAuthors).orderBy(asc(actionItemAuthors.sortOrder), asc(actionItemAuthors.name)),
     ]);
-    return { assignees, titles };
+    return { assignees, titles, authors };
   }),
 
   create: protectedProcedure
@@ -68,12 +70,14 @@ export const actionItemsRouter = router({
       source: z.string().max(50).optional(),
       sourceKey: z.string().max(255).optional(),
       sourceQuestion: z.string().max(2000).optional(),
+      createdBy: z.string().max(200).optional(),
       saveTitlePreset: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       const title = cleanText(input.title);
       const assignee = cleanText(input.assignee);
+      const createdBy = cleanText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
       const detail = input.detail.trim();
       await db.insert(actionItems).values({
         title,
@@ -83,9 +87,12 @@ export const actionItemsRouter = router({
         source: input.source ?? null,
         sourceKey: input.sourceKey ?? null,
         sourceQuestion: input.sourceQuestion ?? null,
-        createdBy: ctx.user.email ?? ctx.user.name ?? null,
+        createdBy,
       });
       await db.insert(actionItemAssignees).ignore().values({ name: assignee, sortOrder: 100 });
+      if (createdBy) {
+        await db.insert(actionItemAuthors).ignore().values({ name: createdBy, sortOrder: 100 });
+      }
       if (input.saveTitlePreset) {
         await db.insert(actionItemTitlePresets).ignore().values({ title, sortOrder: 100 });
       }
@@ -98,6 +105,7 @@ export const actionItemsRouter = router({
       title: z.string().min(1).max(255),
       assignee: z.string().min(1).max(100),
       detail: z.string().min(1).max(5000),
+      createdBy: z.string().max(200).optional(),
       saveTitlePreset: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input }) => {
@@ -105,12 +113,17 @@ export const actionItemsRouter = router({
       const title = cleanText(input.title);
       const assignee = cleanText(input.assignee);
       const detail = input.detail.trim();
+      const createdBy = cleanText(input.createdBy ?? "");
       await db.update(actionItems).set({
         title,
         assignee,
         detail,
+        createdBy: createdBy || null,
       }).where(eq(actionItems.id, input.id));
       await db.insert(actionItemAssignees).ignore().values({ name: assignee, sortOrder: 100 });
+      if (createdBy) {
+        await db.insert(actionItemAuthors).ignore().values({ name: createdBy, sortOrder: 100 });
+      }
       if (input.saveTitlePreset) {
         await db.insert(actionItemTitlePresets).ignore().values({ title, sortOrder: 100 });
       }
@@ -143,6 +156,14 @@ export const actionItemsRouter = router({
     .mutation(async ({ input }) => {
       const db = await requireDb();
       await db.insert(actionItemTitlePresets).ignore().values({ title: cleanText(input.title), sortOrder: 100 });
+      return { success: true };
+    }),
+
+  addAuthor: protectedProcedure
+    .input(z.object({ name: z.string().min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.insert(actionItemAuthors).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
       return { success: true };
     }),
 

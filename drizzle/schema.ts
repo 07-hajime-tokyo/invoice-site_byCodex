@@ -856,6 +856,16 @@ export const actionItemTitlePresets = mysqlTable("action_item_title_presets", {
 export type ActionItemTitlePreset = typeof actionItemTitlePresets.$inferSelect;
 export type InsertActionItemTitlePreset = typeof actionItemTitlePresets.$inferInsert;
 
+export const actionItemAuthors = mysqlTable("action_item_authors", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ActionItemAuthor = typeof actionItemAuthors.$inferSelect;
+export type InsertActionItemAuthor = typeof actionItemAuthors.$inferInsert;
+
 export const actionItems = mysqlTable("action_items", {
   id: int("id").autoincrement().primaryKey(),
   title: varchar("title", { length: 255 }).notNull(),

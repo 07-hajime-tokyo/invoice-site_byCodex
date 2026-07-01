@@ -158,6 +158,15 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
       )
     `);
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_item_authors (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name varchar(100) NOT NULL UNIQUE,
+        sortOrder int NOT NULL DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS action_items (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
         title varchar(255) NOT NULL,
@@ -195,6 +204,10 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     await db.execute(sql`
       INSERT IGNORE INTO action_item_assignees (name, sortOrder)
       VALUES ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3), ('その他', 4)
+    `);
+    await db.execute(sql`
+      INSERT IGNORE INTO action_item_authors (name, sortOrder)
+      VALUES ('村上', 1), ('鈴木', 2), ('藤本', 3), ('野田', 4)
     `);
   } catch (error) {
     const message = errorText(error);
