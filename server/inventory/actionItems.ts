@@ -92,6 +92,31 @@ export const actionItemsRouter = router({
       return { success: true };
     }),
 
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      title: z.string().min(1).max(255),
+      assignee: z.string().min(1).max(100),
+      detail: z.string().min(1).max(5000),
+      saveTitlePreset: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const title = cleanText(input.title);
+      const assignee = cleanText(input.assignee);
+      const detail = input.detail.trim();
+      await db.update(actionItems).set({
+        title,
+        assignee,
+        detail,
+      }).where(eq(actionItems.id, input.id));
+      await db.insert(actionItemAssignees).ignore().values({ name: assignee, sortOrder: 100 });
+      if (input.saveTitlePreset) {
+        await db.insert(actionItemTitlePresets).ignore().values({ title, sortOrder: 100 });
+      }
+      return { success: true };
+    }),
+
   addAssignee: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ input }) => {

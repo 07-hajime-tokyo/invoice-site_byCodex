@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, ClipboardCheck, ExternalLink, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, ExternalLink, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
@@ -126,6 +126,7 @@ export default function ActionItems() {
   const [status, setStatus] = useState<StatusFilter>("open");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
 
   const setStatusMutation = trpc.inventory.actionItems.setStatus.useMutation({
@@ -292,82 +293,114 @@ export default function ActionItems() {
             const deliveryLink = getDeliveryHistoryLink(item);
             const reviewerChecks = parseReviewerChecks(item.reviewerChecksJson);
             return (
-              <Card key={item.id} className={`rounded-lg ${done ? "opacity-65" : ""}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setStatusMutation.mutate({ id: item.id, status: done ? "open" : "done" });
-                        }}
-                        disabled={setStatusMutation.isPending}
-                        className={`mt-1 ${
-                          done
-                            ? "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                        }`}
-                      >
-                        {done ? "未完了に戻す" : "完了にする"}
-                      </Button>
-                      <div className="min-w-0 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className={`font-semibold break-all ${done ? "line-through" : ""}`}>
-                            {item.title}
-                          </h2>
-                          <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
-                            {item.assignee}
-                          </Badge>
-                          {item.assignee === "出荷担当" ? (
-                            <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
-                              {SHIPPING_REVIEWERS.map((reviewer) => (
-                                <label key={reviewer} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                                  <span>{reviewer}</span>
-                                  <Checkbox
-                                    checked={Boolean(reviewerChecks[reviewer])}
-                                    onCheckedChange={(checked) => {
-                                      setReviewerCheckMutation.mutate({
-                                        id: item.id,
-                                        reviewer,
-                                        checked: checked === true,
-                                      });
-                                    }}
-                                    disabled={setReviewerCheckMutation.isPending}
-                                    className="h-4 w-4"
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                          ) : null}
-                          {done ? (
-                            <Badge variant="outline" className="text-emerald-700">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              完了
+              <div key={item.id} className="space-y-2">
+                <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setStatusMutation.mutate({ id: item.id, status: done ? "open" : "done" });
+                          }}
+                          disabled={setStatusMutation.isPending}
+                          className={`mt-1 ${
+                            done
+                              ? "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {done ? "未完了に戻す" : "完了にする"}
+                        </Button>
+                        <div className="min-w-0 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h2 className={`font-semibold break-all ${done ? "line-through" : ""}`}>
+                              {item.title}
+                            </h2>
+                            <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
+                              {item.assignee}
                             </Badge>
-                          ) : null}
-                        </div>
-                        <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
-                        <div className="text-xs text-muted-foreground">
-                          登録: {formatDate(item.createdAt)}
-                          {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
+                            {item.assignee === "出荷担当" ? (
+                              <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+                                {SHIPPING_REVIEWERS.map((reviewer) => (
+                                  <label key={reviewer} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                    <span>{reviewer}</span>
+                                    <Checkbox
+                                      checked={Boolean(reviewerChecks[reviewer])}
+                                      onCheckedChange={(checked) => {
+                                        setReviewerCheckMutation.mutate({
+                                          id: item.id,
+                                          reviewer,
+                                          checked: checked === true,
+                                        });
+                                      }}
+                                      disabled={setReviewerCheckMutation.isPending}
+                                      className="h-4 w-4"
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            ) : null}
+                            {done ? (
+                              <Badge variant="outline" className="text-emerald-700">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                完了
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
+                          <div className="text-xs text-muted-foreground">
+                            登録: {formatDate(item.createdAt)}
+                            {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
+                          </div>
                         </div>
                       </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditingItemId(editingItemId === item.id ? null : item.id)}
+                        >
+                          <Pencil className="h-4 w-4 mr-1" />
+                          編集
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            if (editingItemId === item.id) setEditingItemId(null);
+                            deleteMutation.mutate({ id: item.id });
+                          }}
+                          aria-label="削除"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => deleteMutation.mutate({ id: item.id })}
-                      aria-label="削除"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+                {editingItemId === item.id ? (
+                  <ActionItemForm
+                    mode="edit"
+                    initialItem={{
+                      id: item.id,
+                      title: item.title,
+                      assignee: item.assignee,
+                      detail: item.detail,
+                    }}
+                    onUpdated={() => {
+                      setEditingItemId(null);
+                      refetch();
+                    }}
+                    onCancel={() => setEditingItemId(null)}
+                  />
+                ) : null}
+              </div>
             );
           })}
         </div>

@@ -13,26 +13,54 @@ import { trpc } from "@/lib/trpc";
 type ActionItemFormProps = {
   sourceQuestion?: string;
   defaultDetail?: string;
+  initialItem?: {
+    id: number;
+    title: string;
+    assignee: string;
+    detail: string;
+  };
+  mode?: "create" | "edit";
   onCreated?: () => void;
+  onUpdated?: () => void;
+  onCancel?: () => void;
 };
 
 const DEFAULT_ASSIGNEES = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
 const ADD_ASSIGNEE_VALUE = "__add_assignee__";
 
-export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }: ActionItemFormProps) {
+export function ActionItemForm({
+  sourceQuestion,
+  defaultDetail = "",
+  initialItem,
+  mode = "create",
+  onCreated,
+  onUpdated,
+  onCancel,
+}: ActionItemFormProps) {
   const utils = trpc.useUtils();
+  const isEditing = mode === "edit";
   const { data: options } = trpc.inventory.actionItems.options.useQuery();
   const assignees = options?.assignees ?? [];
   const titles = options?.titles ?? [];
-  const [title, setTitle] = useState("");
-  const [assignee, setAssignee] = useState("");
+  const [title, setTitle] = useState(initialItem?.title ?? "");
+  const [assignee, setAssignee] = useState(initialItem?.assignee ?? "");
   const [customAssignee, setCustomAssignee] = useState("");
-  const [detail, setDetail] = useState(defaultDetail);
+  const [detail, setDetail] = useState(initialItem?.detail ?? defaultDetail);
   const [newAssignee, setNewAssignee] = useState("");
   const [showAssigneeAdd, setShowAssigneeAdd] = useState(false);
   const [saveTitlePreset, setSaveTitlePreset] = useState(false);
   const selectedAssignee = assignees.find((item) => item.name === assignee);
   const canDeleteSelectedAssignee = Boolean(selectedAssignee && !DEFAULT_ASSIGNEES.has(selectedAssignee.name));
+
+  useEffect(() => {
+    if (!isEditing || !initialItem) return;
+    setTitle(initialItem.title);
+    setAssignee(initialItem.assignee);
+    setDetail(initialItem.detail);
+    setSaveTitlePreset(false);
+    setCustomAssignee("");
+    setShowAssigneeAdd(false);
+  }, [initialItem?.id, isEditing]);
 
   useEffect(() => {
     if (!assignee && assignees.length > 0) {
@@ -41,8 +69,8 @@ export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }
   }, [assignee, assignees]);
 
   useEffect(() => {
-    setDetail(defaultDetail);
-  }, [defaultDetail]);
+    if (!isEditing) setDetail(defaultDetail);
+  }, [defaultDetail, isEditing]);
 
   useEffect(() => {
     if (assignee !== "その他") {
@@ -64,6 +92,19 @@ export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }
       onCreated?.();
     },
     onError: (error) => toast.error(`登録失敗: ${error.message}`),
+  });
+
+  const updateMutation = trpc.inventory.actionItems.update.useMutation({
+    onSuccess: async () => {
+      toast.success("やることを保存しました");
+      setSaveTitlePreset(false);
+      await Promise.all([
+        utils.inventory.actionItems.list.invalidate(),
+        utils.inventory.actionItems.options.invalidate(),
+      ]);
+      onUpdated?.();
+    },
+    onError: (error) => toast.error(`保存失敗: ${error.message}`),
   });
 
   const addAssigneeMutation = trpc.inventory.actionItems.addAssignee.useMutation({
@@ -114,6 +155,20 @@ export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }
       toast.error("詳細を入力してください");
       return;
     }
+    if (isEditing) {
+      if (!initialItem) {
+        toast.error("編集対象が見つかりません");
+        return;
+      }
+      updateMutation.mutate({
+        id: initialItem.id,
+        title,
+        assignee: resolvedAssignee,
+        detail,
+        saveTitlePreset,
+      });
+      return;
+    }
     createMutation.mutate({
       title,
       assignee: resolvedAssignee,
@@ -129,7 +184,7 @@ export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }
       <CardHeader className="py-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Save className="h-4 w-4 text-emerald-600" />
-          やること登録
+          {isEditing ? "やること編集" : "やること登録"}
           <Badge variant="outline" className="ml-auto">担当者宛</Badge>
         </CardTitle>
       </CardHeader>
@@ -234,9 +289,14 @@ export function ActionItemForm({ sourceQuestion, defaultDetail = "", onCreated }
         />
 
         <div className="flex justify-end">
-          <Button type="button" onClick={submit} disabled={createMutation.isPending}>
+          {isEditing && onCancel ? (
+            <Button type="button" variant="outline" onClick={onCancel} className="mr-2">
+              キャンセル
+            </Button>
+          ) : null}
+          <Button type="button" onClick={submit} disabled={createMutation.isPending || updateMutation.isPending}>
             <Save className="h-4 w-4 mr-2" />
-            登録
+            {isEditing ? "保存" : "登録"}
           </Button>
         </div>
       </CardContent>
