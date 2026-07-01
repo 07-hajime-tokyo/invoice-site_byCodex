@@ -135,6 +135,7 @@ export default function ActionItems() {
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
   const [replyAuthors, setReplyAuthors] = useState<Record<number, string>>({});
+  const [openReplyForms, setOpenReplyForms] = useState<Record<number, boolean>>({});
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
   const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
   const authorOptions = actionOptions?.authors ?? [];
@@ -164,6 +165,7 @@ export default function ActionItems() {
   const createReplyMutation = trpc.inventory.actionItems.createReply.useMutation({
     onSuccess: async (_, variables) => {
       setReplyDrafts((current) => ({ ...current, [variables.actionItemId]: "" }));
+      setOpenReplyForms((current) => ({ ...current, [variables.actionItemId]: false }));
       await utils.inventory.actionItems.list.invalidate();
       toast.success("返信しました");
     },
@@ -334,6 +336,7 @@ export default function ActionItems() {
             const reviewerChecks = parseReviewerChecks(item.reviewerChecksJson);
             const replyText = replyDrafts[item.id] ?? "";
             const replies = item.replies ?? [];
+            const replyFormOpen = Boolean(openReplyForms[item.id]);
             return (
               <div key={item.id} className="space-y-2">
                 <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
@@ -397,12 +400,23 @@ export default function ActionItems() {
                           </div>
                           <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
                           <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                              <MessageSquare className="h-4 w-4" />
-                              返信
-                              <Badge variant="outline" className="ml-1 bg-white">
-                                {replies.length}件
-                              </Badge>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                                <MessageSquare className="h-4 w-4" />
+                                返信
+                                <Badge variant="outline" className="ml-1 bg-white">
+                                  {replies.length}件
+                                </Badge>
+                              </div>
+                              <Button
+                                type="button"
+                                variant={replyFormOpen ? "secondary" : "outline"}
+                                size="sm"
+                                className="h-8 rounded-md"
+                                onClick={() => setOpenReplyForms((current) => ({ ...current, [item.id]: !replyFormOpen }))}
+                              >
+                                {replyFormOpen ? "閉じる" : "返信"}
+                              </Button>
                             </div>
                             {replies.length > 0 ? (
                               <div className="space-y-2">
@@ -417,35 +431,37 @@ export default function ActionItems() {
                                 ))}
                               </div>
                             ) : null}
-                            <div className="grid gap-2 md:grid-cols-[150px_1fr_auto] md:items-start">
-                              <select
-                                value={getReplyAuthor(item.id)}
-                                onChange={(event) => setReplyAuthors((current) => ({ ...current, [item.id]: event.target.value }))}
-                                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
-                              >
-                                {authorOptions.map((author) => (
-                                  <option key={author.id} value={author.name}>
-                                    {author.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <Textarea
-                                value={replyText}
-                                onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
-                                placeholder="返信を書く"
-                                className="min-h-[68px] bg-white"
-                              />
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => submitReply(item.id)}
-                                disabled={createReplyMutation.isPending || replyText.trim().length === 0}
-                                className="md:mt-0"
-                              >
-                                <Send className="h-4 w-4 mr-1" />
-                                返信
-                              </Button>
-                            </div>
+                            {replyFormOpen ? (
+                              <div className="grid gap-2 md:grid-cols-[150px_1fr_auto] md:items-start">
+                                <select
+                                  value={getReplyAuthor(item.id)}
+                                  onChange={(event) => setReplyAuthors((current) => ({ ...current, [item.id]: event.target.value }))}
+                                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
+                                >
+                                  {authorOptions.map((author) => (
+                                    <option key={author.id} value={author.name}>
+                                      {author.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Textarea
+                                  value={replyText}
+                                  onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                                  placeholder="返信を書く"
+                                  className="min-h-[68px] bg-white"
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => submitReply(item.id)}
+                                  disabled={createReplyMutation.isPending || replyText.trim().length === 0}
+                                  className="md:mt-0"
+                                >
+                                  <Send className="h-4 w-4 mr-1" />
+                                  送信
+                                </Button>
+                              </div>
+                            ) : null}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             登録: {formatDate(item.createdAt)} / 記載者: {formatAuthorName(item.createdBy)}

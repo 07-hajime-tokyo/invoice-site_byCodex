@@ -5276,6 +5276,32 @@ export const inventoryRouter = router({
         }
         // 同一追跡番号かつ同一出庫Noの既存記録を確認
         const allRecords = await getAllFedexShipments();
+
+        function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
+          try {
+            return JSON.parse(itemsJson) as MergeItem[];
+          } catch {
+            return [];
+          }
+        }
+
+        function getExistingGasItemsForWrite(): MergeItem[] {
+          return mergeShipmentGasItems(allRecords
+            .filter((record) =>
+              record.sheetName === input.sheetName &&
+              record.trackingNumber === input.trackingNumber &&
+              invoiceNoFromDeliveryNo(record.deliveryNo) === invoiceNo
+            )
+            .flatMap((record) => parseShipmentRecordItems(record.itemsJson)));
+        }
+
+        function getGasItemsForWrite(additionalItems: MergeItem[]): MergeItem[] {
+          return mergeShipmentGasItems([
+            ...getExistingGasItemsForWrite(),
+            ...additionalItems,
+          ]);
+        }
+
         const sameTracking = allRecords.filter((r) =>
           r.trackingNumber === input.trackingNumber &&
           r.deliveryNo === input.deliveryNo &&
@@ -5312,7 +5338,7 @@ export const inventoryRouter = router({
           for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
           // Keep the displayed delivery number and linked history in sync after merging.
           await updateFedexShipmentHistoryAndDeliveryNo(keepId, input.historyId ?? null, input.deliveryNo);
-          const gasResult = await callGasWrite(mergedItems);
+          const gasResult = await callGasWrite(getGasItemsForWrite(gasItems));
           if (gasResult.success) {
             await updateFedexShipmentStatus(keepId, "success");
             return { id: keepId, success: true, message: `同一追跡番号の既存記録と合算してスプシを更新しました（合計: ${mergedItems.map((i) => `${i.productNameJa} x${i.quantity}`).join(", ")}）` };
@@ -5339,7 +5365,7 @@ export const inventoryRouter = router({
           return { id, success: false, message: "GAS_WEBHOOK_URL が未設定です。管理者に連絡してください。" };
         }
 
-        const gasResult = await callGasWrite(gasItems);
+        const gasResult = await callGasWrite(getGasItemsForWrite(gasItems));
         if (gasResult.success) {
           await updateFedexShipmentStatus(id, "success");
           return { id, success: true, message: "スプシへの書き込みが完了しました" };

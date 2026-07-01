@@ -258,6 +258,7 @@ export function ActionItemForm({
             </label>
           </div>
           <div className="space-y-2">
+            <div className="text-xs font-medium text-muted-foreground">宛先</div>
             <div className="flex gap-2">
               <Select value={assignee || undefined} onValueChange={handleAssigneeChange}>
                 <SelectTrigger className="flex-1">
@@ -322,6 +323,7 @@ export function ActionItemForm({
             ) : null}
           </div>
           <div className="space-y-2">
+            <div className="text-xs font-medium text-muted-foreground">記載者</div>
             <Select value={createdBy || undefined} onValueChange={handleAuthorChange}>
               <SelectTrigger>
                 <SelectValue placeholder="記載者" />
