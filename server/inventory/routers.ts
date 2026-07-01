@@ -380,8 +380,9 @@ function shipmentModelKey(value: string): string {
   if (target.includes("psp2000")) return "psp2000";
   if (target.includes("psp1000")) return "psp1000";
   if (target.includes("psp")) return "psp";
-  if (target.includes("dsi")) return target.includes("ll") ? "dsill" : "dsi";
   if (target.includes("dslite")) return "dslite";
+  if (target.includes("dsill") || target.includes("dsixl") || /dsi(ll|xl)/.test(target)) return "dsill";
+  if (target.includes("dsi")) return "dsi";
   return target;
 }
 
@@ -391,8 +392,9 @@ function shipmentColorTokens(value: string): Set<string> {
   const pairs: Array<[string, string]> = [
     ["ブラック", "black"], ["黒", "black"], ["black", "black"],
     ["ホワイト", "white"], ["白", "white"], ["white", "white"],
+    ["パールホワイト", "white"], ["pearlwhite", "white"], ["pearl white", "white"],
     ["ブルー", "blue"], ["青", "blue"], ["blue", "blue"],
-    ["レッド", "red"], ["赤", "red"], ["red", "red"],
+    ["レッド", "red"], ["ワインレッド", "red"], ["赤", "red"], ["red", "red"], ["winered", "red"], ["wine red", "red"],
     ["ピンク", "pink"], ["pink", "pink"],
     ["ミント", "mint"], ["mint", "mint"],
     ["ライム", "lime"], ["lime", "lime"],
@@ -405,6 +407,8 @@ function shipmentColorTokens(value: string): Set<string> {
     ["シルバー", "silver"], ["silver", "silver"],
     ["ゴールド", "gold"], ["gold", "gold"],
     ["グレー", "gray"], ["gray", "gray"], ["grey", "gray"],
+    ["ブラウン", "brown"], ["茶", "brown"], ["brown", "brown"],
+    ["ダークブラウン", "brown"], ["darkbrown", "brown"], ["dark brown", "brown"],
     ["オレンジ", "orange"], ["orange", "orange"],
     ["メタリック", "metallic"], ["metallic", "metallic"],
   ];

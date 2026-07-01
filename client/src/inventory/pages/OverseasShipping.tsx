@@ -197,15 +197,25 @@ function PartnerView({
         const normalizedItem: ShipmentItem = isReturnProduct(item.productNameJa)
           ? { ...item, productNameJa: normalizeProductName(item.productNameJa), productNameEn: normalizeProductName(item.productNameEn) }
           : item;
-        const productKey = toShipmentProductKey(normalizedItem.productNameJa, normalizedItem.productNameEn);
+        const matchedCsvProduct = csvData[invoiceNo]?.products.find((product) =>
+          matchesCsvProductName(normalizedItem.productNameJa || normalizedItem.productNameEn || "", product.name)
+        );
+        const groupedItem = matchedCsvProduct
+          ? {
+            ...normalizedItem,
+            productNameJa: matchedCsvProduct.name,
+            productNameEn: toEnglishProductName(matchedCsvProduct.name),
+          }
+          : normalizedItem;
+        const productKey = toShipmentProductKey(groupedItem.productNameJa, groupedItem.productNameEn);
         const existingRow = group.rows.find(r =>
           r.invoiceNo === invoiceNo &&
           toShipmentProductKey(r.item.productNameJa, r.item.productNameEn) === productKey
         );
         if (existingRow) {
-          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + normalizedItem.quantity };
+          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + groupedItem.quantity };
         } else {
-          group.rows.push({ shipment: s, item: normalizedItem, itemIndex: idx, invoiceNo });
+          group.rows.push({ shipment: s, item: groupedItem, itemIndex: idx, invoiceNo });
         }
         if (csvData[invoiceNo]?.isComplete) group.isComplete = true;
       });
@@ -340,15 +350,14 @@ function PartnerView({
                           pLower.includes(rowEnLower) || rowEnLower.includes(pLower)
                         );
                       });
-                      const summary = invoiceSummary[row.invoiceNo];
-                      const orderedQty = matchedProduct?.qty ?? summary?.orderedQty ?? 0;
+                      const orderedQty = matchedProduct?.qty ?? 0;
                       const shippedQty = row.item.quantity;
                       const productShippedQty = matchedProduct
                         ? (shipmentItemsByInvoice[row.invoiceNo] ?? []).reduce((sum, item) =>
                           matchesCsvProductName(item.productNameJa || item.productNameEn || "", matchedProduct.name)
                             ? sum + item.quantity
                             : sum, 0)
-                        : summary?.shippedQty ?? shippedQty;
+                        : shippedQty;
                       const remainingQty = orderedQty > 0 ? Math.max(0, orderedQty - productShippedQty) : null;
                       const displayName = matchedProduct?.name || rowProductEn || row.item.productNameEn || row.item.productNameJa;
                       return (

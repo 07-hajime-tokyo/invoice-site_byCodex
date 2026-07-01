@@ -37,6 +37,10 @@ const PRODUCT_NAME_MAP: Array<{ patterns: string[]; en: string; canonical: strin
   { patterns: ["ps4", "playstation 4", "プレステ4"], en: "PS4", canonical: "ps4" },
   // PS3
   { patterns: ["ps3", "playstation 3", "プレステ3"], en: "PS3", canonical: "ps3" },
+  // DSi LL / XL
+  { patterns: ["dsi ll", "dsi_ll", "dsill", "dsi xl", "dsixl"], en: "DSi LL", canonical: "dsill" },
+  // DSi
+  { patterns: ["dsi"], en: "DSi", canonical: "dsi" },
   // DS Lite
   { patterns: ["ds lite", "dslite", "ds_lite"], en: "DS Lite", canonical: "dslite" },
   // DS
@@ -62,6 +66,7 @@ const COLOR_MAP: Record<string, string> = {
   "ホワイト": "White",
   "白": "White",
   "レッド": "Red",
+  "ワインレッド": "Wine Red",
   "赤": "Red",
   "ブルー": "Blue",
   "青": "Blue",
@@ -145,6 +150,8 @@ const EN_COLOR_NORMALIZE: Record<string, string> = {
   "black": "Black",
   "white": "White",
   "red": "Red",
+  "wine red": "Wine Red",
+  "winered": "Wine Red",
   "blue": "Blue",
   "silver": "Silver",
   "gold": "Gold",

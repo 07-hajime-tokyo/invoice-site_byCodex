@@ -204,16 +204,27 @@ export default function PartnerPortal() {
           productNameEn: baseEn,
         };
 
+        const matchedCsvProduct = csvData[invoiceNo]?.products.find((product) =>
+          matchesCsvProductName(baseJa || baseEn, product.name)
+        );
+        const groupedItem = matchedCsvProduct
+          ? {
+            ...normalizedItem,
+            productNameJa: matchedCsvProduct.name,
+            productNameEn: toEnglishProductName(matchedCsvProduct.name),
+          }
+          : normalizedItem;
+
         // 英語表示名で結合判定（日本語・英語混在やスペース有無を統一）
-        const itemKey = toShipmentProductKey(baseJa, baseEn);
+        const itemKey = toShipmentProductKey(groupedItem.productNameJa, groupedItem.productNameEn);
         const existingRow = group.rows.find(r => {
           if (r.invoiceNo !== invoiceNo) return false;
           return toShipmentProductKey(r.item.productNameJa, r.item.productNameEn) === itemKey;
         });
         if (existingRow) {
-          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + normalizedItem.quantity };
+          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + groupedItem.quantity };
         } else {
-          group.rows.push({ shipment: s, item: normalizedItem, itemIndex: idx, invoiceNo });
+          group.rows.push({ shipment: s, item: groupedItem, itemIndex: idx, invoiceNo });
         }
         if (csvData[invoiceNo]?.isComplete) group.isComplete = true;
       });
@@ -757,15 +768,14 @@ export default function PartnerPortal() {
                         const isChecked = checks[checkKey] ?? false;
 
                         // 残数計算
-                        const summary = invoiceSummary[row.invoiceNo];
-                        const orderedQty = matchedProduct?.qty ?? summary?.orderedQty ?? 0;
+                        const orderedQty = matchedProduct?.qty ?? 0;
                         const shippedQty = row.item.quantity;
                         const productShippedQty = matchedProduct
                           ? (shipmentItemsByInvoice[row.invoiceNo] ?? []).reduce((sum, item) =>
                             matchesCsvProductName(item.productNameJa || item.productNameEn || "", matchedProduct.name)
                               ? sum + item.quantity
                               : sum, 0)
-                          : summary?.shippedQty ?? shippedQty;
+                          : shippedQty;
                         const remainingQty = orderedQty > 0 ? Math.max(0, orderedQty - productShippedQty) : null;
 
                         // 英語変換名を優先（CSV名が日本語の場合も英語表示）
