@@ -10,9 +10,25 @@ import { getDb } from "./db";
 
 const actionItemStatusSchema = z.enum(["open", "done"]);
 const defaultAssignees = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
+const reviewerNameSchema = z.enum(["鈴木さん", "藤本さん"]);
 
 function cleanText(value: string) {
   return value.trim().replace(/\s+/g, " ");
+}
+
+function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>)
+        .filter(([key]) => key.length > 0)
+        .map(([key, checked]) => [key, Boolean(checked)]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 async function requireDb() {
@@ -112,6 +128,24 @@ export const actionItemsRouter = router({
       await db.update(actionItems).set({
         status: input.status,
         completedAt: input.status === "done" ? new Date() : null,
+      }).where(eq(actionItems.id, input.id));
+      return { success: true };
+    }),
+
+  setReviewerCheck: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      reviewer: reviewerNameSchema,
+      checked: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const [item] = await db.select().from(actionItems).where(eq(actionItems.id, input.id)).limit(1);
+      if (!item) throw new Error("やることが見つかりません");
+      const checks = parseReviewerChecks(item.reviewerChecksJson);
+      checks[input.reviewer] = input.checked;
+      await db.update(actionItems).set({
+        reviewerChecksJson: JSON.stringify(checks),
       }).where(eq(actionItems.id, input.id));
       return { success: true };
     }),

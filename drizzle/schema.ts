@@ -865,6 +865,7 @@ export const actionItems = mysqlTable("action_items", {
   source: varchar("source", { length: 50 }),
   sourceKey: varchar("sourceKey", { length: 255 }),
   sourceQuestion: text("sourceQuestion"),
+  reviewerChecksJson: text("reviewerChecksJson"),
   createdBy: varchar("createdBy", { length: 200 }),
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

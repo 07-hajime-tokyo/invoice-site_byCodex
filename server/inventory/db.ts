@@ -167,6 +167,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         source varchar(50) NULL,
         sourceKey varchar(255) NULL,
         sourceQuestion text NULL,
+        reviewerChecksJson text NULL,
         createdBy varchar(200) NULL,
         completedAt timestamp NULL,
         createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -180,6 +181,11 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     const actionSourceKeyRows = getRawRows(existingActionSourceKey);
     if (actionSourceKeyRows.length === 0) {
       await db.execute(sql`ALTER TABLE action_items ADD COLUMN sourceKey varchar(255) NULL`);
+    }
+    const existingActionReviewerChecks = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'reviewerChecksJson'`);
+    const actionReviewerChecksRows = getRawRows(existingActionReviewerChecks);
+    if (actionReviewerChecksRows.length === 0) {
+      await db.execute(sql`ALTER TABLE action_items ADD COLUMN reviewerChecksJson text NULL`);
     }
     const existingActionSourceKeyIndex = await db.execute(sql`SHOW INDEX FROM action_items WHERE Key_name = 'idx_action_items_source_key'`);
     const actionSourceKeyIndexRows = getRawRows(existingActionSourceKeyIndex);

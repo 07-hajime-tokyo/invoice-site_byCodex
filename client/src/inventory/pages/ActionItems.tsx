@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
 const ASSIGNEE_ORDER = ["仕入れ担当", "荷受担当", "出荷担当", "その他"];
+const SHIPPING_REVIEWERS = ["鈴木さん", "藤本さん"] as const;
 const CUSTOM_ASSIGNEE_BADGE_CLASSES = [
   "border-slate-200 bg-slate-100 text-slate-700",
   "border-rose-200 bg-rose-50 text-rose-700",
@@ -34,6 +35,19 @@ function getAssigneeBadgeClass(assignee: string | null | undefined, done: boolea
 
   const hash = Array.from(name).reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return `${CUSTOM_ASSIGNEE_BADGE_CLASSES[hash % CUSTOM_ASSIGNEE_BADGE_CLASSES.length]} ${base}`;
+}
+
+function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).map(([key, checked]) => [key, Boolean(checked)]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | null }) {
@@ -118,6 +132,13 @@ export default function ActionItems() {
       await utils.inventory.actionItems.list.invalidate();
     },
     onError: (error) => toast.error(`更新失敗: ${error.message}`),
+  });
+
+  const setReviewerCheckMutation = trpc.inventory.actionItems.setReviewerCheck.useMutation({
+    onSuccess: async () => {
+      await utils.inventory.actionItems.list.invalidate();
+    },
+    onError: (error) => toast.error(`確認更新失敗: ${error.message}`),
   });
 
   const deleteMutation = trpc.inventory.actionItems.delete.useMutation({
@@ -230,18 +251,24 @@ export default function ActionItems() {
           {sortedItems.map((item) => {
             const done = item.status === "done";
             const deliveryLink = getDeliveryHistoryLink(item);
+            const reviewerChecks = parseReviewerChecks(item.reviewerChecksJson);
             return (
               <Card key={item.id} className={`rounded-lg ${done ? "opacity-65" : ""}`}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <Checkbox
-                        checked={done}
-                        onCheckedChange={(checked) => {
-                          setStatusMutation.mutate({ id: item.id, status: checked ? "done" : "open" });
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={done ? "outline" : "default"}
+                        onClick={() => {
+                          setStatusMutation.mutate({ id: item.id, status: done ? "open" : "done" });
                         }}
+                        disabled={setStatusMutation.isPending}
                         className="mt-1"
-                      />
+                      >
+                        {done ? "未完了に戻す" : "完了"}
+                      </Button>
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className={`font-semibold break-all ${done ? "line-through" : ""}`}>
@@ -250,6 +277,27 @@ export default function ActionItems() {
                           <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
                             {item.assignee}
                           </Badge>
+                          {item.assignee === "出荷担当" ? (
+                            <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+                              {SHIPPING_REVIEWERS.map((reviewer) => (
+                                <label key={reviewer} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                  <span>{reviewer}</span>
+                                  <Checkbox
+                                    checked={Boolean(reviewerChecks[reviewer])}
+                                    onCheckedChange={(checked) => {
+                                      setReviewerCheckMutation.mutate({
+                                        id: item.id,
+                                        reviewer,
+                                        checked: checked === true,
+                                      });
+                                    }}
+                                    disabled={setReviewerCheckMutation.isPending}
+                                    className="h-4 w-4"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          ) : null}
                           {done ? (
                             <Badge variant="outline" className="text-emerald-700">
                               <CheckCircle2 className="h-3 w-3 mr-1" />
