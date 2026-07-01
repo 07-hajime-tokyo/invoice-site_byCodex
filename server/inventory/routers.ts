@@ -603,6 +603,10 @@ function deliveryHistoryItemsToShipmentItems(itemsJson: string): ShipmentDisplay
     .filter((item) => item.productNameJa && item.quantity > 0);
 }
 
+function sumShipmentDisplayItems(items: ShipmentDisplayItem[]): number {
+  return items.reduce((sum, item) => sum + item.quantity, 0);
+}
+
 async function alignShipmentItemsWithDeliveryHistories<
   T extends { deliveryNo: string; itemsJson: string; historyId?: number | null; isManual?: boolean },
 >(shipments: T[]): Promise<T[]> {
@@ -630,6 +634,10 @@ async function alignShipmentItemsWithDeliveryHistories<
 
     const historyItems = deliveryHistoryItemsToShipmentItems(history.itemsJson);
     if (historyItems.length === 0) return shipment;
+    const storedItems = deliveryHistoryItemsToShipmentItems(shipment.itemsJson);
+    if (storedItems.length > 0 && sumShipmentDisplayItems(storedItems) > sumShipmentDisplayItems(historyItems)) {
+      return shipment;
+    }
     return { ...shipment, itemsJson: JSON.stringify(historyItems) };
   });
 }

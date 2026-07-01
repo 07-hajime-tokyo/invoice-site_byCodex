@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, ClipboardCheck, ExternalLink, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, ExternalLink, MessageSquare, Pencil, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
@@ -132,7 +133,11 @@ export default function ActionItems() {
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const [replyAuthors, setReplyAuthors] = useState<Record<number, string>>({});
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
+  const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
+  const authorOptions = actionOptions?.authors ?? [];
 
   const setStatusMutation = trpc.inventory.actionItems.setStatus.useMutation({
     onSuccess: async () => {
@@ -155,6 +160,19 @@ export default function ActionItems() {
     },
     onError: (error) => toast.error(`削除失敗: ${error.message}`),
   });
+
+  const createReplyMutation = trpc.inventory.actionItems.createReply.useMutation({
+    onSuccess: async (_, variables) => {
+      setReplyDrafts((current) => ({ ...current, [variables.actionItemId]: "" }));
+      await utils.inventory.actionItems.list.invalidate();
+      toast.success("返信しました");
+    },
+    onError: (error) => toast.error(`返信失敗: ${error.message}`),
+  });
+
+  const defaultReplyAuthor = useMemo(() => {
+    return authorOptions.find((item) => item.name === "村上")?.name ?? authorOptions[0]?.name ?? "";
+  }, [authorOptions]);
 
   const assigneeOptions = useMemo(() => {
     const assignees = Array.from(new Set([...ASSIGNEE_ORDER, ...items.map((item) => item.assignee || "未設定")]));
@@ -183,6 +201,22 @@ export default function ActionItems() {
   const sortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => getTimestamp(b.createdAt) - getTimestamp(a.createdAt));
   }, [filteredItems]);
+
+  const getReplyAuthor = (itemId: number) => replyAuthors[itemId] || defaultReplyAuthor;
+
+  const submitReply = (itemId: number) => {
+    const body = (replyDrafts[itemId] ?? "").trim();
+    if (!body) {
+      toast.error("返信を入力してください");
+      return;
+    }
+    const author = getReplyAuthor(itemId);
+    if (!author) {
+      toast.error("記載者を選択してください");
+      return;
+    }
+    createReplyMutation.mutate({ actionItemId: itemId, body, author });
+  };
 
   return (
     <div className="space-y-4">
@@ -298,6 +332,8 @@ export default function ActionItems() {
             const done = item.status === "done";
             const deliveryLink = getDeliveryHistoryLink(item);
             const reviewerChecks = parseReviewerChecks(item.reviewerChecksJson);
+            const replyText = replyDrafts[item.id] ?? "";
+            const replies = item.replies ?? [];
             return (
               <div key={item.id} className="space-y-2">
                 <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
@@ -360,6 +396,57 @@ export default function ActionItems() {
                             ) : null}
                           </div>
                           <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
+                          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                              <MessageSquare className="h-4 w-4" />
+                              返信
+                              <Badge variant="outline" className="ml-1 bg-white">
+                                {replies.length}件
+                              </Badge>
+                            </div>
+                            {replies.length > 0 ? (
+                              <div className="space-y-2">
+                                {replies.map((reply) => (
+                                  <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="font-medium text-slate-700">{formatAuthorName(reply.author)}</span>
+                                      <span>{formatDate(reply.createdAt)}</span>
+                                    </div>
+                                    <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                            <div className="grid gap-2 md:grid-cols-[150px_1fr_auto] md:items-start">
+                              <select
+                                value={getReplyAuthor(item.id)}
+                                onChange={(event) => setReplyAuthors((current) => ({ ...current, [item.id]: event.target.value }))}
+                                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
+                              >
+                                {authorOptions.map((author) => (
+                                  <option key={author.id} value={author.name}>
+                                    {author.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <Textarea
+                                value={replyText}
+                                onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                                placeholder="返信を書く"
+                                className="min-h-[68px] bg-white"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => submitReply(item.id)}
+                                disabled={createReplyMutation.isPending || replyText.trim().length === 0}
+                                className="md:mt-0"
+                              >
+                                <Send className="h-4 w-4 mr-1" />
+                                返信
+                              </Button>
+                            </div>
+                          </div>
                           <div className="text-xs text-muted-foreground">
                             登録: {formatDate(item.createdAt)} / 記載者: {formatAuthorName(item.createdBy)}
                             {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}

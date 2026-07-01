@@ -884,6 +884,16 @@ export const actionItems = mysqlTable("action_items", {
 export type ActionItem = typeof actionItems.$inferSelect;
 export type InsertActionItem = typeof actionItems.$inferInsert;
 
+export const actionItemReplies = mysqlTable("action_item_replies", {
+  id: int("id").autoincrement().primaryKey(),
+  actionItemId: int("actionItemId").notNull(),
+  body: text("body").notNull(),
+  author: varchar("author", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ActionItemReply = typeof actionItemReplies.$inferSelect;
+export type InsertActionItemReply = typeof actionItemReplies.$inferInsert;
+
 /**
  * FedEx発送記録テーブル
  * 出庫グループ（deliveryNo）に紐づくFedEx発送情報を管理する

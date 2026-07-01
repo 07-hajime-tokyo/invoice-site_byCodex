@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   actionItemAssignees,
   actionItemAuthors,
+  actionItemReplies,
   actionItems,
   actionItemTitlePresets,
 } from "../../drizzle/schema";
@@ -38,6 +39,23 @@ async function requireDb() {
   return db;
 }
 
+async function attachReplies<T extends { id: number }>(items: T[]) {
+  if (items.length === 0) return items.map((item) => ({ ...item, replies: [] }));
+  const db = await requireDb();
+  const replies = await db
+    .select()
+    .from(actionItemReplies)
+    .where(inArray(actionItemReplies.actionItemId, items.map((item) => item.id)))
+    .orderBy(asc(actionItemReplies.createdAt), asc(actionItemReplies.id));
+  const repliesByItem = new Map<number, typeof replies>();
+  for (const reply of replies) {
+    const current = repliesByItem.get(reply.actionItemId) ?? [];
+    current.push(reply);
+    repliesByItem.set(reply.actionItemId, current);
+  }
+  return items.map((item) => ({ ...item, replies: repliesByItem.get(item.id) ?? [] }));
+}
+
 export const actionItemsRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -47,9 +65,11 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const status = input?.status ?? "open";
       if (status === "all") {
-        return db.select().from(actionItems).orderBy(asc(actionItems.status), desc(actionItems.createdAt));
+        const items = await db.select().from(actionItems).orderBy(asc(actionItems.status), desc(actionItems.createdAt));
+        return attachReplies(items);
       }
-      return db.select().from(actionItems).where(eq(actionItems.status, status)).orderBy(desc(actionItems.createdAt));
+      const items = await db.select().from(actionItems).where(eq(actionItems.status, status)).orderBy(desc(actionItems.createdAt));
+      return attachReplies(items);
     }),
 
   options: protectedProcedure.query(async () => {
@@ -196,10 +216,33 @@ export const actionItemsRouter = router({
       return { success: true };
     }),
 
+  createReply: protectedProcedure
+    .input(z.object({
+      actionItemId: z.number().int().positive(),
+      body: z.string().min(1).max(5000),
+      author: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const [item] = await db.select({ id: actionItems.id }).from(actionItems).where(eq(actionItems.id, input.actionItemId)).limit(1);
+      if (!item) throw new Error("やることが見つかりません");
+      const author = cleanText(input.author ?? "") || ctx.user.name || ctx.user.email || null;
+      await db.insert(actionItemReplies).values({
+        actionItemId: input.actionItemId,
+        body: input.body.trim(),
+        author,
+      });
+      if (author) {
+        await db.insert(actionItemAuthors).ignore().values({ name: author, sortOrder: 100 });
+      }
+      return { success: true };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
+      await db.delete(actionItemReplies).where(eq(actionItemReplies.actionItemId, input.id));
       await db.delete(actionItems).where(eq(actionItems.id, input.id));
       return { success: true };
     }),
