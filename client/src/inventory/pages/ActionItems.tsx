@@ -136,6 +136,7 @@ export default function ActionItems() {
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
   const [replyAuthors, setReplyAuthors] = useState<Record<number, string>>({});
   const [openReplyForms, setOpenReplyForms] = useState<Record<number, boolean>>({});
+  const [openReplyLists, setOpenReplyLists] = useState<Record<number, boolean>>({});
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
   const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
   const authorOptions = actionOptions?.authors ?? [];
@@ -166,6 +167,7 @@ export default function ActionItems() {
     onSuccess: async (_, variables) => {
       setReplyDrafts((current) => ({ ...current, [variables.actionItemId]: "" }));
       setOpenReplyForms((current) => ({ ...current, [variables.actionItemId]: false }));
+      setOpenReplyLists((current) => ({ ...current, [variables.actionItemId]: true }));
       await utils.inventory.actionItems.list.invalidate();
       toast.success("返信しました");
     },
@@ -337,6 +339,7 @@ export default function ActionItems() {
             const replyText = replyDrafts[item.id] ?? "";
             const replies = item.replies ?? [];
             const replyFormOpen = Boolean(openReplyForms[item.id]);
+            const replyListOpen = openReplyLists[item.id] ?? true;
             return (
               <div key={item.id} className="space-y-2">
                 <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
@@ -399,51 +402,23 @@ export default function ActionItems() {
                             ) : null}
                           </div>
                           <ActionItemDetail detail={item.detail} deliveryLink={deliveryLink} onNavigate={setLocation} />
-                          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                                <MessageSquare className="h-4 w-4" />
-                                返信
-                                <Badge variant="outline" className="ml-1 bg-white">
-                                  {replies.length}件
-                                </Badge>
-                              </div>
-                              <Button
-                                type="button"
-                                variant={replyFormOpen ? "secondary" : "outline"}
-                                size="sm"
-                                className="h-8 rounded-md"
-                                onClick={() => setOpenReplyForms((current) => ({ ...current, [item.id]: !replyFormOpen }))}
-                              >
-                                {replyFormOpen ? "閉じる" : "返信"}
-                              </Button>
-                            </div>
-                            {replies.length > 0 ? (
-                              <div className="space-y-2">
-                                {replies.map((reply) => (
-                                  <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                      <span className="font-medium text-slate-700">{formatAuthorName(reply.author)}</span>
-                                      <span>{formatDate(reply.createdAt)}</span>
-                                    </div>
-                                    <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                            {replyFormOpen ? (
+                          {replyFormOpen ? (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
                               <div className="grid gap-2 md:grid-cols-[150px_1fr_auto] md:items-start">
-                                <select
-                                  value={getReplyAuthor(item.id)}
-                                  onChange={(event) => setReplyAuthors((current) => ({ ...current, [item.id]: event.target.value }))}
-                                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
-                                >
-                                  {authorOptions.map((author) => (
-                                    <option key={author.id} value={author.name}>
-                                      {author.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="space-y-1">
+                                  <div className="text-xs font-medium text-muted-foreground">記載者</div>
+                                  <select
+                                    value={getReplyAuthor(item.id)}
+                                    onChange={(event) => setReplyAuthors((current) => ({ ...current, [item.id]: event.target.value }))}
+                                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
+                                  >
+                                    {authorOptions.map((author) => (
+                                      <option key={author.id} value={author.name}>
+                                        {author.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                                 <Textarea
                                   value={replyText}
                                   onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
@@ -455,30 +430,73 @@ export default function ActionItems() {
                                   size="sm"
                                   onClick={() => submitReply(item.id)}
                                   disabled={createReplyMutation.isPending || replyText.trim().length === 0}
-                                  className="md:mt-0"
+                                  className="md:mt-6"
                                 >
                                   <Send className="h-4 w-4 mr-1" />
                                   送信
                                 </Button>
                               </div>
-                            ) : null}
-                          </div>
+                            </div>
+                          ) : null}
+                          {replies.length > 0 ? (
+                            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                                  <MessageSquare className="h-4 w-4" />
+                                  返信内容
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs text-muted-foreground"
+                                  onClick={() => setOpenReplyLists((current) => ({ ...current, [item.id]: !replyListOpen }))}
+                                >
+                                  {replyListOpen ? "非表示" : "表示"}
+                                </Button>
+                              </div>
+                              {replyListOpen ? (
+                                <div className="space-y-2">
+                                  {replies.map((reply) => (
+                                    <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                        <span className="font-medium text-slate-700">{formatAuthorName(reply.author)}</span>
+                                        <span>{formatDate(reply.createdAt)}</span>
+                                      </div>
+                                      <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                           <div className="text-xs text-muted-foreground">
                             登録: {formatDate(item.createdAt)} / 記載者: {formatAuthorName(item.createdBy)}
                             {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
                           </div>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingItemId(editingItemId === item.id ? null : item.id)}
-                        >
-                          <Pencil className="h-4 w-4 mr-1" />
-                          編集
-                        </Button>
+                      <div className="flex shrink-0 items-start gap-1">
+                        <div className="flex flex-col gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditingItemId(editingItemId === item.id ? null : item.id)}
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />
+                            編集
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={replyFormOpen ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() => setOpenReplyForms((current) => ({ ...current, [item.id]: !replyFormOpen }))}
+                          >
+                            <MessageSquare className="h-4 w-4 mr-1" />
+                            返信
+                          </Button>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
