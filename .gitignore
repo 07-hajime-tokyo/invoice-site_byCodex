@@ -112,3 +112,4 @@ temp/
 *.sqlite3
 
 .env.local
+.vercel
