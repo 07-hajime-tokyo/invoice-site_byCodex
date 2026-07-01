@@ -12,6 +12,29 @@ import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
 const ASSIGNEE_ORDER = ["仕入れ担当", "荷受担当", "出荷担当", "その他"];
+const CUSTOM_ASSIGNEE_BADGE_CLASSES = [
+  "border-slate-200 bg-slate-100 text-slate-700",
+  "border-rose-200 bg-rose-50 text-rose-700",
+  "border-cyan-200 bg-cyan-50 text-cyan-700",
+  "border-lime-200 bg-lime-50 text-lime-700",
+  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+];
+
+function getAssigneeBadgeClass(assignee: string | null | undefined, done: boolean) {
+  const name = assignee || "未設定";
+  const base = done ? "opacity-70" : "";
+  const fixed: Record<string, string> = {
+    仕入れ担当: "border-amber-200 bg-amber-50 text-amber-700",
+    荷受担当: "border-sky-200 bg-sky-50 text-sky-700",
+    出荷担当: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    その他: "border-violet-200 bg-violet-50 text-violet-700",
+    未設定: "border-slate-200 bg-slate-100 text-slate-600",
+  };
+  if (fixed[name]) return `${fixed[name]} ${base}`;
+
+  const hash = Array.from(name).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return `${CUSTOM_ASSIGNEE_BADGE_CLASSES[hash % CUSTOM_ASSIGNEE_BADGE_CLASSES.length]} ${base}`;
+}
 
 function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | null }) {
   const historyId = item.sourceKey?.match(/^fedex-missing-history:(\d+)$/)?.[1];
@@ -224,7 +247,9 @@ export default function ActionItems() {
                           <h2 className={`font-semibold break-all ${done ? "line-through" : ""}`}>
                             {item.title}
                           </h2>
-                          <Badge variant={done ? "secondary" : "default"}>{item.assignee}</Badge>
+                          <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
+                            {item.assignee}
+                          </Badge>
                           {done ? (
                             <Badge variant="outline" className="text-emerald-700">
                               <CheckCircle2 className="h-3 w-3 mr-1" />
