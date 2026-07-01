@@ -209,11 +209,11 @@ export default function ActionItems() {
                 </div>
                 <div>
                   <span className="font-medium text-foreground">2. スタッフ現物照合を使う</span>
-                  <p>「表示中をすべてOK」を押し、数字や現物がおかしい行だけチェックを外します。</p>
+                  <p>付箋の管理番号と表の管理番号/行を見ながら、「表示中をすべてOK」後に異常行だけ外します。</p>
                 </div>
                 <div>
                   <span className="font-medium text-foreground">3. CSVを残す</span>
-                  <p>確認後は照合CSVを保存し、税理士報告用の非公開レポートに回します。</p>
+                  <p>途中は一時保存、終わったら棚卸完了にして、照合CSVを非公開レポートに回します。</p>
                 </div>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
