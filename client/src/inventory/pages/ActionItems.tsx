@@ -260,14 +260,18 @@ export default function ActionItems() {
                       <Button
                         type="button"
                         size="sm"
-                        variant={done ? "outline" : "default"}
+                        variant="outline"
                         onClick={() => {
                           setStatusMutation.mutate({ id: item.id, status: done ? "open" : "done" });
                         }}
                         disabled={setStatusMutation.isPending}
-                        className="mt-1"
+                        className={`mt-1 ${
+                          done
+                            ? "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        }`}
                       >
-                        {done ? "未完了に戻す" : "完了"}
+                        {done ? "未完了に戻す" : "完了にする"}
                       </Button>
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
