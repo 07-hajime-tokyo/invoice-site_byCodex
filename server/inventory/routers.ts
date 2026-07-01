@@ -4553,6 +4553,7 @@ export const inventoryRouter = router({
       // 6. 在庫金額サマリー（カテゴリ×商品別）
       type InventorySummaryItem = {
         category: string;
+        managementNo: string;
         title: string;
         quantity: number;
         unitPrice: number | null;
@@ -4571,9 +4572,10 @@ export const inventoryRouter = router({
           unitPrice = parseMoneyNumber(inv.unit_price);
         }
         const category = inv.categories?.[0] ?? inv.category ?? "未分類";
-        inventorySummary.push({ category, title: inv.title, quantity: qty, unitPrice, totalValue: unitPrice != null ? unitPrice * qty : null });
+        const managementNo = String(inv.etc ?? "").split(",")[0]?.trim() ?? "";
+        inventorySummary.push({ category, managementNo, title: inv.title, quantity: qty, unitPrice, totalValue: unitPrice != null ? unitPrice * qty : null });
       }
-      inventorySummary.sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
+      inventorySummary.sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title) || a.managementNo.localeCompare(b.managementNo, "ja", { numeric: true }));
 
       // 7. Zaico発注をinvoiceNoでグループ化
       type PurchaseItemForReport = { zaicoId: number; title: string; quantity: number; unitPrice: number | null; managementNo: string; status: string };

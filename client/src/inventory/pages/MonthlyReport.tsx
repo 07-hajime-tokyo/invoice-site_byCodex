@@ -48,6 +48,7 @@ import {
 // ============================================================
 type InventorySummaryItem = {
   category: string;
+  managementNo?: string;
   title: string;
   quantity: number;
   unitPrice: number | null;
@@ -476,13 +477,13 @@ export default function MonthlyReport() {
 
     const rows: string[][] = [];
 
-    rows.push(["=== 在庫金額サマリー ===", "", "", "", ""]);
-    rows.push(["カテゴリ", "商品名", "数量", "仕入単価", "在庫金額"]);
+    rows.push(["=== 在庫金額サマリー ===", "", "", "", "", ""]);
+    rows.push(["カテゴリ", "管理番号", "商品名", "数量", "仕入単価", "在庫金額"]);
     for (const item of invSummary) {
-      rows.push([item.category, item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
+      rows.push([item.category, item.managementNo ?? "", item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
     }
     const savedGrandTotal = invSummary.reduce((sum, item) => sum + (item.totalValue ?? 0), 0);
-    rows.push(["", "", "", "合計", String(savedGrandTotal)]);
+    rows.push(["", "", "", "", "合計", String(savedGrandTotal)]);
     rows.push([]);
 
     rows.push(["=== 支払い済み・未完了インボイス ===", "", "", "", "", "", ""]);
@@ -531,12 +532,12 @@ export default function MonthlyReport() {
     if (!previewData) return;
     const rows: string[][] = [];
 
-    rows.push(["=== 在庫金額サマリー ===", "", "", "", ""]);
-    rows.push(["カテゴリ", "商品名", "数量", "仕入単価", "在庫金額"]);
+    rows.push(["=== 在庫金額サマリー ===", "", "", "", "", ""]);
+    rows.push(["カテゴリ", "管理番号", "商品名", "数量", "仕入単価", "在庫金額"]);
     for (const item of previewData.inventorySummary) {
-      rows.push([item.category, item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
+      rows.push([item.category, item.managementNo ?? "", item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
     }
-    rows.push(["", "", "", "合計", String(grandTotal)]);
+    rows.push(["", "", "", "", "合計", String(grandTotal)]);
     rows.push([]);
 
     rows.push(["=== 支払い済み・未完了インボイス ===", "", "", "", "", "", ""]);
@@ -738,6 +739,7 @@ export default function MonthlyReport() {
                               const effectiveTotal = effectivePrice != null ? effectivePrice * item.quantity : null;
                               return (
                               <tr key={idx} className="border-b last:border-b-0 hover:bg-muted/20">
+                                <td className="px-6 py-2 w-44 font-mono text-xs text-muted-foreground">{item.managementNo || "—"}</td>
                                 <td className="px-6 py-2 text-muted-foreground">{item.title}</td>
                                 <td className="px-4 py-2 text-right w-20">{item.quantity}個</td>
                                 <td className="px-4 py-2 text-right w-44 text-muted-foreground">
@@ -1566,6 +1568,7 @@ export default function MonthlyReport() {
                             <thead>
                               <tr className="text-xs text-muted-foreground border-b">
                                 <th className="text-left pb-1 font-medium">カテゴリ</th>
+                                <th className="text-left pb-1 font-medium w-44">管理番号</th>
                                 <th className="text-left pb-1 font-medium">商品名</th>
                                 <th className="text-right pb-1 font-medium w-16">数量</th>
                                 <th className="text-right pb-1 font-medium w-28">仕入単価</th>
@@ -1576,6 +1579,7 @@ export default function MonthlyReport() {
                               {savedInventorySummary.map((item, idx) => (
                                 <tr key={idx} className="border-b last:border-b-0 hover:bg-muted/20">
                                   <td className="py-1.5 text-xs text-muted-foreground">{item.category}</td>
+                                  <td className="py-1.5 font-mono text-xs text-muted-foreground">{item.managementNo || "—"}</td>
                                   <td className="py-1.5">{item.title}</td>
                                   <td className="py-1.5 text-right">{item.quantity}個</td>
                                   <td className="py-1.5 text-right text-muted-foreground">{item.unitPrice != null ? fmt(item.unitPrice) : <span className="text-amber-500 text-xs">未設定</span>}</td>

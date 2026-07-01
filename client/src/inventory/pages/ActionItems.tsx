@@ -254,7 +254,7 @@ export default function ActionItems() {
                 </div>
                 <div>
                   <span className="font-medium text-foreground">2. スタッフ現物照合を使う</span>
-                  <p>付箋の管理番号と表の管理番号/行を見ながら、「表示中をすべてOK」後に異常行だけ外します。</p>
+                  <p>付箋の管理番号と表の管理番号を見ながら、「表示中をすべてOK」後に異常行だけ外します。</p>
                 </div>
                 <div>
                   <span className="font-medium text-foreground">3. CSVを残す</span>
