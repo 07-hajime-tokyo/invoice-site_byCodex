@@ -367,8 +367,8 @@ export default function ActionItems() {
                             <h2 className={`font-semibold break-all ${done ? "line-through" : ""}`}>
                               {item.title}
                             </h2>
-                            <Badge variant="outline" className={`${getAssigneeBadgeClass(item.assignee, done)} break-all`}>
-                              記入者: {formatAuthorName(item.createdBy)} → 担当者: {item.assignee || "未設定"}
+                            <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
+                              {item.assignee || "未設定"}
                             </Badge>
                             {item.assignee === "出荷担当" ? (
                               <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
@@ -468,7 +468,7 @@ export default function ActionItems() {
                             </div>
                           ) : null}
                           <div className="text-xs text-muted-foreground">
-                            登録: {formatDate(item.createdAt)}
+                            登録: {formatDate(item.createdAt)} / 記入者: {formatAuthorName(item.createdBy)}
                             {item.completedAt ? ` / 完了: ${formatDate(item.completedAt)}` : ""}
                           </div>
                         </div>
