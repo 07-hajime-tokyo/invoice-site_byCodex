@@ -175,7 +175,7 @@ type ColorSummary = {
 };
 
 function orderStockCoverage(cs: ColorSummary): number {
-  return Math.min(cs.csvQty, cs.zaicoCount + cs.stockCount);
+  return Math.min(cs.csvQty, cs.zaicoCount + cs.stockCount + cs.deliveredCount);
 }
 
 function isOrderStockShort(cs: ColorSummary): boolean {
@@ -231,7 +231,7 @@ function extractModelFromCsvName(name: string): string {
   if (n.includes("new 2ds ll") || n.includes("new2dsll")) return "New2DSLL";
   if (n.includes("vita 2000") || n.includes("vita2000")) return "Vita2000";
   if (n.includes("vita 1000") || n.includes("vita1000") || (n.includes("vita") && !n.includes("2000"))) return "Vita1000";
-  if (n.includes("new 3ds ll") || n.includes("new3dsll")) return "New3DSLL";
+  if (n.includes("new 3ds ll") || n.includes("new 3dsll") || n.includes("new3ds ll") || n.includes("new3dsll")) return "New3DSLL";
   if ((n.includes("3ds ll") || n.includes("3dsll")) && (n.includes("ランダム") || n.includes("random"))) return "New3DSLL";
   if (n.includes("new 3ds") || n.includes("new3ds")) return "New3DS";
   if (n.includes("3ds ll") || n.includes("3dsll")) return "3DSLL";
@@ -257,7 +257,7 @@ function matchesModel(title: string, managementNo: string, model: string): boole
     case "Vita2000": return t.includes("vita") && (t.includes("2000") || t.includes("vita2000")) ||
       (m.includes("vita2000") || (m.includes("vita") && m.includes("2000")));
     case "Vita1000": return (t.includes("vita") && !t.includes("2000")) || (m.includes("vita") && !m.includes("2000"));
-    case "New3DSLL": return t.includes("new 3ds ll") || t.includes("new3dsll") || m.includes("new3dsll");
+    case "New3DSLL": return t.includes("new 3ds ll") || t.includes("new 3dsll") || t.includes("new3ds ll") || t.includes("new3dsll") || m.includes("new 3ds ll") || m.includes("new 3dsll") || m.includes("new3ds ll") || m.includes("new3dsll");
     case "New3DS":
       // "new 3ds" を含み、かつ "ll" を含まない
       return (t.includes("new 3ds") || t.includes("new3ds") || m.includes("new3ds")) &&
@@ -381,6 +381,9 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     const targetLimited = hasLimitedEditionMarker(targetText);
     if (entryLimited) return targetLimited ? 6 : -1;
     if (targetLimited) return -1;
+    const managementText = managementNo.toLowerCase();
+    const entryColorText = entry.colorOnly.toLowerCase();
+    if (managementText && entryColorText && !isRandomColor(entry.colorOnly) && managementText.includes(entryColorText)) return 7;
     const zt = targetText.toLowerCase();
     const zaicoModel = extractModelFromCsvName(targetText);
     if (isVita2000AquaBlueMisdelivery(targetText, entry)) return 5;
@@ -1028,6 +1031,7 @@ export default function OrderManagement() {
                       )}
                       {colorSummary.length > 0 && (
                         <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
+                          <span className="font-medium text-foreground">発注+在庫+出庫</span>
                           {colorSummary.map((cs) => {
                             const covered = orderStockCoverage(cs);
                             const isShort = isOrderStockShort(cs);
@@ -1035,9 +1039,9 @@ export default function OrderManagement() {
                               <span
                                 key={cs.colorName}
                                 className={isShort ? "font-medium text-red-600" : "text-foreground"}
-                                title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 取引データ発注${cs.csvQty}個`}
+                                title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 出庫${cs.deliveredCount}個 / 取引データ発注${cs.csvQty}個`}
                               >
-                                発注+在庫 {cs.colorName} {covered}/{cs.csvQty}
+                                {cs.colorName} {covered}/{cs.csvQty}
                               </span>
                             );
                           })}
@@ -1137,16 +1141,17 @@ export default function OrderManagement() {
                         {/* カラー別集計バッジ＋メモ欄 */}
                         {colorSummary.length > 0 && (
                           <div className="flex flex-col gap-1.5">
-                            {colorSummary.map((cs) => {
+                            {colorSummary.map((cs, index) => {
                               const covered = orderStockCoverage(cs);
                               const isShort = isOrderStockShort(cs);
                               return (
-                                <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap">
+                                <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap justify-end">
+                                  {index === 0 && <span className="text-xs font-medium text-foreground">発注+在庫+出庫</span>}
                                   <span
                                     className={`text-xs ${isShort ? "font-medium text-red-600" : "text-foreground"}`}
-                                    title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 取引データ発注${cs.csvQty}個`}
+                                    title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 出庫${cs.deliveredCount}個 / 取引データ発注${cs.csvQty}個`}
                                   >
-                                    発注+在庫 {cs.colorName} {covered}/{cs.csvQty}
+                                    {cs.colorName} {covered}/{cs.csvQty}
                                   </span>
                                   <InvoiceMemoField invoiceKey={item.key} colorKey={cs.colorName} />
                                 </div>
