@@ -141,7 +141,8 @@ export default function ActionItems() {
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
   const [replyEditDrafts, setReplyEditDrafts] = useState<Record<number, string>>({});
   const [replyEditAuthors, setReplyEditAuthors] = useState<Record<number, string>>({});
-  const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
+  const queryStatus = hasRepliesOnly ? "all" : status;
+  const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status: queryStatus });
   const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
   const authorOptions = actionOptions?.authors ?? [];
 
