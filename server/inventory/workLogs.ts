@@ -27,6 +27,20 @@ async function ensureOptions(workerName: string, category: string) {
   await db.insert(workLogCategories).ignore().values({ name: category, sortOrder: 100 });
 }
 
+type WorkLogRow = typeof workLogs.$inferSelect;
+
+function getStoredDurationMinutes(log: WorkLogRow) {
+  if (typeof log.manualMinutes === "number") return Math.max(0, log.manualMinutes);
+  if (log.startedAt && log.endedAt) {
+    return Math.max(0, Math.round((log.endedAt.getTime() - log.startedAt.getTime()) / 60000));
+  }
+  return 0;
+}
+
+function subtractMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() - minutes * 60000);
+}
+
 type RecordWorkLogInput = {
   workerName: string;
   category: string;
@@ -257,6 +271,65 @@ export const workLogsRouter = router({
         manualMinutes: input.manualMinutes ?? log.manualMinutes,
         memo: input.memo?.trim() || log.memo,
       }).where(eq(workLogs.id, input.id));
+      return { success: true };
+    }),
+
+  split: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      category: z.string().min(1).max(100),
+      manualMinutes: z.number().int().min(1).max(1440),
+      quantity: z.number().int().min(0).max(100000).optional().default(0),
+      memo: z.string().max(5000).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const [log] = await db.select().from(workLogs).where(eq(workLogs.id, input.id)).limit(1);
+      if (!log) throw new Error("作業ログが見つかりません");
+      if (log.status === "running") throw new Error("作業中のログは終了してから分割してください");
+
+      const category = cleanText(input.category);
+      const currentMinutes = getStoredDurationMinutes(log);
+      if (currentMinutes <= 0) throw new Error("分割する作業時間がありません");
+      if (input.manualMinutes > currentMinutes) throw new Error("分割時間が元ログの作業時間を超えています");
+
+      const nextOriginalMinutes = Math.max(0, currentMinutes - input.manualMinutes);
+      const nextOriginalQuantity = Math.max(0, Number(log.quantity ?? 0) - input.quantity);
+      let originalEndedAt = log.endedAt ?? null;
+      let splitStartedAt: Date | null = null;
+      let splitEndedAt: Date | null = null;
+
+      if (log.startedAt && log.endedAt) {
+        const nextEnd = subtractMinutes(log.endedAt, input.manualMinutes);
+        if (nextEnd.getTime() >= log.startedAt.getTime()) {
+          originalEndedAt = nextEnd;
+          splitStartedAt = nextEnd;
+          splitEndedAt = log.endedAt;
+        }
+      }
+
+      await ensureOptions(log.workerName, category);
+      await db.update(workLogs).set({
+        endedAt: originalEndedAt,
+        manualMinutes: nextOriginalMinutes,
+        quantity: nextOriginalQuantity,
+      }).where(eq(workLogs.id, input.id));
+
+      await db.insert(workLogs).values({
+        workerName: log.workerName,
+        category,
+        status: "done",
+        startedAt: splitStartedAt,
+        endedAt: splitEndedAt,
+        manualMinutes: input.manualMinutes,
+        quantity: input.quantity,
+        memo: input.memo?.trim() || `分割元: #${log.id}${log.memo ? ` / ${log.memo}` : ""}`,
+        createdBy: ctx.user.name || ctx.user.email || null,
+        sourceType: "split",
+        sourceId: String(log.id),
+        detailsJson: null,
+      });
+
       return { success: true };
     }),
 

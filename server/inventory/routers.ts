@@ -2687,6 +2687,7 @@ export const inventoryRouter = router({
               if (t.includes("vita 1000") || t.includes("vita1000") || (t.includes("vita") && !t.includes("2000"))) return "Vita1000";
               if (t.includes("new 3ds ll") || t.includes("new 3dsll") || t.includes("new3ds ll") || t.includes("new3dsll")) return "New3DSLL";
               if ((t.includes("new 3ds") || t.includes("new3ds")) && !t.includes("ll")) return "New3DS";
+              if (t.includes("2ds") && !t.includes("new") && !t.includes("ll")) return "2DS";
               if ((t.includes("3ds ll") || t.includes("3dsll")) && !t.includes("new")) return "3DSLL";
               if (t.includes("3ds") && !t.includes("ll") && !t.includes("new")) return "3DS";
               if (t.includes("ds lite") || t.includes("dslite")) return "DSLite";
@@ -2700,7 +2701,7 @@ export const inventoryRouter = router({
             const extractColorKey = (name: string): string => {
               const modelPatterns = [
                 /^new\s*2ds\s*ll\s*/i, /^new\s*3ds\s*ll\s*/i, /^new\s*3ds\s*/i,
-                /^3ds\s*ll\s*/i, /^3ds\s*/i, /^ds\s*lite\s*/i, /^dslite\s*/i,
+                /^2ds\s*/i, /^3ds\s*ll\s*/i, /^3ds\s*/i, /^ds\s*lite\s*/i, /^dslite\s*/i,
                 /^dsi\s*ll\s*/i, /^dsi\s*/i, /^ps\s*vita\s*2000\s*/i,
                 /^ps\s*vita\s*1000\s*/i, /^ps\s*vita\s*/i, /^vita\s*2000\s*/i,
                 /^vita\s*1000\s*/i, /^vita\s*/i, /^psp\s*/i, /^ps5\s*/i, /^ps4\s*/i,
@@ -2717,7 +2718,7 @@ export const inventoryRouter = router({
               if (!colorName.normalize("NFKC").trim()) return true;
               const compact = normalizeColorToken(colorName);
               if (!compact) return false;
-              if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
+              if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
               if (/^\d{3,4}$/.test(compact)) return true;
               if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
               if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
@@ -3756,6 +3757,7 @@ export const inventoryRouter = router({
         if (t.includes("new 3ds ll") || t.includes("new 3dsll") || t.includes("new3ds ll") || t.includes("new3dsll")) return "New3DSLL";
         if ((t.includes("3ds ll") || t.includes("3dsll")) && (t.includes("ランダム") || t.includes("random"))) return "New3DSLL";
         if ((t.includes("new 3ds") || t.includes("new3ds")) && !t.includes("ll")) return "New3DS";
+        if (t.includes("2ds") && !t.includes("new") && !t.includes("ll")) return "2DS";
         if ((t.includes("3ds ll") || t.includes("3dsll")) && !t.includes("new")) return "3DSLL";
         if (t.includes("3ds") && !t.includes("ll") && !t.includes("new")) return "3DS";
         if (t.includes("ds lite") || t.includes("dslite")) return "DSLite";
@@ -3779,6 +3781,7 @@ export const inventoryRouter = router({
           /^new\s*2ds\s*ll\s*/i,
           /^new\s*3ds\s*ll\s*/i,
           /^new\s*3ds\s*/i,
+          /^2ds\s*/i,
           /^3ds\s*ll\s*/i,
           /^3ds\s*/i,
           /^ds\s*lite\s*/i,
@@ -3823,7 +3826,7 @@ export const inventoryRouter = router({
         if (!colorName.normalize("NFKC").trim()) return true;
         const compact = normalizeColorToken(colorName);
         if (!compact) return false;
-        if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
+        if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
         if (/^\d{3,4}$/.test(compact)) return true;
         if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
         if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;

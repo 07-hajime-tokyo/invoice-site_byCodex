@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, ChevronDown, ChevronRight, Clock3, Pencil, Play, Plus, RefreshCw, Save, Square, Timer, Trash2, Users, X } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronRight, Clock3, GitBranch, Pencil, Play, Plus, RefreshCw, Save, Square, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,14 @@ type WorkLogForm = {
   sourceType?: string | null;
   sourceId?: string | null;
   detailsJson?: string | null;
+};
+
+type SplitDraft = {
+  category: string;
+  customCategory: string;
+  manualMinutes: string;
+  quantity: string;
+  memo: string;
 };
 
 type DeliveryDetails = {
@@ -172,6 +180,20 @@ function formFromLog(log: WorkLogRecord): WorkLogForm {
   };
 }
 
+function initialSplitDraft(categoryOptions: WorkOption[] = []): SplitDraft {
+  const preferredCategory =
+    categoryOptions.find((item) => item.name === "出庫登録") ??
+    categoryOptions.find((item) => item.name !== "その他") ??
+    categoryOptions[0];
+  return {
+    category: preferredCategory?.name ?? "その他",
+    customCategory: "",
+    manualMinutes: "30",
+    quantity: "0",
+    memo: "",
+  };
+}
+
 export default function WorkManagement() {
   const utils = trpc.useUtils();
   const [now, setNow] = useState(() => new Date());
@@ -184,6 +206,8 @@ export default function WorkManagement() {
   const [editingLog, setEditingLog] = useState<WorkLogRecord | null>(null);
   const [editForm, setEditForm] = useState<WorkLogForm>(() => initialForm());
   const [expandedDetails, setExpandedDetails] = useState<Record<number, boolean>>({});
+  const [splittingLogId, setSplittingLogId] = useState<number | null>(null);
+  const [splitDraft, setSplitDraft] = useState<SplitDraft>(() => initialSplitDraft());
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -291,6 +315,15 @@ export default function WorkManagement() {
     onError: (error) => toast.error(`削除失敗: ${error.message}`),
   });
 
+  const splitMutation = trpc.inventory.workLogs.split.useMutation({
+    onSuccess: async () => {
+      setSplittingLogId(null);
+      setSplitDraft(initialSplitDraft(categoryOptions));
+      await onMutationSuccess("作業ログを分割しました");
+    },
+    onError: (error) => toast.error(`分割失敗: ${error.message}`),
+  });
+
   const runningLogs = useMemo(() => logs.filter((log) => log.status === "running"), [logs]);
   const completedLogs = useMemo(() => logs.filter((log) => log.status !== "running"), [logs]);
 
@@ -318,6 +351,7 @@ export default function WorkManagement() {
     updateMutation.isPending ||
     finishMutation.isPending ||
     deleteMutation.isPending ||
+    splitMutation.isPending ||
     addWorkerMutation.isPending ||
     updateWorkerMutation.isPending ||
     deleteWorkerMutation.isPending ||
@@ -346,6 +380,11 @@ export default function WorkManagement() {
   const resolveCategory = (target: WorkLogForm) => {
     if (target.category === "その他") return target.customCategory.trim();
     return target.category.trim();
+  };
+
+  const resolveSplitCategory = () => {
+    if (splitDraft.category === "その他") return splitDraft.customCategory.trim();
+    return splitDraft.category.trim();
   };
 
   const createPayloadFromForm = (target: WorkLogForm) => ({
@@ -409,6 +448,43 @@ export default function WorkManagement() {
       quantity: parseNumber(draft.quantity),
       manualMinutes: parseOptionalMinutes(draft.manualMinutes),
       memo: draft.memo.trim() || undefined,
+    });
+  };
+
+  const openSplitLog = (log: WorkLogRecord) => {
+    const duration = getDurationMinutes(log, now);
+    setSplittingLogId(log.id);
+    setSplitDraft({
+      ...initialSplitDraft(categoryOptions),
+      manualMinutes: String(duration > 0 ? Math.min(30, duration) : 30),
+      quantity: "0",
+      memo: "",
+    });
+  };
+
+  const handleSplit = (log: WorkLogRecord) => {
+    const category = resolveSplitCategory();
+    const manualMinutes = parseNumber(splitDraft.manualMinutes);
+    const quantity = parseNumber(splitDraft.quantity);
+    const duration = getDurationMinutes(log, now);
+    if (!category) {
+      toast.error("分割先カテゴリを入力してください");
+      return;
+    }
+    if (manualMinutes <= 0) {
+      toast.error("分割する作業時間を入力してください");
+      return;
+    }
+    if (duration > 0 && manualMinutes > duration) {
+      toast.error("分割時間が元ログの作業時間を超えています");
+      return;
+    }
+    splitMutation.mutate({
+      id: log.id,
+      category,
+      manualMinutes,
+      quantity,
+      memo: splitDraft.memo.trim() || undefined,
     });
   };
 
@@ -553,6 +629,89 @@ export default function WorkManagement() {
             </div>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const renderSplitPanel = (log: WorkLogRecord) => {
+    if (splittingLogId !== log.id) return null;
+    return (
+      <div className="mt-3 rounded-lg border bg-amber-50/40 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold">作業ログを分割</div>
+            <div className="text-xs text-muted-foreground">
+              元ログ: {formatMinutes(getDurationMinutes(log, now))} / 処理数 {log.quantity.toLocaleString("ja-JP")}
+            </div>
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={() => setSplittingLogId(null)} aria-label="分割を閉じる">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[220px_280px_130px_1fr_auto] lg:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor={`split-${log.id}-category`}>分割先カテゴリ</Label>
+            <Select
+              value={splitDraft.category}
+              onValueChange={(value) => setSplitDraft((current) => ({
+                ...current,
+                category: value,
+                customCategory: value === "その他" ? current.customCategory : "",
+              }))}
+            >
+              <SelectTrigger id={`split-${log.id}-category`}>
+                <SelectValue placeholder="カテゴリを選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {categoryOptions.map((item) => (
+                  <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                ))}
+                {categoryOptions.every((item) => item.name !== "その他") && (
+                  <SelectItem value="その他">その他</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {splitDraft.category === "その他" && (
+              <Input
+                value={splitDraft.customCategory}
+                onChange={(event) => setSplitDraft((current) => ({ ...current, customCategory: event.target.value }))}
+                placeholder="カテゴリを入力"
+              />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>分割する作業時間</Label>
+            {renderDurationInput(
+              splitDraft.manualMinutes,
+              (value) => setSplitDraft((current) => ({ ...current, manualMinutes: value })),
+              `split-${log.id}`,
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`split-${log.id}-quantity`}>処理数</Label>
+            <Input
+              id={`split-${log.id}-quantity`}
+              type="number"
+              min="0"
+              inputMode="numeric"
+              value={splitDraft.quantity}
+              onChange={(event) => setSplitDraft((current) => ({ ...current, quantity: event.target.value }))}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`split-${log.id}-memo`}>メモ</Label>
+            <Input
+              id={`split-${log.id}-memo`}
+              value={splitDraft.memo}
+              onChange={(event) => setSplitDraft((current) => ({ ...current, memo: event.target.value }))}
+              placeholder="分割理由など"
+            />
+          </div>
+          <Button type="button" onClick={() => handleSplit(log)} disabled={isMutating}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            分割する
+          </Button>
+        </div>
       </div>
     );
   };
@@ -883,6 +1042,16 @@ export default function WorkManagement() {
                       {log.memo && <div className="text-sm text-muted-foreground">{log.memo}</div>}
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openSplitLog(log)}
+                        disabled={log.status === "running" || isMutating}
+                      >
+                        <GitBranch className="mr-1.5 h-4 w-4" />
+                        分割
+                      </Button>
                       <Button type="button" variant="outline" size="sm" onClick={() => openEditLog(log)}>
                         <Pencil className="mr-1.5 h-4 w-4" />
                         編集
@@ -900,6 +1069,7 @@ export default function WorkManagement() {
                       </Button>
                     </div>
                   </div>
+                  {renderSplitPanel(log)}
                   {hasDetails(log) && renderDeliveryDetails(log)}
                 </div>
               ))}

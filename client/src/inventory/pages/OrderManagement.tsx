@@ -97,6 +97,7 @@ function extractColorFromCsvName(name: string): string {
     /^new\s*2ds\s*ll\s*/i,
     /^new\s*3ds\s*ll\s*/i,
     /^new\s*3ds\s*/i,
+    /^2ds\s*/i,
     /^3ds\s*ll\s*/i,
     /^3ds\s*/i,
     /^ds\s*lite\s*/i,
@@ -234,6 +235,7 @@ function extractModelFromCsvName(name: string): string {
   if (n.includes("new 3ds ll") || n.includes("new 3dsll") || n.includes("new3ds ll") || n.includes("new3dsll")) return "New3DSLL";
   if ((n.includes("3ds ll") || n.includes("3dsll")) && (n.includes("ランダム") || n.includes("random"))) return "New3DSLL";
   if (n.includes("new 3ds") || n.includes("new3ds")) return "New3DS";
+  if (n.includes("2ds")) return "2DS";
   if (n.includes("3ds ll") || n.includes("3dsll")) return "3DSLL";
   if (n.includes("3ds")) return "3DS";
   if (n.includes("ds lite") || n.includes("dslite")) return "DSLite";
@@ -263,6 +265,7 @@ function matchesModel(title: string, managementNo: string, model: string): boole
       return (t.includes("new 3ds") || t.includes("new3ds") || m.includes("new3ds")) &&
         !t.includes(" ll") && !t.includes("ll") && !m.includes("ll");
     case "New2DSLL": return t.includes("new 2ds ll") || t.includes("new2dsll") || m.includes("new2dsll");
+    case "2DS": return (t.includes("2ds") || m.includes("2ds")) && !t.includes("new") && !m.includes("new") && !t.includes("ll") && !m.includes("ll");
     case "3DSLL": return (t.includes("3ds ll") || t.includes("3dsll") || m.includes("3dsll")) && !t.includes("new") && !m.includes("new");
     case "3DS": return (t.includes("3ds") || m.includes("3ds")) && !t.includes("ll") && !m.includes("ll") && !t.includes("new") && !m.includes("new");
     case "DSLite": return t.includes("ds lite") || t.includes("dslite") || m.includes("dslite") || m.includes("ds lite");
@@ -291,7 +294,7 @@ function isColorlessRandomColor(colorName: string): boolean {
   if (!colorName.normalize("NFKC").trim()) return true;
   const compact = normalizeColorToken(colorName);
   if (!compact) return false;
-  if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
+  if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
   if (/^\d{3,4}$/.test(compact)) return true;
   if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
   if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
