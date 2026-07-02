@@ -146,7 +146,7 @@ function parseDetails(json: string | null | undefined): DeliveryDetails | null {
 }
 
 function hasDetails(log: WorkLogRecord) {
-  return Boolean(parseDetails(log.detailsJson)?.items?.length);
+  return log.sourceType === "delivery" && Boolean(parseDetails(log.detailsJson)?.items?.length);
 }
 
 function initialForm(): WorkLogForm {
