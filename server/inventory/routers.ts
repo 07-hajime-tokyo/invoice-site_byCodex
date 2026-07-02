@@ -3645,15 +3645,17 @@ export const inventoryRouter = router({
           } else if (purchase.status === "purchased") {
             g.purchasedCount += qty;
           }
-          // 入庫済み（purchased）も発注一覧に表示し、発送済み商品の照合にも使う
-          g.purchaseItems.push({
-            purchaseId: purchase.id,
-            num: purchase.num,
-            title: item.title,
-            quantity: qty,
-            status: purchase.status,
-            managementNo: item.etc?.split(",")[0]?.trim() ?? "",
-          });
+          // 発注一覧には未入庫の発注済み/発送済みだけを表示する。入庫済みは在庫一覧側で表示する。
+          if (purchase.status !== "purchased") {
+            g.purchaseItems.push({
+              purchaseId: purchase.id,
+              num: purchase.num,
+              title: item.title,
+              quantity: qty,
+              status: purchase.status,
+              managementNo: item.etc?.split(",")[0]?.trim() ?? "",
+            });
+          }
         }
       }
 
@@ -3790,7 +3792,7 @@ export const inventoryRouter = router({
       // invManagementNo: Zaico在庫管理番号（例: "369_ルカ_レッド_3/10"）
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
         const csvModel = extractModelFromTitle(csvProductName);
-        const invModel = extractModelFromTitle(invTitle);
+        const invModel = extractModelFromTitle(`${invTitle} ${invManagementNo ?? ""}`);
         const csvLimited = hasLimitedEditionMarker(csvProductName);
         const targetLimited = hasLimitedEditionMarker(`${invTitle} ${invManagementNo ?? ""}`);
         if (csvLimited) {

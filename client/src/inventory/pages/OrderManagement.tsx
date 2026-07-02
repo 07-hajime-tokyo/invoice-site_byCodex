@@ -174,6 +174,14 @@ type ColorSummary = {
   deliveredCount: number; // 出庫済み数
 };
 
+function orderStockCoverage(cs: ColorSummary): number {
+  return Math.min(cs.csvQty, cs.zaicoCount + cs.stockCount);
+}
+
+function isOrderStockShort(cs: ColorSummary): boolean {
+  return orderStockCoverage(cs) < cs.csvQty;
+}
+
 /**
  * カラー名のキーワード一覧を返す
  * 例: "ブラック" → ["ブラック"]
@@ -243,6 +251,8 @@ function extractModelFromCsvName(name: string): string {
 function matchesModel(title: string, managementNo: string, model: string): boolean {
   const t = title.toLowerCase();
   const m = managementNo.toLowerCase();
+  const explicitModel = extractModelFromCsvName(`${title} ${managementNo}`);
+  if (explicitModel) return explicitModel === model;
   switch (model) {
     case "Vita2000": return t.includes("vita") && (t.includes("2000") || t.includes("vita2000")) ||
       (m.includes("vita2000") || (m.includes("vita") && m.includes("2000")));
@@ -957,31 +967,6 @@ export default function OrderManagement() {
           const isComplete = item.manualComplete || item.csvStatus === "complete" || isAutoComplete;
           const colorSummary = buildColorSummary(item);
 
-          // カラー別の超過・不足を集計
-          let colorOverUnder: { over: number; under: number };
-          if (colorSummary.length > 0) {
-            colorOverUnder = colorSummary.reduce(
-              (acc, cs) => {
-                const diff = (cs.deliveredCount + cs.zaicoCount + cs.stockCount) - cs.csvQty;
-                if (diff > 0) acc.over += diff;
-                else if (diff < 0) acc.under += Math.abs(diff);
-                return acc;
-              },
-              { over: 0, under: 0 }
-            );
-          } else if (item.csvOrderQty > 0) {
-            const totalZaico = item.purchaseItems.reduce((sum, pi) => sum + pi.quantity, 0);
-            const totalStock = item.inventoryItems.reduce((sum, inv) => sum + inv.quantity, 0);
-            const totalDelivered = item.deliveryItems.reduce((sum, d) => sum + d.quantity, 0);
-            const diff = (totalDelivered + totalZaico + totalStock) - item.csvOrderQty;
-            colorOverUnder = {
-              over: diff > 0 ? diff : 0,
-              under: diff < 0 ? Math.abs(diff) : 0,
-            };
-          } else {
-            colorOverUnder = { over: 0, under: 0 };
-          }
-
           return (
             <div key={item.key} className="rounded-lg border bg-card shadow-sm overflow-hidden">
               {/* 超過出庫時の注意バナー */}
@@ -1041,28 +1026,22 @@ export default function OrderManagement() {
                       {isComplete && (
                         <Badge className="text-xs bg-green-500 text-white">完了</Badge>
                       )}
-                      {/* カラー別超過バッジのみ（不足バッジは削除） */}
-                      {colorSummary.length > 0 ? (
-                        colorSummary.map((cs) => {
-                          const diff = (cs.deliveredCount + cs.zaicoCount + cs.stockCount) - cs.csvQty;
-                          if (diff <= 0) return null; // 不足・ちょうどはバッジ非表示
-                          return (
-                            <Badge
-                              key={cs.colorName}
-                              className="text-xs bg-amber-500 text-white"
-                            >
-                              {cs.colorName}: 出庫{cs.deliveredCount}個 &gt; 発注{cs.csvQty}個（{diff}個超過）
-                            </Badge>
-                          );
-                        })
-                      ) : (
-                        <>
-                          {colorOverUnder.over > 0 && (
-                            <Badge className="text-xs bg-amber-500 text-white">
-                              出庫{item.deliveredCount}個 &gt; 発注{item.csvOrderQty}個（{colorOverUnder.over}個超過）
-                            </Badge>
-                          )}
-                        </>
+                      {colorSummary.length > 0 && (
+                        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
+                          {colorSummary.map((cs) => {
+                            const covered = orderStockCoverage(cs);
+                            const isShort = isOrderStockShort(cs);
+                            return (
+                              <span
+                                key={cs.colorName}
+                                className={isShort ? "font-medium text-red-600" : "text-foreground"}
+                                title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 取引データ発注${cs.csvQty}個`}
+                              >
+                                発注+在庫 {cs.colorName} {covered}/{cs.csvQty}
+                              </span>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                     {/* 進捗バー */}
@@ -1158,23 +1137,21 @@ export default function OrderManagement() {
                         {/* カラー別集計バッジ＋メモ欄 */}
                         {colorSummary.length > 0 && (
                           <div className="flex flex-col gap-1.5">
-                            {colorSummary.map((cs) => (
-                              <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap">
-                                <div
-                                  className="flex items-center gap-1 bg-white border border-blue-100 rounded-full px-2 py-0.5 text-xs"
-                                  title={`${cs.colorName}: 取引データ発注${cs.csvQty}個 / 発注${cs.zaicoCount}個 / 入庫済${cs.purchasedCount}個 / 出庫${cs.deliveredCount}個 / 在庫${cs.stockCount}個`}
-                                >
-                                  <span className="font-medium text-blue-800">{cs.colorName}</span>
-                                  <span className="text-muted-foreground">
-                                    {cs.zaicoCount}/{cs.csvQty}
+                            {colorSummary.map((cs) => {
+                              const covered = orderStockCoverage(cs);
+                              const isShort = isOrderStockShort(cs);
+                              return (
+                                <div key={cs.colorName} className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`text-xs ${isShort ? "font-medium text-red-600" : "text-foreground"}`}
+                                    title={`${cs.colorName}: 発注${cs.zaicoCount}個 / 在庫${cs.stockCount}個 / 取引データ発注${cs.csvQty}個`}
+                                  >
+                                    発注+在庫 {cs.colorName} {covered}/{cs.csvQty}
                                   </span>
-                                  {cs.stockCount > 0 && (
-                                    <span className="text-purple-600 font-medium">在{cs.stockCount}</span>
-                                  )}
+                                  <InvoiceMemoField invoiceKey={item.key} colorKey={cs.colorName} />
                                 </div>
-                                <InvoiceMemoField invoiceKey={item.key} colorKey={cs.colorName} />
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
