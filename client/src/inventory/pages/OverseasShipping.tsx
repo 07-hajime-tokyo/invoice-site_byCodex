@@ -593,7 +593,7 @@ export default function OverseasShipping() {
       const totalOrderQty = data.products.reduce((sum, p) => sum + p.qty, 0);
       const totalShippedQty = invShipments.reduce((sum, r) => sum + r.item.quantity, 0);
       const invoiceNumber = Number.parseInt(invoiceNo, 10);
-      const isLegacyComplete = Number.isFinite(invoiceNumber) && invoiceNumber < 383;
+      const isLegacyComplete = Number.isFinite(invoiceNumber) && invoiceNumber <= 383;
       // 100%発送済みの場合は自動的に完了扱い
       const isComplete = isLegacyComplete || (totalOrderQty > 0 && totalShippedQty >= totalOrderQty);
       entries.push({
