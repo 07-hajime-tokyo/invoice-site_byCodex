@@ -615,7 +615,7 @@ export default function PartnerPortal() {
               return { invoiceNo, data, remaining };
             })
             // インボイス370以降・未完了・残数ありのみ表示
-            .filter(({ remaining, invoiceNo }) => remaining > 0 && parseInt(invoiceNo) >= 370)
+            .filter(({ remaining, invoiceNo }) => remaining > 0 && parseInt(invoiceNo) >= 383)
             .sort((a, b) => parseInt(a.invoiceNo) - parseInt(b.invoiceNo));
 
           if (pendingInvoices.length === 0) return null;
