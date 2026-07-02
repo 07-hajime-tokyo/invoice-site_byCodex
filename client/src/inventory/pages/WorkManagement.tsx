@@ -40,6 +40,7 @@ type WorkOption = {
 type WorkLogForm = {
   workerName: string;
   category: string;
+  customCategory: string;
   startedAt: string;
   endedAt: string;
   manualMinutes: string;
@@ -143,6 +144,7 @@ function initialForm(): WorkLogForm {
   return {
     workerName: "鈴木",
     category: "入庫登録",
+    customCategory: "",
     startedAt: "",
     endedAt: "",
     manualMinutes: "",
@@ -156,6 +158,7 @@ function formFromLog(log: WorkLogRecord): WorkLogForm {
   return {
     workerName: log.workerName,
     category: log.category,
+    customCategory: "",
     startedAt: toInputDateTime(log.startedAt),
     endedAt: toInputDateTime(log.endedAt),
     manualMinutes: log.manualMinutes == null ? "" : String(log.manualMinutes),
@@ -180,6 +183,7 @@ export default function WorkManagement() {
   const [editingLog, setEditingLog] = useState<WorkLogRecord | null>(null);
   const [editForm, setEditForm] = useState<WorkLogForm>(() => initialForm());
   const [expandedDetails, setExpandedDetails] = useState<Record<number, boolean>>({});
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 30000);
@@ -323,16 +327,29 @@ export default function WorkManagement() {
   const hourlyRate = summary.totalMinutes > 0 ? Math.round((summary.totalQuantity / summary.totalMinutes) * 60 * 10) / 10 : 0;
 
   const setFormField = <K extends keyof WorkLogForm>(key: K, value: WorkLogForm[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "category" && value !== "その他" ? { customCategory: "" } : {}),
+    }));
   };
 
   const setEditFormField = <K extends keyof WorkLogForm>(key: K, value: WorkLogForm[K]) => {
-    setEditForm((current) => ({ ...current, [key]: value }));
+    setEditForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "category" && value !== "その他" ? { customCategory: "" } : {}),
+    }));
+  };
+
+  const resolveCategory = (target: WorkLogForm) => {
+    if (target.category === "その他") return target.customCategory.trim();
+    return target.category.trim();
   };
 
   const createPayloadFromForm = (target: WorkLogForm) => ({
     workerName: target.workerName.trim(),
-    category: target.category.trim(),
+    category: resolveCategory(target),
     startedAt: target.startedAt || undefined,
     endedAt: target.endedAt || undefined,
     manualMinutes: parseOptionalMinutes(target.manualMinutes),
@@ -344,19 +361,20 @@ export default function WorkManagement() {
   });
 
   const handleStart = () => {
-    if (!form.workerName.trim() || !form.category.trim()) {
+    const category = resolveCategory(form);
+    if (!form.workerName.trim() || !category) {
       toast.error("担当者と作業カテゴリを入力してください");
       return;
     }
     startMutation.mutate({
       workerName: form.workerName.trim(),
-      category: form.category.trim(),
+      category,
       memo: form.memo.trim() || undefined,
     });
   };
 
   const handleCreate = () => {
-    if (!form.workerName.trim() || !form.category.trim()) {
+    if (!form.workerName.trim() || !resolveCategory(form)) {
       toast.error("担当者と作業カテゴリを入力してください");
       return;
     }
@@ -370,6 +388,10 @@ export default function WorkManagement() {
 
   const handleUpdate = () => {
     if (!editingLog) return;
+    if (!editForm.workerName.trim() || !resolveCategory(editForm)) {
+      toast.error("担当者と作業カテゴリを入力してください");
+      return;
+    }
     updateMutation.mutate({
       id: editingLog.id,
       status: editForm.status,
@@ -412,7 +434,7 @@ export default function WorkManagement() {
     const presetValue = DURATION_PRESETS.includes(Number(value)) ? value : "custom";
     return (
       <div className="grid gap-2 sm:grid-cols-[150px_1fr]">
-        <Select value={presetValue} onValueChange={(next) => next !== "custom" && onChange(next)}>
+        <Select value={presetValue} onValueChange={(next) => onChange(next === "custom" ? "" : next)}>
           <SelectTrigger id={`${idPrefix}-duration-preset`}>
             <SelectValue placeholder="選択" />
           </SelectTrigger>
@@ -563,6 +585,14 @@ export default function WorkManagement() {
             ))}
           </SelectContent>
         </Select>
+        {target.category === "その他" && (
+          <Input
+            id={`${idPrefix}-category-custom`}
+            value={target.customCategory}
+            onChange={(event) => setField("customCategory", event.target.value)}
+            placeholder="作業カテゴリを入力"
+          />
+        )}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-started`}>開始</Label>
@@ -644,28 +674,47 @@ export default function WorkManagement() {
       </Card>
 
       <Card className="rounded-lg">
-        <CardContent className="grid gap-3 p-4 xl:grid-cols-2">
-          {renderOptionManager(
-            "担当者",
-            workerOptions,
-            newWorkerName,
-            setNewWorkerName,
-            editingWorker,
-            setEditingWorker,
-            (name) => addWorkerMutation.mutate({ name: name.trim() }),
-            (id, name) => updateWorkerMutation.mutate({ id, name: name.trim() }),
-            (id) => deleteWorkerMutation.mutate({ id }),
-          )}
-          {renderOptionManager(
-            "作業カテゴリ",
-            categoryOptions,
-            newCategoryName,
-            setNewCategoryName,
-            editingCategory,
-            setEditingCategory,
-            (name) => addCategoryMutation.mutate({ name: name.trim() }),
-            (id, name) => updateCategoryMutation.mutate({ id, name: name.trim() }),
-            (id) => deleteCategoryMutation.mutate({ id }),
+        <CardContent className="p-4">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-md px-1 py-1 text-left transition hover:bg-muted/50"
+            onClick={() => setShowSettings((current) => !current)}
+            aria-expanded={showSettings}
+          >
+            <div className="flex items-center gap-2">
+              {showSettings ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              <span className="font-semibold">設定</span>
+              <span className="text-sm text-muted-foreground">担当者・作業カテゴリ</span>
+            </div>
+            <Badge variant="outline">
+              担当者 {workerOptions.length} / カテゴリ {categoryOptions.length}
+            </Badge>
+          </button>
+          {showSettings && (
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {renderOptionManager(
+                "担当者",
+                workerOptions,
+                newWorkerName,
+                setNewWorkerName,
+                editingWorker,
+                setEditingWorker,
+                (name) => addWorkerMutation.mutate({ name: name.trim() }),
+                (id, name) => updateWorkerMutation.mutate({ id, name: name.trim() }),
+                (id) => deleteWorkerMutation.mutate({ id }),
+              )}
+              {renderOptionManager(
+                "作業カテゴリ",
+                categoryOptions,
+                newCategoryName,
+                setNewCategoryName,
+                editingCategory,
+                setEditingCategory,
+                (name) => addCategoryMutation.mutate({ name: name.trim() }),
+                (id, name) => updateCategoryMutation.mutate({ id, name: name.trim() }),
+                (id) => deleteCategoryMutation.mutate({ id }),
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
