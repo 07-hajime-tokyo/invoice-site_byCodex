@@ -141,7 +141,7 @@ export function ActionItemForm({
       setNewAuthor("");
       setShowAuthorAdd(false);
       await utils.inventory.actionItems.options.invalidate();
-      toast.success("記載者を追加しました");
+      toast.success("記入者を追加しました");
     },
     onError: (error) => toast.error(`追加失敗: ${error.message}`),
   });
@@ -192,7 +192,7 @@ export function ActionItemForm({
       return;
     }
     if (!createdBy.trim()) {
-      toast.error("記載者を選択してください");
+      toast.error("記入者を選択してください");
       return;
     }
     if (isEditing) {
@@ -323,10 +323,10 @@ export function ActionItemForm({
             ) : null}
           </div>
           <div className="space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">記載者</div>
+            <div className="text-xs font-medium text-muted-foreground">記入者</div>
             <Select value={createdBy || undefined} onValueChange={handleAuthorChange}>
               <SelectTrigger>
-                <SelectValue placeholder="記載者" />
+                <SelectValue placeholder="記入者" />
               </SelectTrigger>
               <SelectContent>
                 {authors.map((item) => (
@@ -335,7 +335,7 @@ export function ActionItemForm({
                 <SelectSeparator />
                 <SelectItem value={ADD_AUTHOR_VALUE}>
                   <Plus className="h-4 w-4" />
-                  記載者を追加
+                  記入者を追加
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -350,7 +350,7 @@ export function ActionItemForm({
                       if (newAuthor.trim()) addAuthorMutation.mutate({ name: newAuthor });
                     }
                   }}
-                  placeholder="追加する記載者"
+                  placeholder="追加する記入者"
                 />
                 <Button
                   type="button"
@@ -358,7 +358,7 @@ export function ActionItemForm({
                   size="icon"
                   disabled={newAuthor.trim().length === 0 || addAuthorMutation.isPending}
                   onClick={() => addAuthorMutation.mutate({ name: newAuthor })}
-                  aria-label="記載者を追加"
+                  aria-label="記入者を追加"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
