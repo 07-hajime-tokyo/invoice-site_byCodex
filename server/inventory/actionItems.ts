@@ -242,12 +242,18 @@ export const actionItemsRouter = router({
     .input(z.object({
       id: z.number().int().positive(),
       body: z.string().min(1).max(5000),
+      author: z.string().max(200).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
+      const author = cleanText(input.author ?? "") || null;
       await db.update(actionItemReplies).set({
         body: input.body.trim(),
+        author,
       }).where(eq(actionItemReplies.id, input.id));
+      if (author) {
+        await db.insert(actionItemAuthors).ignore().values({ name: author, sortOrder: 100 });
+      }
       return { success: true };
     }),
 

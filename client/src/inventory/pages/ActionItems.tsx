@@ -131,6 +131,7 @@ export default function ActionItems() {
   const [, setLocation] = useLocation();
   const [status, setStatus] = useState<StatusFilter>("open");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [hasRepliesOnly, setHasRepliesOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
@@ -139,6 +140,7 @@ export default function ActionItems() {
   const [openReplyLists, setOpenReplyLists] = useState<Record<number, boolean>>({});
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
   const [replyEditDrafts, setReplyEditDrafts] = useState<Record<number, string>>({});
+  const [replyEditAuthors, setReplyEditAuthors] = useState<Record<number, string>>({});
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
   const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
   const authorOptions = actionOptions?.authors ?? [];
@@ -180,6 +182,7 @@ export default function ActionItems() {
     onSuccess: async (_, variables) => {
       setEditingReplyId(null);
       setReplyEditDrafts((current) => ({ ...current, [variables.id]: "" }));
+      setReplyEditAuthors((current) => ({ ...current, [variables.id]: "" }));
       await utils.inventory.actionItems.list.invalidate();
       toast.success("返信を保存しました");
     },
@@ -205,6 +208,7 @@ export default function ActionItems() {
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     return items.filter((item) =>
+      (!hasRepliesOnly || (item.replies?.length ?? 0) > 0) &&
       (assigneeFilter === "all" || (item.assignee || "未設定") === assigneeFilter) &&
       (!q ||
         item.title.toLowerCase().includes(q) ||
@@ -212,7 +216,7 @@ export default function ActionItems() {
         (item.createdBy || "").toLowerCase().includes(q) ||
         item.detail.toLowerCase().includes(q)),
     );
-  }, [assigneeFilter, items, search]);
+  }, [assigneeFilter, hasRepliesOnly, items, search]);
 
   const sortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => getTimestamp(b.createdAt) - getTimestamp(a.createdAt));
@@ -234,9 +238,10 @@ export default function ActionItems() {
     createReplyMutation.mutate({ actionItemId: itemId, body, author });
   };
 
-  const startReplyEdit = (reply: { id: number; body: string }) => {
+  const startReplyEdit = (reply: { id: number; body: string; author?: string | null }) => {
     setEditingReplyId(reply.id);
     setReplyEditDrafts((current) => ({ ...current, [reply.id]: reply.body }));
+    setReplyEditAuthors((current) => ({ ...current, [reply.id]: reply.author || defaultReplyAuthor }));
   };
 
   const submitReplyEdit = (replyId: number) => {
@@ -245,7 +250,12 @@ export default function ActionItems() {
       toast.error("返信を入力してください");
       return;
     }
-    updateReplyMutation.mutate({ id: replyId, body });
+    const author = replyEditAuthors[replyId] || defaultReplyAuthor;
+    if (!author) {
+      toast.error("記入者を選択してください");
+      return;
+    }
+    updateReplyMutation.mutate({ id: replyId, body, author });
   };
 
   return (
@@ -318,6 +328,14 @@ export default function ActionItems() {
                   {value === "open" ? "未完了" : value === "done" ? "完了" : "すべて"}
                 </Button>
               ))}
+              <Button
+                type="button"
+                size="sm"
+                variant={hasRepliesOnly ? "default" : "outline"}
+                onClick={() => setHasRepliesOnly((current) => !current)}
+              >
+                返信済み
+              </Button>
             </div>
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -483,6 +501,7 @@ export default function ActionItems() {
                                   {replies.map((reply) => {
                                     const isEditingReply = editingReplyId === reply.id;
                                     const editText = replyEditDrafts[reply.id] ?? reply.body;
+                                    const editAuthor = replyEditAuthors[reply.id] ?? reply.author ?? defaultReplyAuthor;
                                     return (
                                       <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
                                         <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -505,13 +524,34 @@ export default function ActionItems() {
                                         </div>
                                         {isEditingReply ? (
                                           <div className="space-y-2">
-                                            <Textarea
-                                              value={editText}
-                                              onChange={(event) =>
-                                                setReplyEditDrafts((current) => ({ ...current, [reply.id]: event.target.value }))
-                                              }
-                                              className="min-h-[72px]"
-                                            />
+                                            <div className="grid gap-2 md:grid-cols-[150px_1fr]">
+                                              <div className="space-y-1">
+                                                <div className="text-xs font-medium text-muted-foreground">記入者</div>
+                                                <select
+                                                  value={editAuthor}
+                                                  onChange={(event) =>
+                                                    setReplyEditAuthors((current) => ({ ...current, [reply.id]: event.target.value }))
+                                                  }
+                                                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
+                                                >
+                                                  {authorOptions.map((author) => (
+                                                    <option key={author.id} value={author.name}>
+                                                      {author.name}
+                                                    </option>
+                                                  ))}
+                                                  {editAuthor && !authorOptions.some((author) => author.name === editAuthor) ? (
+                                                    <option value={editAuthor}>{editAuthor}</option>
+                                                  ) : null}
+                                                </select>
+                                              </div>
+                                              <Textarea
+                                                value={editText}
+                                                onChange={(event) =>
+                                                  setReplyEditDrafts((current) => ({ ...current, [reply.id]: event.target.value }))
+                                                }
+                                                className="min-h-[72px]"
+                                              />
+                                            </div>
                                             <div className="flex justify-end gap-2">
                                               <Button
                                                 type="button"
