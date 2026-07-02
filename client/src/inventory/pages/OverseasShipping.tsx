@@ -219,7 +219,6 @@ function PartnerView({
         } else {
           group.rows.push({ shipment: s, item: groupedItem, itemIndex: idx, invoiceNo });
         }
-        if (csvData[invoiceNo]?.isComplete) group.isComplete = true;
       });
     }
     // 発送日の新しい順（M/D形式とYYYY-MM-DD形式の混在に対応）
@@ -594,7 +593,7 @@ export default function OverseasShipping() {
       const totalOrderQty = data.products.reduce((sum, p) => sum + p.qty, 0);
       const totalShippedQty = invShipments.reduce((sum, r) => sum + r.item.quantity, 0);
       // 100%発送済みの場合は自動的に完了扱い
-      const isComplete = (data.isComplete ?? false) || (totalOrderQty > 0 && totalShippedQty >= totalOrderQty);
+      const isComplete = totalOrderQty > 0 && totalShippedQty >= totalOrderQty;
       entries.push({
         invoiceNo,
         partner: data.partner,

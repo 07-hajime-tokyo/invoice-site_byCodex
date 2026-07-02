@@ -226,7 +226,6 @@ export default function PartnerPortal() {
         } else {
           group.rows.push({ shipment: s, item: groupedItem, itemIndex: idx, invoiceNo });
         }
-        if (csvData[invoiceNo]?.isComplete) group.isComplete = true;
       });
     }
 
@@ -616,7 +615,7 @@ export default function PartnerPortal() {
               return { invoiceNo, data, remaining };
             })
             // インボイス370以降・未完了・残数ありのみ表示
-            .filter(({ remaining, data, invoiceNo }) => remaining > 0 && !data.isComplete && parseInt(invoiceNo) >= 370)
+            .filter(({ remaining, invoiceNo }) => remaining > 0 && parseInt(invoiceNo) >= 370)
             .sort((a, b) => parseInt(a.invoiceNo) - parseInt(b.invoiceNo));
 
           if (pendingInvoices.length === 0) return null;
