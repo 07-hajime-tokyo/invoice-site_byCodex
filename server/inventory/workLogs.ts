@@ -27,6 +27,42 @@ async function ensureOptions(workerName: string, category: string) {
   await db.insert(workLogCategories).ignore().values({ name: category, sortOrder: 100 });
 }
 
+type RecordWorkLogInput = {
+  workerName: string;
+  category: string;
+  status?: "running" | "done";
+  startedAt?: Date | null;
+  endedAt?: Date | null;
+  manualMinutes?: number | null;
+  quantity?: number;
+  memo?: string | null;
+  createdBy?: string | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  detailsJson?: string | null;
+};
+
+export async function recordWorkLog(input: RecordWorkLogInput) {
+  const db = await requireDb();
+  const workerName = cleanText(input.workerName || "野田");
+  const category = cleanText(input.category || "その他");
+  await ensureOptions(workerName, category);
+  await db.insert(workLogs).values({
+    workerName,
+    category,
+    status: input.status ?? "done",
+    startedAt: input.startedAt ?? null,
+    endedAt: input.endedAt ?? null,
+    manualMinutes: input.manualMinutes ?? null,
+    quantity: input.quantity ?? 0,
+    memo: input.memo?.trim() || null,
+    createdBy: input.createdBy?.trim() || null,
+    sourceType: input.sourceType?.trim() || null,
+    sourceId: input.sourceId?.trim() || null,
+    detailsJson: input.detailsJson?.trim() || null,
+  });
+}
+
 const workLogBaseInput = z.object({
   workerName: z.string().min(1).max(100),
   category: z.string().min(1).max(100),
@@ -35,6 +71,14 @@ const workLogBaseInput = z.object({
   manualMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   quantity: z.number().int().min(0).max(100000).optional().default(0),
   memo: z.string().max(5000).optional(),
+  sourceType: z.string().max(50).nullable().optional(),
+  sourceId: z.string().max(200).nullable().optional(),
+  detailsJson: z.string().max(30000).nullable().optional(),
+});
+
+const optionInput = z.object({
+  name: z.string().min(1).max(100),
+  sortOrder: z.number().int().min(0).max(10000).optional().default(100),
 });
 
 export const workLogsRouter = router({
@@ -46,6 +90,60 @@ export const workLogsRouter = router({
     ]);
     return { workers, categories };
   }),
+
+  addWorker: protectedProcedure
+    .input(optionInput)
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.insert(workLogWorkers).ignore().values({ name: cleanText(input.name), sortOrder: input.sortOrder });
+      return { success: true };
+    }),
+
+  updateWorker: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(100), sortOrder: z.number().int().min(0).max(10000).optional() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.update(workLogWorkers).set({
+        name: cleanText(input.name),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      }).where(eq(workLogWorkers.id, input.id));
+      return { success: true };
+    }),
+
+  deleteWorker: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.delete(workLogWorkers).where(eq(workLogWorkers.id, input.id));
+      return { success: true };
+    }),
+
+  addCategory: protectedProcedure
+    .input(optionInput)
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.insert(workLogCategories).ignore().values({ name: cleanText(input.name), sortOrder: input.sortOrder });
+      return { success: true };
+    }),
+
+  updateCategory: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(100), sortOrder: z.number().int().min(0).max(10000).optional() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.update(workLogCategories).set({
+        name: cleanText(input.name),
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      }).where(eq(workLogCategories.id, input.id));
+      return { success: true };
+    }),
+
+  deleteCategory: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.delete(workLogCategories).where(eq(workLogCategories.id, input.id));
+      return { success: true };
+    }),
 
   list: protectedProcedure
     .input(z.object({
@@ -69,13 +167,9 @@ export const workLogsRouter = router({
       memo: z.string().max(5000).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await requireDb();
-      const workerName = cleanText(input.workerName);
-      const category = cleanText(input.category);
-      await ensureOptions(workerName, category);
-      await db.insert(workLogs).values({
-        workerName,
-        category,
+      await recordWorkLog({
+        workerName: input.workerName,
+        category: input.category,
         status: "running",
         startedAt: new Date(),
         quantity: 0,
@@ -88,9 +182,6 @@ export const workLogsRouter = router({
   create: protectedProcedure
     .input(workLogBaseInput)
     .mutation(async ({ input, ctx }) => {
-      const db = await requireDb();
-      const workerName = cleanText(input.workerName);
-      const category = cleanText(input.category);
       const startedAt = parseOptionalDate(input.startedAt);
       const endedAt = parseOptionalDate(input.endedAt);
       const manualMinutes = input.manualMinutes ?? null;
@@ -100,10 +191,9 @@ export const workLogsRouter = router({
       if (startedAt && endedAt && endedAt.getTime() < startedAt.getTime()) {
         throw new Error("終了は開始より後にしてください");
       }
-      await ensureOptions(workerName, category);
-      await db.insert(workLogs).values({
-        workerName,
-        category,
+      await recordWorkLog({
+        workerName: input.workerName,
+        category: input.category,
         status: "done",
         startedAt,
         endedAt,
@@ -111,7 +201,41 @@ export const workLogsRouter = router({
         quantity: input.quantity,
         memo: input.memo?.trim() || null,
         createdBy: ctx.user.name || ctx.user.email || null,
+        sourceType: input.sourceType ?? null,
+        sourceId: input.sourceId ?? null,
+        detailsJson: input.detailsJson ?? null,
       });
+      return { success: true };
+    }),
+
+  update: protectedProcedure
+    .input(workLogBaseInput.extend({
+      id: z.number().int().positive(),
+      status: z.enum(["running", "done"]).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const workerName = cleanText(input.workerName);
+      const category = cleanText(input.category);
+      const startedAt = parseOptionalDate(input.startedAt);
+      const endedAt = parseOptionalDate(input.endedAt);
+      if (startedAt && endedAt && endedAt.getTime() < startedAt.getTime()) {
+        throw new Error("終了は開始より後にしてください");
+      }
+      await ensureOptions(workerName, category);
+      await db.update(workLogs).set({
+        workerName,
+        category,
+        status: input.status ?? "done",
+        startedAt,
+        endedAt,
+        manualMinutes: input.manualMinutes ?? null,
+        quantity: input.quantity,
+        memo: input.memo?.trim() || null,
+        sourceType: input.sourceType?.trim() || null,
+        sourceId: input.sourceId?.trim() || null,
+        detailsJson: input.detailsJson?.trim() || null,
+      }).where(eq(workLogs.id, input.id));
       return { success: true };
     }),
 

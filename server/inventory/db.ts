@@ -249,6 +249,9 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         manualMinutes int NULL,
         quantity int NOT NULL DEFAULT 0,
         memo text NULL,
+        sourceType varchar(50) NULL,
+        sourceId varchar(200) NULL,
+        detailsJson text NULL,
         createdBy varchar(200) NULL,
         createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -259,9 +262,21 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_work_logs_created (createdAt)
       )
     `);
+    const existingWorkLogSourceType = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'sourceType'`);
+    if (getRawRows(existingWorkLogSourceType).length === 0) {
+      await db.execute(sql`ALTER TABLE work_logs ADD COLUMN sourceType varchar(50) NULL`);
+    }
+    const existingWorkLogSourceId = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'sourceId'`);
+    if (getRawRows(existingWorkLogSourceId).length === 0) {
+      await db.execute(sql`ALTER TABLE work_logs ADD COLUMN sourceId varchar(200) NULL`);
+    }
+    const existingWorkLogDetailsJson = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'detailsJson'`);
+    if (getRawRows(existingWorkLogDetailsJson).length === 0) {
+      await db.execute(sql`ALTER TABLE work_logs ADD COLUMN detailsJson text NULL`);
+    }
     await db.execute(sql`
       INSERT IGNORE INTO work_log_workers (name, sortOrder)
-      VALUES ('村上', 1), ('鈴木', 2), ('藤本', 3), ('野田', 4)
+      VALUES ('鈴木', 1), ('藤本', 2), ('野田', 3)
     `);
     await db.execute(sql`
       INSERT IGNORE INTO work_log_categories (name, sortOrder)

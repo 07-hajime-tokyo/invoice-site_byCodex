@@ -8,7 +8,7 @@ import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
-import { workLogsRouter } from "./workLogs";
+import { recordWorkLog, workLogsRouter } from "./workLogs";
 import {
   testConnection,
   getPurchases,
@@ -2532,6 +2532,7 @@ export const inventoryRouter = router({
           trackingNumber: z.string().optional(),
           sheetName: shipmentSheetNameSchema.optional(),
           invoiceNo: z.string().optional(), // CSV商品集計用のインボイスNo
+          operatorName: z.string().max(200).optional(),
         })
       )
       .mutation(async ({ input }) => {
@@ -2601,6 +2602,31 @@ export const inventoryRouter = router({
         if (historyStatus === "error") {
           throw new Error(errorMessage ?? "出庫処理に失敗しました");
         }
+
+        const workLogQuantity = historyItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+        await recordWorkLog({
+          workerName: input.operatorName?.trim() || "野田",
+          category: "出庫登録",
+          status: "done",
+          startedAt: new Date(),
+          endedAt: new Date(),
+          quantity: Math.round(workLogQuantity),
+          memo: `出庫No: ${input.deliveryNo}`,
+          createdBy: input.operatorName?.trim() || "出庫登録",
+          sourceType: "delivery",
+          sourceId: input.deliveryNo,
+          detailsJson: JSON.stringify({
+            deliveryNo: input.deliveryNo,
+            deliveryDate: input.deliveryDate,
+            trackingNumber: input.trackingNumber ?? null,
+            items: historyItems.map((item) => ({
+              inventoryId: item.inventoryId,
+              title: item.title,
+              quantity: item.quantity,
+              managementNo: "managementNo" in item ? item.managementNo : null,
+            })),
+          }),
+        });
 
         // FedEx発送情報が入力された場合は発送登録も行う
         let fedexResult: { success: boolean; message: string } | null = null;

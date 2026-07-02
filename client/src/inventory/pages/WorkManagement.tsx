@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Clock3, Play, RefreshCw, Save, Square, Timer, Trash2, Users } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronRight, Clock3, Pencil, Play, Plus, RefreshCw, Save, Square, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -21,9 +24,46 @@ type WorkLogRecord = {
   manualMinutes: number | null;
   quantity: number;
   memo: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  detailsJson: string | null;
   createdBy: string | null;
   createdAt: DateLike;
 };
+
+type WorkOption = {
+  id: number;
+  name: string;
+  sortOrder: number;
+};
+
+type WorkLogForm = {
+  workerName: string;
+  category: string;
+  startedAt: string;
+  endedAt: string;
+  manualMinutes: string;
+  quantity: string;
+  memo: string;
+  status: "running" | "done";
+  sourceType?: string | null;
+  sourceId?: string | null;
+  detailsJson?: string | null;
+};
+
+type DeliveryDetails = {
+  deliveryNo?: string | null;
+  deliveryDate?: string | null;
+  trackingNumber?: string | null;
+  items?: Array<{
+    inventoryId?: number | string | null;
+    title?: string | null;
+    quantity?: number | string | null;
+    managementNo?: string | null;
+  }>;
+};
+
+const DURATION_PRESETS = [30, 60, 90, 120, 150, 180];
 
 function toDate(value: DateLike) {
   if (!value) return null;
@@ -34,6 +74,11 @@ function toDate(value: DateLike) {
 function toLocalDateTimeInput(date = new Date()) {
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function toInputDateTime(value: DateLike) {
+  const date = toDate(value);
+  return date ? toLocalDateTimeInput(date) : "";
 }
 
 function formatDateTime(value: DateLike) {
@@ -51,7 +96,7 @@ function parseNumber(value: string, fallback = 0) {
   const trimmed = value.trim();
   if (!trimmed) return fallback;
   const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : fallback;
 }
 
 function parseOptionalMinutes(value: string) {
@@ -79,21 +124,62 @@ function formatMinutes(minutes: number) {
   return `${hours}時間${rest}分`;
 }
 
-function todayInputDate() {
-  return toLocalDateTimeInput(new Date());
+function parseDetails(json: string | null | undefined): DeliveryDetails | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as DeliveryDetails;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function hasDetails(log: WorkLogRecord) {
+  return Boolean(parseDetails(log.detailsJson)?.items?.length);
+}
+
+function initialForm(): WorkLogForm {
+  return {
+    workerName: "鈴木",
+    category: "入庫登録",
+    startedAt: "",
+    endedAt: "",
+    manualMinutes: "",
+    quantity: "0",
+    memo: "",
+    status: "done",
+  };
+}
+
+function formFromLog(log: WorkLogRecord): WorkLogForm {
+  return {
+    workerName: log.workerName,
+    category: log.category,
+    startedAt: toInputDateTime(log.startedAt),
+    endedAt: toInputDateTime(log.endedAt),
+    manualMinutes: log.manualMinutes == null ? "" : String(log.manualMinutes),
+    quantity: String(log.quantity ?? 0),
+    memo: log.memo ?? "",
+    status: log.status === "running" ? "running" : "done",
+    sourceType: log.sourceType,
+    sourceId: log.sourceId,
+    detailsJson: log.detailsJson,
+  };
 }
 
 export default function WorkManagement() {
   const utils = trpc.useUtils();
   const [now, setNow] = useState(() => new Date());
-  const [workerName, setWorkerName] = useState("村上");
-  const [category, setCategory] = useState("入庫登録");
-  const [startedAt, setStartedAt] = useState("");
-  const [endedAt, setEndedAt] = useState("");
-  const [manualMinutes, setManualMinutes] = useState("");
-  const [quantity, setQuantity] = useState("0");
-  const [memo, setMemo] = useState("");
+  const [form, setForm] = useState<WorkLogForm>(() => initialForm());
   const [finishDrafts, setFinishDrafts] = useState<Record<number, { quantity: string; manualMinutes: string; memo: string }>>({});
+  const [newWorkerName, setNewWorkerName] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingWorker, setEditingWorker] = useState<{ id: number; name: string } | null>(null);
+  const [editingCategory, setEditingCategory] = useState<{ id: number; name: string } | null>(null);
+  const [editingLog, setEditingLog] = useState<WorkLogRecord | null>(null);
+  const [editForm, setEditForm] = useState<WorkLogForm>(() => initialForm());
+  const [expandedDetails, setExpandedDetails] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 30000);
@@ -107,6 +193,9 @@ export default function WorkManagement() {
   );
   const logs = logsData as WorkLogRecord[];
 
+  const workerOptions = (options?.workers ?? []) as WorkOption[];
+  const categoryOptions = (options?.categories ?? []) as WorkOption[];
+
   const invalidateLogs = async () => {
     await Promise.all([
       utils.inventory.workLogs.list.invalidate(),
@@ -114,26 +203,70 @@ export default function WorkManagement() {
     ]);
   };
 
+  const onMutationSuccess = async (message: string) => {
+    await invalidateLogs();
+    toast.success(message);
+  };
+
+  const addWorkerMutation = trpc.inventory.workLogs.addWorker.useMutation({
+    onSuccess: async () => {
+      setNewWorkerName("");
+      await onMutationSuccess("担当者を追加しました");
+    },
+    onError: (error) => toast.error(`担当者追加失敗: ${error.message}`),
+  });
+  const updateWorkerMutation = trpc.inventory.workLogs.updateWorker.useMutation({
+    onSuccess: async () => {
+      setEditingWorker(null);
+      await onMutationSuccess("担当者を更新しました");
+    },
+    onError: (error) => toast.error(`担当者更新失敗: ${error.message}`),
+  });
+  const deleteWorkerMutation = trpc.inventory.workLogs.deleteWorker.useMutation({
+    onSuccess: async () => onMutationSuccess("担当者を削除しました"),
+    onError: (error) => toast.error(`担当者削除失敗: ${error.message}`),
+  });
+  const addCategoryMutation = trpc.inventory.workLogs.addCategory.useMutation({
+    onSuccess: async () => {
+      setNewCategoryName("");
+      await onMutationSuccess("作業カテゴリを追加しました");
+    },
+    onError: (error) => toast.error(`カテゴリ追加失敗: ${error.message}`),
+  });
+  const updateCategoryMutation = trpc.inventory.workLogs.updateCategory.useMutation({
+    onSuccess: async () => {
+      setEditingCategory(null);
+      await onMutationSuccess("作業カテゴリを更新しました");
+    },
+    onError: (error) => toast.error(`カテゴリ更新失敗: ${error.message}`),
+  });
+  const deleteCategoryMutation = trpc.inventory.workLogs.deleteCategory.useMutation({
+    onSuccess: async () => onMutationSuccess("作業カテゴリを削除しました"),
+    onError: (error) => toast.error(`カテゴリ削除失敗: ${error.message}`),
+  });
+
   const startMutation = trpc.inventory.workLogs.start.useMutation({
     onSuccess: async () => {
-      setMemo("");
-      await invalidateLogs();
-      toast.success("作業を開始しました");
+      setForm((current) => ({ ...current, memo: "" }));
+      await onMutationSuccess("作業を開始しました");
     },
     onError: (error) => toast.error(`開始失敗: ${error.message}`),
   });
 
   const createMutation = trpc.inventory.workLogs.create.useMutation({
     onSuccess: async () => {
-      setStartedAt("");
-      setEndedAt("");
-      setManualMinutes("");
-      setQuantity("0");
-      setMemo("");
-      await invalidateLogs();
-      toast.success("作業ログを保存しました");
+      setForm(initialForm());
+      await onMutationSuccess("作業ログを保存しました");
     },
     onError: (error) => toast.error(`保存失敗: ${error.message}`),
+  });
+
+  const updateMutation = trpc.inventory.workLogs.update.useMutation({
+    onSuccess: async () => {
+      setEditingLog(null);
+      await onMutationSuccess("作業ログを更新しました");
+    },
+    onError: (error) => toast.error(`更新失敗: ${error.message}`),
   });
 
   const finishMutation = trpc.inventory.workLogs.finish.useMutation({
@@ -143,17 +276,13 @@ export default function WorkManagement() {
         delete next[variables.id];
         return next;
       });
-      await invalidateLogs();
-      toast.success("作業を終了しました");
+      await onMutationSuccess("作業を終了しました");
     },
     onError: (error) => toast.error(`終了失敗: ${error.message}`),
   });
 
   const deleteMutation = trpc.inventory.workLogs.delete.useMutation({
-    onSuccess: async () => {
-      await invalidateLogs();
-      toast.success("作業ログを削除しました");
-    },
+    onSuccess: async () => onMutationSuccess("作業ログを削除しました"),
     onError: (error) => toast.error(`削除失敗: ${error.message}`),
   });
 
@@ -178,36 +307,73 @@ export default function WorkManagement() {
     };
   }, [completedLogs, now]);
 
+  const isMutating =
+    startMutation.isPending ||
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    finishMutation.isPending ||
+    deleteMutation.isPending ||
+    addWorkerMutation.isPending ||
+    updateWorkerMutation.isPending ||
+    deleteWorkerMutation.isPending ||
+    addCategoryMutation.isPending ||
+    updateCategoryMutation.isPending ||
+    deleteCategoryMutation.isPending;
+
+  const hourlyRate = summary.totalMinutes > 0 ? Math.round((summary.totalQuantity / summary.totalMinutes) * 60 * 10) / 10 : 0;
+
+  const setFormField = <K extends keyof WorkLogForm>(key: K, value: WorkLogForm[K]) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const setEditFormField = <K extends keyof WorkLogForm>(key: K, value: WorkLogForm[K]) => {
+    setEditForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const createPayloadFromForm = (target: WorkLogForm) => ({
+    workerName: target.workerName.trim(),
+    category: target.category.trim(),
+    startedAt: target.startedAt || undefined,
+    endedAt: target.endedAt || undefined,
+    manualMinutes: parseOptionalMinutes(target.manualMinutes),
+    quantity: parseNumber(target.quantity),
+    memo: target.memo.trim() || undefined,
+    sourceType: target.sourceType ?? undefined,
+    sourceId: target.sourceId ?? undefined,
+    detailsJson: target.detailsJson ?? undefined,
+  });
+
   const handleStart = () => {
-    const cleanWorker = workerName.trim();
-    const cleanCategory = category.trim();
-    if (!cleanWorker || !cleanCategory) {
+    if (!form.workerName.trim() || !form.category.trim()) {
       toast.error("担当者と作業カテゴリを入力してください");
       return;
     }
-    startMutation.mutate({ workerName: cleanWorker, category: cleanCategory, memo: memo.trim() || undefined });
+    startMutation.mutate({
+      workerName: form.workerName.trim(),
+      category: form.category.trim(),
+      memo: form.memo.trim() || undefined,
+    });
   };
 
   const handleCreate = () => {
-    const cleanWorker = workerName.trim();
-    const cleanCategory = category.trim();
-    if (!cleanWorker || !cleanCategory) {
+    if (!form.workerName.trim() || !form.category.trim()) {
       toast.error("担当者と作業カテゴリを入力してください");
       return;
     }
-    const minutes = parseOptionalMinutes(manualMinutes);
-    if (!minutes && (!startedAt || !endedAt)) {
+    const minutes = parseOptionalMinutes(form.manualMinutes);
+    if (minutes == null && (!form.startedAt || !form.endedAt)) {
       toast.error("開始・終了、または作業時間を入力してください");
       return;
     }
-    createMutation.mutate({
-      workerName: cleanWorker,
-      category: cleanCategory,
-      startedAt: startedAt || undefined,
-      endedAt: endedAt || undefined,
-      manualMinutes: minutes,
-      quantity: parseNumber(quantity),
-      memo: memo.trim() || undefined,
+    createMutation.mutate(createPayloadFromForm(form));
+  };
+
+  const handleUpdate = () => {
+    if (!editingLog) return;
+    updateMutation.mutate({
+      id: editingLog.id,
+      status: editForm.status,
+      ...createPayloadFromForm(editForm),
     });
   };
 
@@ -233,10 +399,215 @@ export default function WorkManagement() {
     }));
   };
 
-  const workerOptions = options?.workers ?? [];
-  const categoryOptions = options?.categories ?? [];
-  const isMutating = startMutation.isPending || createMutation.isPending || finishMutation.isPending || deleteMutation.isPending;
-  const hourlyRate = summary.totalMinutes > 0 ? Math.round((summary.totalQuantity / summary.totalMinutes) * 60 * 10) / 10 : 0;
+  const openEditLog = (log: WorkLogRecord) => {
+    setEditingLog(log);
+    setEditForm(formFromLog(log));
+  };
+
+  const renderDurationInput = (
+    value: string,
+    onChange: (value: string) => void,
+    idPrefix: string,
+  ) => {
+    const presetValue = DURATION_PRESETS.includes(Number(value)) ? value : "custom";
+    return (
+      <div className="grid gap-2 sm:grid-cols-[150px_1fr]">
+        <Select value={presetValue} onValueChange={(next) => next !== "custom" && onChange(next)}>
+          <SelectTrigger id={`${idPrefix}-duration-preset`}>
+            <SelectValue placeholder="選択" />
+          </SelectTrigger>
+          <SelectContent>
+            {DURATION_PRESETS.map((minutes) => (
+              <SelectItem key={minutes} value={String(minutes)}>
+                {formatMinutes(minutes)}
+              </SelectItem>
+            ))}
+            <SelectItem value="custom">手動入力</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input
+          id={`${idPrefix}-duration-manual`}
+          type="number"
+          min="0"
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="分で入力"
+        />
+      </div>
+    );
+  };
+
+  const renderOptionManager = (
+    title: string,
+    optionsList: WorkOption[],
+    addValue: string,
+    setAddValue: (value: string) => void,
+    editing: { id: number; name: string } | null,
+    setEditing: (value: { id: number; name: string } | null) => void,
+    onAdd: (name: string) => void,
+    onUpdate: (id: number, name: string) => void,
+    onDelete: (id: number) => void,
+  ) => (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="flex flex-wrap gap-2">
+        {optionsList.map((option) => (
+          <div key={option.id} className="flex items-center gap-1 rounded-full border bg-background px-2 py-1 text-sm">
+            {editing?.id === option.id ? (
+              <>
+                <Input
+                  value={editing.name}
+                  onChange={(event) => setEditing({ id: option.id, name: event.target.value })}
+                  className="h-7 w-32"
+                  autoFocus
+                />
+                <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => onUpdate(option.id, editing.name)} disabled={isMutating}>
+                  保存
+                </Button>
+                <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditing(null)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <span>{option.name}</span>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing({ id: option.id, name: option.name })}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => onDelete(option.id)} disabled={isMutating}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex max-w-md gap-2">
+        <Input value={addValue} onChange={(event) => setAddValue(event.target.value)} placeholder={`${title}を追加`} />
+        <Button type="button" variant="outline" onClick={() => onAdd(addValue)} disabled={!addValue.trim() || isMutating}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          追加
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderDeliveryDetails = (log: WorkLogRecord) => {
+    const details = parseDetails(log.detailsJson);
+    if (!details?.items?.length) return null;
+    const expanded = expandedDetails[log.id] ?? false;
+    return (
+      <div className="mt-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setExpandedDetails((current) => ({ ...current, [log.id]: !expanded }))}
+        >
+          {expanded ? <ChevronDown className="mr-1.5 h-4 w-4" /> : <ChevronRight className="mr-1.5 h-4 w-4" />}
+          出庫商品 {details.items.length}件
+        </Button>
+        {expanded && (
+          <div className="mt-2 rounded-lg border bg-muted/20 p-3 text-sm">
+            <div className="mb-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>出庫No: {details.deliveryNo || log.sourceId || "-"}</span>
+              <span>出庫日: {details.deliveryDate || "-"}</span>
+              {details.trackingNumber && <span>追跡番号: {details.trackingNumber}</span>}
+            </div>
+            <div className="space-y-1">
+              {details.items.map((item, index) => (
+                <div key={`${item.inventoryId ?? index}-${index}`} className="flex flex-wrap justify-between gap-2 rounded bg-background px-3 py-2">
+                  <div>
+                    <span className="font-medium">{item.title || "-"}</span>
+                    {item.managementNo && <span className="ml-2 text-xs text-muted-foreground">{item.managementNo}</span>}
+                  </div>
+                  <div className="font-medium">x {item.quantity ?? 0}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLogFormFields = (
+    target: WorkLogForm,
+    setField: <K extends keyof WorkLogForm>(key: K, value: WorkLogForm[K]) => void,
+    idPrefix: string,
+  ) => (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-worker`}>担当者</Label>
+        <Select value={target.workerName} onValueChange={(value) => setField("workerName", value)}>
+          <SelectTrigger id={`${idPrefix}-worker`}>
+            <SelectValue placeholder="担当者を選択" />
+          </SelectTrigger>
+          <SelectContent>
+            {workerOptions.map((worker) => (
+              <SelectItem key={worker.id} value={worker.name}>{worker.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-category`}>作業カテゴリ</Label>
+        <Select value={target.category} onValueChange={(value) => setField("category", value)}>
+          <SelectTrigger id={`${idPrefix}-category`}>
+            <SelectValue placeholder="カテゴリを選択" />
+          </SelectTrigger>
+          <SelectContent>
+            {categoryOptions.map((item) => (
+              <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-started`}>開始</Label>
+        <div className="flex gap-2">
+          <Input id={`${idPrefix}-started`} type="datetime-local" value={target.startedAt} onChange={(event) => setField("startedAt", event.target.value)} />
+          {target.startedAt && (
+            <Button type="button" size="icon" variant="outline" onClick={() => setField("startedAt", "")} aria-label="開始をクリア">
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-ended`}>終了</Label>
+        <div className="flex gap-2">
+          <Input id={`${idPrefix}-ended`} type="datetime-local" value={target.endedAt} onChange={(event) => setField("endedAt", event.target.value)} />
+          {target.endedAt && (
+            <Button type="button" size="icon" variant="outline" onClick={() => setField("endedAt", "")} aria-label="終了をクリア">
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5 md:col-span-2">
+        <Label>作業時間</Label>
+        {renderDurationInput(target.manualMinutes, (value) => setField("manualMinutes", value), idPrefix)}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-quantity`}>処理数</Label>
+        <Input id={`${idPrefix}-quantity`} type="number" min="0" inputMode="numeric" value={target.quantity} onChange={(event) => setField("quantity", event.target.value)} />
+      </div>
+      <div className="flex items-end gap-2">
+        <Button type="button" variant="outline" onClick={() => setField("startedAt", toLocalDateTimeInput())}>
+          開始を入れる
+        </Button>
+        <Button type="button" variant="outline" onClick={() => setField("endedAt", toLocalDateTimeInput())}>
+          終了を入れる
+        </Button>
+      </div>
+      <div className="space-y-1.5 md:col-span-2 xl:col-span-4">
+        <Label htmlFor={`${idPrefix}-memo`}>メモ</Label>
+        <Textarea id={`${idPrefix}-memo`} value={target.memo} onChange={(event) => setField("memo", event.target.value)} className="min-h-[84px]" />
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -258,51 +629,7 @@ export default function WorkManagement() {
 
       <Card className="rounded-lg">
         <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label className="space-y-1 text-sm font-medium">
-              担当者
-              <Input value={workerName} onChange={(event) => setWorkerName(event.target.value)} list="work-worker-options" />
-            </label>
-            <label className="space-y-1 text-sm font-medium">
-              作業カテゴリ
-              <Input value={category} onChange={(event) => setCategory(event.target.value)} list="work-category-options" />
-            </label>
-            <label className="space-y-1 text-sm font-medium">
-              開始
-              <Input type="datetime-local" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} />
-            </label>
-            <label className="space-y-1 text-sm font-medium">
-              終了
-              <Input type="datetime-local" value={endedAt} onChange={(event) => setEndedAt(event.target.value)} />
-            </label>
-            <label className="space-y-1 text-sm font-medium">
-              作業時間(分)
-              <Input
-                type="number"
-                min="0"
-                inputMode="numeric"
-                value={manualMinutes}
-                onChange={(event) => setManualMinutes(event.target.value)}
-                placeholder="手動入力"
-              />
-            </label>
-            <label className="space-y-1 text-sm font-medium">
-              処理数
-              <Input type="number" min="0" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-            </label>
-            <div className="flex items-end gap-2 xl:col-span-2">
-              <Button type="button" variant="outline" onClick={() => setStartedAt(todayInputDate())}>
-                開始時刻を入れる
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setEndedAt(todayInputDate())}>
-                終了時刻を入れる
-              </Button>
-            </div>
-            <label className="space-y-1 text-sm font-medium md:col-span-2 xl:col-span-4">
-              メモ
-              <Textarea value={memo} onChange={(event) => setMemo(event.target.value)} className="min-h-[84px]" />
-            </label>
-          </div>
+          {renderLogFormFields(form, setFormField, "work-new")}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleStart} disabled={isMutating}>
               <Play className="mr-2 h-4 w-4" />
@@ -313,20 +640,37 @@ export default function WorkManagement() {
               記録保存
             </Button>
           </div>
-          <datalist id="work-worker-options">
-            {workerOptions.map((worker) => (
-              <option key={worker.id} value={worker.name} />
-            ))}
-          </datalist>
-          <datalist id="work-category-options">
-            {categoryOptions.map((item) => (
-              <option key={item.id} value={item.name} />
-            ))}
-          </datalist>
         </CardContent>
       </Card>
 
-      {runningLogs.length > 0 ? (
+      <Card className="rounded-lg">
+        <CardContent className="grid gap-3 p-4 xl:grid-cols-2">
+          {renderOptionManager(
+            "担当者",
+            workerOptions,
+            newWorkerName,
+            setNewWorkerName,
+            editingWorker,
+            setEditingWorker,
+            (name) => addWorkerMutation.mutate({ name: name.trim() }),
+            (id, name) => updateWorkerMutation.mutate({ id, name: name.trim() }),
+            (id) => deleteWorkerMutation.mutate({ id }),
+          )}
+          {renderOptionManager(
+            "作業カテゴリ",
+            categoryOptions,
+            newCategoryName,
+            setNewCategoryName,
+            editingCategory,
+            setEditingCategory,
+            (name) => addCategoryMutation.mutate({ name: name.trim() }),
+            (id, name) => updateCategoryMutation.mutate({ id, name: name.trim() }),
+            (id) => deleteCategoryMutation.mutate({ id }),
+          )}
+        </CardContent>
+      </Card>
+
+      {runningLogs.length > 0 && (
         <Card className="rounded-lg border-indigo-200 bg-indigo-50/40">
           <CardContent className="space-y-3 p-4">
             <div className="flex items-center gap-2 font-semibold">
@@ -337,7 +681,7 @@ export default function WorkManagement() {
               {runningLogs.map((log) => {
                 const draft = finishDrafts[log.id] ?? { quantity: String(log.quantity || 0), manualMinutes: "", memo: log.memo ?? "" };
                 return (
-                  <div key={log.id} className="grid gap-2 rounded-lg border bg-white p-3 lg:grid-cols-[1fr_130px_150px_1fr_auto] lg:items-end">
+                  <div key={log.id} className="grid gap-2 rounded-lg border bg-white p-3 lg:grid-cols-[1fr_130px_250px_1fr_auto] lg:items-end">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{log.workerName}</span>
@@ -357,14 +701,8 @@ export default function WorkManagement() {
                       />
                     </label>
                     <label className="space-y-1 text-sm">
-                      作業時間(分)
-                      <Input
-                        type="number"
-                        min="0"
-                        value={draft.manualMinutes}
-                        onChange={(event) => setFinishDraft(log.id, "manualMinutes", event.target.value)}
-                        placeholder="自動計算"
-                      />
+                      作業時間
+                      {renderDurationInput(draft.manualMinutes, (value) => setFinishDraft(log.id, "manualMinutes", value), `finish-${log.id}`)}
                     </label>
                     <label className="space-y-1 text-sm">
                       メモ
@@ -380,7 +718,7 @@ export default function WorkManagement() {
             </div>
           </CardContent>
         </Card>
-      ) : null}
+      )}
 
       <div className="grid gap-3 md:grid-cols-4">
         <Card className="rounded-lg">
@@ -465,33 +803,33 @@ export default function WorkManagement() {
           ) : logs.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">作業ログはありません</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>日時</TableHead>
-                  <TableHead>担当者</TableHead>
-                  <TableHead>作業カテゴリ</TableHead>
-                  <TableHead className="text-right">作業時間</TableHead>
-                  <TableHead className="text-right">処理数</TableHead>
-                  <TableHead>メモ</TableHead>
-                  <TableHead className="w-16 text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>{formatDateTime(log.startedAt || log.createdAt)}</TableCell>
-                    <TableCell className="font-medium">{log.workerName}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
+            <div className="space-y-3">
+              {logs.map((log) => (
+                <div key={log.id} className="rounded-lg border bg-background p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{log.workerName}</span>
                         <Badge variant="outline">{log.category}</Badge>
-                        {log.status === "running" ? <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">作業中</Badge> : null}
+                        {log.status === "running" && <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">作業中</Badge>}
+                        {log.sourceType === "delivery" && <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">出庫自動</Badge>}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-right">{formatMinutes(getDurationMinutes(log, now))}</TableCell>
-                    <TableCell className="text-right">{log.quantity.toLocaleString("ja-JP")}</TableCell>
-                    <TableCell className="max-w-[360px] whitespace-normal text-muted-foreground">{log.memo || "-"}</TableCell>
-                    <TableCell className="text-right">
+                      <div className="text-sm text-muted-foreground">
+                        {formatDateTime(log.startedAt || log.createdAt)}
+                        {log.endedAt ? ` - ${formatDateTime(log.endedAt)}` : ""}
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-sm">
+                        <span>作業時間: <span className="font-medium">{formatMinutes(getDurationMinutes(log, now))}</span></span>
+                        <span>処理数: <span className="font-medium">{log.quantity.toLocaleString("ja-JP")}</span></span>
+                        {log.sourceId && <span>参照: <span className="font-medium">{log.sourceId}</span></span>}
+                      </div>
+                      {log.memo && <div className="text-sm text-muted-foreground">{log.memo}</div>}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button type="button" variant="outline" size="sm" onClick={() => openEditLog(log)}>
+                        <Pencil className="mr-1.5 h-4 w-4" />
+                        編集
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
@@ -503,14 +841,47 @@ export default function WorkManagement() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div>
+                  </div>
+                  {hasDetails(log) && renderDeliveryDetails(log)}
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(editingLog)} onOpenChange={(open) => !open && setEditingLog(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>作業ログ編集</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>状態</Label>
+              <Select value={editForm.status} onValueChange={(value) => setEditFormField("status", value as "running" | "done")}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="done">完了</SelectItem>
+                  <SelectItem value="running">作業中</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {renderLogFormFields(editForm, setEditFormField, "work-edit")}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditingLog(null)}>
+              キャンセル
+            </Button>
+            <Button type="button" onClick={handleUpdate} disabled={isMutating}>
+              <Save className="mr-2 h-4 w-4" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
