@@ -8,6 +8,7 @@ import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
+import { workLogsRouter } from "./workLogs";
 import {
   testConnection,
   getPurchases,
@@ -866,6 +867,7 @@ export const inventoryRouter = router({
   system: systemRouter,
   actionItems: actionItemsRouter,
   aiInvestigation: aiInvestigationRouter,
+  workLogs: workLogsRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

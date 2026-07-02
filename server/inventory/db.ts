@@ -220,6 +220,64 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
       INSERT IGNORE INTO action_item_authors (name, sortOrder)
       VALUES ('村上', 1), ('鈴木', 2), ('藤本', 3), ('野田', 4)
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS work_log_workers (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name varchar(100) NOT NULL UNIQUE,
+        sortOrder int NOT NULL DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS work_log_categories (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name varchar(100) NOT NULL UNIQUE,
+        sortOrder int NOT NULL DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS work_logs (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        workerName varchar(100) NOT NULL,
+        category varchar(100) NOT NULL,
+        status varchar(20) NOT NULL DEFAULT 'done',
+        startedAt timestamp NULL,
+        endedAt timestamp NULL,
+        manualMinutes int NULL,
+        quantity int NOT NULL DEFAULT 0,
+        memo text NULL,
+        createdBy varchar(200) NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_work_logs_worker (workerName),
+        INDEX idx_work_logs_category (category),
+        INDEX idx_work_logs_status (status),
+        INDEX idx_work_logs_started (startedAt),
+        INDEX idx_work_logs_created (createdAt)
+      )
+    `);
+    await db.execute(sql`
+      INSERT IGNORE INTO work_log_workers (name, sortOrder)
+      VALUES ('村上', 1), ('鈴木', 2), ('藤本', 3), ('野田', 4)
+    `);
+    await db.execute(sql`
+      INSERT IGNORE INTO work_log_categories (name, sortOrder)
+      VALUES
+        ('仕入れ確認', 1),
+        ('入庫登録', 2),
+        ('検品', 3),
+        ('清掃', 4),
+        ('撮影', 5),
+        ('出品', 6),
+        ('梱包', 7),
+        ('出庫登録', 8),
+        ('FedEx発送登録', 9),
+        ('スプシ確認', 10),
+        ('その他', 99)
+    `);
   } catch (error) {
     const message = errorText(error);
     if (

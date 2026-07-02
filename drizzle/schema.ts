@@ -894,6 +894,43 @@ export const actionItemReplies = mysqlTable("action_item_replies", {
 export type ActionItemReply = typeof actionItemReplies.$inferSelect;
 export type InsertActionItemReply = typeof actionItemReplies.$inferInsert;
 
+export const workLogWorkers = mysqlTable("work_log_workers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WorkLogWorker = typeof workLogWorkers.$inferSelect;
+export type InsertWorkLogWorker = typeof workLogWorkers.$inferInsert;
+
+export const workLogCategories = mysqlTable("work_log_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WorkLogCategory = typeof workLogCategories.$inferSelect;
+export type InsertWorkLogCategory = typeof workLogCategories.$inferInsert;
+
+export const workLogs = mysqlTable("work_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  workerName: varchar("workerName", { length: 100 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("done"),
+  startedAt: timestamp("startedAt"),
+  endedAt: timestamp("endedAt"),
+  manualMinutes: int("manualMinutes"),
+  quantity: int("quantity").notNull().default(0),
+  memo: text("memo"),
+  createdBy: varchar("createdBy", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WorkLog = typeof workLogs.$inferSelect;
+export type InsertWorkLog = typeof workLogs.$inferInsert;
+
 /**
  * FedEx発送記録テーブル
  * 出庫グループ（deliveryNo）に紐づくFedEx発送情報を管理する

@@ -137,6 +137,8 @@ export default function ActionItems() {
   const [replyAuthors, setReplyAuthors] = useState<Record<number, string>>({});
   const [openReplyForms, setOpenReplyForms] = useState<Record<number, boolean>>({});
   const [openReplyLists, setOpenReplyLists] = useState<Record<number, boolean>>({});
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [replyEditDrafts, setReplyEditDrafts] = useState<Record<number, string>>({});
   const { data: items = [], isLoading, refetch, isFetching } = trpc.inventory.actionItems.list.useQuery({ status });
   const { data: actionOptions } = trpc.inventory.actionItems.options.useQuery();
   const authorOptions = actionOptions?.authors ?? [];
@@ -172,6 +174,16 @@ export default function ActionItems() {
       toast.success("返信しました");
     },
     onError: (error) => toast.error(`返信失敗: ${error.message}`),
+  });
+
+  const updateReplyMutation = trpc.inventory.actionItems.updateReply.useMutation({
+    onSuccess: async (_, variables) => {
+      setEditingReplyId(null);
+      setReplyEditDrafts((current) => ({ ...current, [variables.id]: "" }));
+      await utils.inventory.actionItems.list.invalidate();
+      toast.success("返信を保存しました");
+    },
+    onError: (error) => toast.error(`返信保存失敗: ${error.message}`),
   });
 
   const defaultReplyAuthor = useMemo(() => {
@@ -220,6 +232,20 @@ export default function ActionItems() {
       return;
     }
     createReplyMutation.mutate({ actionItemId: itemId, body, author });
+  };
+
+  const startReplyEdit = (reply: { id: number; body: string }) => {
+    setEditingReplyId(reply.id);
+    setReplyEditDrafts((current) => ({ ...current, [reply.id]: reply.body }));
+  };
+
+  const submitReplyEdit = (replyId: number) => {
+    const body = (replyEditDrafts[replyId] ?? "").trim();
+    if (!body) {
+      toast.error("返信を入力してください");
+      return;
+    }
+    updateReplyMutation.mutate({ id: replyId, body });
   };
 
   return (
@@ -454,15 +480,63 @@ export default function ActionItems() {
                               </div>
                               {replyListOpen ? (
                                 <div className="space-y-2">
-                                  {replies.map((reply) => (
-                                    <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                        <span className="font-medium text-slate-700">{formatAuthorName(reply.author)}</span>
-                                        <span>{formatDate(reply.createdAt)}</span>
+                                  {replies.map((reply) => {
+                                    const isEditingReply = editingReplyId === reply.id;
+                                    const editText = replyEditDrafts[reply.id] ?? reply.body;
+                                    return (
+                                      <div key={reply.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="font-medium text-slate-700">{formatAuthorName(reply.author)}</span>
+                                            <span>{formatDate(reply.createdAt)}</span>
+                                          </div>
+                                          {!isEditingReply ? (
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-7 px-2 text-xs"
+                                              onClick={() => startReplyEdit(reply)}
+                                            >
+                                              <Pencil className="mr-1 h-3 w-3" />
+                                              編集
+                                            </Button>
+                                          ) : null}
+                                        </div>
+                                        {isEditingReply ? (
+                                          <div className="space-y-2">
+                                            <Textarea
+                                              value={editText}
+                                              onChange={(event) =>
+                                                setReplyEditDrafts((current) => ({ ...current, [reply.id]: event.target.value }))
+                                              }
+                                              className="min-h-[72px]"
+                                            />
+                                            <div className="flex justify-end gap-2">
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setEditingReplyId(null)}
+                                              >
+                                                キャンセル
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => submitReplyEdit(reply.id)}
+                                                disabled={updateReplyMutation.isPending || editText.trim().length === 0}
+                                              >
+                                                保存
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
+                                        )}
                                       </div>
-                                      <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               ) : null}
                             </div>

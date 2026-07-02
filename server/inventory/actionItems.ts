@@ -238,6 +238,19 @@ export const actionItemsRouter = router({
       return { success: true };
     }),
 
+  updateReply: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      body: z.string().min(1).max(5000),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.update(actionItemReplies).set({
+        body: input.body.trim(),
+      }).where(eq(actionItemReplies.id, input.id));
+      return { success: true };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
