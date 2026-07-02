@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { setCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { trpc } from "@/lib/trpc";
 
 type DateLike = string | Date | null | undefined;
@@ -362,12 +363,14 @@ export default function WorkManagement() {
 
   const handleStart = () => {
     const category = resolveCategory(form);
-    if (!form.workerName.trim() || !category) {
+    const workerName = form.workerName.trim();
+    if (!workerName || !category) {
       toast.error("担当者と作業カテゴリを入力してください");
       return;
     }
+    setCurrentWorkWorkerName(workerName);
     startMutation.mutate({
-      workerName: form.workerName.trim(),
+      workerName,
       category,
       memo: form.memo.trim() || undefined,
     });
@@ -824,17 +827,22 @@ export default function WorkManagement() {
                   <TableHead className="text-right">件数</TableHead>
                   <TableHead className="text-right">作業時間</TableHead>
                   <TableHead className="text-right">処理数</TableHead>
+                  <TableHead className="text-right">1時間あたり</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.categoryRows.map((row) => (
-                  <TableRow key={row.name}>
-                    <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell className="text-right">{row.count}</TableCell>
-                    <TableCell className="text-right">{formatMinutes(row.minutes)}</TableCell>
-                    <TableCell className="text-right">{row.quantity.toLocaleString("ja-JP")}</TableCell>
-                  </TableRow>
-                ))}
+                {summary.categoryRows.map((row) => {
+                  const categoryHourlyRate = row.minutes > 0 ? Math.round((row.quantity / row.minutes) * 60 * 10) / 10 : 0;
+                  return (
+                    <TableRow key={row.name}>
+                      <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell className="text-right">{row.count}</TableCell>
+                      <TableCell className="text-right">{formatMinutes(row.minutes)}</TableCell>
+                      <TableCell className="text-right">{row.quantity.toLocaleString("ja-JP")}</TableCell>
+                      <TableCell className="text-right">{categoryHourlyRate.toLocaleString("ja-JP")}</TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

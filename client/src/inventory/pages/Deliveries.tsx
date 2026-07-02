@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -861,7 +862,7 @@ export default function Deliveries() {
       const singleResult = await createDeliveryMutation.mutateAsync({
         deliveryNo: singleDeliveryNo.trim(),
         deliveryDate: today,
-        operatorName: selectedOperatorName,
+        operatorName: getCurrentWorkWorkerName(selectedOperatorName),
         items: [{
           inventoryId: singleDeliveryItem.inv.id,
           title: singleDeliveryItem.inv.title,
@@ -919,7 +920,7 @@ export default function Deliveries() {
       const bulkResult = await createDeliveryMutation.mutateAsync({
         deliveryNo: deliveryNo.trim(),
         deliveryDate: today,
-        operatorName: selectedOperatorName,
+        operatorName: getCurrentWorkWorkerName(selectedOperatorName),
         items: checkedItems.map((item) => ({
           inventoryId: item.inventoryId,
           title: item.title,

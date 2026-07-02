@@ -36,6 +36,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { buildSupplierDisplay } from "@/inventory/lib/supplier";
 
 // ============================================================
@@ -359,6 +360,7 @@ export function InvoiceStockSection({
       await createDeliveryMutation.mutateAsync({
         deliveryNo: deliveryNo.trim() || autoDeliveryNo,
         deliveryDate: new Date().toISOString().slice(0, 10),
+        operatorName: getCurrentWorkWorkerName("野田"),
         items: checkedItems.map((item) => ({
           inventoryId: item.inventoryId,
           title: item.title,

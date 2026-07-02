@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { EbayListingUrlEditor, EbayOrderStatusEditor } from "@/inventory/components/EbayListingUrlEditor";
 import {
   extractManagementNo,
@@ -456,6 +457,7 @@ export default function EbayInventory() {
       await createDeliveryMutation.mutateAsync({
         deliveryNo: no,
         deliveryDate: todayJst(),
+        operatorName: getCurrentWorkWorkerName("野田"),
         items: [{
           inventoryId: deliveryTarget.id,
           title: deliveryTarget.title,
