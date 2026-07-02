@@ -55,6 +55,7 @@ import {
 import { PAGE_SIZE } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 
 interface PurchaseItem {
   id: number;
@@ -905,7 +906,7 @@ export default function Purchases() {
           inventoryId: firstItem?.inventory_id || undefined,
         },
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
-        operatorName: selectedOperatorName,
+        operatorName: getCurrentWorkWorkerName(selectedOperatorName),
       });
       toast.success(`「${managementNo || purchase.num || purchase.id}」を入庫済みにしました`);
       refetch();
@@ -1005,7 +1006,7 @@ export default function Purchases() {
             inventoryId: firstItem?.inventory_id || undefined,
           },
           operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
-          operatorName: selectedOperatorName,
+          operatorName: getCurrentWorkWorkerName(selectedOperatorName),
         });
         successCount++;
       } catch {

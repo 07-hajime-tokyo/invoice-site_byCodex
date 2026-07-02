@@ -241,6 +241,17 @@ export default function Deliveries() {
     return prefix ? `${prefix}_${base}` : base;
   }
 
+  function generateYahooAuctionDeliveryNo(): string {
+    const now = new Date();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `ヤフオク${m}${d}`;
+  }
+
+  function isShaftManagementNo(etc: string | undefined): boolean {
+    return getManagementNo(etc).includes("シャフト");
+  }
+
   /** 管理番号から先頭の数字部分を抽出する（例: "371_ルカ_New3DS_8/10" → "371"） */
   function extractPrefixFromManagementNo(etc: string | undefined): string | undefined {
     const managementNo = getManagementNo(etc);
@@ -843,7 +854,10 @@ export default function Deliveries() {
     // 管理番号から取引先を自動判別
     const detected = detectCustomerFromManagementNo(inv.etc);
     const prefix = extractPrefixFromManagementNo(inv.etc);
-    if (detected) {
+    if (isShaftManagementNo(inv.etc)) {
+      setSingleCustomerCode("");
+      setSingleDeliveryNo(generateYahooAuctionDeliveryNo());
+    } else if (detected) {
       setSingleCustomerCode(detected.code);
       setSingleDeliveryNo(generateDeliveryNo(detected.code, prefix));
     } else {

@@ -647,6 +647,14 @@ function resolveOperatorToken(_operatorKey?: string): string | undefined {
   return undefined;
 }
 
+function resolveWorkOperatorName(operatorName?: string | null, fallback?: string | null): string {
+  return operatorName?.trim() || fallback?.trim() || "野田";
+}
+
+function sumWorkQuantity(items: Array<{ quantity: string | number }>): number {
+  return Math.round(items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0));
+}
+
 function parseMoneyNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   const normalized = String(value)
@@ -1054,6 +1062,7 @@ export const inventoryRouter = router({
         }
 
         // 入庫履歴をDBに保存
+        const workOperatorName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
         if (input.historyData) {
           const item = input.purchaseItems[0];
           await createPurchaseHistory({
@@ -1067,7 +1076,26 @@ export const inventoryRouter = router({
             purchaseDate: input.purchaseDate,
             inventoryId: input.historyData.inventoryId ?? item?.inventory_id ?? null,
             cancelled: 0,
-            operatorName: input.operatorName ?? (ctx.user?.name ?? null),
+            operatorName: workOperatorName,
+          });
+          await recordWorkLog({
+            workerName: workOperatorName,
+            category: "入庫登録",
+            status: "done",
+            startedAt: new Date(),
+            endedAt: new Date(),
+            quantity: sumWorkQuantity(input.purchaseItems),
+            memo: `管理番号: ${input.historyData.kanriNo ?? input.purchaseId}`,
+            createdBy: workOperatorName,
+            sourceType: "purchase",
+            sourceId: String(input.purchaseId),
+            detailsJson: JSON.stringify({
+              purchaseId: input.purchaseId,
+              purchaseDate: input.purchaseDate,
+              managementNo: input.historyData.kanriNo ?? null,
+              title: input.historyData.title,
+              items: input.purchaseItems,
+            }),
           });
         }
         return result;
@@ -2772,7 +2800,26 @@ export const inventoryRouter = router({
               trackingNumber: input.trackingNumber,
               itemsJson: JSON.stringify(fedexItems),
               spreadsheetStatus: "pending",
-              operatorName: "delivery-form",
+              operatorName: resolveWorkOperatorName(input.operatorName, "delivery-form"),
+            });
+            await recordWorkLog({
+              workerName: resolveWorkOperatorName(input.operatorName, "野田"),
+              category: "FedEx発送登録",
+              status: "done",
+              startedAt: new Date(),
+              endedAt: new Date(),
+              quantity: sumWorkQuantity(fedexItems),
+              memo: `出庫No: ${input.deliveryNo} / 追跡番号: ${input.trackingNumber}`,
+              createdBy: resolveWorkOperatorName(input.operatorName, "出庫登録"),
+              sourceType: "fedex",
+              sourceId: `${input.deliveryNo}:${input.trackingNumber}`,
+              detailsJson: JSON.stringify({
+                deliveryNo: input.deliveryNo,
+                sheetName: input.sheetName,
+                shippingDate,
+                trackingNumber: input.trackingNumber,
+                items: fedexItems,
+              }),
             });
 
             // GAS Webhookでスプシに書き込む
@@ -5289,6 +5336,7 @@ export const inventoryRouter = router({
           productNameEn: z.string(),
           quantity: z.number().int().positive(),
         })),
+        operatorName: z.string().max(200).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         type MergeItem = ShipmentGasItem;
@@ -5296,6 +5344,7 @@ export const inventoryRouter = router({
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
         const invoiceNo = invoiceNoFromDeliveryNo(input.deliveryNo);
         const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
+        const workOperatorName = resolveWorkOperatorName(input.operatorName, ctx.user.name ?? ctx.user.email ?? null);
 
         // GAS呼び出しヘルパー
         async function callGasWrite(items: MergeItem[]): Promise<{ success: boolean; message?: string }> {
@@ -5381,6 +5430,25 @@ export const inventoryRouter = router({
           for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
           // Keep the displayed delivery number and linked history in sync after merging.
           await updateFedexShipmentHistoryAndDeliveryNo(keepId, input.historyId ?? null, input.deliveryNo);
+          await recordWorkLog({
+            workerName: workOperatorName,
+            category: "FedEx発送登録",
+            status: "done",
+            startedAt: new Date(),
+            endedAt: new Date(),
+            quantity: sumWorkQuantity(gasItems),
+            memo: `出庫No: ${input.deliveryNo} / 追跡番号: ${input.trackingNumber}`,
+            createdBy: workOperatorName,
+            sourceType: "fedex",
+            sourceId: `${input.deliveryNo}:${input.trackingNumber}`,
+            detailsJson: JSON.stringify({
+              deliveryNo: input.deliveryNo,
+              sheetName: input.sheetName,
+              shippingDate: input.shippingDate,
+              trackingNumber: input.trackingNumber,
+              items: gasItems,
+            }),
+          });
           const gasResult = await callGasWrite(getGasItemsForWrite(gasItems));
           if (gasResult.success) {
             await updateFedexShipmentStatus(keepId, "success");
@@ -5399,8 +5467,27 @@ export const inventoryRouter = router({
           trackingNumber: input.trackingNumber,
           itemsJson: JSON.stringify(gasItems),
           spreadsheetStatus: "pending",
-          operatorName: ctx.user.name ?? ctx.user.email ?? "unknown",
+          operatorName: workOperatorName,
           historyId: input.historyId ?? null,
+        });
+        await recordWorkLog({
+          workerName: workOperatorName,
+          category: "FedEx発送登録",
+          status: "done",
+          startedAt: new Date(),
+          endedAt: new Date(),
+          quantity: sumWorkQuantity(gasItems),
+          memo: `出庫No: ${input.deliveryNo} / 追跡番号: ${input.trackingNumber}`,
+          createdBy: workOperatorName,
+          sourceType: "fedex",
+          sourceId: `${input.deliveryNo}:${input.trackingNumber}`,
+          detailsJson: JSON.stringify({
+            deliveryNo: input.deliveryNo,
+            sheetName: input.sheetName,
+            shippingDate: input.shippingDate,
+            trackingNumber: input.trackingNumber,
+            items: gasItems,
+          }),
         });
 
         if (!gasUrl) {
@@ -5598,12 +5685,14 @@ export const inventoryRouter = router({
             quantity: z.number().int().positive(),
           })),
         })),
+        operatorName: z.string().max(200).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         type MergeItem = ShipmentGasItem;
         const results: Array<{ deliveryNo: string; sheetName: string; trackingNumber: string; id: number; success: boolean; message: string }> = [];
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
+        const workOperatorName = resolveWorkOperatorName(input.operatorName, ctx.user.name ?? ctx.user.email ?? null);
         const alignedShipments = await Promise.all(input.shipments.map(async (shipment) => {
           const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
           const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
@@ -5681,6 +5770,25 @@ export const inventoryRouter = router({
             await updateFedexShipment(keepId, { sheetName, shippingDate: input.shippingDate, itemsJson: JSON.stringify(mergedItems), spreadsheetStatus: "pending" });
             for (const rec of sameTracking.slice(1)) await deleteFedexShipment(rec.id);
             await updateFedexShipmentHistoryAndDeliveryNo(keepId, shipment.historyId ?? null, shipment.deliveryNo);
+            await recordWorkLog({
+              workerName: workOperatorName,
+              category: "FedEx発送登録",
+              status: "done",
+              startedAt: new Date(),
+              endedAt: new Date(),
+              quantity: sumWorkQuantity(gasItems),
+              memo: `出庫No: ${shipment.deliveryNo} / 追跡番号: ${shipment.trackingNumber}`,
+              createdBy: workOperatorName,
+              sourceType: "fedex",
+              sourceId: `${shipment.deliveryNo}:${shipment.trackingNumber}`,
+              detailsJson: JSON.stringify({
+                deliveryNo: shipment.deliveryNo,
+                sheetName,
+                shippingDate: input.shippingDate,
+                trackingNumber: shipment.trackingNumber,
+                items: gasItems,
+              }),
+            });
             const gasResult = await callGasBatchWrite(sheetName, shipment.deliveryNo, shipment.trackingNumber, gasItemsForWrite);
             if (gasResult.success) {
               await updateFedexShipmentStatus(keepId, "success");
@@ -5701,8 +5809,27 @@ export const inventoryRouter = router({
             trackingNumber: shipment.trackingNumber,
             itemsJson: JSON.stringify(gasItems),
             spreadsheetStatus: "pending",
-            operatorName: ctx.user.name ?? ctx.user.email ?? "unknown",
+            operatorName: workOperatorName,
             historyId: shipment.historyId ?? null,
+          });
+          await recordWorkLog({
+            workerName: workOperatorName,
+            category: "FedEx発送登録",
+            status: "done",
+            startedAt: new Date(),
+            endedAt: new Date(),
+            quantity: sumWorkQuantity(gasItems),
+            memo: `出庫No: ${shipment.deliveryNo} / 追跡番号: ${shipment.trackingNumber}`,
+            createdBy: workOperatorName,
+            sourceType: "fedex",
+            sourceId: `${shipment.deliveryNo}:${shipment.trackingNumber}`,
+            detailsJson: JSON.stringify({
+              deliveryNo: shipment.deliveryNo,
+              sheetName,
+              shippingDate: input.shippingDate,
+              trackingNumber: shipment.trackingNumber,
+              items: gasItems,
+            }),
           });
           if (!gasUrl) {
             await updateFedexShipmentStatus(id, "error", "GAS_WEBHOOK_URL が未設定です");
@@ -6196,15 +6323,36 @@ export const inventoryRouter = router({
           productNameEn: z.string(),
           quantity: z.number().int().min(1),
         })),
+        operatorName: z.string().max(200).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        const workOperatorName = resolveWorkOperatorName(input.operatorName, (ctx as { user?: { name?: string; email?: string } }).user?.name ?? null);
         const id = await createManualShipment({
           invoiceNo: input.invoiceNo,
           sheetName: input.sheetName,
           shippingDate: input.shippingDate,
           trackingNumber: input.trackingNumber,
           itemsJson: JSON.stringify(input.items),
-          operatorName: (ctx as { user?: { name?: string } }).user?.name ?? null,
+          operatorName: workOperatorName,
+        });
+        await recordWorkLog({
+          workerName: workOperatorName,
+          category: "FedEx発送登録",
+          status: "done",
+          startedAt: new Date(),
+          endedAt: new Date(),
+          quantity: sumWorkQuantity(input.items),
+          memo: `インボイスNo: ${input.invoiceNo} / 追跡番号: ${input.trackingNumber}`,
+          createdBy: workOperatorName,
+          sourceType: "manual-shipment",
+          sourceId: `${input.invoiceNo}:${input.trackingNumber}`,
+          detailsJson: JSON.stringify({
+            invoiceNo: input.invoiceNo,
+            sheetName: input.sheetName,
+            shippingDate: input.shippingDate,
+            trackingNumber: input.trackingNumber,
+            items: input.items,
+          }),
         });
         return { id };
       }),

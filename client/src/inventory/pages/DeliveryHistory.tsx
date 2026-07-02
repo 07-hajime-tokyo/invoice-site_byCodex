@@ -42,6 +42,7 @@ import {
 import { toast } from "sonner";
 import { usePagination } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
@@ -2943,6 +2944,7 @@ export default function DeliveryHistory() {
             trackingNumber: data.trackingNumber,
             items: data.items,
             historyId: fedexDialog.historyId,
+            operatorName: getCurrentWorkWorkerName("野田"),
           })}
           isPending={createFedexMutation.isPending}
           existingShipments={fedexShipmentsMap.get(fedexDialog.groupKey) ?? []}
@@ -2960,7 +2962,11 @@ export default function DeliveryHistory() {
         initialShippingDate={fedexBarShippingDate}
         initialTrackingNumber={fedexBarTrackingNumber}
         onSubmit={(shippingDate, shipments) => {
-          createFedexBatchMutation.mutate({ shippingDate, shipments });
+          createFedexBatchMutation.mutate({
+            shippingDate,
+            shipments,
+            operatorName: getCurrentWorkWorkerName("野田"),
+          });
         }}
         isPending={createFedexBatchMutation.isPending}
       />

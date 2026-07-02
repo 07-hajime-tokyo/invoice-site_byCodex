@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { normalizeProductName, isReturnProduct, toEnglishProductName, matchesCsvProductName, toShipmentProductKey } from "@/inventory/lib/productNameUtils";
 import { InvoiceStockSection } from "@/inventory/components/InvoiceStockSection";
 import { FedexShipmentDialog, HistoryItem } from "@/inventory/pages/DeliveryHistory";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 
 // ============================================================
 // 出庫履歴ごとのFedEx登録セクション
@@ -149,6 +150,7 @@ function DeliveryHistoryFedexSection({ invoiceNo, partner }: { invoiceNo: string
             trackingNumber: data.trackingNumber,
             items: data.items,
             historyId: fedexDialog.historyId,
+            operatorName: getCurrentWorkWorkerName("野田"),
           })}
           isPending={createFedexMutation.isPending}
           existingShipments={fedexShipmentsMap.get(fedexDialog.deliveryNo) ?? []}
@@ -1509,6 +1511,7 @@ export default function OverseasShipping() {
                     shippingDate: manualForm.shippingDate,
                     trackingNumber: manualForm.trackingNumber,
                     items: manualForm.items.filter(it => it.productNameJa || it.productNameEn),
+                    operatorName: getCurrentWorkWorkerName("野田"),
                   })}
                 >
                   {addManualShipmentMutation.isPending ? "登録中..." : "発送データを登録"}
