@@ -3645,17 +3645,15 @@ export const inventoryRouter = router({
           } else if (purchase.status === "purchased") {
             g.purchasedCount += qty;
           }
-          // 入庫済み（purchased）は発注一覧から除外
-          if (purchase.status !== "purchased") {
-            g.purchaseItems.push({
-              purchaseId: purchase.id,
-              num: purchase.num,
-              title: item.title,
-              quantity: qty,
-              status: purchase.status,
-              managementNo: item.etc?.split(",")[0]?.trim() ?? "",
-            });
-          }
+          // 入庫済み（purchased）も発注一覧に表示し、発送済み商品の照合にも使う
+          g.purchaseItems.push({
+            purchaseId: purchase.id,
+            num: purchase.num,
+            title: item.title,
+            quantity: qty,
+            status: purchase.status,
+            managementNo: item.etc?.split(",")[0]?.trim() ?? "",
+          });
         }
       }
 
@@ -3681,6 +3679,7 @@ export const inventoryRouter = router({
         if (t.includes("vita 2000") || t.includes("vita2000") || (t.includes("vita") && t.includes("2000"))) return "Vita2000";
         if (t.includes("vita 1000") || t.includes("vita1000") || (t.includes("vita") && !t.includes("2000"))) return "Vita1000";
         if (t.includes("new 3ds ll") || t.includes("new3dsll")) return "New3DSLL";
+        if ((t.includes("3ds ll") || t.includes("3dsll")) && (t.includes("ランダム") || t.includes("random"))) return "New3DSLL";
         if ((t.includes("new 3ds") || t.includes("new3ds")) && !t.includes("ll")) return "New3DS";
         if ((t.includes("3ds ll") || t.includes("3dsll")) && !t.includes("new")) return "3DSLL";
         if (t.includes("3ds") && !t.includes("ll") && !t.includes("new")) return "3DS";
@@ -3775,6 +3774,11 @@ export const inventoryRouter = router({
           c.includes("以外");
       }
 
+      function hasLimitedEditionMarker(value: string | null | undefined): boolean {
+        const v = (value ?? "").normalize("NFKC").toLowerCase();
+        return v.includes("限定版") || v.includes("limited") || v.includes("special edition");
+      }
+
       function extractBaseColor(colorName: string): string | null {
         const m = colorName.match(/^(.+?)ベース$/);
         return m ? m[1].trim() : null;
@@ -3787,6 +3791,13 @@ export const inventoryRouter = router({
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
         const csvModel = extractModelFromTitle(csvProductName);
         const invModel = extractModelFromTitle(invTitle);
+        const csvLimited = hasLimitedEditionMarker(csvProductName);
+        const targetLimited = hasLimitedEditionMarker(`${invTitle} ${invManagementNo ?? ""}`);
+        if (csvLimited) {
+          if (!targetLimited) return false;
+          return !csvModel || !invModel || csvModel === invModel;
+        }
+        if (targetLimited) return false;
         // 機種が一致しない場合は除外
         if (!csvModel || !invModel || csvModel !== invModel) return false;
 

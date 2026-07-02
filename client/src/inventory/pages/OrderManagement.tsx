@@ -94,6 +94,7 @@ function extractColorFromCsvName(name: string): string {
   // 機種名パターンを除去してカラー名を抽出
   // 順番が重要: 長いパターンから先にチェック
   const modelPatterns = [
+    /^new\s*2ds\s*ll\s*/i,
     /^new\s*3ds\s*ll\s*/i,
     /^new\s*3ds\s*/i,
     /^3ds\s*ll\s*/i,
@@ -113,14 +114,17 @@ function extractColorFromCsvName(name: string): string {
     /^ps4\s*/i,
   ];
   let remaining = trimmed;
+  let matchedModel = false;
   for (const pat of modelPatterns) {
     if (pat.test(remaining)) {
+      matchedModel = true;
       remaining = remaining.replace(pat, "").trim();
       break;
     }
   }
   // 残った文字列がカラー名（空なら元の最後トークンにフォールバック）
   if (remaining) return remaining;
+  if (matchedModel) return "";
   const lastSpaceIdx = trimmed.lastIndexOf(" ");
   if (lastSpaceIdx === -1) return trimmed;
   return trimmed.slice(lastSpaceIdx + 1);
@@ -220,6 +224,7 @@ function extractModelFromCsvName(name: string): string {
   if (n.includes("vita 2000") || n.includes("vita2000")) return "Vita2000";
   if (n.includes("vita 1000") || n.includes("vita1000") || (n.includes("vita") && !n.includes("2000"))) return "Vita1000";
   if (n.includes("new 3ds ll") || n.includes("new3dsll")) return "New3DSLL";
+  if ((n.includes("3ds ll") || n.includes("3dsll")) && (n.includes("ランダム") || n.includes("random"))) return "New3DSLL";
   if (n.includes("new 3ds") || n.includes("new3ds")) return "New3DS";
   if (n.includes("3ds ll") || n.includes("3dsll")) return "3DSLL";
   if (n.includes("3ds")) return "3DS";
@@ -302,6 +307,11 @@ function isOtherColor(colorName: string): boolean {
     c.includes("以外");
 }
 
+function hasLimitedEditionMarker(value: string | null | undefined): boolean {
+  const v = (value ?? "").normalize("NFKC").toLowerCase();
+  return v.includes("限定版") || v.includes("limited") || v.includes("special edition");
+}
+
 type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string };
 
 function normalizeLooseText(value: string): string {
@@ -327,7 +337,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     const colorOnly = extractColorFromCsvName(csvProd.name);
     const model = extractModelFromCsvName(csvProd.name);
     // グループキー: 機種がある場合は「機種 カラー名」、ない場合は「カラー名」のみ
-    const groupKey = model ? `${model} ${colorOnly}` : colorOnly;
+    const groupKey = model ? [model, colorOnly].filter(Boolean).join(" ") : colorOnly;
     if (!colorMap.has(groupKey)) {
       colorMap.set(groupKey, {
         colorName: groupKey,
@@ -353,15 +363,20 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
    * 2. CSVが「ランダムカラー」の場合: Zaico商品名に同じ機種が含まれればマッチ（色は不問）
    * 3. CSVが通常カラーの場合: Zaico商品名に同じ機種かつ同じカラーが含まれればマッチ
    */
-  function scoreMatch(zaicoTitle: string, entry: ColorSummaryWithModel): number {
+  function scoreMatch(zaicoTitle: string, entry: ColorSummaryWithModel, managementNo = ""): number {
     // 機種チェック
-    if (entry.model && !matchesModel(zaicoTitle, "", entry.model)) return -1;
-    const zt = zaicoTitle.toLowerCase();
-    const zaicoModel = extractModelFromCsvName(zaicoTitle);
-    if (isVita2000AquaBlueMisdelivery(zaicoTitle, entry)) return 5;
+    if (entry.model && !matchesModel(zaicoTitle, managementNo, entry.model)) return -1;
+    const targetText = `${zaicoTitle} ${managementNo}`.trim();
+    const entryLimited = hasLimitedEditionMarker(entry.colorName) || hasLimitedEditionMarker(entry.colorOnly);
+    const targetLimited = hasLimitedEditionMarker(targetText);
+    if (entryLimited) return targetLimited ? 6 : -1;
+    if (targetLimited) return -1;
+    const zt = targetText.toLowerCase();
+    const zaicoModel = extractModelFromCsvName(targetText);
+    if (isVita2000AquaBlueMisdelivery(targetText, entry)) return 5;
 
     if (isRandomColor(entry.colorOnly) || isColorlessRandomColor(entry.colorOnly)) {
-      if (isColorlessRandomColor(entry.colorOnly) && !colorlessQualifierMatches(entry.colorOnly, zaicoTitle)) return -1;
+      if (isColorlessRandomColor(entry.colorOnly) && !colorlessQualifierMatches(entry.colorOnly, targetText)) return -1;
       // ランダムカラーグループ: 機種が一致するものはすべて満たす
       // 機種情報がある場合は已にチェック済みなので、ここに届いたら機種一致
       // 機種なしの場合はランダムカラーという文字列を商品名に含むか確認
@@ -375,12 +390,12 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
       return zaicoModel === entry.model ? 1 : -1;
     } else {
       // 通常カラー: Zaico商品名にカラー名が含まれるか確認
-      const zaicoColor = extractColorFromCsvName(zaicoTitle);
+      const zaicoColor = extractColorFromCsvName(targetText);
       if (
         entry.model === "Vita2000" &&
         entry.colorOnly.includes("アクア") &&
-        zaicoTitle.includes("駿河屋誤発送") &&
-        zaicoTitle.includes("ブルー")
+        targetText.includes("駿河屋誤発送") &&
+        targetText.includes("ブルー")
       ) {
         return 4;
       }
@@ -419,7 +434,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {
-      const score = scoreMatch(pi.title, entry);
+      const score = scoreMatch(pi.title, entry, pi.managementNo);
       if (score > bestScore) {
         bestScore = score;
         bestEntry = entry;
@@ -436,7 +451,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {
-      const score = scoreMatch(inv.title, entry);
+      const score = scoreMatch(inv.title, entry, inv.managementNo);
       if (score > bestScore) {
         bestScore = score;
         bestEntry = entry;
@@ -450,7 +465,7 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {
-      const score = scoreMatch(d.title, entry);
+      const score = scoreMatch(d.title, entry, d.managementNo);
       if (score > bestScore) {
         bestScore = score;
         bestEntry = entry;
