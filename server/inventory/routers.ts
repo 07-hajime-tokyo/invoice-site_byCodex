@@ -1,6 +1,19 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
+import {
+  classifyInbound,
+  nextStage,
+  isInboundClass,
+  isRegisterStage,
+  isInboundComplete,
+  extractInvoicePrefix,
+  getStagesForClass,
+  INBOUND_CLASS_ORDER,
+  DEFAULT_DIRECT_PARTNER_NAMES,
+  DIRECT_PARTNER_NAMES_SETTING_KEY,
+  type InboundClass,
+} from "@shared/inboundPipeline";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -71,6 +84,11 @@ import {
   getLocalPurchases,
   updateLocalPurchaseStatus,
   countLocalPurchases,
+  setLocalPurchaseInboundClass,
+  updateLocalPurchaseStage,
+  getLocalPurchaseById,
+  insertLocalPurchase,
+  getPublishedInvoiceNumberSet,
   getSystemSetting,
   setSystemSetting,
   isZaicoEnabled,
@@ -675,6 +693,8 @@ type PurchasePageInput = {
   status?: "ordered" | "shipped" | null;
   category?: string | null;
   search?: string | null;
+  /** T22: 分類タブのフィルタ。"unclassified"=未仕訳 / null|undefined=全件 */
+  inboundClass?: InboundClass | "unclassified" | null;
 };
 
 type PurchasePageRow = {
@@ -682,6 +702,16 @@ type PurchasePageRow = {
   num?: string | null;
   csvSupplierName?: string | null;
   extra?: { trackingNumber?: string | null } | null;
+  /** T22: 入庫分類（ebay/oregon/direct/domestic）。null=未仕訳 */
+  inboundClass?: InboundClass | null;
+  /** T22: 分類根拠 */
+  classSource?: "auto" | "manual";
+  /** T22: 現在の作業工程 */
+  stage?: string;
+  /** T22: 最終工程更新者 */
+  stageUpdatedBy?: string | null;
+  /** T22: シャフト分離元の発注ID */
+  shaftParentPurchaseId?: number | null;
   purchase_items: Array<{
     title?: string | null;
     quantity?: string | number | null;
@@ -776,6 +806,99 @@ async function ensureShaftPurchases(
   return repaired ? getLocalPurchases() : localPurchaseRows;
 }
 
+// ============================================================
+// T22: 入庫仕訳のenrich（読み取り時の自動判定＋バックフィル）
+// ============================================================
+
+type InboundInfo = {
+  inboundClass: InboundClass | null;
+  classSource: "auto" | "manual";
+  stage: string;
+  stageUpdatedBy: string | null;
+  shaftParentPurchaseId: number | null;
+};
+
+/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ） */
+async function getDirectPartnerNames(): Promise<string[]> {
+  try {
+    const raw = await getSystemSetting(DIRECT_PARTNER_NAMES_SETTING_KEY);
+    if (!raw) return [...DEFAULT_DIRECT_PARTNER_NAMES];
+    const names = raw
+      .split(/[,、\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_DIRECT_PARTNER_NAMES];
+  } catch {
+    return [...DEFAULT_DIRECT_PARTNER_NAMES];
+  }
+}
+
+/**
+ * local_purchases 行の集合に対し、分類（inboundClass）を解決してマップで返す。
+ * - classSource=manual の行は保存値を尊重（自動再判定しない＝人間の判断を守る）
+ * - それ以外は classifyInbound() で判定し、保存値と異なれば DB を更新（オンリードのバックフィル）
+ * 併せて stage / stageUpdatedBy / shaftParentPurchaseId も返す。
+ * 読み取り経路（Zaico OFF）専用。DBが無ければ保存値のみで組み立てる。
+ */
+async function resolveInboundInfoMap(
+  localPurchaseRows: LocalPurchaseRow[],
+  localInventoryRows: LocalInventoryRow[],
+): Promise<Map<number, InboundInfo>> {
+  const map = new Map<number, InboundInfo>();
+  if (localPurchaseRows.length === 0) return map;
+
+  const invById = new Map<number, LocalInventoryRow>();
+  for (const inv of localInventoryRows) invById.set(inv.id, inv);
+
+  const [partnerNames, invoiceNumberSet] = await Promise.all([
+    getDirectPartnerNames(),
+    getPublishedInvoiceNumberSet().catch(() => new Set<number>()),
+  ]);
+
+  for (const p of localPurchaseRows) {
+    const storedClass = (p.inboundClass ?? null) as InboundClass | null;
+    const storedSource = (p.classSource === "manual" ? "manual" : "auto") as "auto" | "manual";
+    const stage = p.stage ?? "received";
+    const stageUpdatedBy = p.stageUpdatedBy ?? null;
+    const shaftParentPurchaseId = p.shaftParentPurchaseId ?? null;
+
+    // manual は保存値をそのまま採用（domestic のシャフト分離行も manual 固定なので保護される）
+    if (storedSource === "manual") {
+      map.set(p.id, { inboundClass: storedClass, classSource: "manual", stage, stageUpdatedBy, shaftParentPurchaseId });
+      continue;
+    }
+
+    // auto: 判定材料を集めて再分類
+    const inv = p.localInventoryId != null ? invById.get(p.localInventoryId) : undefined;
+    const managementNo = p.managementNo ?? getInventoryManagementNo(inv?.etc);
+    const place = inv?.place ?? null;
+    const ebayOrderUrl = inv?.ebayOrderUrl ?? null;
+    const invoicePrefix = extractInvoicePrefix(managementNo);
+    const hasLinkedInvoice = invoicePrefix != null && invoiceNumberSet.has(Number(invoicePrefix));
+
+    const computed = classifyInbound({
+      managementNo,
+      place,
+      ebayOrderUrl,
+      directPartnerNames: partnerNames,
+      hasLinkedInvoice,
+    });
+
+    // 保存値と異なればバックフィル（auto のまま更新）。DBが無い場合はスキップ。
+    if (computed !== storedClass) {
+      try {
+        await setLocalPurchaseInboundClass(p.id, computed, "auto");
+      } catch {
+        // DB未接続やダンプ経路では保存できないが、表示は computed を使う
+      }
+    }
+
+    map.set(p.id, { inboundClass: computed, classSource: "auto", stage, stageUpdatedBy, shaftParentPurchaseId });
+  }
+
+  return map;
+}
+
 function getEffectivePurchaseStatus(row: PurchasePageRow) {
   if (row.status !== "purchased" && row.extra?.trackingNumber) return "shipped";
   return row.status;
@@ -832,20 +955,60 @@ function summarizePurchaseRows(rows: PurchasePageRow[]) {
   };
 }
 
+/** T22: 行が「完了」（工程バー全チェック＝最終工程到達）か */
+function isRowComplete(row: PurchasePageRow): boolean {
+  return isInboundComplete(row.inboundClass ?? null, row.stage ?? "received");
+}
+
+/** T22: 行が指定タブ（分類）に属するか。"unclassified"=未仕訳(null) */
+function rowMatchesInboundTab(row: PurchasePageRow, tab: InboundClass | "unclassified"): boolean {
+  const cls = row.inboundClass ?? null;
+  if (tab === "unclassified") return cls == null;
+  return cls === tab;
+}
+
+/**
+ * T22: 分類ごとの「未完了件数」を集計する（タブ見出しバッジ用）。
+ * 未仕訳(unclassified) と 4分類 のカウントを返す。
+ */
+function countInboundTabs(rows: PurchasePageRow[]) {
+  const counts: Record<string, number> = {
+    unclassified: 0,
+    ebay: 0,
+    oregon: 0,
+    direct: 0,
+    domestic: 0,
+  };
+  for (const row of rows) {
+    if (isRowComplete(row)) continue; // バッジは未完了のみ数える
+    const cls = row.inboundClass ?? null;
+    const key = cls == null ? "unclassified" : cls;
+    if (key in counts) counts[key] += 1;
+  }
+  return counts;
+}
+
 function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?: PurchasePageInput) {
   const pageSize = Math.min(Math.max(input?.pageSize ?? 20, 1), 100);
   const requestedPage = Math.max(input?.page ?? 1, 1);
   const category = input?.category?.trim();
   const search = input?.search?.trim() ?? "";
   const status = input?.status ?? null;
-  const activeRows = rows.filter((row) => row.status !== "purchased");
-  let filteredRows = activeRows;
+  const inboundTab = input?.inboundClass ?? null;
 
+  // T22: 完了行も消さずに残す（タブ内でグレー表示）。全行を基点にフィルタする。
+  let filteredRows: T[] = rows;
+
+  // 分類タブフィルタ（指定時のみ）
+  if (inboundTab) {
+    filteredRows = filteredRows.filter((row) => rowMatchesInboundTab(row, inboundTab));
+  }
   if (category && category !== "すべて") {
     filteredRows = filteredRows.filter((row) =>
       row.purchase_items.some((item) => (item.category || "未分類") === category)
     );
   }
+  // 旧status(ordered/shipped)フィルタは後方互換で維持（タブ運用時はクライアントが送らない）
   if (status) {
     filteredRows = filteredRows.filter((row) => getEffectivePurchaseStatus(row) === status);
   }
@@ -853,12 +1016,20 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
     filteredRows = filteredRows.filter((row) => purchaseRowMatchesSearch(row, search));
   }
 
-  const totalCount = filteredRows.length;
+  // 未完了を上、完了を下に（作業対象を主役の位置へ）。同群内は元順維持。
+  const ordered = [
+    ...filteredRows.filter((row) => !isRowComplete(row)),
+    ...filteredRows.filter((row) => isRowComplete(row)),
+  ];
+
+  const totalCount = ordered.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const page = Math.min(requestedPage, totalPages);
   const start = totalCount === 0 ? 0 : (page - 1) * pageSize;
-  const items = filteredRows.slice(start, start + pageSize);
-  const summary = summarizePurchaseRows(activeRows);
+  const items = ordered.slice(start, start + pageSize);
+  // カテゴリ合計サマリーは従来どおり未完了(=purchased未満)ベースで算出
+  const summary = summarizePurchaseRows(rows.filter((row) => row.status !== "purchased"));
+  const tabCounts = countInboundTabs(rows);
 
   return {
     items,
@@ -866,7 +1037,8 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
     pageSize,
     totalCount,
     totalPages,
-    allCount: activeRows.length,
+    allCount: rows.length,
+    tabCounts,
     ...summary,
   };
 }
@@ -1227,6 +1399,7 @@ export const inventoryRouter = router({
         status: z.enum(["ordered", "shipped"]).nullable().optional(),
         category: z.string().max(200).nullable().optional(),
         search: z.string().max(200).nullable().optional(),
+        inboundClass: z.enum(["ebay", "oregon", "direct", "domestic", "unclassified"]).nullable().optional(),
       }).optional())
       .query(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
@@ -1237,6 +1410,8 @@ export const inventoryRouter = router({
             getLocalInventories(),
           ]);
           localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
+          // T22: 分類を解決（auto行は自動判定＋バックフィル、manual行は保存値尊重）
+          const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
@@ -1272,6 +1447,7 @@ export const inventoryRouter = router({
 
           const rows = localPurchaseRows.map((p) => {
             const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
+            const inbound = inboundInfoMap.get(p.id);
             return {
               id: p.zaicoId ?? p.id,
               num: p.purchaseNum ?? "",
@@ -1279,6 +1455,11 @@ export const inventoryRouter = router({
               status: p.status,
               csvSupplierName: p.supplierName ?? inv?.supplierName ?? null,
               csvSupplierUrl: p.supplierUrl ?? inv?.supplierUrl ?? null,
+              inboundClass: inbound?.inboundClass ?? null,
+              classSource: inbound?.classSource ?? "auto",
+              stage: inbound?.stage ?? "received",
+              stageUpdatedBy: inbound?.stageUpdatedBy ?? null,
+              shaftParentPurchaseId: inbound?.shaftParentPurchaseId ?? null,
               extra: {
                 shipDate: p.shipDate ?? null,
                 trackingNumber: p.trackingNumber ?? null,
@@ -2453,6 +2634,196 @@ export const inventoryRouter = router({
           operatorToken
         );
         return { success: true };
+      }),
+
+    // ============================================================
+    // T22: 入庫仕訳・工程 mutations
+    // ============================================================
+
+    /**
+     * 直取の相手名リスト等の設定を取得。UI（未仕訳ゲートの説明・設定画面）で使う。
+     */
+    getInboundConfig: publicProcedure.query(async () => {
+      const directPartnerNames = await getDirectPartnerNames();
+      return { directPartnerNames };
+    }),
+
+    /**
+     * 直取の相手名リストを保存（カンマ区切りで蓄積）。設定で追加可能にする要件。
+     */
+    setDirectPartnerNames: publicProcedure
+      .input(z.object({ names: z.array(z.string().max(100)).max(100) }))
+      .mutation(async ({ input }) => {
+        const cleaned = Array.from(
+          new Set(input.names.map((n) => n.trim()).filter(Boolean)),
+        );
+        await setSystemSetting(DIRECT_PARTNER_NAMES_SETTING_KEY, cleaned.join(","));
+        return { success: true, directPartnerNames: cleaned };
+      }),
+
+    /**
+     * 分類を人間が手動で上書きする（未仕訳ゲートの確定ボタン／各行の分類変更）。
+     * classSource=manual を立て、以降の自動再判定から保護する。
+     * inboundClass=null を渡すと「未仕訳」に戻す（この場合 classSource=auto に戻し再判定に委ねる）。
+     */
+    setInboundClass: publicProcedure
+      .input(z.object({
+        purchaseId: z.number().int().positive(),
+        inboundClass: z.enum(["ebay", "oregon", "direct", "domestic"]).nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        if (await isZaicoEnabled()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Zaico連携中は未対応です" });
+        }
+        const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+        const { eq, or } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const [lp] = await db
+          .select()
+          .from(lpTbl)
+          .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
+          .limit(1);
+        if (!lp) throw new TRPCError({ code: "NOT_FOUND", message: "発注が見つかりません" });
+        if (input.inboundClass == null) {
+          // 未仕訳へ戻す: auto に戻して次回読み取りで再判定させる
+          await setLocalPurchaseInboundClass(lp.id, null, "auto");
+        } else {
+          await setLocalPurchaseInboundClass(lp.id, input.inboundClass, "manual");
+        }
+        return { success: true };
+      }),
+
+    /**
+     * 工程を1つ進める（「次の工程へ進む」ボタン）。
+     * - 分類ごとの工程列に沿って現stage→次stageへ。
+     * - 「登録」工程に入るとき status=purchased を連動（仕入れ観点の入庫済みと整合）。
+     * - 最終工程なら以降は進めない（完了は行を残してグレー表示）。
+     */
+    advanceStage: publicProcedure
+      .input(z.object({
+        purchaseId: z.number().int().positive(),
+        operatorName: z.string().max(200).optional(),
+        /** 楽観ロック用（任意）: 想定している現在の工程。ズレていれば弾く */
+        expectedStage: z.string().max(20).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (await isZaicoEnabled()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Zaico連携中は未対応です" });
+        }
+        const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+        const { eq, or } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const [lp] = await db
+          .select()
+          .from(lpTbl)
+          .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
+          .limit(1);
+        if (!lp) throw new TRPCError({ code: "NOT_FOUND", message: "発注が見つかりません" });
+
+        const inboundClass = (lp.inboundClass ?? null) as InboundClass | null;
+        if (!inboundClass) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "先に分類を確定してください（未仕訳のままでは工程を進められません）" });
+        }
+        const currentStage = lp.stage ?? "received";
+        if (input.expectedStage && input.expectedStage !== currentStage) {
+          throw new TRPCError({ code: "CONFLICT", message: "工程が更新されています。画面を更新してください" });
+        }
+        const next = nextStage(inboundClass, currentStage);
+        if (!next) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "すでに最終工程です" });
+        }
+        const updatedBy = (input.operatorName ?? "").trim() || ctx.user?.name || ctx.user?.email || null;
+        // 「登録」工程に入るとき status=purchased を連動（既存completePurchaseと同義の入庫確定）
+        const statusUpdate = isRegisterStage(next) ? "purchased" : undefined;
+        const today = new Date().toISOString().slice(0, 10);
+        await updateLocalPurchaseStage(lp.id, next, {
+          updatedBy,
+          status: statusUpdate,
+          receivedDate: statusUpdate === "purchased" ? today : undefined,
+        });
+        return { success: true, stage: next };
+      }),
+
+    /**
+     * シャフト分離（T22）。
+     * eBay/オレゴンのゴルフヘッド行（親）の登録工程で実行し、
+     * 「国内出品・発送待ち(domestic)」分類の新しい在庫行を生成する。
+     * 親行はそのまま（ヘッド側の分類・工程を継続）。1荷物内の分類混在をこれで吸収する。
+     */
+    separateShaft: publicProcedure
+      .input(z.object({
+        purchaseId: z.number().int().positive(),
+        title: z.string().max(500).optional(),
+        quantity: z.number().int().min(1).max(999).optional(),
+        managementNo: z.string().max(200).optional(),
+        operatorName: z.string().max(200).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (await isZaicoEnabled()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Zaico連携中は未対応です" });
+        }
+        const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+        const { eq, or } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const [parent] = await db
+          .select()
+          .from(lpTbl)
+          .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
+          .limit(1);
+        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "分離元の発注が見つかりません" });
+
+        const parentClass = (parent.inboundClass ?? null) as InboundClass | null;
+        if (parentClass !== "ebay" && parentClass !== "oregon") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "シャフト分離はeBay/オレゴンの行でのみ実行できます",
+          });
+        }
+
+        const qty = input.quantity ?? 1;
+        const baseTitle = (input.title ?? "").trim() || `${parent.title ?? "シャフト"}（シャフト）`;
+        const shaftManagementNo = (input.managementNo ?? "").trim()
+          || `${parent.managementNo ?? "シャフト"}-S`;
+        const updatedBy = (input.operatorName ?? "").trim() || ctx.user?.name || ctx.user?.email || null;
+
+        // 国内(domestic)の新規在庫行を作成。分類は manual 固定（自動再判定で消さない）。
+        // 工程は domestic の先頭「登録(registered)」から開始。
+        const newId = await insertLocalPurchase({
+          zaicoId: null,
+          purchaseNum: shaftManagementNo,
+          status: "ordered",
+          itemsJson: JSON.stringify([{
+            id: 0,
+            inventory_id: parent.localInventoryId ?? null,
+            title: baseTitle,
+            quantity: String(qty),
+            unit_price: null,
+            etc: shaftManagementNo,
+            status: "ordered",
+            category: parent.category ?? null,
+          }]),
+          localInventoryId: null,
+          title: baseTitle,
+          category: parent.category ?? null,
+          quantity: qty,
+          unitPrice: null,
+          managementNo: shaftManagementNo,
+          purchaseDate: parent.purchaseDate ?? null,
+          receivedDate: null,
+          supplierUrl: parent.supplierUrl ?? null,
+          supplierName: parent.supplierName ?? null,
+          inboundClass: "domestic",
+          classSource: "manual",
+          stage: "registered",
+          stageUpdatedBy: updatedBy,
+          stageUpdatedAt: new Date(),
+          shaftParentPurchaseId: parent.id,
+        });
+
+        return { success: true, newPurchaseId: newId };
       }),
 
     /**
