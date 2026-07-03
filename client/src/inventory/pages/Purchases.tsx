@@ -52,6 +52,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  INBOUND_CLASS_ORDER,
+  INBOUND_CLASS_LABEL,
+  UNCLASSIFIED_LABEL,
+  getStagesForClass,
+  getStageLabel,
+  getStageIndex,
+  nextStage,
+  isInboundComplete,
+  type InboundClass,
+} from "@shared/inboundPipeline";
 import { PAGE_SIZE } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
@@ -81,6 +93,12 @@ interface Purchase {
   estimated_purchase_date: string | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
+  // T22: 入庫仕訳・工程
+  inboundClass?: InboundClass | null;
+  classSource?: "auto" | "manual";
+  stage?: string;
+  stageUpdatedBy?: string | null;
+  shaftParentPurchaseId?: number | null;
   purchase_items: PurchaseItem[];
   extra: {
     id: number;
@@ -116,6 +134,8 @@ const CARRIER_OPTIONS = [
 
 const PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter-v2";
 const LEGACY_PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter";
+// T22: 分類タブの選択状態
+const PURCHASE_INBOUND_TAB_KEY = "purchases-inboundTab-v1";
 
 /** 入庫管理CSVエクスポート */
 function exportPurchasesCSV(purchases: Purchase[]) {
@@ -494,6 +514,147 @@ function PurchaseCardMobile({
   );
 }
 
+/**
+ * T22: 1行分の入庫仕訳・工程コントロール。
+ * - 分類セレクト（未仕訳/eBay/オレゴン/直取/国内）＋ 自動/手動バッジ
+ * - 工程チップ（現工程ハイライト）＋「次工程へ進む」ボタン
+ * - eBay/オレゴンの登録工程で「シャフト分離」
+ * - 未仕訳はクイック分類ボタンを主導線に
+ * - 完了行はバッジのみ（グレー）
+ */
+function InboundRowControls({
+  purchase,
+  busy,
+  onSetClass,
+  onAdvance,
+  onSeparateShaft,
+}: {
+  purchase: Purchase;
+  busy: boolean;
+  onSetClass: (purchase: Purchase, cls: InboundClass | null) => void;
+  onAdvance: (purchase: Purchase) => void;
+  onSeparateShaft: (purchase: Purchase) => void;
+}) {
+  const inboundClass = purchase.inboundClass ?? null;
+  const classSource = purchase.classSource ?? "auto";
+  const stage = purchase.stage ?? "received";
+  const stages = getStagesForClass(inboundClass);
+  const currentIndex = getStageIndex(inboundClass, stage);
+  const complete = isInboundComplete(inboundClass, stage);
+  const upcoming = nextStage(inboundClass, stage);
+  const canSeparateShaft =
+    (inboundClass === "ebay" || inboundClass === "oregon") && stage === "registered" && !complete;
+
+  return (
+    <div className="mt-2 rounded-md border border-dashed bg-muted/30 px-3 py-2 space-y-2">
+      {/* 分類行 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground">分類:</span>
+        <Select
+          value={inboundClass ?? "unclassified"}
+          onValueChange={(v) => onSetClass(purchase, v === "unclassified" ? null : (v as InboundClass))}
+          disabled={busy}
+        >
+          <SelectTrigger className="h-7 w-[168px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="unclassified">{UNCLASSIFIED_LABEL}</SelectItem>
+            {INBOUND_CLASS_ORDER.map((cls) => (
+              <SelectItem key={cls} value={cls}>{INBOUND_CLASS_LABEL[cls]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {inboundClass && (
+          <Badge
+            variant="outline"
+            className={`text-[10px] ${classSource === "manual" ? "border-purple-300 text-purple-700 dark:text-purple-300" : "border-blue-300 text-blue-700 dark:text-blue-300"}`}
+          >
+            {classSource === "manual" ? "手動" : "自動"}
+          </Badge>
+        )}
+        {complete && (
+          <Badge className="text-[10px] bg-muted text-muted-foreground border">完了</Badge>
+        )}
+      </div>
+
+      {/* 未仕訳: クイック分類ボタン（入庫作業前ゲート） */}
+      {!inboundClass && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-muted-foreground">仕訳:</span>
+          {INBOUND_CLASS_ORDER.map((cls) => (
+            <Button
+              key={cls}
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px]"
+              disabled={busy}
+              onClick={() => onSetClass(purchase, cls)}
+            >
+              {INBOUND_CLASS_LABEL[cls]}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {/* 分類済み: 工程チップ ＋ 次工程ボタン */}
+      {inboundClass && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 flex-wrap">
+            {stages.map((s, i) => {
+              const done = complete || i <= currentIndex;
+              const isCurrent = !complete && i === currentIndex;
+              return (
+                <span key={s} className="flex items-center gap-1">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] border ${
+                      isCurrent
+                        ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200"
+                        : done
+                          ? "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-200"
+                          : "bg-background text-muted-foreground border-border"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${done ? "bg-teal-500" : "bg-muted-foreground/30"}`} />
+                    {getStageLabel(s)}
+                  </span>
+                  {i < stages.length - 1 && <span className="text-muted-foreground/40 text-[10px]">–</span>}
+                </span>
+              );
+            })}
+          </div>
+          {!complete && upcoming && (
+            <Button
+              size="sm"
+              className="h-7 px-2.5 text-[11px]"
+              disabled={busy}
+              onClick={() => onAdvance(purchase)}
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : `${getStageLabel(upcoming)}へ進む ▶`}
+            </Button>
+          )}
+          {canSeparateShaft && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-[11px] border-amber-300 text-amber-700 dark:text-amber-300"
+              disabled={busy}
+              onClick={() => onSeparateShaft(purchase)}
+            >
+              シャフト分離
+            </Button>
+          )}
+        </div>
+      )}
+      {purchase.shaftParentPurchaseId != null && (
+        <div className="text-[10px] text-muted-foreground">
+          ↳ シャフト分離で生成（元発注 #{purchase.shaftParentPurchaseId}）
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Purchases() {
   const [location] = useLocation();
   const utils = trpc.useUtils();
@@ -515,6 +676,11 @@ export default function Purchases() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editState, setEditState] = useState<EditState>({ shipDate: "", trackingNumber: "", carrier: "auto", note: "", supplierName: "", supplierUrl: "", itemEdits: {} });
   const updateSupplierNameOnlyMutation = trpc.inventory.zaico.updateSupplierNameOnly.useMutation();
+  // T22: 分類・工程・シャフト分離のmutations
+  const setInboundClassMutation = trpc.inventory.zaico.setInboundClass.useMutation();
+  const advanceStageMutation = trpc.inventory.zaico.advanceStage.useMutation();
+  const separateShaftMutation = trpc.inventory.zaico.separateShaft.useMutation();
+  const [inboundBusyIds, setInboundBusyIds] = useState<Set<number>>(new Set());
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
   const [purchasePage, setPurchasePage] = useState(1);
@@ -525,6 +691,18 @@ export default function Purchases() {
     setPurchasePage(1);
     setSelectedCategory(cat);
     localStorage.setItem('purchases-selectedCategory', cat);
+  }, []);
+  // T22: 分類タブ（"all"=全件 / "unclassified"=未仕訳 / ebay|oregon|direct|domestic）
+  const [selectedInboundTab, setSelectedInboundTab] = useState<string>(() => {
+    if (typeof window === "undefined") return "unclassified";
+    const stored = localStorage.getItem(PURCHASE_INBOUND_TAB_KEY);
+    const valid = ["all", "unclassified", ...INBOUND_CLASS_ORDER];
+    return stored && valid.includes(stored) ? stored : "unclassified";
+  });
+  const handleSetInboundTab = useCallback((tab: string) => {
+    setPurchasePage(1);
+    setSelectedInboundTab(tab);
+    if (typeof window !== "undefined") localStorage.setItem(PURCHASE_INBOUND_TAB_KEY, tab);
   }, []);
   // ステータスフィルター（null=すべて）
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string | null>(() => {
@@ -565,7 +743,11 @@ export default function Purchases() {
     category: selectedCategory === "すべて" ? null : selectedCategory,
     status: selectedStatusFilter as "ordered" | "shipped" | null,
     search: debouncedSearchQuery || null,
-  }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter]);
+    // T22: 分類タブ。"all"は全件のため未指定(null)にする
+    inboundClass: (selectedInboundTab === "all"
+      ? null
+      : selectedInboundTab) as InboundClass | "unclassified" | null,
+  }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter, selectedInboundTab]);
   const { data: purchasePageData, isLoading, isFetching, refetch } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(purchaseQueryInput, {
     staleTime: 5_000,
     refetchInterval: editingId === null ? 5_000 : false,
@@ -708,6 +890,8 @@ export default function Purchases() {
 
   const filteredPurchases = purchases;
   const pagedPurchases = purchases;
+  // T22: タブ見出しの未完了件数バッジ
+  const inboundTabCounts = (purchasePageData as { tabCounts?: Record<string, number> } | undefined)?.tabCounts;
   const displayedPurchasePage = purchasePageData?.page ?? purchasePage;
   const purchaseTotalItems = purchasePageData?.totalCount ?? filteredPurchases.length;
   const purchaseTotalPages = purchasePageData?.totalPages ?? Math.max(1, Math.ceil(purchaseTotalItems / PAGE_SIZE));
@@ -915,6 +1099,74 @@ export default function Purchases() {
       toast.error(msg);
     } finally {
       setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(purchase.id);
+        return next;
+      });
+    }
+  }
+
+  // ── T22: 分類の手動上書き ──
+  async function handleSetInboundClass(purchase: Purchase, inboundClass: InboundClass | null) {
+    if (inboundBusyIds.has(purchase.id)) return;
+    setInboundBusyIds((prev) => new Set(prev).add(purchase.id));
+    try {
+      await setInboundClassMutation.mutateAsync({ purchaseId: purchase.id, inboundClass });
+      toast.success(
+        inboundClass
+          ? `分類を「${INBOUND_CLASS_LABEL[inboundClass]}」にしました`
+          : "未仕訳に戻しました",
+      );
+      refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "分類の変更に失敗しました");
+    } finally {
+      setInboundBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(purchase.id);
+        return next;
+      });
+    }
+  }
+
+  // ── T22: 工程を1つ進める ──
+  async function handleAdvanceStage(purchase: Purchase) {
+    if (inboundBusyIds.has(purchase.id)) return;
+    setInboundBusyIds((prev) => new Set(prev).add(purchase.id));
+    try {
+      const res = await advanceStageMutation.mutateAsync({
+        purchaseId: purchase.id,
+        operatorName: getCurrentWorkWorkerName(selectedOperatorName),
+        expectedStage: purchase.stage,
+      });
+      toast.success(`「${getStageLabel(res.stage)}」に進めました`);
+      refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "工程を進められませんでした");
+    } finally {
+      setInboundBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(purchase.id);
+        return next;
+      });
+    }
+  }
+
+  // ── T22: シャフト分離（国内出品・発送待ちの在庫行を生成） ──
+  async function handleSeparateShaft(purchase: Purchase) {
+    if (inboundBusyIds.has(purchase.id)) return;
+    setInboundBusyIds((prev) => new Set(prev).add(purchase.id));
+    try {
+      await separateShaftMutation.mutateAsync({
+        purchaseId: purchase.id,
+        operatorName: getCurrentWorkWorkerName(selectedOperatorName),
+      });
+      toast.success("シャフトを分離し、国内出品・発送待ちに追加しました");
+      refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "シャフト分離に失敗しました");
+    } finally {
+      setInboundBusyIds((prev) => {
         const next = new Set(prev);
         next.delete(purchase.id);
         return next;
@@ -1287,6 +1539,31 @@ export default function Purchases() {
         </div>
       )}
 
+      {/* T22: 入庫分類タブ（表示フィルタ層） */}
+      <Tabs value={selectedInboundTab} onValueChange={handleSetInboundTab}>
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="unclassified" className="text-xs">
+            {UNCLASSIFIED_LABEL}
+            {inboundTabCounts && inboundTabCounts.unclassified > 0 && (
+              <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px] bg-red-500 text-white">
+                {inboundTabCounts.unclassified}
+              </Badge>
+            )}
+          </TabsTrigger>
+          {INBOUND_CLASS_ORDER.map((cls) => (
+            <TabsTrigger key={cls} value={cls} className="text-xs">
+              {INBOUND_CLASS_LABEL[cls]}
+              {inboundTabCounts && inboundTabCounts[cls] > 0 && (
+                <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px] bg-muted-foreground/70 text-white">
+                  {inboundTabCounts[cls]}
+                </Badge>
+              )}
+            </TabsTrigger>
+          ))}
+          <TabsTrigger value="all" className="text-xs">すべて</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {/* 入庫予定なし */}
       {!filteredPurchases || filteredPurchases.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
@@ -1303,23 +1580,34 @@ export default function Purchases() {
             {pagedPurchases.map((purchase) => {
               const firstItem = purchase.purchase_items[0];
               const { managementNo, supplierSite } = parseEtc(firstItem?.etc);
+              const inboundComplete = isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
               return (
-                <PurchaseCardMobile
-                  key={purchase.id}
-                  purchase={purchase as Purchase}
-                  managementNo={managementNo}
-                  supplierSite={supplierSite}
-                  checked={checkedPurchaseIds.has(purchase.id)}
-                  onToggleCheck={() => togglePurchaseCheck(purchase.id)}
-                  onComplete={() => handleComplete(purchase as Purchase)}
-                  processing={processingIds.has(purchase.id)}
-                  deleting={deletingIds}
-                  onDeleteInventory={handleDeleteInventory}
-                  statusLabel={statusLabel}
-                  CARRIER_OPTIONS={CARRIER_OPTIONS}
-                  getStatusClass={getStatusClass}
-                  getEffectiveStatusLabel={getEffectiveStatusLabel}
-                />
+                <div key={purchase.id} className={inboundComplete ? "opacity-60" : ""}>
+                  <PurchaseCardMobile
+                    purchase={purchase as Purchase}
+                    managementNo={managementNo}
+                    supplierSite={supplierSite}
+                    checked={checkedPurchaseIds.has(purchase.id)}
+                    onToggleCheck={() => togglePurchaseCheck(purchase.id)}
+                    onComplete={() => handleComplete(purchase as Purchase)}
+                    processing={processingIds.has(purchase.id)}
+                    deleting={deletingIds}
+                    onDeleteInventory={handleDeleteInventory}
+                    statusLabel={statusLabel}
+                    CARRIER_OPTIONS={CARRIER_OPTIONS}
+                    getStatusClass={getStatusClass}
+                    getEffectiveStatusLabel={getEffectiveStatusLabel}
+                  />
+                  <div className="mt-1 px-1">
+                    <InboundRowControls
+                      purchase={purchase as Purchase}
+                      busy={inboundBusyIds.has(purchase.id)}
+                      onSetClass={handleSetInboundClass}
+                      onAdvance={handleAdvanceStage}
+                      onSeparateShaft={handleSeparateShaft}
+                    />
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -1329,8 +1617,9 @@ export default function Purchases() {
             {pagedPurchases.map((purchase) => {
               const firstItem = purchase.purchase_items[0];
               const { managementNo, supplierSite } = parseEtc(firstItem?.etc);
+              const inboundComplete = isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
               return (
-              <div key={purchase.id} className="rounded-lg border bg-card shadow-sm overflow-hidden">
+              <div key={purchase.id} className={`rounded-lg border bg-card shadow-sm overflow-hidden ${inboundComplete ? "opacity-60" : ""}`}>
                 {/* 入庫ヘッダー */}
                 <div className={`flex items-center justify-between px-4 py-3 border-b ${checkedPurchaseIds.has(purchase.id) ? "bg-primary/10" : "bg-muted/30"}`}>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1404,6 +1693,17 @@ export default function Purchases() {
                       入庫
                     </Button>
                   </div>
+                </div>
+
+                {/* T22: 分類・工程コントロール */}
+                <div className="px-4 pt-2">
+                  <InboundRowControls
+                    purchase={purchase as Purchase}
+                    busy={inboundBusyIds.has(purchase.id)}
+                    onSetClass={handleSetInboundClass}
+                    onAdvance={handleAdvanceStage}
+                    onSeparateShaft={handleSeparateShaft}
+                  />
                 </div>
 
                 {/* 商品一覧テーブル */}
