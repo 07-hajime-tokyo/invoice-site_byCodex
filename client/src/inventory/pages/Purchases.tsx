@@ -89,8 +89,11 @@ interface Purchase {
   num: string;
   customer_name: string;
   status: string;
+  purchaseDate?: string | null;
   purchase_date: string | null;
   estimated_purchase_date: string | null;
+  created_at?: string | null;
+  createdAt?: string | Date | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
   // T22: 入庫仕訳・工程
@@ -136,6 +139,8 @@ const PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter-v2";
 const LEGACY_PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter";
 // T22: 分類タブの選択状態
 const PURCHASE_INBOUND_TAB_KEY = "purchases-inboundTab-v1";
+// 2026-06-18の入庫ワークフロー刷新以前（6/19以前）の旧運用データを非表示にする
+const INBOUND_CUTOFF_DATE = "2026-06-20";
 
 /** 入庫管理CSVエクスポート */
 function exportPurchasesCSV(purchases: Purchase[]) {
@@ -206,6 +211,28 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
+function normalizeDateOnly(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
+function isInboundCutoffVisible(purchase: Purchase): boolean {
+  const filterDate =
+    normalizeDateOnly(purchase.purchaseDate) ??
+    normalizeDateOnly(purchase.purchase_date) ??
+    normalizeDateOnly(purchase.created_at) ??
+    normalizeDateOnly(purchase.createdAt);
+  return filterDate == null || filterDate >= INBOUND_CUTOFF_DATE;
+}
+
+function isInboundActivePurchase(purchase: Purchase): boolean {
+  return purchase.status !== "purchased" && isInboundCutoffVisible(purchase);
+}
+
 function getEffectivePurchaseStatusKey(purchase: Purchase) {
   if (purchase.status !== "purchased" && purchase.extra?.trackingNumber) return "shipped";
   return purchase.status;
@@ -213,6 +240,29 @@ function getEffectivePurchaseStatusKey(purchase: Purchase) {
 
 function isPurchaseInboundComplete(purchase: Purchase): boolean {
   return isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
+}
+
+type InboundTabCountKey = "unclassified" | InboundClass;
+type InboundTabCounts = Record<InboundTabCountKey, number>;
+
+function createEmptyInboundTabCounts(): InboundTabCounts {
+  return {
+    unclassified: 0,
+    ebay: 0,
+    oregon: 0,
+    direct: 0,
+    domestic: 0,
+  };
+}
+
+function countInboundTabsForClient(purchases: Purchase[]): InboundTabCounts {
+  const counts = createEmptyInboundTabCounts();
+  for (const purchase of purchases) {
+    if (!isInboundActivePurchase(purchase) || isPurchaseInboundComplete(purchase)) continue;
+    const key = purchase.inboundClass ?? "unclassified";
+    counts[key] += 1;
+  }
+  return counts;
 }
 
 type CarrierKey = Parameters<typeof getCarrierColor>[0];
@@ -251,7 +301,7 @@ function filterPurchasesForView(
   selectedStatusFilter: string | null,
   searchQuery: string,
 ) {
-  let result = purchases.filter((purchase) => purchase.status !== "purchased");
+  let result = purchases.filter(isInboundActivePurchase);
   if (selectedCategory !== "すべて") {
     result = result.filter((purchase) =>
       purchase.purchase_items.some((item) => (item.category || "未分類") === selectedCategory)
@@ -912,7 +962,10 @@ export default function Purchases() {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: "always",
   });
-  const purchases = useMemo(() => (purchasePageData?.items ?? []) as Purchase[], [purchasePageData?.items]);
+  const purchases = useMemo(
+    () => ((purchasePageData?.items ?? []) as Purchase[]).filter(isInboundActivePurchase),
+    [purchasePageData?.items],
+  );
   const [showTotals, setShowTotals] = useState(true);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
   // 入庫確認ダイアログ
@@ -1056,7 +1109,53 @@ export default function Purchases() {
   );
   const pagedPurchases = filteredPurchases;
   // T22: タブ見出しの未完了件数バッジ
-  const inboundTabCounts = (purchasePageData as { tabCounts?: Record<string, number> } | undefined)?.tabCounts;
+  const rawInboundTabCounts = (purchasePageData as { tabCounts?: InboundTabCounts } | undefined)?.tabCounts;
+  const rawInboundTabCountsSignature = useMemo(
+    () => JSON.stringify(rawInboundTabCounts ?? {}),
+    [rawInboundTabCounts],
+  );
+  const purchaseAllCountForTabCounts = purchasePageData?.allCount ?? null;
+  const [cutoffInboundTabCounts, setCutoffInboundTabCounts] = useState<InboundTabCounts | null>(null);
+  useEffect(() => {
+    if (purchaseAllCountForTabCounts == null) return;
+    let cancelled = false;
+
+    async function loadCutoffInboundTabCounts() {
+      try {
+        const firstPage = await utils.inventory.zaico.getPurchasesWithCategoryPage.fetch({
+          page: 1,
+          pageSize: 100,
+          inboundClass: null,
+        });
+        const allPurchases = [...((firstPage.items ?? []) as Purchase[])];
+        const remainingPages = [];
+        for (let page = 2; page <= firstPage.totalPages; page++) {
+          remainingPages.push(
+            utils.inventory.zaico.getPurchasesWithCategoryPage.fetch({
+              page,
+              pageSize: 100,
+              inboundClass: null,
+            }),
+          );
+        }
+        const restPages = await Promise.all(remainingPages);
+        for (const pageData of restPages) {
+          allPurchases.push(...((pageData.items ?? []) as Purchase[]));
+        }
+        if (!cancelled) {
+          setCutoffInboundTabCounts(countInboundTabsForClient(allPurchases));
+        }
+      } catch {
+        if (!cancelled) setCutoffInboundTabCounts(null);
+      }
+    }
+
+    void loadCutoffInboundTabCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [purchaseAllCountForTabCounts, rawInboundTabCountsSignature, utils]);
+  const inboundTabCounts = cutoffInboundTabCounts ?? rawInboundTabCounts;
   const displayedPurchasePage = purchasePageData?.page ?? purchasePage;
   const purchaseTotalItems = purchasePageData?.totalCount ?? filteredPurchases.length;
   const purchaseTotalPages = purchasePageData?.totalPages ?? Math.max(1, Math.ceil(purchaseTotalItems / PAGE_SIZE));
