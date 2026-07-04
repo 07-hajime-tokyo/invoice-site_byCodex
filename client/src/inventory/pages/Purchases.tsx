@@ -211,6 +211,40 @@ function getEffectivePurchaseStatusKey(purchase: Purchase) {
   return purchase.status;
 }
 
+function isPurchaseInboundComplete(purchase: Purchase): boolean {
+  return isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
+}
+
+type CarrierKey = Parameters<typeof getCarrierColor>[0];
+const TRACKING_CARRIER_KEYS = new Set<string>([
+  "yamato",
+  "sagawa",
+  "japanpost",
+  "amazon",
+  "seino",
+  "fukuyama",
+  "ecohai",
+  "unknown",
+]);
+
+function normalizeCarrierKey(value: string | null | undefined, fallback: CarrierKey): CarrierKey {
+  return value && TRACKING_CARRIER_KEYS.has(value) ? (value as CarrierKey) : fallback;
+}
+
+function getPurchaseCarrierMeta(purchase: Purchase, trackingNumber: string) {
+  const autoInfo = detectCarrier(trackingNumber);
+  const carrierKey = normalizeCarrierKey(
+    purchase.extra?.carrier && purchase.extra.carrier !== "auto" ? purchase.extra.carrier : null,
+    autoInfo.carrier,
+  );
+  const carrierName = CARRIER_OPTIONS.find((option) => option.value === carrierKey)?.label ?? autoInfo.carrierName;
+  return {
+    carrierKey,
+    carrierName,
+    colorClass: getCarrierColor(carrierKey),
+  };
+}
+
 function filterPurchasesForView(
   purchases: Purchase[],
   selectedCategory: string,
@@ -245,6 +279,128 @@ function filterPurchasesForView(
     });
   }
   return result;
+}
+
+function TrackingNumberPanel({
+  purchases,
+  isOpen,
+  onToggle,
+}: {
+  purchases: Purchase[];
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const trackingRows = useMemo(() => {
+    return purchases
+      .map((purchase) => {
+        const trackingNumber = purchase.extra?.trackingNumber?.trim();
+        if (!trackingNumber) return null;
+        const firstItem = purchase.purchase_items[0];
+        const { managementNo } = parseEtc(firstItem?.etc);
+        const carrierMeta = getPurchaseCarrierMeta(purchase, trackingNumber);
+        return {
+          purchaseId: purchase.id,
+          trackingNumber,
+          managementNo: managementNo || purchase.num || `#${purchase.id}`,
+          title: firstItem?.title ?? "-",
+          itemCount: purchase.purchase_items.length,
+          carrierMeta,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+  }, [purchases]);
+  const missingTrackingCount = purchases.length - trackingRows.length;
+
+  async function copyTrackingNumbers(numbers: string[], successMessage: string) {
+    if (numbers.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(numbers.join("\n"));
+      toast.success(successMessage);
+    } catch {
+      toast.error("追跡番号のコピーに失敗しました");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-semibold text-foreground">📦 追跡番号一覧（{trackingRows.length}件）</span>
+          {missingTrackingCount > 0 && (
+            <span className="hidden sm:inline text-xs text-muted-foreground">追跡番号なし: {missingTrackingCount}件</span>
+          )}
+        </span>
+        {isOpen ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        )}
+      </button>
+      {isOpen && (
+        <div className="border-t bg-muted/10">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              追跡番号あり: {trackingRows.length}件
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={trackingRows.length === 0}
+              onClick={() =>
+                copyTrackingNumbers(
+                  trackingRows.map((row) => row.trackingNumber),
+                  `${trackingRows.length}件の追跡番号をコピーしました`,
+                )
+              }
+              className="h-8"
+            >
+              まとめてコピー
+            </Button>
+          </div>
+          {trackingRows.length > 0 ? (
+            <div className="max-h-[360px] overflow-y-auto divide-y">
+              {trackingRows.map((row) => (
+                <div key={row.purchaseId} className="px-4 py-3 space-y-2 sm:space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.carrierMeta.colorClass}`}>
+                      {row.carrierMeta.carrierName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyTrackingNumbers([row.trackingNumber], "追跡番号をコピーしました")
+                      }
+                      className="font-mono text-lg font-bold text-foreground hover:text-primary transition-colors"
+                    >
+                      {row.trackingNumber}
+                    </button>
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {row.managementNo} / {row.title}
+                    {row.itemCount > 1 ? ` ほか${row.itemCount - 1}点` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+              追跡番号が登録された荷物はありません
+            </div>
+          )}
+          {missingTrackingCount > 0 && (
+            <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+              追跡番号なし: {missingTrackingCount}件
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface OrderedPurchaseForm {
@@ -711,6 +867,8 @@ export default function Purchases() {
     const stored = localStorage.getItem(PURCHASE_STATUS_FILTER_KEY);
     return stored === "ordered" || stored === "shipped" ? stored : null;
   });
+  const [showCompletedPurchases, setShowCompletedPurchases] = useState(false);
+  const [isTrackingPanelOpen, setIsTrackingPanelOpen] = useState(false);
   const handleSetStatusFilter = useCallback((status: string | null) => {
     setSelectedStatusFilter(prev => {
       const next = prev === status ? null : status;
@@ -888,8 +1046,15 @@ export default function Purchases() {
 
   const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
-  const filteredPurchases = purchases;
-  const pagedPurchases = purchases;
+  const completedPurchaseCount = useMemo(
+    () => purchases.filter(isPurchaseInboundComplete).length,
+    [purchases],
+  );
+  const filteredPurchases = useMemo(
+    () => showCompletedPurchases ? purchases : purchases.filter((purchase) => !isPurchaseInboundComplete(purchase)),
+    [purchases, showCompletedPurchases],
+  );
+  const pagedPurchases = filteredPurchases;
   // T22: タブ見出しの未完了件数バッジ
   const inboundTabCounts = (purchasePageData as { tabCounts?: Record<string, number> } | undefined)?.tabCounts;
   const displayedPurchasePage = purchasePageData?.page ?? purchasePage;
@@ -900,7 +1065,7 @@ export default function Purchases() {
 
   useEffect(() => {
     setCheckedPurchaseIds(new Set());
-  }, [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter]);
+  }, [debouncedSearchQuery, purchasePage, selectedCategory, selectedInboundTab, selectedStatusFilter, showCompletedPurchases]);
 
   async function handleExportPurchasesCSV() {
     if (isExportingCsv) return;
@@ -1504,7 +1669,7 @@ export default function Purchases() {
                   : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
               }`}
             >
-              発注済み
+              未発送（発注済み）
               {selectedStatusFilter === 'ordered' && (
                 <span className="ml-1 opacity-70">×</span>
               )}
@@ -1517,22 +1682,28 @@ export default function Purchases() {
                   : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800'
               }`}
             >
-              発送済み
+              入庫待ち（発送済み）
               {selectedStatusFilter === 'shipped' && (
                 <span className="ml-1 opacity-70">×</span>
               )}
             </button>
             <button
-              onClick={() => handleSetStatusFilter('purchased')}
-              className={`hidden px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                selectedStatusFilter === 'purchased'
-                  ? 'bg-green-600 text-white border-green-600'
-                  : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
+              type="button"
+              aria-pressed={showCompletedPurchases}
+              onClick={() => {
+                setPurchasePage(1);
+                setShowCompletedPurchases((shown) => !shown);
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors cursor-pointer ${
+                showCompletedPurchases
+                  ? 'bg-muted text-foreground border-border'
+                  : 'bg-background text-muted-foreground border-border hover:bg-muted/50'
               }`}
             >
-              入庫済み
-              {selectedStatusFilter === 'purchased' && (
-                <span className="ml-1 opacity-70">×</span>
+              <Check className={`h-3.5 w-3.5 ${showCompletedPurchases ? "opacity-100" : "opacity-30"}`} />
+              完了も表示
+              {completedPurchaseCount > 0 && (
+                <span className="opacity-70">({completedPurchaseCount})</span>
               )}
             </button>
           </div>
@@ -1564,6 +1735,12 @@ export default function Purchases() {
         </TabsList>
       </Tabs>
 
+      <TrackingNumberPanel
+        purchases={filteredPurchases}
+        isOpen={isTrackingPanelOpen}
+        onToggle={() => setIsTrackingPanelOpen((open) => !open)}
+      />
+
       {/* 入庫予定なし */}
       {!filteredPurchases || filteredPurchases.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
@@ -1580,7 +1757,7 @@ export default function Purchases() {
             {pagedPurchases.map((purchase) => {
               const firstItem = purchase.purchase_items[0];
               const { managementNo, supplierSite } = parseEtc(firstItem?.etc);
-              const inboundComplete = isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
+              const inboundComplete = isPurchaseInboundComplete(purchase);
               return (
                 <div key={purchase.id} className={inboundComplete ? "opacity-60" : ""}>
                   <PurchaseCardMobile
@@ -1617,7 +1794,7 @@ export default function Purchases() {
             {pagedPurchases.map((purchase) => {
               const firstItem = purchase.purchase_items[0];
               const { managementNo, supplierSite } = parseEtc(firstItem?.etc);
-              const inboundComplete = isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
+              const inboundComplete = isPurchaseInboundComplete(purchase);
               return (
               <div key={purchase.id} className={`rounded-lg border bg-card shadow-sm overflow-hidden ${inboundComplete ? "opacity-60" : ""}`}>
                 {/* 入庫ヘッダー */}
