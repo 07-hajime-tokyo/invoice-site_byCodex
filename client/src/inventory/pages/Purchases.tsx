@@ -862,7 +862,7 @@ function InboundRowControls({
 }
 
 export default function Purchases() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const { data: inventories, refetch: refetchInventories } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
     enabled: false,
@@ -1573,6 +1573,44 @@ export default function Purchases() {
     purchased: "入庫済み",
     quotation_requested: "見積依頼済み",
   };
+  const activeEmptyFilterChips: string[] = [];
+  if (selectedCategory !== "すべて") {
+    activeEmptyFilterChips.push(`カテゴリ: ${selectedCategory}`);
+  }
+  if (selectedStatusFilter) {
+    activeEmptyFilterChips.push(
+      selectedStatusFilter === "ordered"
+        ? "未発送（発注済み）"
+        : selectedStatusFilter === "shipped"
+          ? "入庫待ち（発送済み）"
+          : (statusLabel[selectedStatusFilter] ?? selectedStatusFilter),
+    );
+  }
+  if (searchQuery.trim()) {
+    activeEmptyFilterChips.push(`検索: "${searchQuery.trim()}"`);
+  }
+  if (!showCompletedPurchases && completedPurchaseCount > 0) {
+    activeEmptyFilterChips.push("完了を非表示");
+  }
+  const hasActiveEmptyFilters = activeEmptyFilterChips.length > 0;
+
+  function clearPurchaseFilters() {
+    setPurchasePage(1);
+    handleSetSelectedCategory("すべて");
+    setSelectedStatusFilter(null);
+    localStorage.removeItem(PURCHASE_STATUS_FILTER_KEY);
+    setSearchQuery("");
+    if (!showCompletedPurchases && completedPurchaseCount > 0) {
+      setShowCompletedPurchases(true);
+    }
+
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("q")) return;
+    params.delete("q");
+    const query = params.toString();
+    setLocation(`${window.location.pathname}${query ? `?${query}` : ""}`, { replace: true });
+  }
 
   /** ステータスに対応するBadgeのCSSクラスを返す
    * 追跡番号があれば「発送済み」として扮う */
@@ -1844,10 +1882,33 @@ export default function Purchases() {
       {!filteredPurchases || filteredPurchases.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
           <PackageCheck className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">入庫データはありません</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            サイト内DBに登録した入庫データが表示されます
+          <p className="text-muted-foreground">
+            {hasActiveEmptyFilters ? "この絞り込みでは0件です" : "入庫データはありません"}
           </p>
+          {hasActiveEmptyFilters ? (
+            <>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {activeEmptyFilterChips.map((chip) => (
+                  <Badge key={chip} variant="outline" className="bg-muted/30 text-xs font-normal">
+                    {chip}
+                  </Badge>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clearPurchaseFilters}
+                className="mt-4 text-muted-foreground"
+              >
+                絞り込みを解除
+              </Button>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-1">
+              サイト内DBに登録した入庫データが表示されます
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
