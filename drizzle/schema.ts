@@ -628,6 +628,25 @@ export const localPurchases = mysqlTable("local_purchases", {
   supplierUrl: varchar("supplierUrl", { length: 500 }),
   /** 仕入先名（「Amazon モノモロストア」等「サイト名+出品者名」） */
   supplierName: varchar("supplierName", { length: 500 }),
+  /**
+   * 入庫分類（T22）: ebay / oregon / direct / domestic。NULL=未仕訳。
+   * 追跡番号到着時に classifyInbound() で自動判定、または人間が上書き。
+   */
+  inboundClass: varchar("inboundClass", { length: 20 }),
+  /** 分類の判定根拠（T22）: auto=自動判定 / manual=人間上書き。manualは自動再判定で上書きしない */
+  classSource: varchar("classSource", { length: 10 }).notNull().default("auto"),
+  /** 現在の作業工程（T22）: 分類ごとに取りうる値が変わる（inboundPipeline定義）。既定=received */
+  stage: varchar("stage", { length: 20 }).notNull().default("received"),
+  /** 最終工程更新者（T22・担当表示/監査用） */
+  stageUpdatedBy: varchar("stageUpdatedBy", { length: 100 }),
+  /** 最終工程更新時刻（T22） */
+  stageUpdatedAt: timestamp("stageUpdatedAt"),
+  /**
+   * シャフト分離元の発注ID（T22）。
+   * eBay/オレゴンのゴルフヘッド行から「シャフト分離」で生成された
+   * 国内出品・発送待ち行が、親（ヘッド側）発注を参照するために保持する。
+   */
+  shaftParentPurchaseId: int("shaftParentPurchaseId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
