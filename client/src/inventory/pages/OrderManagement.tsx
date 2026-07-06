@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   RefreshCw, Search, X, ChevronDown, ChevronRight, Download, BarChart2, Package, Pencil, Check, AlertTriangle, CheckCircle2, Loader2, ExternalLink,
 } from "lucide-react";
+import { toast } from "sonner";
 
 type SummaryItem = {
   key: string;
@@ -40,6 +41,8 @@ type SummaryItem = {
     quantity: number;
     deliveredAt: string;
     managementNo: string;
+    tradeRecordId?: number | null;
+    csvProductName?: string | null;
   }>;
 };
 
@@ -478,6 +481,20 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
 
   // 出庫履歴からグループ別に出庫数を集計
   for (const d of item.deliveryItems) {
+    if (d.csvProductName) {
+      const csvProd = item.csvProducts.find((product) => product.name === d.csvProductName);
+      if (csvProd) {
+        const colorOnly = extractColorFromCsvName(csvProd.name);
+        const model = extractModelFromCsvName(csvProd.name);
+        const groupKey = model ? [model, colorOnly].filter(Boolean).join(" ") : colorOnly;
+        const entry = colorMap.get(groupKey);
+        if (entry) {
+          entry.deliveredCount += d.quantity;
+          continue;
+        }
+      }
+    }
+
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {
@@ -738,6 +755,15 @@ export default function OrderManagement() {
   const setManualComplete = trpc.inventory.invoiceMemo.setManualComplete.useMutation({
     onSuccess: () => refetch(),
   });
+  const backfillDeliveryOrderLines = trpc.inventory.orderManagement.backfillDeliveryOrderLines.useMutation({
+    onSuccess: (result) => {
+      toast.success(`既存出庫履歴を再判定しました（更新 ${result.updatedItems}件）`);
+      void refetch();
+    },
+    onError: (error) => {
+      toast.error(`再判定に失敗しました: ${error.message}`);
+    },
+  });
   const utils = trpc.useUtils();
   const [searchQuery, setSearchQuery] = useState<string>(() => {
     try { return localStorage.getItem("om_searchQuery") ?? ""; } catch { return ""; }
@@ -849,7 +875,7 @@ export default function OrderManagement() {
               インボイスNo別 発注数・出庫数・進捗 ({filtered.length} 件)
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               variant={hideCompleted ? "default" : "outline"}
               size="sm"
@@ -869,6 +895,19 @@ export default function OrderManagement() {
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-1.5" />
               更新
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => backfillDeliveryOrderLines.mutate({ limit: 2000 })}
+              disabled={backfillDeliveryOrderLines.isPending}
+            >
+              {backfillDeliveryOrderLines.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+              )}
+              既存履歴を再判定
             </Button>
           </div>
         </div>

@@ -61,6 +61,7 @@ import { usePagination } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
 import { getEbayStockType } from "@shared/ebayInventory";
+import { suggestCsvProduct } from "@shared/productMatching";
 
 interface InventoryItem {
   id: number;
@@ -143,6 +144,8 @@ interface DeliveryItem {
   unitPrice?: number; // 仕入価格（unit_price）
   sellingPrice?: number | null; // ユーロ建て販売価格（CSVから取得）
   currency?: string; // 通貨（例: EUR）
+  tradeRecordId?: number | null; // 確定した取引データ行
+  csvProductName?: string | null; // 確定した注文行の商品名。nullは紐づけなし
 }
 
 function formatPrice(price: number | undefined | null): string {
@@ -419,6 +422,7 @@ export default function Deliveries() {
   const [singleDeliveryNo, setSingleDeliveryNo] = useState("");
   const [singleCustomerCode, setSingleCustomerCode] = useState(""); // 選択中の取引先コード
   const [singleInvoiceNo, setSingleInvoiceNo] = useState(""); // 選択中のインボイスNo（管理番号なしの場合）
+  const [singleOrderLineValue, setSingleOrderLineValue] = useState("__auto__");
   const [showSingleDeliveryDialog, setShowSingleDeliveryDialog] = useState(false);
   const [isSingleSubmitting, setIsSingleSubmitting] = useState(false);
   // FedEx発送情報（出庫登録フォーム内）
@@ -426,6 +430,41 @@ export default function Deliveries() {
   const [singleSheetName, setSingleSheetName] = useState<"独発送管理" | "サミー発送管理">("独発送管理");
   const [bulkTrackingNumber, setBulkTrackingNumber] = useState("");
   const [bulkSheetName, setBulkSheetName] = useState<"独発送管理" | "サミー発送管理">("独発送管理");
+  const bulkInvoiceNoForOrder = useMemo(() => {
+    return deliveryNo.trim().match(/^(\d+)/)?.[1] ?? bulkInvoiceNo.trim();
+  }, [deliveryNo, bulkInvoiceNo]);
+  const { data: bulkInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
+    { invoiceNo: bulkInvoiceNoForOrder },
+    { enabled: showDeliveryConfirm && !!bulkInvoiceNoForOrder }
+  );
+  const singleInvoiceNoForOrder = useMemo(() => {
+    return singleDeliveryNo.trim().match(/^(\d+)/)?.[1] ?? singleInvoiceNo.trim();
+  }, [singleDeliveryNo, singleInvoiceNo]);
+  const { data: singleInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
+    { invoiceNo: singleInvoiceNoForOrder },
+    { enabled: showSingleDeliveryDialog && !!singleInvoiceNoForOrder }
+  );
+
+  function getAutoOrderLineLabel(
+    title: string,
+    managementNo: string | null | undefined,
+    products: Array<{ productName: string; orderQty: number }>,
+  ) {
+    const autoProductName = suggestCsvProduct(
+      title,
+      managementNo ?? "",
+      products.map((product) => ({ name: product.productName, qty: product.orderQty })),
+    )?.name;
+    return autoProductName ? `自動判定（${autoProductName}）` : "自動判定";
+  }
+
+  const singleAutoOrderLineLabel = singleDeliveryItem
+    ? getAutoOrderLineLabel(
+        singleDeliveryItem.inv.title,
+        getManagementNo(singleDeliveryItem.inv.etc),
+        singleInvoiceProducts?.products ?? [],
+      )
+    : "自動判定";
 
   // 在庫編集ダイアログ
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -798,6 +837,35 @@ export default function Deliveries() {
     });
   }
 
+  function setOrderLineSelection(invId: number, value: string) {
+    setDeliveryItems((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(invId);
+      if (!existing) return prev;
+      if (value === "__auto__") {
+        const { tradeRecordId: _tradeRecordId, csvProductName: _csvProductName, ...rest } = existing;
+        next.set(invId, rest);
+        return next;
+      }
+      if (value === "__none__") {
+        next.set(invId, { ...existing, tradeRecordId: null, csvProductName: null });
+        return next;
+      }
+
+      const selectedProduct = bulkInvoiceProducts?.products.find((product) => {
+        const optionValue = product.tradeRecordId ? `id:${product.tradeRecordId}` : `name:${product.productName}`;
+        return optionValue === value;
+      });
+      if (!selectedProduct) return prev;
+      next.set(invId, {
+        ...existing,
+        tradeRecordId: selectedProduct.tradeRecordId,
+        csvProductName: selectedProduct.productName,
+      });
+      return next;
+    });
+  }
+
   function requestStockChange(inv: InventoryItem, delta: number) {
     const current = parseFloat(inv.quantity ?? "0");
     const newQty = Math.max(0, current + delta);
@@ -851,6 +919,7 @@ export default function Deliveries() {
     if (stockQty <= 0) { toast.error("在庫がありません"); return; }
     setSingleDeliveryItem({ inv, qty: 1 });
     setSingleInvoiceNo(""); // インボイスNoをリセット
+    setSingleOrderLineValue("__auto__");
     // 管理番号から取引先を自動判別
     const detected = detectCustomerFromManagementNo(inv.etc);
     const prefix = extractPrefixFromManagementNo(inv.etc);
@@ -873,6 +942,15 @@ export default function Deliveries() {
     if (singleDeliveryItem.qty <= 0) { toast.error("出庫数量は1以上を入力してください"); return; }
     setIsSingleSubmitting(true);
     try {
+      const selectedSingleProduct = singleInvoiceProducts?.products.find((product) => {
+        const optionValue = product.tradeRecordId ? `id:${product.tradeRecordId}` : `name:${product.productName}`;
+        return optionValue === singleOrderLineValue;
+      });
+      const orderLineFields = singleOrderLineValue === "__none__"
+        ? { tradeRecordId: null, csvProductName: null }
+        : selectedSingleProduct
+          ? { tradeRecordId: selectedSingleProduct.tradeRecordId, csvProductName: selectedSingleProduct.productName }
+          : {};
       const singleResult = await createDeliveryMutation.mutateAsync({
         deliveryNo: singleDeliveryNo.trim(),
         deliveryDate: today,
@@ -881,6 +959,7 @@ export default function Deliveries() {
           inventoryId: singleDeliveryItem.inv.id,
           title: singleDeliveryItem.inv.title,
           quantity: singleDeliveryItem.qty,
+          ...orderLineFields,
         }],
         ...(singleTrackingNumber.trim() ? {
           trackingNumber: singleTrackingNumber.trim(),
@@ -899,6 +978,7 @@ export default function Deliveries() {
       }
       setShowSingleDeliveryDialog(false);
       setSingleDeliveryItem(null);
+      setSingleOrderLineValue("__auto__");
       setSingleTrackingNumber("");
       refetch();
     } catch (err: unknown) {
@@ -939,6 +1019,8 @@ export default function Deliveries() {
           inventoryId: item.inventoryId,
           title: item.title,
           quantity: item.quantity,
+          ...(item.tradeRecordId !== undefined ? { tradeRecordId: item.tradeRecordId } : {}),
+          ...(item.csvProductName !== undefined ? { csvProductName: item.csvProductName } : {}),
         })),
         ...(bulkTrackingNumber.trim() ? {
           trackingNumber: bulkTrackingNumber.trim(),
@@ -1871,7 +1953,7 @@ export default function Deliveries() {
 
       {/* 出庫確認ダイアログ */}
       <Dialog open={showDeliveryConfirm} onOpenChange={setShowDeliveryConfirm}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PackageMinus className="h-5 w-5 text-orange-600" />
@@ -1888,6 +1970,7 @@ export default function Deliveries() {
                 <thead>
                   <tr className="bg-muted/30 border-b">
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">商品名</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">注文行</th>
                     <th className="text-right px-3 py-2 font-medium text-muted-foreground">出庫数量</th>
                   </tr>
                 </thead>
@@ -1895,6 +1978,19 @@ export default function Deliveries() {
                   {checkedItems.map((item) => {
                     const inv = (inventories as InventoryItem[] | undefined)?.find((i) => i.id === item.inventoryId);
                     const maxQty = inv ? Math.floor(parseFloat(inv.quantity ?? "0")) : item.quantity;
+                    const orderLineValue = item.tradeRecordId
+                      ? `id:${item.tradeRecordId}`
+                      : item.csvProductName === null
+                        ? "__none__"
+                        : item.csvProductName
+                          ? `name:${item.csvProductName}`
+                          : "__auto__";
+                    const orderProducts = bulkInvoiceProducts?.products ?? [];
+                    const autoOrderLineLabel = getAutoOrderLineLabel(
+                      item.title,
+                      getManagementNo(inv?.etc),
+                      orderProducts,
+                    );
                     // setQuantityはInventoryItemを受け取るが、既存エントリがある場合はtitle/unitを使わないので
                     // DeliveryItemからダミーのInventoryItemを構築して渡す
                     const dummyInv: InventoryItem = inv ?? {
@@ -1906,6 +2002,33 @@ export default function Deliveries() {
                     return (
                       <tr key={item.inventoryId} className="border-b last:border-0">
                         <td className="px-3 py-2">{item.title}</td>
+                        <td className="px-3 py-2">
+                          {bulkInvoiceNoForOrder ? (
+                            <Select
+                              value={orderLineValue}
+                              onValueChange={(value) => setOrderLineSelection(item.inventoryId, value)}
+                              disabled={orderProducts.length === 0}
+                            >
+                              <SelectTrigger className="h-8 min-w-[220px]">
+                                <SelectValue placeholder="注文行" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__auto__">{autoOrderLineLabel}</SelectItem>
+                                <SelectItem value="__none__">紐づけなし</SelectItem>
+                                {orderProducts.map((product) => {
+                                  const optionValue = product.tradeRecordId ? `id:${product.tradeRecordId}` : `name:${product.productName}`;
+                                  return (
+                                    <SelectItem key={optionValue} value={optionValue}>
+                                      {product.productName}（残{product.remainingQty}/{product.orderQty}）
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">自動判定</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
@@ -2117,6 +2240,35 @@ export default function Deliveries() {
                   <p className="text-xs text-muted-foreground">取引先を変更すると出庫Noが自動更新されます</p>
                 )}
               </div>
+              {singleInvoiceNoForOrder && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">注文行</label>
+                  <Select
+                    value={singleOrderLineValue}
+                    onValueChange={setSingleOrderLineValue}
+                    disabled={(singleInvoiceProducts?.products ?? []).length === 0}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="注文行を選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__auto__">{singleAutoOrderLineLabel}</SelectItem>
+                      <SelectItem value="__none__">紐づけなし</SelectItem>
+                      {(singleInvoiceProducts?.products ?? []).map((product) => {
+                        const optionValue = product.tradeRecordId ? `id:${product.tradeRecordId}` : `name:${product.productName}`;
+                        return (
+                          <SelectItem key={optionValue} value={optionValue}>
+                            {product.productName}（残{product.remainingQty}/{product.orderQty}）
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    複数の商品行があるNoでは、ここで確定すると発注管理とFedEx集計がその行を使います。
+                  </p>
+                </div>
+              )}
               {/* FedEx発送情報（任意） */}
               <div className="space-y-2 border-t pt-3">
                 <label className="text-sm font-medium flex items-center gap-1.5">
