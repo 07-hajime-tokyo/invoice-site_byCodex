@@ -323,7 +323,7 @@ function normalizeClientLookupText(value: string | null | undefined) {
     .normalize("NFKC")
     .toLowerCase()
     .replace(/^~\s*/, "")
-    .replace(/[^0-9a-zA-Zぁ-んァ-ヶ一-龠々ー@+]+/g, " ")
+    .replace(/[^\p{L}\p{N}@+]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
