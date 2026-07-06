@@ -97,15 +97,22 @@ export function TradeSheetSidePanel({ jumpTarget }: { jumpTarget?: SheetJumpTarg
           toast.error(`No.${jumpTarget.invoiceNo} は発送管理シート内に見つかりませんでした`);
           return;
         }
-        const nextStartRow = Math.max(1, result.row - 40);
-        const nextFocusColumn = result.focusColumn ?? result.column;
-        setActiveSheet(result.sheetName);
+        const foundResult = result as {
+          found: true;
+          sheetName: string;
+          row: number;
+          column: number;
+          focusColumn?: number | null;
+        };
+        const nextStartRow = Math.max(1, foundResult.row - 40);
+        const nextFocusColumn = foundResult.focusColumn ?? foundResult.column;
+        setActiveSheet(foundResult.sheetName);
         setStartRow(nextStartRow);
         setMaxRows(120);
         setFocusColumn(nextFocusColumn);
         setHighlightedCell({
-          sheetName: result.sheetName,
-          row: result.row,
+          sheetName: foundResult.sheetName,
+          row: foundResult.row,
           column: nextFocusColumn,
           invoiceNo: jumpTarget.invoiceNo,
           nonce: jumpTarget.nonce,
