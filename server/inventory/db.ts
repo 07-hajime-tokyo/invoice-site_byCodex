@@ -61,6 +61,7 @@ import {
   shaftSales,
   ShaftSale,
   InsertShaftSale,
+  invoices,
 } from "../../drizzle/schema";
 import { ADMIN_EMAILS } from "../../shared/const";
 import { createDrizzleDatabase, type AppDatabase } from "../_core/database";
@@ -278,6 +279,31 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     const existingWorkLogDetailsJson = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'detailsJson'`);
     if (getRawRows(existingWorkLogDetailsJson).length === 0) {
       await db.execute(sql`ALTER TABLE work_logs ADD COLUMN detailsJson text NULL`);
+    }
+    // T22: 入庫仕訳・工程カラム（local_purchases）を安全追加（drizzleマイグレーション0019と二重化）
+    const existingInboundClass = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'inboundClass'`);
+    if (getRawRows(existingInboundClass).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN inboundClass varchar(20) NULL`);
+    }
+    const existingClassSource = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'classSource'`);
+    if (getRawRows(existingClassSource).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN classSource varchar(10) NOT NULL DEFAULT 'auto'`);
+    }
+    const existingStage = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stage'`);
+    if (getRawRows(existingStage).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stage varchar(20) NOT NULL DEFAULT 'received'`);
+    }
+    const existingStageUpdatedBy = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stageUpdatedBy'`);
+    if (getRawRows(existingStageUpdatedBy).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stageUpdatedBy varchar(100) NULL`);
+    }
+    const existingStageUpdatedAt = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stageUpdatedAt'`);
+    if (getRawRows(existingStageUpdatedAt).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stageUpdatedAt timestamp NULL`);
+    }
+    const existingShaftParent = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'shaftParentPurchaseId'`);
+    if (getRawRows(existingShaftParent).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN shaftParentPurchaseId int NULL`);
     }
     await db.execute(sql`
       INSERT IGNORE INTO work_log_workers (name, sortOrder)
@@ -1144,6 +1170,13 @@ export async function upsertLocalPurchase(data: InsertLocalPurchase) {
     supplierUrl: data.supplierUrl,
     supplierName: data.supplierName,
   };
+  // T22: 明示的に渡された仕訳/工程フィールドのみ上書き対象に含める（既存の分類を意図せず消さない）
+  if (data.inboundClass !== undefined) updateSet.inboundClass = data.inboundClass;
+  if (data.classSource !== undefined) updateSet.classSource = data.classSource;
+  if (data.stage !== undefined) updateSet.stage = data.stage;
+  if (data.stageUpdatedBy !== undefined) updateSet.stageUpdatedBy = data.stageUpdatedBy;
+  if (data.stageUpdatedAt !== undefined) updateSet.stageUpdatedAt = data.stageUpdatedAt;
+  if (data.shaftParentPurchaseId !== undefined) updateSet.shaftParentPurchaseId = data.shaftParentPurchaseId;
   await db.insert(localPurchases).values(data).onDuplicateKeyUpdate({ set: updateSet });
 }
 
@@ -1165,6 +1198,95 @@ export async function updateLocalPurchaseStatus(id: number, status: string, rece
   const updateData: Partial<InsertLocalPurchase> = { status };
   if (receivedDate) updateData.receivedDate = receivedDate;
   await db.update(localPurchases).set(updateData).where(eq(localPurchases.id, id));
+}
+
+// ============================================================
+// T22: 入庫仕訳・工程（local_purchases の inboundClass / stage 系）
+// ============================================================
+
+/** 単一発注の分類を更新する。classSource も併せて記録する（manual=人間上書き） */
+export async function setLocalPurchaseInboundClass(
+  id: number,
+  inboundClass: string | null,
+  classSource: "auto" | "manual",
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(localPurchases)
+    .set({ inboundClass, classSource })
+    .where(eq(localPurchases.id, id));
+}
+
+/** 単一発注の工程を更新する。更新者・時刻・必要ならstatus連動も反映する */
+export async function updateLocalPurchaseStage(
+  id: number,
+  stage: string,
+  options?: { updatedBy?: string | null; status?: string; receivedDate?: string | null },
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData: Partial<InsertLocalPurchase> = {
+    stage,
+    stageUpdatedAt: new Date(),
+  };
+  if (options?.updatedBy !== undefined) updateData.stageUpdatedBy = options.updatedBy;
+  if (options?.status !== undefined) updateData.status = options.status;
+  if (options?.receivedDate !== undefined && options.receivedDate !== null) {
+    updateData.receivedDate = options.receivedDate;
+  }
+  await db.update(localPurchases).set(updateData).where(eq(localPurchases.id, id));
+}
+
+/** 発注1件をIDで取得（分類/工程操作の前提確認用） */
+export async function getLocalPurchaseById(id: number): Promise<LocalPurchase | null> {
+  const db = await getDb();
+  if (!db) {
+    const rows = await getDumpRows<LocalPurchase>("local_purchases");
+    return rows.find((row) => row.id === id) ?? null;
+  }
+  const rows = await db.select().from(localPurchases).where(eq(localPurchases.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+/** 新規発注行を1件作成してその id を返す（シャフト分離で国内在庫行を生む用） */
+export async function insertLocalPurchase(data: InsertLocalPurchase): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(localPurchases).values(data).$returningId();
+  const first = Array.isArray(result) ? result[0] : undefined;
+  return Number((first as { id?: number } | undefined)?.id ?? 0);
+}
+
+/**
+ * 発行済みインボイスの「番号（末尾の数値）」集合を返す。
+ * invoiceNumber は "INV-YYYYMMDD-NNN" 形式のため、末尾の連続数字を取り出して整数化する。
+ * 直取判定 (b) の「発行済みインボイスに紐づく」を、管理番号の数値プレフィックスと突き合わせるために使う。
+ */
+export async function getPublishedInvoiceNumberSet(): Promise<Set<number>> {
+  const db = await getDb();
+  const numbers = new Set<number>();
+  const addFrom = (raw: unknown) => {
+    const match = String(raw ?? "").match(/(\d+)\s*$/);
+    if (!match) return;
+    const n = Number(match[1]);
+    if (Number.isFinite(n)) numbers.add(n);
+  };
+  if (!db) {
+    for (const row of await getDumpRows<{ invoiceNumber?: string; deletedAt?: unknown }>("invoices")) {
+      if (row.deletedAt) continue;
+      addFrom(row.invoiceNumber);
+    }
+    return numbers;
+  }
+  const rows = await db
+    .select({ invoiceNumber: invoices.invoiceNumber, deletedAt: invoices.deletedAt })
+    .from(invoices);
+  for (const row of rows) {
+    if (row.deletedAt) continue;
+    addFrom(row.invoiceNumber);
+  }
+  return numbers;
 }
 
 export async function countLocalPurchases() {

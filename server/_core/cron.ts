@@ -1,5 +1,6 @@
 import type { Express, Request } from "express";
 import { createFedexMissingActionItems } from "../inventory/fedexMissingTasks";
+import { reclassifyInboundAuto } from "../inventory/inboundClassify";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -25,6 +26,25 @@ export function registerCronRoutes(app: Express) {
       console.error("[cron/fedex-missing] failed", error);
       res.status(500).json({
         error: "FedEx missing check failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // T22: 入庫自動仕訳の日次再判定（未仕訳/auto行のみ、manualは保護）
+  app.get("/api/cron/inbound-classify", async (req, res) => {
+    if (!isAuthorizedCronRequest(req)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const result = await reclassifyInboundAuto();
+      res.json(result);
+    } catch (error) {
+      console.error("[cron/inbound-classify] failed", error);
+      res.status(500).json({
+        error: "Inbound classify failed",
         detail: error instanceof Error ? error.message : String(error),
       });
     }

@@ -134,6 +134,13 @@
       "when": 1781770000000,
       "tag": "0018_ebay_listing_url",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1783055134669,
+      "tag": "0019_inbound_class",
+      "breakpoints": true
     }
   ]
 }
