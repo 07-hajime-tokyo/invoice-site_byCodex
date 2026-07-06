@@ -63,8 +63,6 @@
 
 import { memo, type ReactNode, type ComponentProps } from "react";
 import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
-import { mermaid } from "@streamdown/mermaid";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -206,20 +204,19 @@ export const Markdown = memo(function Markdown({
   enableMermaid = true,
   ...props
 }: MarkdownProps) {
-  // Build plugins object based on what's enabled
-  // @see https://streamdown.ai/docs/code-blocks
-  // @see https://streamdown.ai/docs/mermaid
-  const plugins: Record<string, unknown> = {};
-  if (enableCode) plugins.code = code;
-  if (enableMermaid) plugins.mermaid = mermaid;
+  const effectiveControls =
+    typeof controls === "boolean"
+      ? controls
+        ? { table: true, code: enableCode, mermaid: enableMermaid }
+        : false
+      : controls;
 
   return (
     <Streamdown
       className={cn("text-foreground leading-relaxed", className)}
       components={{ ...components, ...customComponents }}
-      plugins={plugins}
       shikiTheme={shikiTheme}
-      controls={controls}
+      controls={effectiveControls}
       {...props}
     >
       {children}

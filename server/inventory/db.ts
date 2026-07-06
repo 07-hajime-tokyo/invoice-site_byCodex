@@ -130,6 +130,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         quantity int NOT NULL DEFAULT 1,
         unitPrice decimal(10,2) NULL,
         saleAmount decimal(12,2) NOT NULL,
+        profitAmount decimal(12,2) NULL,
         soldAt varchar(20) NULL,
         supplierName varchar(200) NULL,
         supplierUrl text NULL,
@@ -140,6 +141,10 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_shaft_sales_management_no (managementNo)
       )
     `);
+    const existingShaftProfit = await db.execute(sql`SHOW COLUMNS FROM shaft_sales LIKE 'profitAmount'`);
+    if (getRawRows(existingShaftProfit).length === 0) {
+      await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN profitAmount decimal(12,2) NULL AFTER saleAmount`);
+    }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS action_item_assignees (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1050,6 +1055,7 @@ export async function upsertShaftSale(data: InsertShaftSale): Promise<ShaftSale 
       quantity: data.quantity,
       unitPrice: data.unitPrice,
       saleAmount: data.saleAmount,
+      profitAmount: data.profitAmount,
       soldAt: data.soldAt,
       supplierName: data.supplierName,
       supplierUrl: data.supplierUrl,
@@ -1070,6 +1076,14 @@ export async function updateShaftSaleDate(id: number, soldAt: string): Promise<S
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(shaftSales).set({ soldAt }).where(eq(shaftSales.id, id));
+  const rows = await db.select().from(shaftSales).where(eq(shaftSales.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateShaftSaleProfit(id: number, profitAmount: string | null): Promise<ShaftSale | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(shaftSales).set({ profitAmount }).where(eq(shaftSales.id, id));
   const rows = await db.select().from(shaftSales).where(eq(shaftSales.id, id)).limit(1);
   return rows[0] ?? null;
 }

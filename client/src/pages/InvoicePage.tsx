@@ -1083,7 +1083,9 @@ async function generateInvoicePdf(
     pdfDoc.catalog.set(PDFName.of("OpenAction"), xyzArray);
   }
   const modifiedBytes = await pdfDoc.save();
-  const modifiedBlob = new Blob([modifiedBytes], { type: "application/pdf" });
+  const modifiedArrayBuffer = new ArrayBuffer(modifiedBytes.byteLength);
+  new Uint8Array(modifiedArrayBuffer).set(modifiedBytes);
+  const modifiedBlob = new Blob([modifiedArrayBuffer], { type: "application/pdf" });
   const url = URL.createObjectURL(modifiedBlob);
   const a = document.createElement("a");
   a.href = url;
@@ -2946,7 +2948,11 @@ function InvoiceList({  onNew,
       toast.error(`インボイス ${invoiceNumber} が見つかりません`);
       return;
     }
-    setApplyingIds(prev => new Set([...prev, invoiceNumber]));
+    setApplyingIds(prev => {
+      const s = new Set(prev);
+      s.add(invoiceNumber);
+      return s;
+    });
     for (const inv of matched) {
       await applyStatusMutation.mutateAsync({ id: inv.id, status });
     }

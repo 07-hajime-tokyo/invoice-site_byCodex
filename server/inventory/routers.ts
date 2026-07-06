@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
+import { suggestCsvProduct } from "@shared/productMatching";
 import {
   classifyInbound,
   nextStage,
@@ -108,6 +109,7 @@ import {
   getShaftSales,
   upsertShaftSale,
   updateShaftSaleDate,
+  updateShaftSaleProfit,
   getInvoiceManualItems,
   getInvoiceManualItemsByInvoiceNos,
   createInvoiceManualItem,
@@ -310,6 +312,7 @@ function parseCSVLine(line: string): string[] {
 }
 
 type OrderCsvRow = {
+  tradeRecordId: number | null;
   partner: string;
   invoiceNo: string;
   paymentDate: string;
@@ -326,6 +329,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
   const { tradeRecords } = await import("../../drizzle/schema");
   const rows = await db
     .select({
+      tradeRecordId: tradeRecords.id,
       partner: tradeRecords.partner,
       invoiceNo: tradeRecords.no,
       paymentDate: tradeRecords.paymentDate,
@@ -339,6 +343,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
 
   return rows
     .map((row) => ({
+      tradeRecordId: row.tradeRecordId == null ? null : Number(row.tradeRecordId),
       partner: row.partner?.trim() || "その他",
       invoiceNo: row.invoiceNo != null ? String(row.invoiceNo) : "",
       paymentDate: row.paymentDate ?? "",
@@ -350,6 +355,48 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
     }))
     .filter((row) => row.invoiceNo && /^\d+$/.test(row.invoiceNo))
     .sort((a, b) => Number(a.invoiceNo) - Number(b.invoiceNo));
+}
+
+type StoredDeliveryItem = {
+  inventoryId?: number;
+  title?: string;
+  quantity?: unknown;
+  managementNo?: string | null;
+  tradeRecordId?: number | null;
+  csvProductName?: string | null;
+};
+
+function parseDeliveryItemsJson(value: string | null | undefined): StoredDeliveryItem[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function buildInventoryManagementNoMap(): Promise<Map<number, string>> {
+  const zaicoEnabled = await isZaicoEnabled();
+  const [inventories, deletedInvList, purchaseHistList] = await Promise.all([
+    zaicoEnabled ? getInventories() : getLocalInventories(),
+    getDeletedInventories(2000),
+    getPurchaseHistories(3000),
+  ]);
+  const inventoryEtcMap = new Map<number, string>();
+  for (const inv of inventories as Array<{ id: number; etc?: string | null; managementNo?: string | null }>) {
+    inventoryEtcMap.set(Number(inv.id), inv.etc ?? inv.managementNo ?? "");
+  }
+  for (const del of deletedInvList) {
+    if (del.zaicoId && del.etc && !inventoryEtcMap.has(del.zaicoId)) {
+      inventoryEtcMap.set(del.zaicoId, del.etc);
+    }
+  }
+  for (const ph of purchaseHistList) {
+    if (ph.inventoryId && ph.kanriNo && !inventoryEtcMap.has(ph.inventoryId)) {
+      inventoryEtcMap.set(ph.inventoryId, ph.kanriNo);
+    }
+  }
+  return inventoryEtcMap;
 }
 
 type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number };
@@ -2364,6 +2411,7 @@ export const inventoryRouter = router({
         quantity: z.number().int().min(1).default(1),
         unitPrice: z.number().nullable().optional(),
         saleAmount: z.number().min(0),
+        profitAmount: z.number().nullable().optional(),
         soldAt: z.string().max(20).optional(),
         supplierName: z.string().max(200).nullable().optional(),
         supplierUrl: z.string().max(1000).nullable().optional(),
@@ -2378,6 +2426,7 @@ export const inventoryRouter = router({
           quantity: input.quantity,
           unitPrice: input.unitPrice == null ? null : String(input.unitPrice),
           saleAmount: String(input.saleAmount),
+          profitAmount: input.profitAmount == null ? null : String(input.profitAmount),
           soldAt: input.soldAt ?? new Intl.DateTimeFormat("en-CA", {
             timeZone: "Asia/Tokyo",
             year: "numeric",
@@ -2398,6 +2447,20 @@ export const inventoryRouter = router({
       }))
       .mutation(async ({ input }) => {
         const sale = await updateShaftSaleDate(input.id, input.soldAt);
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND", message: "シャフト売上が見つかりません" });
+        return { success: true, sale };
+      }),
+
+    updateShaftSaleProfit: publicProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        profitAmount: z.number().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const sale = await updateShaftSaleProfit(
+          input.id,
+          input.profitAmount == null ? null : String(input.profitAmount),
+        );
         if (!sale) throw new TRPCError({ code: "NOT_FOUND", message: "シャフト売上が見つかりません" });
         return { success: true, sale };
       }),
@@ -2925,6 +2988,8 @@ export const inventoryRouter = router({
               title: z.string(),
               quantity: z.number().positive("出庫数量は1以上にしてください"),
               unitPrice: z.number().optional(),
+              tradeRecordId: z.number().int().positive().nullable().optional(),
+              csvProductName: z.string().nullable().optional(),
             })
           ).min(1, "出庫する商品を選択してください"),
           // FedEx発送情報（任意）
@@ -2980,11 +3045,18 @@ export const inventoryRouter = router({
           input.items.map(async (item) => {
             const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId).catch(() => null);
             const managementNo = localInv?.etc?.split(",")[0]?.trim() || null;
+            const csvProductName = item.csvProductName === undefined
+              ? undefined
+              : item.csvProductName === null
+                ? null
+                : item.csvProductName.trim();
             return {
               inventoryId: item.inventoryId,
               title: item.title,
               quantity: item.quantity,
               ...(managementNo ? { managementNo } : {}),
+              ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
+              ...(csvProductName !== undefined ? { csvProductName } : {}),
             };
           })
         );
@@ -3023,6 +3095,8 @@ export const inventoryRouter = router({
               title: item.title,
               quantity: item.quantity,
               managementNo: "managementNo" in item ? item.managementNo : null,
+              tradeRecordId: "tradeRecordId" in item ? item.tradeRecordId : null,
+              csvProductName: "csvProductName" in item ? item.csvProductName : undefined,
             })),
           }),
         });
@@ -3039,128 +3113,48 @@ export const inventoryRouter = router({
             const invoiceNo = input.invoiceNo ?? (input.deliveryNo.match(/^(\d+)/)?.[1] ?? input.deliveryNo);
 
             // CSV商品データを取得して商品集計
-            let csvProducts: Array<{ name: string; qty: number }> = [];
+            let csvProducts: Array<{ tradeRecordId: number | null; name: string; qty: number }> = [];
             try {
               for (const row of await getOrderRowsFromTradeRecords()) {
                 const csvInvoiceNo = row.invoiceNo;
                 if (csvInvoiceNo !== invoiceNo) continue;
                 const productName = row.productName;
                 const orderQty = row.orderQty;
-                if (productName) csvProducts.push({ name: productName, qty: orderQty });
+                if (productName) csvProducts.push({ tradeRecordId: row.tradeRecordId, name: productName, qty: orderQty });
               }
             } catch { /* CSV取得失敗時は商品名直接使用 */ }
 
-            // 商品名マッチング：CSV商品ごとに出庫商品を集計
-            const extractModelKey = (title: string): string => {
-              const t = title.toLowerCase();
-              if (t.includes("new 2ds ll") || t.includes("new2dsll")) return "New2DSLL";
-              if (t.includes("vita 2000") || t.includes("vita2000") || (t.includes("vita") && t.includes("2000"))) return "Vita2000";
-              if (t.includes("vita 1000") || t.includes("vita1000") || (t.includes("vita") && !t.includes("2000"))) return "Vita1000";
-              if (t.includes("new 3ds ll") || t.includes("new 3dsll") || t.includes("new3ds ll") || t.includes("new3dsll")) return "New3DSLL";
-              if ((t.includes("new 3ds") || t.includes("new3ds")) && !t.includes("ll")) return "New3DS";
-              if (t.includes("2ds") && !t.includes("new") && !t.includes("ll")) return "2DS";
-              if ((t.includes("3ds ll") || t.includes("3dsll")) && !t.includes("new")) return "3DSLL";
-              if (t.includes("3ds") && !t.includes("ll") && !t.includes("new")) return "3DS";
-              if (t.includes("ds lite") || t.includes("dslite")) return "DSLite";
-              if (t.includes("dsi ll") || t.includes("dsi xl") || t.includes("dsill")) return "DSiLL";
-              if (t.includes("dsi")) return "DSi";
-              if (t.includes("psp")) return "PSP";
-              if (t.includes("ps5")) return "PS5";
-              if (t.includes("ps4")) return "PS4";
-              return "";
-            };
-            const extractColorKey = (name: string): string => {
-              const modelPatterns = [
-                /^new\s*2ds\s*ll\s*/i, /^new\s*3ds\s*ll\s*/i, /^new\s*3ds\s*/i,
-                /^2ds\s*/i, /^3ds\s*ll\s*/i, /^3ds\s*/i, /^ds\s*lite\s*/i, /^dslite\s*/i,
-                /^dsi\s*ll\s*/i, /^dsi\s*/i, /^ps\s*vita\s*2000\s*/i,
-                /^ps\s*vita\s*1000\s*/i, /^ps\s*vita\s*/i, /^vita\s*2000\s*/i,
-                /^vita\s*1000\s*/i, /^vita\s*/i, /^psp\s*/i, /^ps5\s*/i, /^ps4\s*/i,
-              ];
-              let working = name.trim();
-              for (const pat of modelPatterns) {
-                if (pat.test(working)) { working = working.replace(pat, "").trim(); break; }
-              }
-              return working;
-            };
-            const normalizeColorToken = (value: string): string =>
-              value.normalize("NFKC").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-            const isColorlessRandomColor = (colorName: string): boolean => {
-              if (!colorName.normalize("NFKC").trim()) return true;
-              const compact = normalizeColorToken(colorName);
-              if (!compact) return false;
-              if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
-              if (/^\d{3,4}$/.test(compact)) return true;
-              if (/^(?:\d{3,4})?(?:grade|rank)[abc]$/.test(compact)) return true;
-              if (/^\d{3,4}(?:only|body|console|unit|set)$/.test(compact)) return true;
-              return false;
-            };
-            const colorlessQualifierMatches = (colorName: string, title: string): boolean => {
-              const compactColor = normalizeColorToken(colorName);
-              const compactTitle = normalizeColorToken(title);
-              const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
-              if (version && !compactTitle.includes(version)) return false;
-              const grade = compactColor.match(/(?:grade|rank)([abc])/)?.[1];
-              if (grade && !compactTitle.includes(`grade${grade}`) && !compactTitle.includes(`rank${grade}`)) return false;
-              return true;
-            };
-            const matchesCsvProduct = (csvName: string, invTitle: string): boolean => {
-              const csvModel = extractModelKey(csvName);
-              const invModel = extractModelKey(invTitle);
-              if (!csvModel || !invModel || csvModel !== invModel) return false;
-              const csvColor = extractColorKey(csvName);
-              const invColor = extractColorKey(invTitle);
-              if (/\u30e9\u30f3\u30c0\u30e0|random|ramdom/i.test(csvColor)) return true;
-              if (isColorlessRandomColor(csvColor)) return colorlessQualifierMatches(csvColor, invTitle);
-              if (/^other$/i.test(csvColor.trim()) || /other colors?/i.test(csvColor) || /\u305d\u306e\u4ed6|\u305d\u308c\u4ee5\u5916|\u4ee5\u5916/.test(csvColor)) return true;
-              const baseMatch = csvColor.match(/^(.+?)\u30d9\u30fc\u30b9$/);
-              if (baseMatch) {
-                const bc = baseMatch[1].trim().toLowerCase();
-                return invColor.toLowerCase().includes(bc) || invTitle.toLowerCase().includes(bc);
-              }
-              if (csvColor.includes("&")) {
-                const parts = csvColor.split("&").map(p => p.trim().toLowerCase());
-                return parts.some(p => invColor.toLowerCase().includes(p) || invTitle.toLowerCase().includes(p));
-              }
-              if (csvColor.includes("\u00d7")) {
-                const parts = csvColor.split("\u00d7").map(p => p.trim().toLowerCase());
-                return parts.every(p => invColor.toLowerCase().includes(p) || invTitle.toLowerCase().includes(p));
-              }
-              const cc = csvColor.toLowerCase();
-              return invColor.toLowerCase().includes(cc) || invTitle.toLowerCase().includes(cc);
+            // 出庫商品を、保存済みの注文行または共通マッチングでCSV商品へ集計する
+            const aggregated: Map<string, { productNameJa: string; productNameEn: string; quantity: number }> = new Map();
+            const addAggregatedItem = (name: string, quantity: number) => {
+              const productName = name.trim() || "未分類";
+              const existing = aggregated.get(productName);
+              if (existing) existing.quantity += quantity;
+              else aggregated.set(productName, { productNameJa: productName, productNameEn: productName, quantity });
             };
 
-            // 出庫商品をCSV商品にマッピングして数量集計
-            const aggregated: Map<string, { productNameJa: string; productNameEn: string; quantity: number }> = new Map();
-            if (csvProducts.length > 0) {
-              for (const cp of csvProducts) {
-                let total = 0;
-                for (const item of input.items) {
-                  if (matchesCsvProduct(cp.name, item.title)) total += item.quantity;
-                }
-                if (total > 0) {
-                  aggregated.set(cp.name, { productNameJa: cp.name, productNameEn: cp.name, quantity: total });
-                }
+            for (let itemIndex = 0; itemIndex < input.items.length; itemIndex += 1) {
+              const item = input.items[itemIndex];
+              const historyItem = historyItems[itemIndex];
+              const managementNo = historyItem && "managementNo" in historyItem ? String(historyItem.managementNo ?? "") : "";
+
+              if (item.csvProductName !== undefined) {
+                addAggregatedItem(item.csvProductName === null ? item.title : item.csvProductName, item.quantity);
+                continue;
               }
-              // CSV未登録商品も追加
-              for (const item of input.items) {
-                const matched = csvProducts.some(cp => matchesCsvProduct(cp.name, item.title));
-                if (!matched) {
-                  const existing = aggregated.get(item.title);
-                  if (existing) {
-                    existing.quantity += item.quantity;
-                  } else {
-                    aggregated.set(item.title, { productNameJa: item.title, productNameEn: item.title, quantity: item.quantity });
-                  }
+
+              if (item.tradeRecordId) {
+                const product = csvProducts.find((cp) => cp.tradeRecordId === item.tradeRecordId);
+                if (product) {
+                  addAggregatedItem(product.name, item.quantity);
+                  continue;
                 }
               }
-            } else {
-              // CSVデータなし: 出庫商品をそのまま使用
-              for (const item of input.items) {
-                const existing = aggregated.get(item.title);
-                if (existing) existing.quantity += item.quantity;
-                else aggregated.set(item.title, { productNameJa: item.title, productNameEn: item.title, quantity: item.quantity });
-              }
+
+              const suggestion = csvProducts.length > 0
+                ? suggestCsvProduct(item.title, managementNo, csvProducts)
+                : null;
+              addAggregatedItem(suggestion?.name ?? item.title, item.quantity);
             }
             const fedexItems = Array.from(aggregated.values());
 
@@ -3926,11 +3920,276 @@ export const inventoryRouter = router({
       }
     }),
 
+    getInvoiceProducts: publicProcedure
+      .input(z.object({ invoiceNo: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const invoiceNo = input.invoiceNo.trim();
+        const orderRows = (await getOrderRowsFromTradeRecords())
+          .filter((row) => row.invoiceNo === invoiceNo);
+        const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
+
+        type StoredDeliveryItem = {
+          inventoryId?: number;
+          title?: string;
+          quantity?: unknown;
+          managementNo?: string | null;
+          tradeRecordId?: number | null;
+          csvProductName?: string | null;
+        };
+        type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
+
+        const deliveredByTradeRecordId = new Map<number, number>();
+        const deliveredByProductName = new Map<string, number>();
+        const deliveries = (await getAllDeliveryHistories())
+          .filter((history) => history.status === "success" && invoiceNoFromDeliveryNo(history.deliveryNo) === invoiceNo);
+
+        const addByTradeRecordId = (tradeRecordId: number, quantity: number) => {
+          deliveredByTradeRecordId.set(tradeRecordId, (deliveredByTradeRecordId.get(tradeRecordId) ?? 0) + quantity);
+        };
+        const addByProductName = (productName: string, quantity: number) => {
+          const name = productName.trim();
+          if (!name) return;
+          deliveredByProductName.set(name, (deliveredByProductName.get(name) ?? 0) + quantity);
+        };
+        const consumeCancelledQuantity = (
+          cancelledByInventoryId: Map<number, number>,
+          inventoryId: number | undefined,
+          quantity: number,
+        ) => {
+          if (!inventoryId) return 0;
+          const cancelledQty = cancelledByInventoryId.get(inventoryId) ?? 0;
+          const usedQty = Math.min(quantity, cancelledQty);
+          if (usedQty > 0) cancelledByInventoryId.set(inventoryId, cancelledQty - usedQty);
+          return usedQty;
+        };
+
+        for (const delivery of deliveries) {
+          let items: StoredDeliveryItem[] = [];
+          let cancelledItems: CancelledDeliveryItem[] = [];
+          try {
+            const parsed = JSON.parse(delivery.itemsJson || "[]");
+            items = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            items = [];
+          }
+          try {
+            const parsed = JSON.parse(delivery.cancelledItemsJson || "[]");
+            cancelledItems = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            cancelledItems = [];
+          }
+
+          const cancelledByInventoryId = new Map<number, number>();
+          for (const item of cancelledItems) {
+            const inventoryId = Number(item.inventoryId ?? 0);
+            const quantity = Number(item.quantity ?? 0);
+            if (inventoryId > 0 && quantity > 0) {
+              cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
+            }
+          }
+
+          for (const item of items) {
+            const quantity = Number(item.quantity ?? 0);
+            if (quantity <= 0) continue;
+            const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
+            const effectiveQuantity = quantity - consumeCancelledQuantity(cancelledByInventoryId, inventoryId, quantity);
+            if (effectiveQuantity <= 0) continue;
+
+            const tradeRecordId = item.tradeRecordId == null ? null : Number(item.tradeRecordId);
+            if (tradeRecordId && orderRows.some((row) => row.tradeRecordId === tradeRecordId)) {
+              addByTradeRecordId(tradeRecordId, effectiveQuantity);
+              continue;
+            }
+
+            if (item.csvProductName !== undefined) {
+              if (item.csvProductName !== null) addByProductName(item.csvProductName, effectiveQuantity);
+              continue;
+            }
+
+            const suggestion = suggestCsvProduct(
+              String(item.title ?? ""),
+              String(item.managementNo ?? ""),
+              csvProducts,
+            );
+            if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
+          }
+        }
+
+        const remainingNameDelivered = new Map(deliveredByProductName);
+        const products = orderRows.map((row) => {
+          const byId = row.tradeRecordId ? (deliveredByTradeRecordId.get(row.tradeRecordId) ?? 0) : 0;
+          const byName = remainingNameDelivered.get(row.productName) ?? 0;
+          const allocatedByName = Math.min(Math.max(0, row.orderQty - byId), byName);
+          if (allocatedByName > 0) {
+            remainingNameDelivered.set(row.productName, byName - allocatedByName);
+          }
+          const deliveredQty = byId + allocatedByName;
+          return {
+            tradeRecordId: row.tradeRecordId,
+            productName: row.productName,
+            orderQty: row.orderQty,
+            deliveredQty,
+            remainingQty: Math.max(0, row.orderQty - deliveredQty),
+            paymentDate: row.paymentDate,
+            status: row.status,
+          };
+        });
+
+        return {
+          invoiceNo,
+          products,
+          totalOrderQty: products.reduce((sum, product) => sum + product.orderQty, 0),
+          totalDeliveredQty: products.reduce((sum, product) => sum + product.deliveredQty, 0),
+        };
+      }),
+
     /**
      * 管理番号の先頭数字をキーに、発注済み数・出庫済み数・在庫数を集計する
      * 出庫 No の先頭数字（_ より前）と管理番号の先頭数字を照合
      * CSVのインボイスNoとも照合して発注数・取引先を追加
      */
+    backfillDeliveryOrderLines: publicProcedure
+      .input(z.object({
+        dryRun: z.boolean().optional(),
+        overwrite: z.boolean().optional(),
+        limit: z.number().int().positive().max(5000).optional(),
+      }).optional())
+      .mutation(async ({ input }) => {
+        const dryRun = input?.dryRun ?? false;
+        const overwrite = input?.overwrite ?? false;
+        const limit = input?.limit ?? 2000;
+        const orderRows = await getOrderRowsFromTradeRecords();
+        const rowsByInvoice = new Map<string, OrderCsvRow[]>();
+        for (const row of orderRows) {
+          const list = rowsByInvoice.get(row.invoiceNo) ?? [];
+          list.push(row);
+          rowsByInvoice.set(row.invoiceNo, list);
+        }
+
+        const timeOf = (value: unknown) => value instanceof Date ? value.getTime() : new Date(String(value)).getTime();
+        const histories = (await getAllDeliveryHistories())
+          .slice(0, limit)
+          .filter((history) => history.status === "success")
+          .sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt));
+        const inventoryManagementMap = await buildInventoryManagementNoMap();
+        const remainingByTradeRecordId = new Map<number, number>();
+        for (const row of orderRows) {
+          if (row.tradeRecordId) remainingByTradeRecordId.set(row.tradeRecordId, row.orderQty);
+        }
+
+        let scannedHistories = 0;
+        let scannedItems = 0;
+        let updatedHistories = 0;
+        let updatedItems = 0;
+        let alreadyLinkedItems = 0;
+        let skippedNoInvoice = 0;
+        let skippedNoRows = 0;
+        let skippedNoMatch = 0;
+
+        const consumeLinkedQuantity = (item: StoredDeliveryItem) => {
+          const tradeRecordId = item.tradeRecordId == null ? null : Number(item.tradeRecordId);
+          if (!tradeRecordId) return;
+          const quantity = Number(item.quantity ?? 0) || 0;
+          if (quantity <= 0) return;
+          remainingByTradeRecordId.set(
+            tradeRecordId,
+            Math.max(0, (remainingByTradeRecordId.get(tradeRecordId) ?? 0) - quantity),
+          );
+        };
+
+        for (const history of histories) {
+          scannedHistories += 1;
+          const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
+          const items = parseDeliveryItemsJson(history.itemsJson);
+          if (!invoiceNo) {
+            skippedNoInvoice += items.length;
+            continue;
+          }
+          const rows = rowsByInvoice.get(invoiceNo);
+          if (!rows || rows.length === 0) {
+            skippedNoRows += items.length;
+            continue;
+          }
+
+          const csvProducts = rows.map((row) => ({ name: row.productName, qty: row.orderQty }));
+          let hasChange = false;
+          const nextItems = items.map((item) => {
+            scannedItems += 1;
+            const quantity = Number(item.quantity ?? 0) || 0;
+            if (quantity <= 0) return item;
+
+            const hasExistingLink = item.tradeRecordId != null || item.csvProductName !== undefined;
+            if (hasExistingLink && !overwrite) {
+              alreadyLinkedItems += 1;
+              consumeLinkedQuantity(item);
+              return item;
+            }
+
+            const inventoryId = item.inventoryId == null ? null : Number(item.inventoryId);
+            const fallbackManagement = inventoryId ? (inventoryManagementMap.get(inventoryId) ?? "") : "";
+            const managementNo = String(item.managementNo || fallbackManagement.split(",")[0] || "").trim();
+            const suggestion = suggestCsvProduct(String(item.title ?? ""), managementNo, csvProducts);
+            if (!suggestion) {
+              skippedNoMatch += 1;
+              return item;
+            }
+
+            const candidateRows = rows.filter((row) => row.productName === suggestion.name);
+            const chosenRow =
+              candidateRows.find((row) => row.tradeRecordId && (remainingByTradeRecordId.get(row.tradeRecordId) ?? 0) >= quantity) ??
+              candidateRows.find((row) => row.tradeRecordId && (remainingByTradeRecordId.get(row.tradeRecordId) ?? 0) > 0) ??
+              candidateRows[0];
+            if (!chosenRow) {
+              skippedNoMatch += 1;
+              return item;
+            }
+
+            if (chosenRow.tradeRecordId) {
+              remainingByTradeRecordId.set(
+                chosenRow.tradeRecordId,
+                Math.max(0, (remainingByTradeRecordId.get(chosenRow.tradeRecordId) ?? 0) - quantity),
+              );
+            }
+
+            const nextItem = {
+              ...item,
+              csvProductName: suggestion.name,
+              ...(chosenRow.tradeRecordId ? { tradeRecordId: chosenRow.tradeRecordId } : {}),
+              ...(!item.managementNo && managementNo ? { managementNo } : {}),
+            };
+            const changed =
+              item.csvProductName !== nextItem.csvProductName ||
+              item.tradeRecordId !== nextItem.tradeRecordId ||
+              item.managementNo !== nextItem.managementNo;
+            if (changed) {
+              hasChange = true;
+              updatedItems += 1;
+            }
+            return nextItem;
+          });
+
+          if (hasChange) {
+            updatedHistories += 1;
+            if (!dryRun) {
+              await updateDeliveryHistoryItemsJson(history.id, JSON.stringify(nextItems));
+            }
+          }
+        }
+
+        return {
+          dryRun,
+          overwrite,
+          scannedHistories,
+          scannedItems,
+          updatedHistories,
+          updatedItems,
+          alreadyLinkedItems,
+          skippedNoInvoice,
+          skippedNoRows,
+          skippedNoMatch,
+        };
+      }),
+
     getSummary: publicProcedure.query(async () => {
       const zaicoEnabled = await isZaicoEnabled();
       type CsvRow = { partner: string; invoiceNo: string; productName: string; orderQty: number; status: string; paymentDate: string };
@@ -4041,7 +4300,7 @@ export const inventoryRouter = router({
         stockCount: number;       // 在庫数
         purchaseItems: Array<{ purchaseId: number; num: string; title: string; quantity: number; status: string; managementNo: string }>;
         inventoryItems: Array<{ inventoryId: number; title: string; quantity: number; managementNo: string; etc: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string }>;
-        deliveryItems: Array<{ deliveryNo: string; title: string; quantity: number; deliveredAt: string; managementNo: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string }>;
+        deliveryItems: Array<{ deliveryNo: string; title: string; quantity: number; deliveredAt: string; managementNo: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string; tradeRecordId?: number | null; csvProductName?: string | null }>;
       };
 
       const groups = new Map<string, GroupData>();
@@ -4238,76 +4497,7 @@ export const inventoryRouter = router({
       // invTitle: Zaico在庫商品名（例: "Vita1000 コズミックレッド"）
       // invManagementNo: Zaico在庫管理番号（例: "369_ルカ_レッド_3/10"）
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
-        const csvModel = extractModelFromTitle(csvProductName);
-        const invModel = extractModelFromTitle(`${invTitle} ${invManagementNo ?? ""}`);
-        const csvLimited = hasLimitedEditionMarker(csvProductName);
-        const targetLimited = hasLimitedEditionMarker(`${invTitle} ${invManagementNo ?? ""}`);
-        if (csvLimited) {
-          if (!targetLimited) return false;
-          return !csvModel || !invModel || csvModel === invModel;
-        }
-        if (targetLimited) return false;
-        // 機種が一致しない場合は除外
-        if (!csvModel || !invModel || csvModel !== invModel) return false;
-
-        const csvColor = extractColorFromName(csvProductName);
-        const invColor = extractColorFromName(invTitle);
-        const mnLower = (invManagementNo ?? "").toLowerCase();
-
-        if (isRandomColorName(csvColor)) {
-          // ランダムカラー: 機種が一致すれば色は不問
-          return true;
-        }
-
-        if (isColorlessRandomColorName(csvColor)) {
-          return colorlessQualifierMatches(csvColor, invTitle, invManagementNo);
-        }
-
-        if (isOtherColorName(csvColor)) {
-          return true;
-        }
-
-        const baseColor = extractBaseColor(csvColor);
-        if (baseColor) {
-          // ○○ベース: 在庫商品名または管理番号にベース色が含まれればOK
-          const bc = baseColor.toLowerCase();
-          return invColor.toLowerCase().includes(bc) ||
-            invTitle.toLowerCase().includes(bc) ||
-            mnLower.includes(bc);
-        }
-
-        // 「&」区切りの複合カラー（例: "レッド&ブルー"）
-        if (csvColor.includes("&")) {
-          const csvColorParts = csvColor.split("&").map((p) => p.trim().toLowerCase()).filter(Boolean);
-          // 管理番号がある場合: 管理番号にいずれかのキーワードが含まれるかチェック（優先）
-          if (mnLower) {
-            const mnMatches = csvColorParts.some((part) => mnLower.includes(part));
-            if (mnMatches) return true;
-          }
-          // 商品名にいずれかのキーワードが含まれるか（フォールバック）
-          return csvColorParts.some((part) =>
-            invColor.toLowerCase().includes(part) || invTitle.toLowerCase().includes(part)
-          );
-        }
-
-        // 「×」区切りの複合カラー（例: "ブラック×ターコイズ"）
-        if (csvColor.includes("×")) {
-          const csvColorParts = csvColor.split("×").map((p) => p.trim().toLowerCase()).filter(Boolean);
-          // 管理番号がある場合: 管理番号に全キーワードが含まれるかチェック（優先）
-          if (mnLower) {
-            const mnMatches = csvColorParts.every((part) => mnLower.includes(part));
-            if (mnMatches) return true;
-          }
-          // 商品名に全キーワードが含まれるか（フォールバック）
-          return csvColorParts.every((part) =>
-            invColor.toLowerCase().includes(part) || invTitle.toLowerCase().includes(part)
-          );
-        }
-
-        // 単一カラー: 管理番号優先、次に商品名で照合
-        const csvColorLower = csvColor.toLowerCase();
-        if (mnLower && mnLower.includes(csvColorLower)) return true;
-        return invColor.toLowerCase().includes(csvColorLower) || invTitle.toLowerCase().includes(csvColorLower);
+        return suggestCsvProduct(invTitle, invManagementNo ?? "", [{ name: csvProductName, qty: 1 }])?.name === csvProductName;
       }
 
       // inventoryId -> 仕入情報マップ（入庫履歴の最新レコードを使用）
@@ -4443,7 +4633,7 @@ export const inventoryRouter = router({
 
         const key = extractKeyFromDeliveryNo(delivery.deliveryNo);
         if (!key) continue;
-        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number }>;
+        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number; tradeRecordId?: number | null; csvProductName?: string | null }>;
         const cancelledItems = delivery.cancelledItemsJson
           ? (JSON.parse(delivery.cancelledItemsJson) as Array<{ inventoryId: number; quantity: number; cancelledAt: string }>)
           : [];
@@ -4481,6 +4671,8 @@ export const inventoryRouter = router({
             trackingNumber: pInfo3.trackingNumber,
             supplierUrl: pInfo3.supplierUrl,
             supplierName: pInfo3.supplierName,
+            tradeRecordId: item.tradeRecordId ?? null,
+            csvProductName: item.csvProductName,
           });
         }
       }
