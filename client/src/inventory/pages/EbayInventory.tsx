@@ -90,6 +90,7 @@ type ShaftSale = {
   quantity: number;
   unitPrice?: string | number | null;
   saleAmount: string | number;
+  profitAmount?: string | number | null;
   soldAt?: string | null;
   supplierName?: string | null;
   supplierUrl?: string | null;
@@ -175,6 +176,7 @@ export default function EbayInventory() {
   const [isShaftSalesOpen, setIsShaftSalesOpen] = useState(false);
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [shaftSaleDateInputs, setShaftSaleDateInputs] = useState<Record<number, string>>({});
+  const [shaftProfitInputs, setShaftProfitInputs] = useState<Record<number, string>>({});
   const [editForm, setEditForm] = useState<EditForm>({
     title: "",
     quantity: "0",
@@ -198,6 +200,7 @@ export default function EbayInventory() {
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
   const upsertShaftSaleMutation = trpc.inventory.zaico.upsertShaftSale.useMutation();
   const updateShaftSaleDateMutation = trpc.inventory.zaico.updateShaftSaleDate.useMutation();
+  const updateShaftSaleProfitMutation = trpc.inventory.zaico.updateShaftSaleProfit.useMutation();
 
   const items = useMemo<EbayInventoryItem[]>(() => {
     const q = query.trim().toLowerCase();
@@ -244,11 +247,12 @@ export default function EbayInventory() {
       const unitPrice = numberFromValue(sale.unitPrice) ?? 0;
       const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
       const cost = unitPrice * quantity;
+      const manualProfit = numberFromValue(sale.profitAmount);
       return {
         count: summary.count + 1,
         saleAmount: summary.saleAmount + saleAmount,
         cost: summary.cost + cost,
-        profit: summary.profit + saleAmount - cost,
+        profit: summary.profit + (manualProfit ?? saleAmount - cost),
       };
     }, { count: 0, saleAmount: 0, cost: 0, profit: 0 });
   }, [shaftSales]);
@@ -271,6 +275,21 @@ export default function EbayInventory() {
     return sale.soldAt?.slice(0, 10) ?? "";
   }
 
+  function getShaftProfit(sale: ShaftSale) {
+    const manualProfit = numberFromValue(sale.profitAmount);
+    if (manualProfit != null) return manualProfit;
+    const saleAmount = numberFromValue(sale.saleAmount) ?? 0;
+    const unitPrice = numberFromValue(sale.unitPrice) ?? 0;
+    const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
+    return saleAmount - unitPrice * quantity;
+  }
+
+  function getShaftProfitInput(sale: ShaftSale) {
+    const draft = shaftProfitInputs[sale.id];
+    if (draft !== undefined) return draft;
+    return String(Math.round(getShaftProfit(sale)));
+  }
+
   async function handleShaftSaleSave(item: EbayInventoryItem) {
     const raw = getShaftSaleInput(item).replace(/,/g, "").trim();
     const saleAmount = raw ? Number(raw) : 0;
@@ -280,6 +299,7 @@ export default function EbayInventory() {
     }
     const unitPrice = item.purchase_unit_price ?? item.unit_price ?? null;
     const quantity = Math.max(1, stockQuantity(item));
+    const existingProfit = numberFromValue(getShaftSale(item)?.profitAmount);
     try {
       await upsertShaftSaleMutation.mutateAsync({
         inventoryId: item.id,
@@ -289,6 +309,7 @@ export default function EbayInventory() {
         quantity,
         unitPrice,
         saleAmount,
+        profitAmount: existingProfit,
         soldAt: todayJst(),
         supplierName: item.supplierName ?? null,
         supplierUrl: item.supplierUrl ?? null,
@@ -333,6 +354,27 @@ export default function EbayInventory() {
       await shaftSalesQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "売上日の保存に失敗しました");
+    }
+  }
+
+  async function handleShaftProfitSave(sale: ShaftSale) {
+    const raw = getShaftProfitInput(sale).replace(/,/g, "").trim();
+    const profitAmount = raw === "" ? null : Number(raw);
+    if (profitAmount !== null && !Number.isFinite(profitAmount)) {
+      toast.error("利益は数字で入力してください");
+      return;
+    }
+    try {
+      await updateShaftSaleProfitMutation.mutateAsync({ id: sale.id, profitAmount });
+      toast.success("利益を保存しました");
+      setShaftProfitInputs((current) => {
+        const next = { ...current };
+        delete next[sale.id];
+        return next;
+      });
+      await shaftSalesQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "利益の保存に失敗しました");
     }
   }
 
@@ -633,7 +675,8 @@ export default function EbayInventory() {
                     const unitPrice = numberFromValue(sale.unitPrice) ?? 0;
                     const quantity = Math.max(1, Math.floor(Number(sale.quantity) || 1));
                     const cost = unitPrice * quantity;
-                    const profit = saleAmount - cost;
+                    const profit = getShaftProfit(sale);
+                    const profitInput = getShaftProfitInput(sale);
                     const soldAtInput = getShaftSaleDateInput(sale);
                     return (
                       <tr key={sale.id} className="border-b last:border-0">
@@ -662,8 +705,33 @@ export default function EbayInventory() {
                         <td className="px-3 py-2">{sale.title}</td>
                         <td className="px-3 py-2 text-right">{formatYen(saleAmount)}</td>
                         <td className="px-3 py-2 text-right">{formatYen(cost)}</td>
-                        <td className={`px-3 py-2 text-right font-semibold ${profit < 0 ? "text-red-600" : "text-emerald-700"}`}>
-                          {formatProfit(profit)}
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <Input
+                              inputMode="numeric"
+                              value={profitInput}
+                              onChange={(event) => setShaftProfitInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") handleShaftProfitSave(sale);
+                              }}
+                              className={`h-8 w-28 text-right font-semibold ${profit < 0 ? "text-red-600" : "text-emerald-700"}`}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleShaftProfitSave(sale)}
+                              disabled={updateShaftSaleProfitMutation.isPending || profitInput === String(Math.round(profit))}
+                              title="利益を保存"
+                            >
+                              {updateShaftSaleProfitMutation.isPending ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Save className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -696,7 +764,8 @@ export default function EbayInventory() {
             const shaftSaleInput = stockType === "shaft" ? getShaftSaleInput(item) : "";
             const shaftSaleAmount = numberFromValue(shaftSaleInput) ?? numberFromValue(shaftSale?.saleAmount);
             const shaftCost = (unitPrice ?? 0) * Math.max(1, qty);
-            const shaftProfit = shaftSaleAmount == null ? null : shaftSaleAmount - shaftCost;
+            const shaftManualProfit = numberFromValue(shaftSale?.profitAmount);
+            const shaftProfit = shaftManualProfit ?? (shaftSaleAmount == null ? null : shaftSaleAmount - shaftCost);
             return (
               <div key={item.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
                 <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">

@@ -571,6 +571,7 @@ export const shaftSales = mysqlTable("shaft_sales", {
   unitPrice: decimal("unitPrice", { precision: 10, scale: 2 }),
   /** 売上金額 */
   saleAmount: decimal("saleAmount", { precision: 12, scale: 2 }).notNull(),
+  profitAmount: decimal("profitAmount", { precision: 12, scale: 2 }),
   /** 売上日 */
   soldAt: varchar("soldAt", { length: 20 }),
   /** 仕入先名 */

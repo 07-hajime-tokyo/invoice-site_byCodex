@@ -90,6 +90,7 @@ import {
   getShaftSales,
   upsertShaftSale,
   updateShaftSaleDate,
+  updateShaftSaleProfit,
   getInvoiceManualItems,
   getInvoiceManualItemsByInvoiceNos,
   createInvoiceManualItem,
@@ -2183,6 +2184,7 @@ export const inventoryRouter = router({
         quantity: z.number().int().min(1).default(1),
         unitPrice: z.number().nullable().optional(),
         saleAmount: z.number().min(0),
+        profitAmount: z.number().nullable().optional(),
         soldAt: z.string().max(20).optional(),
         supplierName: z.string().max(200).nullable().optional(),
         supplierUrl: z.string().max(1000).nullable().optional(),
@@ -2197,6 +2199,7 @@ export const inventoryRouter = router({
           quantity: input.quantity,
           unitPrice: input.unitPrice == null ? null : String(input.unitPrice),
           saleAmount: String(input.saleAmount),
+          profitAmount: input.profitAmount == null ? null : String(input.profitAmount),
           soldAt: input.soldAt ?? new Intl.DateTimeFormat("en-CA", {
             timeZone: "Asia/Tokyo",
             year: "numeric",
@@ -2217,6 +2220,20 @@ export const inventoryRouter = router({
       }))
       .mutation(async ({ input }) => {
         const sale = await updateShaftSaleDate(input.id, input.soldAt);
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND", message: "シャフト売上が見つかりません" });
+        return { success: true, sale };
+      }),
+
+    updateShaftSaleProfit: publicProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        profitAmount: z.number().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const sale = await updateShaftSaleProfit(
+          input.id,
+          input.profitAmount == null ? null : String(input.profitAmount),
+        );
         if (!sale) throw new TRPCError({ code: "NOT_FOUND", message: "シャフト売上が見つかりません" });
         return { success: true, sale };
       }),
