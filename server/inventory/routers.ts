@@ -2410,7 +2410,7 @@ export const inventoryRouter = router({
         category: z.string().max(200).nullable().optional(),
         quantity: z.number().int().min(1).default(1),
         unitPrice: z.number().nullable().optional(),
-        saleAmount: z.number().min(0),
+        saleAmount: z.number(),
         profitAmount: z.number().nullable().optional(),
         soldAt: z.string().max(20).optional(),
         supplierName: z.string().max(200).nullable().optional(),
