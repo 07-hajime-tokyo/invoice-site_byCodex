@@ -8,6 +8,7 @@ import {
   RefreshCw, Search, X, ChevronDown, ChevronRight, Download, BarChart2, Package, Pencil, Check, AlertTriangle, CheckCircle2, Loader2, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
+import { suggestCsvProduct } from "@shared/productMatching";
 
 type SummaryItem = {
   key: string;
@@ -45,6 +46,9 @@ type SummaryItem = {
     csvProductName?: string | null;
   }>;
 };
+
+type CsvProductSummary = SummaryItem["csvProducts"][number];
+type DeliveryItem = SummaryItem["deliveryItems"][number];
 
 /** CSVエクスポート */
 function exportOrderManagementCSV(items: SummaryItem[]) {
@@ -334,6 +338,100 @@ function normalizeLooseText(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/[\s　・･_\-ー,、]/g, "");
 }
 
+function csvProductGroupKey(csvProductName: string): string {
+  const colorOnly = extractColorFromCsvName(csvProductName);
+  const model = extractModelFromCsvName(csvProductName);
+  return model ? [model, colorOnly].filter(Boolean).join(" ") : colorOnly;
+}
+
+function findDeliveryCsvProduct(item: SummaryItem, delivery: DeliveryItem): CsvProductSummary | null {
+  if (delivery.csvProductName) {
+    const exact = item.csvProducts.find((product) => product.name === delivery.csvProductName);
+    if (exact) return exact;
+  }
+
+  const candidates = item.csvProducts.map((product) => ({ name: product.name, qty: product.qty }));
+  const fromStoredName = delivery.csvProductName
+    ? suggestCsvProduct(delivery.csvProductName, delivery.managementNo ?? "", candidates)
+    : null;
+  const fromTitle = suggestCsvProduct(delivery.title, delivery.managementNo ?? "", candidates);
+  const suggestion = fromStoredName ?? fromTitle;
+  if (!suggestion) return null;
+  return item.csvProducts.find((product) => product.name === suggestion.name) ?? null;
+}
+
+function cleanDeliveryProductTitle(title: string): string {
+  return title.replace(/\s*[（）()][^（）()]*[（）()]\s*/g, "").trim() || title.trim();
+}
+
+function deliveryDateKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().slice(0, 10);
+}
+
+function deliveryDateLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ja-JP");
+}
+
+function sameValueOrLabel(values: string[], label: string): string {
+  const unique = Array.from(new Set(values.filter(Boolean)));
+  return unique.length === 1 ? unique[0] : label;
+}
+
+type AggregatedDeliveryItem = {
+  key: string;
+  title: string;
+  quantity: number;
+  deliveryNo: string;
+  managementNo: string;
+  deliveredAt: string;
+  deliveredDateKey: string;
+  items: DeliveryItem[];
+};
+
+function aggregateDeliveryItems(item: SummaryItem): AggregatedDeliveryItem[] {
+  const groups = new Map<string, AggregatedDeliveryItem>();
+
+  for (const delivery of item.deliveryItems) {
+    const linkedProduct = findDeliveryCsvProduct(item, delivery);
+    const title = linkedProduct?.name ?? cleanDeliveryProductTitle(delivery.title);
+    const key = normalizeLooseText(title);
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.quantity += delivery.quantity;
+      existing.items.push(delivery);
+    } else {
+      groups.set(key, {
+        key,
+        title,
+        quantity: delivery.quantity,
+        deliveryNo: delivery.deliveryNo,
+        managementNo: delivery.managementNo,
+        deliveredAt: delivery.deliveredAt,
+        deliveredDateKey: deliveryDateKey(delivery.deliveredAt),
+        items: [delivery],
+      });
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((group) => {
+      const dates = group.items.map((delivery) => deliveryDateKey(delivery.deliveredAt));
+      return {
+        ...group,
+        deliveryNo: sameValueOrLabel(group.items.map((delivery) => delivery.deliveryNo), "複数"),
+        managementNo: sameValueOrLabel(group.items.map((delivery) => delivery.managementNo), ""),
+        deliveredAt: group.items[0]?.deliveredAt ?? "",
+        deliveredDateKey: sameValueOrLabel(dates, ""),
+      };
+    })
+    .sort((a, b) => a.title.localeCompare(b.title, "ja"));
+}
+
 function isVita2000AquaBlueMisdelivery(title: string, entry: ColorSummaryWithModel): boolean {
   const normalizedTitle = normalizeLooseText(title);
   const normalizedColor = normalizeLooseText(entry.colorOnly);
@@ -481,17 +579,12 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
 
   // 出庫履歴からグループ別に出庫数を集計
   for (const d of item.deliveryItems) {
-    if (d.csvProductName) {
-      const csvProd = item.csvProducts.find((product) => product.name === d.csvProductName);
-      if (csvProd) {
-        const colorOnly = extractColorFromCsvName(csvProd.name);
-        const model = extractModelFromCsvName(csvProd.name);
-        const groupKey = model ? [model, colorOnly].filter(Boolean).join(" ") : colorOnly;
-        const entry = colorMap.get(groupKey);
-        if (entry) {
-          entry.deliveredCount += d.quantity;
-          continue;
-        }
+    const csvProd = findDeliveryCsvProduct(item, d);
+    if (csvProd) {
+      const entry = colorMap.get(csvProductGroupKey(csvProd.name));
+      if (entry) {
+        entry.deliveredCount += d.quantity;
+        continue;
       }
     }
 
@@ -1011,6 +1104,7 @@ export default function OrderManagement() {
           const isAutoComplete = item.csvOrderQty > 0 && item.deliveredCount === item.csvOrderQty;
           const isComplete = item.manualComplete || item.csvStatus === "complete" || isAutoComplete;
           const colorSummary = buildColorSummary(item);
+          const aggregatedDeliveryItems = aggregateDeliveryItems(item);
 
           return (
             <div key={item.key} className="rounded-lg border bg-card shadow-sm overflow-hidden">
@@ -1321,7 +1415,7 @@ export default function OrderManagement() {
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        {item.deliveryItems.map((d, i) => {
+                        {aggregatedDeliveryItems.map((d, i) => {
                           const detailKey = `delivery-${item.key}-${i}`;
                           const isOpen = !!openDetailItems[detailKey];
                           return (
@@ -1347,8 +1441,8 @@ export default function OrderManagement() {
                                   <button
                                     type="button"
                                     className="text-xs text-primary hover:underline"
-                                    onClick={(e) => { e.stopPropagation(); const dateStr = new Date(d.deliveredAt).toISOString().slice(0, 10); setLocation(`/inventory/delivery-history?date=${dateStr}`); }}
-                                  >{new Date(d.deliveredAt).toLocaleDateString("ja-JP")}</button>
+                                    onClick={(e) => { e.stopPropagation(); const dateStr = d.deliveredDateKey || deliveryDateKey(d.deliveredAt); if (dateStr) setLocation(`/inventory/delivery-history?date=${dateStr}`); }}
+                                  >{deliveryDateLabel(d.deliveredAt)}</button>
                                 </div>
                               </button>
                               {isOpen && (

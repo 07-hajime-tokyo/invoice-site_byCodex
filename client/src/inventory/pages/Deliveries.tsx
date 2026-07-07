@@ -1953,7 +1953,7 @@ export default function Deliveries() {
 
       {/* 出庫確認ダイアログ */}
       <Dialog open={showDeliveryConfirm} onOpenChange={setShowDeliveryConfirm}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PackageMinus className="h-5 w-5 text-orange-600" />
@@ -1965,11 +1965,11 @@ export default function Deliveries() {
               <span className="text-muted-foreground">出庫No</span>
               <span className="font-semibold">{deliveryNo}</span>
             </div>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[640px] table-fixed text-sm">
+            <div className="overflow-hidden rounded-md border">
+              <table className="w-full table-fixed text-sm">
                 <colgroup>
-                  <col className="w-[34%]" />
-                  <col className="w-[42%]" />
+                  <col className="w-[32%]" />
+                  <col className="w-[44%]" />
                   <col className="w-[24%]" />
                 </colgroup>
                 <thead>
@@ -2006,15 +2006,15 @@ export default function Deliveries() {
                     } as InventoryItem;
                     return (
                       <tr key={item.inventoryId} className="border-b last:border-0">
-                        <td className="break-words px-3 py-2">{item.title}</td>
-                        <td className="px-3 py-2">
+                        <td className="min-w-0 break-words px-3 py-2 align-middle">{item.title}</td>
+                        <td className="min-w-0 px-3 py-2 align-middle">
                           {bulkInvoiceNoForOrder ? (
                             <Select
                               value={orderLineValue}
                               onValueChange={(value) => setOrderLineSelection(item.inventoryId, value)}
                               disabled={orderProducts.length === 0}
                             >
-                              <SelectTrigger className="h-8 w-full">
+                              <SelectTrigger className="h-8 w-full min-w-0">
                                 <SelectValue placeholder="注文行" />
                               </SelectTrigger>
                               <SelectContent>
@@ -2034,8 +2034,8 @@ export default function Deliveries() {
                             <span className="text-xs text-muted-foreground">自動判定</span>
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                        <td className="whitespace-nowrap px-3 py-2 text-right align-middle">
+                          <div className="flex min-w-0 items-center justify-end gap-1">
                             <button
                               type="button"
                               onClick={() => setQuantity(item.inventoryId, Math.max(1, item.quantity - 1), dummyInv)}
@@ -2053,7 +2053,7 @@ export default function Deliveries() {
                                 const v = Math.min(maxQty, Math.max(1, Number(e.target.value)));
                                 setQuantity(item.inventoryId, v, dummyInv);
                               }}
-                              className="w-10 rounded border border-orange-300 bg-white px-1 py-0.5 text-center text-sm font-semibold text-orange-700 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                              className="w-11 rounded border border-orange-300 bg-white px-1 py-0.5 text-center text-sm font-semibold text-orange-700 focus:outline-none focus:ring-1 focus:ring-orange-400"
                             />
                             <button
                               type="button"
