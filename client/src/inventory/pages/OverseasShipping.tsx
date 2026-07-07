@@ -19,6 +19,7 @@ import { normalizeProductName, isReturnProduct, toEnglishProductName, matchesCsv
 import { InvoiceStockSection } from "@/inventory/components/InvoiceStockSection";
 import { FedexShipmentDialog, HistoryItem } from "@/inventory/pages/DeliveryHistory";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
+import { suggestCsvProduct } from "@shared/productMatching";
 
 // ============================================================
 // 出庫履歴ごとのFedEx登録セクション
@@ -464,6 +465,89 @@ type InvoiceEntry = {
   totalShippedQty: number;
 };
 
+type AggregatedShipmentRow = {
+  key: string;
+  shippingDate: string;
+  trackingNumber: string;
+  productName: string;
+  quantity: number;
+  productOrder: number;
+};
+
+function normalizeShipmentGroupKey(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/[\s\u3000・･_\-ー,、]/g, "");
+}
+
+function cleanShipmentProductTitle(title: string): string {
+  return title.replace(/\s*[\(\（][^\)\）]*[\)\）]\s*/g, "").trim() || title.trim();
+}
+
+function sameShipmentValue(values: string[], fallback: string): string {
+  const unique = Array.from(new Set(values.filter(Boolean)));
+  if (unique.length === 0) return "";
+  return unique.length === 1 ? unique[0] : fallback;
+}
+
+function findShipmentCsvProduct(
+  products: CsvInvoiceData["products"],
+  row: InvoiceEntry["shipments"][number],
+): { name: string; qty: number; index: number } | null {
+  const itemTitle = row.item.productNameJa || row.item.productNameEn || "";
+  const suggestion = suggestCsvProduct(
+    itemTitle,
+    row.shipment.deliveryNo,
+    products.map((product) => ({ name: product.name, qty: product.qty })),
+  );
+  if (!suggestion) return null;
+
+  const index = products.findIndex((product) => product.name === suggestion.name);
+  if (index < 0) return null;
+  return { ...products[index], index };
+}
+
+function aggregateShipmentRowsByOrderLine(
+  products: CsvInvoiceData["products"],
+  rows: InvoiceEntry["shipments"],
+): AggregatedShipmentRow[] {
+  const groups = new Map<string, AggregatedShipmentRow & { dates: string[]; trackingNumbers: string[] }>();
+
+  for (const row of rows) {
+    const rawTitle = row.item.productNameJa || row.item.productNameEn || "";
+    const linkedProduct = findShipmentCsvProduct(products, row);
+    const productName = linkedProduct?.name ?? cleanShipmentProductTitle(rawTitle);
+    const key = normalizeShipmentGroupKey(productName);
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.quantity += row.item.quantity;
+      existing.dates.push(row.shipment.shippingDate);
+      existing.trackingNumbers.push(row.shipment.trackingNumber);
+    } else {
+      groups.set(key, {
+        key,
+        shippingDate: row.shipment.shippingDate,
+        trackingNumber: row.shipment.trackingNumber,
+        productName,
+        quantity: row.item.quantity,
+        productOrder: linkedProduct?.index ?? products.length,
+        dates: [row.shipment.shippingDate],
+        trackingNumbers: [row.shipment.trackingNumber],
+      });
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      key: group.key,
+      shippingDate: sameShipmentValue(group.dates, "複数日"),
+      trackingNumber: sameShipmentValue(group.trackingNumbers, "複数"),
+      productName: group.productName,
+      quantity: group.quantity,
+      productOrder: group.productOrder,
+    }))
+    .sort((a, b) => a.productOrder - b.productOrder || a.productName.localeCompare(b.productName, "ja"));
+}
+
 export default function OverseasShipping() {
   const [, setLocation] = useLocation();
   const [showComplete, setShowComplete] = useState(false);
@@ -895,6 +979,7 @@ export default function OverseasShipping() {
                 const productSummary = entry.products.length > 0
                   ? entry.products.map(p => p.name).join(", ")
                   : "";
+                const aggregatedShipmentRows = aggregateShipmentRowsByOrderLine(entry.products, entry.shipments);
 
                 return (
                   <div key={entry.invoiceNo} className={`rounded-lg border bg-card shadow-sm overflow-hidden ${entry.isComplete ? "opacity-60" : ""}`}>
@@ -1002,12 +1087,12 @@ export default function OverseasShipping() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {entry.shipments.map((r, i) => (
-                                  <tr key={i} className="border-b border-border/40 last:border-0">
-                                    <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">{r.shipment.shippingDate}</td>
-                                    <td className="py-1.5 font-mono text-xs">{r.shipment.trackingNumber}</td>
-                                    <td className="py-1.5 text-sm">{r.item.productNameJa || r.item.productNameEn}</td>
-                                    <td className="py-1.5 text-right font-medium">{r.item.quantity}台</td>
+                                {aggregatedShipmentRows.map((row) => (
+                                  <tr key={row.key} className="border-b border-border/40 last:border-0">
+                                    <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">{row.shippingDate}</td>
+                                    <td className="py-1.5 font-mono text-xs">{row.trackingNumber}</td>
+                                    <td className="py-1.5 text-sm">{row.productName}</td>
+                                    <td className="py-1.5 text-right font-medium">{row.quantity}台</td>
                                   </tr>
                                 ))}
                               </tbody>
