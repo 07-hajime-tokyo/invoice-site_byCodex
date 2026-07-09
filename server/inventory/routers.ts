@@ -519,9 +519,13 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
   });
 
   const grouped = new Map<string, ShipmentGasItem>();
+  const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
   for (const item of items) {
     const shippedName = item.productNameJa || item.productNameEn;
-    const match = sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
+    const suggestion = suggestCsvProduct(shippedName, "", csvProducts);
+    const match = suggestion
+      ? orderRows.find((row) => row.productName === suggestion.name)
+      : sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
     const name = match?.productName || item.productNameJa || item.productNameEn;
     const current = grouped.get(name);
     if (current) current.quantity += item.quantity;

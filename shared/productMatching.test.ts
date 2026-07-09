@@ -78,4 +78,21 @@ describe("productMatching", () => {
     expect(extractModel("New 2DS LL ブラック×ターコイズ")).toBe("New2DSLL");
     expect(extractModel("2DS クリアブラック")).toBe("2DS");
   });
+
+  it("No.393のNew 3DS系を別々の注文行へ分類する", () => {
+    const products = [
+      { name: "New 3DS LL ランダムカラー", qty: 10 },
+      { name: "New 3DS ランダムカラー", qty: 6 },
+      { name: "New 3DS LL どうぶつの森", qty: 1 },
+      { name: "New 2DS LL", qty: 5 },
+      { name: "2DS", qty: 5 },
+      { name: "限定版", qty: 2 },
+    ];
+
+    expect(suggestCsvProduct("New 3DS LL ランダムカラー", "", products)?.name).toBe("New 3DS LL ランダムカラー");
+    expect(suggestCsvProduct("New 3DS ランダムカラー", "", products)?.name).toBe("New 3DS ランダムカラー");
+    expect(suggestCsvProduct("New 3DS LL どうぶつの森", "", products)?.name).toBe("New 3DS LL どうぶつの森");
+    expect(suggestCsvProduct("New 2DS LL", "", products)?.name).toBe("New 2DS LL");
+    expect(suggestCsvProduct("2DS", "", products)?.name).toBe("2DS");
+  });
 });

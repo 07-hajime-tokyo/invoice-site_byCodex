@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { normalizeProductName, isReturnProduct, toEnglishProductName, matchesCsvProductName, toShipmentProductKey } from "@/inventory/lib/productNameUtils";
+import { normalizeProductName, isReturnProduct, toEnglishProductName, matchesCsvProductName } from "@/inventory/lib/productNameUtils";
 import { InvoiceStockSection } from "@/inventory/components/InvoiceStockSection";
 import { FedexShipmentDialog, HistoryItem } from "@/inventory/pages/DeliveryHistory";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
@@ -176,52 +176,123 @@ function PartnerView({
 
   // 追跡番号グループを構築（PartnerPortalと同じロジック）
   const shipmentGroups = useMemo(() => {
-    const groups: Array<{
+    type PartnerShipmentRow = {
+      invoiceNo: string;
+      productName: string;
+      orderedQty: number;
+      shippedQty: number;
+      remainingQty: number | null;
+      productOrder: number;
+    };
+    type PartnerShipmentGroup = {
       key: string;
       trackingNumber: string;
       shippingDate: string;
-      rows: Array<{ shipment: FedexShipment; item: ShipmentItem; itemIndex: number; invoiceNo: string }>;
+      rows: PartnerShipmentRow[];
       isComplete: boolean;
-    }> = [];
-    const groupMap = new Map<string, typeof groups[0]>();
+      invoiceNos: Set<string>;
+      rowMap: Map<string, PartnerShipmentRow>;
+    };
+
+    const groups: PartnerShipmentGroup[] = [];
+    const groupMap = new Map<string, PartnerShipmentGroup>();
+
+    function setRemaining(row: PartnerShipmentRow) {
+      row.remainingQty = row.orderedQty > 0 ? Math.max(0, row.orderedQty - row.shippedQty) : null;
+    }
+
+    function upsertRow(
+      group: PartnerShipmentGroup,
+      rowKey: string,
+      invoiceNo: string,
+      productName: string,
+      orderedQty: number,
+      shippedQty: number,
+      productOrder: number,
+    ) {
+      const existing = group.rowMap.get(rowKey);
+      if (existing) {
+        existing.shippedQty += shippedQty;
+        if (orderedQty > 0) existing.orderedQty = orderedQty;
+        existing.productOrder = Math.min(existing.productOrder, productOrder);
+        setRemaining(existing);
+        return;
+      }
+      const row: PartnerShipmentRow = {
+        invoiceNo,
+        productName,
+        orderedQty,
+        shippedQty,
+        remainingQty: null,
+        productOrder,
+      };
+      setRemaining(row);
+      group.rowMap.set(rowKey, row);
+    }
 
     for (const s of shipments) {
       let items: ShipmentItem[] = [];
       try { items = JSON.parse(s.itemsJson); } catch { items = []; }
       const invoiceNo = s.deliveryNo.match(/^(\d+)/)?.[1] ?? s.deliveryNo;
+      const products = csvData[invoiceNo]?.products ?? [];
       const groupKey = `${s.trackingNumber}_${s.shippingDate}`;
       if (!groupMap.has(groupKey)) {
-        const g = { key: groupKey, trackingNumber: s.trackingNumber, shippingDate: s.shippingDate, rows: [] as typeof groups[0]["rows"], isComplete: false };
+        const g: PartnerShipmentGroup = {
+          key: groupKey,
+          trackingNumber: s.trackingNumber,
+          shippingDate: s.shippingDate,
+          rows: [],
+          isComplete: false,
+          invoiceNos: new Set<string>(),
+          rowMap: new Map<string, PartnerShipmentRow>(),
+        };
         groupMap.set(groupKey, g);
         groups.push(g);
       }
       const group = groupMap.get(groupKey)!;
+      group.invoiceNos.add(invoiceNo);
       items.forEach((item, idx) => {
         const normalizedItem: ShipmentItem = isReturnProduct(item.productNameJa)
           ? { ...item, productNameJa: normalizeProductName(item.productNameJa), productNameEn: normalizeProductName(item.productNameEn) }
           : item;
-        const matchedCsvProduct = csvData[invoiceNo]?.products.find((product) =>
-          matchesCsvProductName(normalizedItem.productNameJa || normalizedItem.productNameEn || "", product.name)
+        const matchedCsvProduct = findShipmentCsvProduct(products, {
+          shipment: s,
+          item: normalizedItem,
+          itemIndex: idx,
+        });
+        const rawTitle = normalizedItem.productNameJa || normalizedItem.productNameEn || "";
+        const productName = matchedCsvProduct?.name ?? cleanShipmentProductTitle(rawTitle);
+        const productOrder = matchedCsvProduct?.index ?? products.length;
+        const rowKey = matchedCsvProduct
+          ? `${invoiceNo}:csv:${matchedCsvProduct.name}`
+          : `${invoiceNo}:raw:${normalizeShipmentGroupKey(productName)}`;
+        upsertRow(
+          group,
+          rowKey,
+          invoiceNo,
+          productName,
+          matchedCsvProduct?.qty ?? 0,
+          normalizedItem.quantity,
+          productOrder,
         );
-        const groupedItem = matchedCsvProduct
-          ? {
-            ...normalizedItem,
-            productNameJa: matchedCsvProduct.name,
-            productNameEn: toEnglishProductName(matchedCsvProduct.name),
-          }
-          : normalizedItem;
-        const productKey = toShipmentProductKey(groupedItem.productNameJa, groupedItem.productNameEn);
-        const existingRow = group.rows.find(r =>
-          r.invoiceNo === invoiceNo &&
-          toShipmentProductKey(r.item.productNameJa, r.item.productNameEn) === productKey
-        );
-        if (existingRow) {
-          existingRow.item = { ...existingRow.item, quantity: existingRow.item.quantity + groupedItem.quantity };
-        } else {
-          group.rows.push({ shipment: s, item: groupedItem, itemIndex: idx, invoiceNo });
-        }
       });
     }
+
+    for (const group of groups) {
+      for (const invoiceNo of Array.from(group.invoiceNos)) {
+        const products = csvData[invoiceNo]?.products ?? [];
+        products.forEach((product, index) => {
+          upsertRow(group, `${invoiceNo}:csv:${product.name}`, invoiceNo, product.name, product.qty, 0, index);
+        });
+      }
+      group.rows = Array.from(group.rowMap.values()).sort((a, b) =>
+        a.invoiceNo.localeCompare(b.invoiceNo, "ja") ||
+        a.productOrder - b.productOrder ||
+        a.productName.localeCompare(b.productName, "ja")
+      );
+      group.isComplete = group.rows.length > 0 && group.rows.every((row) => row.remainingQty !== null && row.remainingQty <= 0);
+    }
+
     // 発送日の新しい順（M/D形式とYYYY-MM-DD形式の混在に対応）
     const parseDateStr = (s: string): number => {
       if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s).getTime();
@@ -252,21 +323,6 @@ function PartnerView({
     }
     return summary;
   }, [shipments, csvData]);
-
-  const shipmentItemsByInvoice = useMemo(() => {
-    const map: Record<string, ShipmentItem[]> = {};
-    for (const shipment of shipments) {
-      const invoiceNo = shipment.deliveryNo.match(/^(\d+)/)?.[1] ?? shipment.deliveryNo;
-      let items: ShipmentItem[] = [];
-      try { items = JSON.parse(shipment.itemsJson); } catch { items = []; }
-      if (!map[invoiceNo]) map[invoiceNo] = [];
-      map[invoiceNo].push(...items.map((item) => isReturnProduct(item.productNameJa)
-        ? { ...item, productNameJa: normalizeProductName(item.productNameJa), productNameEn: normalizeProductName(item.productNameEn) }
-        : item
-      ));
-    }
-    return map;
-  }, [shipments]);
 
   // 初回ロード時に直近のグループのみ展開
   useEffect(() => {
@@ -338,40 +394,16 @@ function PartnerView({
                   </thead>
                   <tbody>
                     {group.rows.map((row, i) => {
-                      const inv = csvData[row.invoiceNo];
-                      const rowProductEn = toEnglishProductName(row.item.productNameJa || row.item.productNameEn || "");
-                      const matchedProduct = inv?.products.find(p => {
-                        const pLower = p.name.toLowerCase();
-                        const jaLower = (row.item.productNameJa ?? "").toLowerCase();
-                        const enLower = (row.item.productNameEn ?? "").toLowerCase();
-                        const rowEnLower = rowProductEn.toLowerCase();
-                        if (matchesCsvProductName(row.item.productNameJa || row.item.productNameEn || "", p.name)) return true;
-                        return (
-                          pLower.includes(jaLower) || jaLower.includes(pLower) ||
-                          pLower.includes(enLower) || enLower.includes(pLower) ||
-                          pLower.includes(rowEnLower) || rowEnLower.includes(pLower)
-                        );
-                      });
-                      const orderedQty = matchedProduct?.qty ?? 0;
-                      const shippedQty = row.item.quantity;
-                      const productShippedQty = matchedProduct
-                        ? (shipmentItemsByInvoice[row.invoiceNo] ?? []).reduce((sum, item) =>
-                          matchesCsvProductName(item.productNameJa || item.productNameEn || "", matchedProduct.name)
-                            ? sum + item.quantity
-                            : sum, 0)
-                        : shippedQty;
-                      const remainingQty = orderedQty > 0 ? Math.max(0, orderedQty - productShippedQty) : null;
-                      const displayName = matchedProduct?.name || rowProductEn || row.item.productNameEn || row.item.productNameJa;
                       return (
                         <tr key={i} className="border-b border-border/50 last:border-0">
                           <td className="py-2 text-muted-foreground text-xs">No.{row.invoiceNo}</td>
-                          <td className="py-2"><div className="font-medium">{displayName}</div></td>
-                          <td className="py-2 text-right text-muted-foreground">{orderedQty > 0 ? orderedQty : "-"}</td>
-                          <td className="py-2 text-right font-semibold">{shippedQty}</td>
+                          <td className="py-2"><div className="font-medium">{row.productName}</div></td>
+                          <td className="py-2 text-right text-muted-foreground">{row.orderedQty > 0 ? row.orderedQty : "-"}</td>
+                          <td className="py-2 text-right font-semibold">{row.shippedQty}</td>
                           <td className="py-2 text-right">
-                            {remainingQty !== null && remainingQty > 0 ? (
-                              <span className="text-amber-600 font-medium">{remainingQty}</span>
-                            ) : remainingQty === 0 ? (
+                            {row.remainingQty !== null && row.remainingQty > 0 ? (
+                              <span className="text-amber-600 font-medium">{row.remainingQty}</span>
+                            ) : row.remainingQty === 0 ? (
                               <span className="text-emerald-600 font-medium">0</span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
