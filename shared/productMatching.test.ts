@@ -94,5 +94,7 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("New 3DS LL どうぶつの森", "", products)?.name).toBe("New 3DS LL どうぶつの森");
     expect(suggestCsvProduct("New 2DS LL", "", products)?.name).toBe("New 2DS LL");
     expect(suggestCsvProduct("2DS", "", products)?.name).toBe("2DS");
+    expect(suggestCsvProduct("New 3DS LL ピカチュウ", "393_ルカ_限定版_1/2", products)?.name).toBe("限定版");
+    expect(suggestCsvProduct("New 2DS LL モンスターボール", "393_ルカ_限定版_2/2", products)?.name).toBe("限定版");
   });
 });

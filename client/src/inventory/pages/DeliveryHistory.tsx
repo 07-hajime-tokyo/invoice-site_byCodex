@@ -53,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { suggestCsvProduct } from "@shared/productMatching";
 
 export interface HistoryItem {
   inventoryId: number;
@@ -804,7 +805,7 @@ export function FedexShipmentDialog({
     sheetName: ShipmentSheetName;
     shippingDate: string;
     trackingNumber: string;
-    items: Array<{ productNameJa: string; productNameEn: string; quantity: number }>;
+    items: Array<{ productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null }>;
   }) => void;
   isPending: boolean;
   existingShipments: Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string }>;
@@ -850,6 +851,7 @@ export function FedexShipmentDialog({
         productNameJa: item.title,
         productNameEn: item.title, // 英語名は日本語名と同じ（スプシ側で対応）
         quantity: itemQuantities[item.inventoryId] ?? item.quantity,
+        managementNo: item.managementNo ?? null,
       }));
     if (items.length === 0) {
       return;
@@ -1098,6 +1100,28 @@ function aggregateItemsByCsvProducts(
     return Object.entries(modelMap).map(([name, qty]) => ({ csvName: name, csvQty: 0, deliveredQty: qty }));
   }
 
+  {
+    const deliveredByCsvName = new Map<string, number>();
+    const unmatchedMap = new Map<string, number>();
+    for (const item of deliveredItems) {
+      const suggestion = suggestCsvProduct(item.title, item.managementNo ?? "", csvProducts);
+      if (suggestion) {
+        deliveredByCsvName.set(suggestion.name, (deliveredByCsvName.get(suggestion.name) ?? 0) + item.quantity);
+      } else {
+        unmatchedMap.set(item.title, (unmatchedMap.get(item.title) ?? 0) + item.quantity);
+      }
+    }
+    const result = csvProducts.map((csvProd) => ({
+      csvName: csvProd.name,
+      csvQty: csvProd.qty,
+      deliveredQty: deliveredByCsvName.get(csvProd.name) ?? 0,
+    }));
+    const unmatchedItems = Array.from(unmatchedMap.entries())
+      .filter(([, qty]) => qty > 0)
+      .map(([name, qty]) => ({ csvName: name, csvQty: 0, deliveredQty: qty }));
+    return [...result, ...unmatchedItems];
+  }
+
   /** csv商品名から色部分キーワードリストを抽出する */
   function extractColorKeywords(csvName: string): string[] {
     // _extractColorFromCsvName相当：機種名パターンを除いた残りを色部分とする
@@ -1206,7 +1230,7 @@ function FedexBatchDialog({
   inventoryManagementMap: Map<number, string>;
   initialShippingDate?: string;
   initialTrackingNumber?: string;
-  onSubmit: (shippingDate: string, shipments: Array<{ deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; historyId?: number; items: Array<{ productNameJa: string; productNameEn: string; quantity: number }> }>) => void;
+  onSubmit: (shippingDate: string, shipments: Array<{ deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; historyId?: number; items: Array<{ productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null }> }>) => void;
   isPending: boolean;
 }) {
   const today = new Date();
@@ -1215,7 +1239,7 @@ function FedexBatchDialog({
   const [trackingNumber, setTrackingNumber] = useState(initialTrackingNumber ?? "");
 
   // グループごとの編集可能な商品リスト
-  type EditableItem = { productNameJa: string; productNameEn: string; quantity: number };
+  type EditableItem = { productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null };
   type GroupItems = { rowKey: string; deliveryNo: string; sheetLabel: ShipmentSheetName; historyId?: number; createdAt?: string | Date; items: EditableItem[] };
   const [editableGroups, setEditableGroups] = useState<GroupItems[]>([]);
 
@@ -1880,7 +1904,7 @@ export default function DeliveryHistory() {
     sheetName: string;
     shippingDate: string;
     trackingNumber: string;
-    items: Array<{ productNameJa: string; productNameEn: string; quantity: number }>;
+    items: Array<{ productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null }>;
   } | null>(null);
   // FedEx発送記録の削除確認ダイアログ状態
   const [fedexDeleteConfirm, setFedexDeleteConfirm] = useState<{ id: number; trackingNumber: string; sheetName: string } | null>(null);

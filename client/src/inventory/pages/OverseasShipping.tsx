@@ -440,6 +440,7 @@ type ShipmentItem = {
   productNameEn: string;
   quantity: number;
   invoiceNo?: string;
+  managementNo?: string | null;
 };
 type CsvInvoiceData = {
   partner: string;
@@ -527,7 +528,7 @@ function findShipmentCsvProduct(
   const itemTitle = row.item.productNameJa || row.item.productNameEn || "";
   const suggestion = suggestCsvProduct(
     itemTitle,
-    row.shipment.deliveryNo,
+    row.item.managementNo ?? row.shipment.deliveryNo,
     products.map((product) => ({ name: product.name, qty: product.qty })),
   );
   if (!suggestion) return null;

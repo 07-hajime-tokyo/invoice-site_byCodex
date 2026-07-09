@@ -399,7 +399,7 @@ async function buildInventoryManagementNoMap(): Promise<Map<number, string>> {
   return inventoryEtcMap;
 }
 
-type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number };
+type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null };
 
 function mergeShipmentGasItems(items: ShipmentGasItem[]): ShipmentGasItem[] {
   const grouped = new Map<string, ShipmentGasItem>();
@@ -522,7 +522,7 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
   const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
   for (const item of items) {
     const shippedName = item.productNameJa || item.productNameEn;
-    const suggestion = suggestCsvProduct(shippedName, "", csvProducts);
+    const suggestion = suggestCsvProduct(shippedName, item.managementNo ?? "", csvProducts);
     const match = suggestion
       ? orderRows.find((row) => row.productName === suggestion.name)
       : sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
@@ -654,10 +654,11 @@ type ShipmentDisplayItem = {
   productNameJa: string;
   productNameEn: string;
   quantity: number;
+  managementNo?: string | null;
 };
 
 function deliveryHistoryItemsToShipmentItems(itemsJson: string): ShipmentDisplayItem[] {
-  let items: Array<{ title?: string; productNameJa?: string; productNameEn?: string; quantity?: unknown }> = [];
+  let items: Array<{ title?: string; productNameJa?: string; productNameEn?: string; quantity?: unknown; managementNo?: string | null }> = [];
   try {
     const parsed = JSON.parse(itemsJson || "[]");
     items = Array.isArray(parsed) ? parsed : [];
@@ -668,7 +669,7 @@ function deliveryHistoryItemsToShipmentItems(itemsJson: string): ShipmentDisplay
     .map((item) => {
       const name = String(item.title ?? item.productNameJa ?? item.productNameEn ?? "").trim();
       const quantity = Number(item.quantity ?? 0);
-      return { productNameJa: name, productNameEn: name, quantity };
+      return { productNameJa: name, productNameEn: name, quantity, managementNo: item.managementNo ?? null };
     })
     .filter((item) => item.productNameJa && item.quantity > 0);
 }
@@ -705,7 +706,9 @@ async function alignShipmentItemsWithDeliveryHistories<
     const historyItems = deliveryHistoryItemsToShipmentItems(history.itemsJson);
     if (historyItems.length === 0) return shipment;
     const storedItems = deliveryHistoryItemsToShipmentItems(shipment.itemsJson);
-    if (storedItems.length > 0 && sumShipmentDisplayItems(storedItems) > sumShipmentDisplayItems(historyItems)) {
+    const storedTotal = sumShipmentDisplayItems(storedItems);
+    const historyTotal = sumShipmentDisplayItems(historyItems);
+    if (storedItems.length === 0 || storedTotal !== historyTotal) {
       return shipment;
     }
     return { ...shipment, itemsJson: JSON.stringify(historyItems) };
@@ -4005,16 +4008,17 @@ export const inventoryRouter = router({
               continue;
             }
 
-            if (item.csvProductName !== undefined) {
-              if (item.csvProductName !== null) addByProductName(item.csvProductName, effectiveQuantity);
-              continue;
-            }
-
             const suggestion = suggestCsvProduct(
               String(item.title ?? ""),
               String(item.managementNo ?? ""),
               csvProducts,
             );
+
+            if (item.csvProductName !== undefined) {
+              if (item.csvProductName !== null) addByProductName(suggestion?.name ?? item.csvProductName, effectiveQuantity);
+              continue;
+            }
+
             if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
           }
         }
@@ -5859,14 +5863,14 @@ export const inventoryRouter = router({
     getByDeliveryNo: protectedProcedure
       .input(z.object({ deliveryNo: z.string() }))
       .query(async ({ input }) => {
-        return getFedexShipmentsByDeliveryNo(input.deliveryNo);
+        return alignShipmentItemsWithDeliveryHistories(await getFedexShipmentsByDeliveryNo(input.deliveryNo));
       }),
 
     /**
      * 全FedEx発送記録を取得する
      */
     getAll: protectedProcedure.query(async () => {
-      return getAllFedexShipments();
+      return alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
     }),
 
     /**
@@ -5905,6 +5909,7 @@ export const inventoryRouter = router({
           productNameJa: z.string(),
           productNameEn: z.string(),
           quantity: z.number().int().positive(),
+          managementNo: z.string().nullable().optional(),
         })),
         operatorName: z.string().max(200).optional(),
       }))
@@ -5937,7 +5942,7 @@ export const inventoryRouter = router({
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
         }
         // 同一追跡番号かつ同一出庫Noの既存記録を確認
-        const allRecords = await getAllFedexShipments();
+        const allRecords = await alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
 
         function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
           try {
@@ -6151,6 +6156,7 @@ export const inventoryRouter = router({
           productNameJa: z.string(),
           productNameEn: z.string(),
           quantity: z.number().int().positive(),
+          managementNo: z.string().nullable().optional(),
         })),
       }))
       .mutation(async ({ input }) => {
@@ -6253,6 +6259,7 @@ export const inventoryRouter = router({
             productNameJa: z.string(),
             productNameEn: z.string(),
             quantity: z.number().int().positive(),
+            managementNo: z.string().nullable().optional(),
           })),
         })),
         operatorName: z.string().max(200).optional(),
@@ -6292,7 +6299,7 @@ export const inventoryRouter = router({
             try { return JSON.parse(text); } catch { return { success: false, message: text }; }
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
         }
-        const allRecords = await getAllFedexShipments();
+        const allRecords = await alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
 
         function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
           try {
