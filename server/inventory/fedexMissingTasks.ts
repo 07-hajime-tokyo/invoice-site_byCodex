@@ -74,8 +74,8 @@ function isFedexExcludedManagementNo(managementNo: string) {
 function isDirectTradeFedexTarget(deliveryNo: unknown, managementNo: string) {
   const raw = managementNo.normalize("NFKC").trim();
   if (isFedexExcludedManagementNo(raw)) return false;
-  if (/^\d{3,4}(?:$|[_-])/.test(raw)) return true;
-  return !raw && /^\d{3,4}(?:$|[_-])/.test(String(deliveryNo ?? ""));
+  const normalizedDeliveryNo = String(deliveryNo ?? "").normalize("NFKC").trim();
+  return /^\d{3,4}(?:$|[_-])/.test(normalizedDeliveryNo);
 }
 
 function extractInvoiceNo(deliveryNo: string) {

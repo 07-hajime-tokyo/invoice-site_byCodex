@@ -267,9 +267,8 @@ function isFedexExcludedManagementNo(managementNo: string) {
 function isDirectTradeFedexTarget(deliveryNo: unknown, managementNo: string) {
   const raw = managementNo.normalize("NFKC").trim();
   if (isFedexExcludedManagementNo(raw)) return false;
-  if (/^\d{3,4}(?:$|[_-])/.test(raw)) return true;
-  // 管理番号が空でも、直取の出庫Noは数字始まりで登録されるため対象に残す。
-  return !raw && /^\d{3,4}(?:$|[_-])/.test(String(deliveryNo ?? ""));
+  const normalizedDeliveryNo = String(deliveryNo ?? "").normalize("NFKC").trim();
+  return /^\d{3,4}(?:$|[_-])/.test(normalizedDeliveryNo);
 }
 
 function matchesNeedle(value: unknown, needles: string[], compactNeedles: string[]) {
