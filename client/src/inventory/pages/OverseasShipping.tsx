@@ -177,6 +177,7 @@ function PartnerView({
   // 追跡番号グループを構築（PartnerPortalと同じロジック）
   const shipmentGroups = useMemo(() => {
     type PartnerShipmentRow = {
+      rowKey: string;
       invoiceNo: string;
       productName: string;
       orderedQty: number;
@@ -188,6 +189,7 @@ function PartnerView({
       key: string;
       trackingNumber: string;
       shippingDate: string;
+      createdAtMs: number;
       rows: PartnerShipmentRow[];
       isComplete: boolean;
       invoiceNos: Set<string>;
@@ -197,8 +199,20 @@ function PartnerView({
     const groups: PartnerShipmentGroup[] = [];
     const groupMap = new Map<string, PartnerShipmentGroup>();
 
-    function setRemaining(row: PartnerShipmentRow) {
-      row.remainingQty = row.orderedQty > 0 ? Math.max(0, row.orderedQty - row.shippedQty) : null;
+    const parseDateStr = (s: string): number => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s).getTime();
+      const parts = s.split("/");
+      if (parts.length === 2) {
+        const m = parseInt(parts[0], 10);
+        const d = parseInt(parts[1], 10);
+        if (!isNaN(m) && !isNaN(d)) return new Date(2026, m - 1, d).getTime();
+      }
+      return 0;
+    };
+
+    function getCreatedAtMs(shipment: FedexShipment): number {
+      const ms = new Date(shipment.createdAt).getTime();
+      return Number.isFinite(ms) ? ms : 0;
     }
 
     function upsertRow(
@@ -215,10 +229,10 @@ function PartnerView({
         existing.shippedQty += shippedQty;
         if (orderedQty > 0) existing.orderedQty = orderedQty;
         existing.productOrder = Math.min(existing.productOrder, productOrder);
-        setRemaining(existing);
         return;
       }
       const row: PartnerShipmentRow = {
+        rowKey,
         invoiceNo,
         productName,
         orderedQty,
@@ -226,7 +240,6 @@ function PartnerView({
         remainingQty: null,
         productOrder,
       };
-      setRemaining(row);
       group.rowMap.set(rowKey, row);
     }
 
@@ -241,6 +254,7 @@ function PartnerView({
           key: groupKey,
           trackingNumber: s.trackingNumber,
           shippingDate: s.shippingDate,
+          createdAtMs: getCreatedAtMs(s),
           rows: [],
           isComplete: false,
           invoiceNos: new Set<string>(),
@@ -250,6 +264,7 @@ function PartnerView({
         groups.push(g);
       }
       const group = groupMap.get(groupKey)!;
+      group.createdAtMs = Math.min(group.createdAtMs, getCreatedAtMs(s));
       group.invoiceNos.add(invoiceNo);
       items.forEach((item, idx) => {
         const normalizedItem: ShipmentItem = isReturnProduct(item.productNameJa)
@@ -290,20 +305,24 @@ function PartnerView({
         a.productOrder - b.productOrder ||
         a.productName.localeCompare(b.productName, "ja")
       );
+    }
+
+    const cumulativeShippedByRow = new Map<string, number>();
+    const groupsOldestFirst = [...groups].sort((a, b) =>
+      parseDateStr(a.shippingDate) - parseDateStr(b.shippingDate) ||
+      a.createdAtMs - b.createdAtMs ||
+      a.key.localeCompare(b.key, "ja")
+    );
+    for (const group of groupsOldestFirst) {
+      for (const row of group.rows) {
+        const previousShipped = cumulativeShippedByRow.get(row.rowKey) ?? 0;
+        const cumulativeShipped = previousShipped + row.shippedQty;
+        row.remainingQty = row.orderedQty > 0 ? Math.max(0, row.orderedQty - cumulativeShipped) : null;
+        if (row.shippedQty > 0) cumulativeShippedByRow.set(row.rowKey, cumulativeShipped);
+      }
       group.isComplete = group.rows.length > 0 && group.rows.every((row) => row.remainingQty !== null && row.remainingQty <= 0);
     }
 
-    // 発送日の新しい順（M/D形式とYYYY-MM-DD形式の混在に対応）
-    const parseDateStr = (s: string): number => {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s).getTime();
-      const parts = s.split("/");
-      if (parts.length === 2) {
-        const m = parseInt(parts[0], 10);
-        const d = parseInt(parts[1], 10);
-        if (!isNaN(m) && !isNaN(d)) return new Date(2026, m - 1, d).getTime();
-      }
-      return 0;
-    };
     return groups.sort((a, b) => parseDateStr(b.shippingDate) - parseDateStr(a.shippingDate));
   }, [shipments, csvData]);
 
