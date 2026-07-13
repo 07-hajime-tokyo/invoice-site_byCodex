@@ -2418,6 +2418,7 @@ export const inventoryRouter = router({
         quantity: z.number().int().min(1).default(1),
         unitPrice: z.number().nullable().optional(),
         saleAmount: z.number(),
+        saleUrl: z.string().max(1000).nullable().optional(),
         profitAmount: z.number().nullable().optional(),
         soldAt: z.string().max(20).optional(),
         supplierName: z.string().max(200).nullable().optional(),
@@ -2433,6 +2434,7 @@ export const inventoryRouter = router({
           quantity: input.quantity,
           unitPrice: input.unitPrice == null ? null : String(input.unitPrice),
           saleAmount: String(input.saleAmount),
+          saleUrl: input.saleUrl === undefined ? undefined : input.saleUrl,
           profitAmount: input.profitAmount == null ? null : String(input.profitAmount),
           soldAt: input.soldAt ?? new Intl.DateTimeFormat("en-CA", {
             timeZone: "Asia/Tokyo",

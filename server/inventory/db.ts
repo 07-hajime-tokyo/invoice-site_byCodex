@@ -130,6 +130,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         quantity int NOT NULL DEFAULT 1,
         unitPrice decimal(10,2) NULL,
         saleAmount decimal(12,2) NOT NULL,
+        saleUrl text NULL,
         profitAmount decimal(12,2) NULL,
         soldAt varchar(20) NULL,
         supplierName varchar(200) NULL,
@@ -144,6 +145,10 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     const existingShaftProfit = await db.execute(sql`SHOW COLUMNS FROM shaft_sales LIKE 'profitAmount'`);
     if (getRawRows(existingShaftProfit).length === 0) {
       await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN profitAmount decimal(12,2) NULL AFTER saleAmount`);
+    }
+    const existingShaftSaleUrl = await db.execute(sql`SHOW COLUMNS FROM shaft_sales LIKE 'saleUrl'`);
+    if (getRawRows(existingShaftSaleUrl).length === 0) {
+      await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN saleUrl text NULL AFTER saleAmount`);
     }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS action_item_assignees (
@@ -1055,6 +1060,7 @@ export async function upsertShaftSale(data: InsertShaftSale): Promise<ShaftSale 
       quantity: data.quantity,
       unitPrice: data.unitPrice,
       saleAmount: data.saleAmount,
+      saleUrl: data.saleUrl !== undefined ? data.saleUrl : existing.saleUrl,
       profitAmount: data.profitAmount,
       soldAt: data.soldAt,
       supplierName: data.supplierName,

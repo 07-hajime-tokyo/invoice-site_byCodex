@@ -141,6 +141,13 @@
       "when": 1783055134669,
       "tag": "0019_inbound_class",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1783922000000,
+      "tag": "0020_shaft_sale_url",
+      "breakpoints": true
     }
   ]
 }

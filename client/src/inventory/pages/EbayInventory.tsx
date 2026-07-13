@@ -90,6 +90,7 @@ type ShaftSale = {
   quantity: number;
   unitPrice?: string | number | null;
   saleAmount: string | number;
+  saleUrl?: string | null;
   profitAmount?: string | number | null;
   soldAt?: string | null;
   supplierName?: string | null;
@@ -187,7 +188,9 @@ export default function EbayInventory() {
   const [isShaftSalesOpen, setIsShaftSalesOpen] = useState(false);
   const [shaftSalesSort, setShaftSalesSort] = useState<ShaftSalesSort>("soldAtDesc");
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
+  const [shaftSaleUrlInputs, setShaftSaleUrlInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowInputs, setShaftSaleRowInputs] = useState<Record<number, string>>({});
+  const [shaftSaleRowUrlInputs, setShaftSaleRowUrlInputs] = useState<Record<number, string>>({});
   const [shaftSaleDateInputs, setShaftSaleDateInputs] = useState<Record<number, string>>({});
   const [editingShaftInventoryId, setEditingShaftInventoryId] = useState<number | null>(null);
   const [editingShaftSaleId, setEditingShaftSaleId] = useState<number | null>(null);
@@ -295,6 +298,18 @@ export default function EbayInventory() {
     return sale.soldAt?.slice(0, 10) ?? "";
   }
 
+  function getShaftSaleUrlInput(item: EbayInventoryItem) {
+    const draft = shaftSaleUrlInputs[item.id];
+    if (draft !== undefined) return draft;
+    return getShaftSale(item)?.saleUrl ?? "";
+  }
+
+  function getShaftSaleRowUrlInput(sale: ShaftSale) {
+    const draft = shaftSaleRowUrlInputs[sale.id];
+    if (draft !== undefined) return draft;
+    return sale.saleUrl ?? "";
+  }
+
   function getShaftSaleRowInput(sale: ShaftSale) {
     const draft = shaftSaleRowInputs[sale.id];
     if (draft !== undefined) return draft;
@@ -312,6 +327,7 @@ export default function EbayInventory() {
     const unitPrice = item.purchase_unit_price ?? item.unit_price ?? null;
     const quantity = Math.max(1, stockQuantity(item));
     const existingProfit = numberFromValue(getShaftSale(item)?.profitAmount);
+    const saleUrl = getShaftSaleUrlInput(item).trim();
     try {
       await upsertShaftSaleMutation.mutateAsync({
         inventoryId: item.id,
@@ -321,6 +337,7 @@ export default function EbayInventory() {
         quantity,
         unitPrice,
         saleAmount,
+        saleUrl: saleUrl || null,
         profitAmount: existingProfit,
         soldAt: todayJst(),
         supplierName: item.supplierName ?? null,
@@ -343,6 +360,11 @@ export default function EbayInventory() {
         delete next[item.id];
         return next;
       });
+      setShaftSaleUrlInputs((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
       setEditingShaftInventoryId(null);
       await shaftSalesQuery.refetch();
     } catch (error) {
@@ -358,6 +380,7 @@ export default function EbayInventory() {
       return;
     }
     try {
+      const saleUrl = getShaftSaleRowUrlInput(sale).trim();
       await upsertShaftSaleMutation.mutateAsync({
         inventoryId: sale.inventoryId ?? null,
         managementNo: sale.managementNo,
@@ -366,6 +389,7 @@ export default function EbayInventory() {
         quantity: Math.max(1, Math.floor(Number(sale.quantity) || 1)),
         unitPrice: numberFromValue(sale.unitPrice),
         saleAmount,
+        saleUrl: saleUrl || null,
         profitAmount: numberFromValue(sale.profitAmount),
         soldAt: sale.soldAt?.slice(0, 10) ?? todayJst(),
         supplierName: sale.supplierName ?? null,
@@ -373,6 +397,11 @@ export default function EbayInventory() {
       });
       toast.success("シャフト売上を保存しました");
       setShaftSaleRowInputs((current) => {
+        const next = { ...current };
+        delete next[sale.id];
+        return next;
+      });
+      setShaftSaleRowUrlInputs((current) => {
         const next = { ...current };
         delete next[sale.id];
         return next;
@@ -703,6 +732,7 @@ export default function EbayInventory() {
                     const saleInput = getShaftSaleRowInput(sale);
                     const isEditingSale = editingShaftSaleId === sale.id;
                     const soldAtInput = getShaftSaleDateInput(sale);
+                    const saleUrlInput = getShaftSaleRowUrlInput(sale);
                     return (
                       <tr key={sale.id} className="border-b last:border-0">
                         <td className="px-3 py-2 whitespace-nowrap">
@@ -727,7 +757,30 @@ export default function EbayInventory() {
                           </div>
                         </td>
                         <td className="px-3 py-2 font-mono text-xs">{sale.managementNo}</td>
-                        <td className="px-3 py-2">{sale.title}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex min-w-[220px] flex-wrap items-center gap-2">
+                            <span>{sale.title}</span>
+                            {sale.saleUrl && (
+                              <a
+                                href={sale.saleUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                URL
+                              </a>
+                            )}
+                          </div>
+                          {isEditingSale && (
+                            <Input
+                              value={saleUrlInput}
+                              onChange={(event) => setShaftSaleRowUrlInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                              placeholder="売上URL"
+                              className="mt-1 h-8 min-w-[220px] text-xs"
+                            />
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right">
                           {isEditingSale ? (
                             <Input
@@ -761,6 +814,11 @@ export default function EbayInventory() {
                                     delete next[sale.id];
                                     return next;
                                   });
+                                  setShaftSaleRowUrlInputs((current) => {
+                                    const next = { ...current };
+                                    delete next[sale.id];
+                                    return next;
+                                  });
                                 }}
                               >
                                 キャンセル
@@ -777,6 +835,7 @@ export default function EbayInventory() {
                                 } else {
                                   setEditingShaftSaleId(sale.id);
                                   setShaftSaleRowInputs((current) => ({ ...current, [sale.id]: amountInputText(saleAmount) }));
+                                  setShaftSaleRowUrlInputs((current) => ({ ...current, [sale.id]: sale.saleUrl ?? "" }));
                                 }
                               }}
                               disabled={upsertShaftSaleMutation.isPending}
@@ -824,6 +883,7 @@ export default function EbayInventory() {
             const purchaseDate = item.last_purchase_date?.slice(0, 10) ?? item.updated_at?.slice(0, 10) ?? "-";
             const shaftSale = stockType === "shaft" ? getShaftSale(item) : null;
             const shaftSaleInput = stockType === "shaft" ? getShaftSaleInput(item) : "";
+            const shaftSaleUrlInput = stockType === "shaft" ? getShaftSaleUrlInput(item) : "";
             const shaftSaleAmount = numberFromValue(shaftSaleInput) ?? numberFromValue(shaftSale?.saleAmount);
             const isEditingShaftInventorySale = editingShaftInventoryId === item.id;
             return (
@@ -948,7 +1008,25 @@ export default function EbayInventory() {
                         <td className="px-4 py-3 text-right align-top">{formatYen(stockValue)}</td>
                         {stockType === "shaft" && (
                           <td className="px-4 py-3 align-top">
-                            <div className="flex justify-end gap-2">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {isEditingShaftInventorySale ? (
+                                <Input
+                                  value={shaftSaleUrlInput}
+                                  onChange={(event) => setShaftSaleUrlInputs((current) => ({ ...current, [item.id]: event.target.value }))}
+                                  placeholder="売上URL"
+                                  className="h-8 w-56 text-xs"
+                                />
+                              ) : shaftSale?.saleUrl ? (
+                                <a
+                                  href={shaftSale.saleUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 self-center text-xs text-primary hover:underline"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  URL
+                                </a>
+                              ) : null}
                               {isEditingShaftInventorySale ? (
                                 <Input
                                   inputMode="numeric"
@@ -977,6 +1055,11 @@ export default function EbayInventory() {
                                       delete next[item.id];
                                       return next;
                                     });
+                                    setShaftSaleUrlInputs((current) => {
+                                      const next = { ...current };
+                                      delete next[item.id];
+                                      return next;
+                                    });
                                   }}
                                   className="h-8"
                                 >
@@ -994,6 +1077,10 @@ export default function EbayInventory() {
                                     setShaftSaleInputs((current) => ({
                                       ...current,
                                       [item.id]: amountInputText(shaftSaleAmount ?? 0),
+                                    }));
+                                    setShaftSaleUrlInputs((current) => ({
+                                      ...current,
+                                      [item.id]: shaftSale?.saleUrl ?? "",
                                     }));
                                   }
                                 }}
