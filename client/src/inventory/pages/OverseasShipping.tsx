@@ -600,6 +600,24 @@ function aggregateShipmentRowsByOrderLine(
     .sort((a, b) => a.productOrder - b.productOrder || a.productName.localeCompare(b.productName, "ja"));
 }
 
+function sumShippedQtyByOrderProduct(
+  products: CsvInvoiceData["products"],
+  rows: InvoiceEntry["shipments"],
+): Map<number, number> {
+  const shippedQtyByProductIndex = new Map<number, number>();
+
+  for (const row of rows) {
+    const linkedProduct = findShipmentCsvProduct(products, row);
+    if (!linkedProduct) continue;
+    shippedQtyByProductIndex.set(
+      linkedProduct.index,
+      (shippedQtyByProductIndex.get(linkedProduct.index) ?? 0) + row.item.quantity,
+    );
+  }
+
+  return shippedQtyByProductIndex;
+}
+
 export default function OverseasShipping() {
   const [, setLocation] = useLocation();
   const [showComplete, setShowComplete] = useState(false);
@@ -1032,6 +1050,7 @@ export default function OverseasShipping() {
                   ? entry.products.map(p => p.name).join(", ")
                   : "";
                 const aggregatedShipmentRows = aggregateShipmentRowsByOrderLine(entry.products, entry.shipments);
+                const shippedQtyByOrderProduct = sumShippedQtyByOrderProduct(entry.products, entry.shipments);
 
                 return (
                   <div key={entry.invoiceNo} className={`rounded-lg border bg-card shadow-sm overflow-hidden ${entry.isComplete ? "opacity-60" : ""}`}>
@@ -1111,15 +1130,24 @@ export default function OverseasShipping() {
                                 <tr className="text-muted-foreground text-xs border-b">
                                   <th className="text-left py-1 font-medium">商品名</th>
                                   <th className="text-right py-1 font-medium">発注数</th>
+                                  <th className="text-right py-1 font-medium">残数</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {entry.products.map((p, i) => (
-                                  <tr key={i} className="border-b border-border/40 last:border-0">
-                                    <td className="py-1.5 text-sm">{p.name}</td>
-                                    <td className="py-1.5 text-right text-sm">{p.qty}台</td>
-                                  </tr>
-                                ))}
+                                {entry.products.map((p, i) => {
+                                  const remainingQty = Math.max(0, p.qty - (shippedQtyByOrderProduct.get(i) ?? 0));
+                                  return (
+                                    <tr key={i} className="border-b border-border/40 last:border-0">
+                                      <td className="py-1.5 text-sm">{p.name}</td>
+                                      <td className="py-1.5 text-right text-sm">{p.qty}台</td>
+                                      <td className="py-1.5 text-right text-sm">
+                                        <span className={remainingQty > 0 ? "font-medium text-amber-600" : "font-medium text-emerald-600"}>
+                                          {remainingQty}台
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
