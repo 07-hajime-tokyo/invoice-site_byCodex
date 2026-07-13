@@ -118,6 +118,8 @@ const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
   { value: "shaft", label: "シャフト" },
 ];
 
+type ShaftSalesSort = "soldAtDesc" | "saleAmountDesc" | "saleAmountAsc";
+
 function formatYen(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "-";
   const rounded = Math.round(value);
@@ -131,8 +133,21 @@ function numberFromValue(value: string | number | null | undefined) {
   return Number.isFinite(num) ? num : null;
 }
 
+function amountInputText(value: number | null | undefined) {
+  if (value == null || value === 0) return "";
+  return String(Math.round(value));
+}
+
 function stockQuantity(item: InventoryItem) {
   return Math.max(0, Math.floor(Number(item.quantity) || 0));
+}
+
+function compareShaftSalesByDateDesc(a: ShaftSale, b: ShaftSale) {
+  const dateA = a.soldAt?.slice(0, 10) ?? "";
+  const dateB = b.soldAt?.slice(0, 10) ?? "";
+  const dateDiff = dateB.localeCompare(dateA);
+  if (dateDiff !== 0) return dateDiff;
+  return b.id - a.id;
 }
 
 function todayJst() {
@@ -170,6 +185,7 @@ export default function EbayInventory() {
   const [deliveryNo, setDeliveryNo] = useState("");
   const [editTarget, setEditTarget] = useState<EbayInventoryItem | null>(null);
   const [isShaftSalesOpen, setIsShaftSalesOpen] = useState(false);
+  const [shaftSalesSort, setShaftSalesSort] = useState<ShaftSalesSort>("soldAtDesc");
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowInputs, setShaftSaleRowInputs] = useState<Record<number, string>>({});
   const [shaftSaleDateInputs, setShaftSaleDateInputs] = useState<Record<number, string>>({});
@@ -230,6 +246,19 @@ export default function EbayInventory() {
 
   const totalQuantity = items.reduce((sum, item) => sum + stockQuantity(item), 0);
   const shaftSales = ((shaftSalesQuery.data ?? []) as unknown as ShaftSale[]);
+  const sortedShaftSales = useMemo(() => {
+    const sorted = [...shaftSales];
+    sorted.sort((a, b) => {
+      if (shaftSalesSort === "saleAmountDesc" || shaftSalesSort === "saleAmountAsc") {
+        const amountA = numberFromValue(a.saleAmount) ?? 0;
+        const amountB = numberFromValue(b.saleAmount) ?? 0;
+        const amountDiff = shaftSalesSort === "saleAmountDesc" ? amountB - amountA : amountA - amountB;
+        if (amountDiff !== 0) return amountDiff;
+      }
+      return compareShaftSalesByDateDesc(a, b);
+    });
+    return sorted;
+  }, [shaftSales, shaftSalesSort]);
   const shaftSaleMap = useMemo(() => {
     const map = new Map<string, ShaftSale>();
     for (const sale of shaftSales) {
@@ -270,7 +299,7 @@ export default function EbayInventory() {
     const draft = shaftSaleRowInputs[sale.id];
     if (draft !== undefined) return draft;
     const amount = numberFromValue(sale.saleAmount) ?? 0;
-    return String(Math.round(amount));
+    return amountInputText(amount);
   }
 
   async function handleShaftSaleSave(item: EbayInventoryItem) {
@@ -607,6 +636,19 @@ export default function EbayInventory() {
               <p className="mt-1 text-sm text-muted-foreground">在庫カードを削除しても、ここに保存した売上は残ります。</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">並び順</Label>
+                <Select value={shaftSalesSort} onValueChange={(value) => setShaftSalesSort(value as ShaftSalesSort)}>
+                  <SelectTrigger className="h-8 w-44 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="soldAtDesc">売上日 新しい順</SelectItem>
+                    <SelectItem value="saleAmountDesc">売上額 大きい順</SelectItem>
+                    <SelectItem value="saleAmountAsc">売上額 小さい順</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -656,7 +698,7 @@ export default function EbayInventory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {shaftSales.map((sale) => {
+                  {sortedShaftSales.map((sale) => {
                     const saleAmount = numberFromValue(sale.saleAmount) ?? 0;
                     const saleInput = getShaftSaleRowInput(sale);
                     const isEditingSale = editingShaftSaleId === sale.id;
@@ -692,6 +734,7 @@ export default function EbayInventory() {
                               inputMode="numeric"
                               value={saleInput}
                               onChange={(event) => setShaftSaleRowInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                              onFocus={(event) => event.currentTarget.select()}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") handleShaftSaleRowSave(sale);
                               }}
@@ -733,7 +776,7 @@ export default function EbayInventory() {
                                   handleShaftSaleRowSave(sale);
                                 } else {
                                   setEditingShaftSaleId(sale.id);
-                                  setShaftSaleRowInputs((current) => ({ ...current, [sale.id]: String(Math.round(saleAmount)) }));
+                                  setShaftSaleRowInputs((current) => ({ ...current, [sale.id]: amountInputText(saleAmount) }));
                                 }
                               }}
                               disabled={upsertShaftSaleMutation.isPending}
@@ -911,6 +954,7 @@ export default function EbayInventory() {
                                   inputMode="numeric"
                                   value={shaftSaleInput}
                                   onChange={(event) => setShaftSaleInputs((current) => ({ ...current, [item.id]: event.target.value }))}
+                                  onFocus={(event) => event.currentTarget.select()}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter") handleShaftSaleSave(item);
                                   }}
@@ -949,7 +993,7 @@ export default function EbayInventory() {
                                     setEditingShaftInventoryId(item.id);
                                     setShaftSaleInputs((current) => ({
                                       ...current,
-                                      [item.id]: String(Math.round(shaftSaleAmount ?? 0)),
+                                      [item.id]: amountInputText(shaftSaleAmount ?? 0),
                                     }));
                                   }
                                 }}
