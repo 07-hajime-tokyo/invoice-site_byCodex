@@ -85,7 +85,7 @@ function sheetBadgeClass(sheetName: ShipmentSheetName) {
 
 function isDollarPartnerName(partner: string): boolean {
   const p = partner.toLowerCase();
-  return p.includes("samee") || p.includes("sami") || p.includes("sammy") || p.includes("simon") || partner.includes("サミー") || partner.includes("サイモン");
+  return p.includes("samee") || p.includes("sami") || p.includes("sammy") || partner.includes("サミー");
 }
 
 interface CancelledItem {

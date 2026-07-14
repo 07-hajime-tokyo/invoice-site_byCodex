@@ -1782,8 +1782,8 @@ export default function Deliveries() {
                     const rows = checkedItems.filter((item) => item.sellingPrice != null);
                     const total = rows.reduce((sum, item) => sum + (item.sellingPrice! * item.quantity), 0);
                     const totalQty = checkedItems.reduce((sum, item) => sum + item.quantity, 0);
-                    // Luca（独発送管理）の場合はユーロ、それ以外はドル
-                    const currencySymbol = bulkSheetName === "独発送管理" ? "€" : "$";
+                    // Luca/Simon の場合はユーロ、Samee の場合はドル
+                    const currencySymbol = bulkSheetName === "サミー発送管理" ? "$" : "€";
                     // 金額を「数値 + 通貨記号」の後置形式で表示するヘルパー
                     const fmt = (amount: number) => `${amount.toLocaleString()}${currencySymbol}`;
                     return (

@@ -75,8 +75,18 @@ function createInitialForm(): FormState {
 
 function getCurrencyForPartner(partner: string): FormState["currency"] {
   const normalized = partner.trim().toLowerCase();
-  if (normalized.includes("ルカ") || normalized.includes("luca")) return "ユーロ";
+  if (
+    normalized.includes("ルカ") ||
+    normalized.includes("luca") ||
+    normalized.includes("サイモン") ||
+    normalized.includes("simon")
+  ) return "ユーロ";
   return "ドル";
+}
+
+function isHiddenTradePartner(name: string | null | undefined) {
+  const normalized = String(name ?? "").normalize("NFKC").trim().toLowerCase();
+  return normalized === "hennes kamusien";
 }
 
 // 取引相手名の英語→日本語マッピング
@@ -269,7 +279,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     const seen = new Set<string>();
     const add = (name: string | null | undefined) => {
       const trimmed = name?.trim();
-      if (!trimmed || seen.has(trimmed)) return;
+      if (!trimmed || seen.has(trimmed) || isHiddenTradePartner(trimmed)) return;
       seen.add(trimmed);
       options.push(trimmed);
     };

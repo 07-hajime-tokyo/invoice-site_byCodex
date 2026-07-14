@@ -315,7 +315,7 @@ type InvoiceClientOption = {
 
 function getDefaultCurrencyForClient(client: { name?: string | null; company?: string | null } | null | undefined) {
   const text = `${client?.name ?? ""} ${client?.company ?? ""}`.normalize("NFKC").toLowerCase();
-  return text.includes("luca") || text.includes("ルカ") ? "EUR" : "USD";
+  return text.includes("luca") || text.includes("ルカ") || text.includes("simon") || text.includes("サイモン") ? "EUR" : "USD";
 }
 
 function normalizeClientLookupText(value: string | null | undefined) {

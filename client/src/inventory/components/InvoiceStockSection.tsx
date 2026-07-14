@@ -245,8 +245,9 @@ export function InvoiceStockSection({
   const isLuca = partnerLookupLower.includes("luca") || partnerLookupText.includes("ルカ");
   const isSamee = partnerLookupLower.includes("samee") || partnerLookupLower.includes("sami") || partnerLookupLower.includes("sammy") || partnerLookupText.includes("サミー");
   const isSimon = partnerLookupLower.includes("simon") || partnerLookupText.includes("サイモン");
-  const currencySymbol = isLuca ? "€" : "$";
-  const defaultCurrency = isLuca ? "EUR" : "USD";
+  const isEuroPartner = isLuca || isSimon;
+  const currencySymbol = isEuroPartner ? "€" : "$";
+  const defaultCurrency = isEuroPartner ? "EUR" : "USD";
   const sheetName = isSimon
     ? "サイモン発送管理" as const
     : isSamee
