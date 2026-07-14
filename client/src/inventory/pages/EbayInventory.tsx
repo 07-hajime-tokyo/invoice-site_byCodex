@@ -773,12 +773,18 @@ export default function EbayInventory() {
                             )}
                           </div>
                           {isEditingSale && (
-                            <Input
-                              value={saleUrlInput}
-                              onChange={(event) => setShaftSaleRowUrlInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
-                              placeholder="売上URL"
-                              className="mt-1 h-8 min-w-[220px] text-xs"
-                            />
+                            <div className="mt-2 space-y-1">
+                              <Label htmlFor={`shaft-sale-url-${sale.id}`} className="text-[11px] text-muted-foreground">
+                                売上URL
+                              </Label>
+                              <Input
+                                id={`shaft-sale-url-${sale.id}`}
+                                value={saleUrlInput}
+                                onChange={(event) => setShaftSaleRowUrlInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                                placeholder="https://..."
+                                className="h-8 min-w-[260px] text-xs"
+                              />
+                            </div>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
