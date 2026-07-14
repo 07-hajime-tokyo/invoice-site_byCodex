@@ -35,7 +35,8 @@ async function getDirectPartnerNames(): Promise<string[]> {
       .split(/[,、\n]/)
       .map((s) => s.trim())
       .filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_DIRECT_PARTNER_NAMES];
+    if (names.length === 0) return [...DEFAULT_DIRECT_PARTNER_NAMES];
+    return Array.from(new Set([...DEFAULT_DIRECT_PARTNER_NAMES, ...names]));
   } catch {
     return [...DEFAULT_DIRECT_PARTNER_NAMES];
   }

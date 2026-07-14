@@ -167,12 +167,13 @@ import {
   getDb,
 } from "./db";
 
-const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理"]);
+const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"]);
 type ShipmentSheetName = z.infer<typeof shipmentSheetNameSchema>;
 
 function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
   const haystack = texts.filter(Boolean).join(" ").toLowerCase();
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
     return "サミー発送管理";
   }
@@ -872,7 +873,7 @@ type InboundInfo = {
   shaftParentPurchaseId: number | null;
 };
 
-/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ） */
+/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ, サイモン） */
 async function getDirectPartnerNames(): Promise<string[]> {
   try {
     const raw = await getSystemSetting(DIRECT_PARTNER_NAMES_SETTING_KEY);
@@ -881,7 +882,8 @@ async function getDirectPartnerNames(): Promise<string[]> {
       .split(/[,、\n]/)
       .map((s) => s.trim())
       .filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_DIRECT_PARTNER_NAMES];
+    if (names.length === 0) return [...DEFAULT_DIRECT_PARTNER_NAMES];
+    return Array.from(new Set([...DEFAULT_DIRECT_PARTNER_NAMES, ...names]));
   } catch {
     return [...DEFAULT_DIRECT_PARTNER_NAMES];
   }
@@ -6623,10 +6625,12 @@ export const inventoryRouter = router({
           const isLuca = sheetName === "独発送管理";
           const isSamee = sheetName === "サミー発送管理";
           const isDevon = sheetName === "デボン発送管理";
+          const isSimon = sheetName === "サイモン発送管理";
           const partnerLower = partner.toLowerCase();
           if (isLuca && !partnerLower.includes("ルカ") && !partnerLower.includes("luca")) continue;
           if (isSamee && !partnerLower.includes("サミ") && !partnerLower.includes("samm") && !partnerLower.includes("same")) continue;
           if (isDevon && !partnerLower.includes("デボン") && !partnerLower.includes("devon")) continue;
+          if (isSimon && !partnerLower.includes("サイモン") && !partnerLower.includes("simon")) continue;
           if (!csvData[invoiceNo]) csvData[invoiceNo] = { paymentDate, products: [] };
           if (productName) csvData[invoiceNo].products.push({ name: productName, qty: orderQty });
         }

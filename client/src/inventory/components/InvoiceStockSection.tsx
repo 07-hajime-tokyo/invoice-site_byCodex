@@ -238,17 +238,26 @@ export function InvoiceStockSection({
 
   // 選択中のcustomerの情報
   const selectedCustomer = customers?.find((c) => c.code === customerCode);
-  const isSamee = selectedCustomer
-    ? selectedCustomer.code.toLowerCase().includes("samee") || selectedCustomer.displayName.includes("サミー")
-    : partner.toLowerCase().includes("samee") || partner.includes("サミー");
-  const currencySymbol = isSamee ? "$" : "€";
-  const sheetName = isSamee ? "サミー発送管理" as const : "独発送管理" as const;
+  const partnerLookupText = selectedCustomer
+    ? `${selectedCustomer.code} ${selectedCustomer.displayName}`
+    : `${customerCode} ${partner}`;
+  const partnerLookupLower = partnerLookupText.toLowerCase();
+  const isLuca = partnerLookupLower.includes("luca") || partnerLookupText.includes("ルカ");
+  const isSamee = partnerLookupLower.includes("samee") || partnerLookupLower.includes("sami") || partnerLookupLower.includes("sammy") || partnerLookupText.includes("サミー");
+  const isSimon = partnerLookupLower.includes("simon") || partnerLookupText.includes("サイモン");
+  const currencySymbol = isLuca ? "€" : "$";
+  const defaultCurrency = isLuca ? "EUR" : "USD";
+  const sheetName = isSimon
+    ? "サイモン発送管理" as const
+    : isSamee
+      ? "サミー発送管理" as const
+      : "独発送管理" as const;
 
   // 出庫No自動生成（表示用プレースホルダー）
   const autoDeliveryNo = useMemo(() => {
-    const code = customerCode || (isSamee ? "samee" : "luca");
+    const code = customerCode || (isSimon ? "simon" : isSamee ? "samee" : "luca");
     return generateDeliveryNo(code, invoiceNo);
-  }, [customerCode, invoiceNo, isSamee]);
+  }, [customerCode, invoiceNo, isSamee, isSimon]);
 
   // 全選択/全解除
   const allChecked = matchedInventories.length > 0 &&
@@ -285,14 +294,14 @@ export function InvoiceStockSection({
               checked: true,
               etc: inv.etc ?? undefined,
               sellingPrice,
-              currency: currency || (isSamee ? "USD" : "EUR"),
+              currency: currency || defaultCurrency,
             });
           }
         }
       }
       return next;
     });
-  }, [matchedInventories, allChecked, invoiceNo, csvRows, isSamee]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [matchedInventories, allChecked, invoiceNo, csvRows, defaultCurrency]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleCheck = useCallback((inv: MatchedInventory) => {
     const stockQty = parseFloat(inv.quantity ?? "0");
@@ -312,12 +321,12 @@ export function InvoiceStockSection({
           checked: true,
           etc: inv.etc ?? undefined,
           sellingPrice,
-          currency: currency || (isSamee ? "USD" : "EUR"),
+          currency: currency || defaultCurrency,
         });
       }
       return next;
     });
-  }, [invoiceNo, csvRows, isSamee]);
+  }, [invoiceNo, csvRows, defaultCurrency]);
 
   const setQuantity = useCallback((invId: number, qty: number, inv: MatchedInventory) => {
     setDeliveryItems((prev) => {
@@ -335,12 +344,12 @@ export function InvoiceStockSection({
           etc: inv.etc ?? undefined,
           checked: false,
           sellingPrice,
-          currency: currency || (isSamee ? "USD" : "EUR"),
+          currency: currency || defaultCurrency,
         });
       }
       return next;
     });
-  }, [invoiceNo, csvRows, isSamee]);
+  }, [invoiceNo, csvRows, defaultCurrency]);
 
   function openConfirm() {
     if (checkedItems.length === 0) {

@@ -498,7 +498,24 @@ function extractInvoiceNo(deliveryNo: string): string {
 function partnerLabel(sheetName: string): string {
   if (sheetName === "独発送管理") return "Luca";
   if (sheetName === "サミー発送管理") return "Samee";
+  if (sheetName === "サイモン発送管理") return "Simon";
   return sheetName;
+}
+
+type PartnerTab = "all" | "luca" | "samee" | "simon";
+
+function partnerTabLabel(tab: PartnerTab): string {
+  if (tab === "luca") return "Luca";
+  if (tab === "samee") return "Samee";
+  if (tab === "simon") return "Simon";
+  return "すべて";
+}
+
+function partnerTabSheetName(tab: PartnerTab): string | null {
+  if (tab === "luca") return "独発送管理";
+  if (tab === "samee") return "サミー発送管理";
+  if (tab === "simon") return "サイモン発送管理";
+  return null;
 }
 
 // インボイスエントリの型
@@ -622,7 +639,7 @@ export default function OverseasShipping() {
   const [, setLocation] = useLocation();
   const [showComplete, setShowComplete] = useState(false);
   const [activeTab, setActiveTab] = useState("shipments");
-  const [partnerTab, setPartnerTab] = useState<"all" | "luca" | "samee">("all");
+  const [partnerTab, setPartnerTab] = useState<PartnerTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPartners, setSelectedPartners] = useState<Set<string>>(new Set());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -776,7 +793,7 @@ export default function OverseasShipping() {
     return Array.from(set).sort();
   }, [invoiceEntries]);
 
-  // ルカ/サミー判定ヘルパー
+  // ルカ/サミー/サイモン判定ヘルパー
   const isLucaPartner = (partner: string) => {
     const p = partner.toLowerCase();
     return p.includes("ルカ") || p.includes("luca");
@@ -785,6 +802,10 @@ export default function OverseasShipping() {
     const p = partner.toLowerCase();
     return p.includes("サミ") || p.includes("samm") || p.includes("same");
   };
+  const isSimonPartner = (partner: string) => {
+    const p = partner.toLowerCase();
+    return p.includes("サイモン") || p.includes("simon");
+  };
 
   // フィルタリング
   const filtered = useMemo(() => {
@@ -792,9 +813,10 @@ export default function OverseasShipping() {
     return invoiceEntries.filter(entry => {
       if (!showComplete && entry.isComplete) return false;
       if (selectedPartners.size > 0 && !selectedPartners.has(entry.partner)) return false;
-      // ルカ/サミータブフィルター
+      // ルカ/サミー/サイモンタブフィルター
       if (partnerTab === "luca" && !isLucaPartner(entry.partner)) return false;
       if (partnerTab === "samee" && !isSameePartner(entry.partner)) return false;
+      if (partnerTab === "simon" && !isSimonPartner(entry.partner)) return false;
       if (!q) return true;
       if (entry.invoiceNo.includes(q)) return true;
       if (entry.partner.toLowerCase().includes(q)) return true;
@@ -939,9 +961,9 @@ export default function OverseasShipping() {
 
         {/* 発送一覧タブ */}
         <TabsContent value="shipments" className="mt-3 space-y-3">
-          {/* ルカ/サミーサブタブ */}
+          {/* 取引先サブタブ */}
           <div className="flex gap-1 bg-muted/50 rounded-lg p-1 w-fit">
-            {(["all", "luca", "samee"] as const).map(tab => (
+            {(["all", "luca", "samee", "simon"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setPartnerTab(tab)}
@@ -951,7 +973,7 @@ export default function OverseasShipping() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {tab === "all" ? "すべて" : tab === "luca" ? "Luca" : "Samee"}
+                {partnerTabLabel(tab)}
               </button>
             ))}
           </div>
@@ -1007,7 +1029,7 @@ export default function OverseasShipping() {
             </div>
           )}
 
-          {/* Luca/Sameeタブは取引先ポータルと同じ表示 */}
+          {/* 取引先タブは取引先ポータルと同じ表示 */}
           {partnerTab !== "all" ? (
             isLoading ? (
               <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -1016,11 +1038,7 @@ export default function OverseasShipping() {
               </div>
             ) : (
               <PartnerView
-                shipments={shipments.filter(s =>
-                  partnerTab === "luca"
-                    ? s.sheetName === "独発送管理"
-                    : s.sheetName === "サミー発送管理"
-                )}
+                shipments={shipments.filter(s => s.sheetName === partnerTabSheetName(partnerTab))}
                 csvData={csvData}
               />
             )
@@ -1595,6 +1613,7 @@ export default function OverseasShipping() {
                   >
                     <option value="独発送管理">Luca（独発送管理）</option>
                     <option value="サミー発送管理">Samee（サミー発送管理）</option>
+                    <option value="サイモン発送管理">Simon（サイモン発送管理）</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">

@@ -427,9 +427,10 @@ export default function Deliveries() {
   const [isSingleSubmitting, setIsSingleSubmitting] = useState(false);
   // FedEx発送情報（出庫登録フォーム内）
   const [singleTrackingNumber, setSingleTrackingNumber] = useState("");
-  const [singleSheetName, setSingleSheetName] = useState<"独発送管理" | "サミー発送管理">("独発送管理");
+  type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "サイモン発送管理";
+  const [singleSheetName, setSingleSheetName] = useState<ShipmentSheetName>("独発送管理");
   const [bulkTrackingNumber, setBulkTrackingNumber] = useState("");
-  const [bulkSheetName, setBulkSheetName] = useState<"独発送管理" | "サミー発送管理">("独発送管理");
+  const [bulkSheetName, setBulkSheetName] = useState<ShipmentSheetName>("独発送管理");
   const bulkInvoiceNoForOrder = useMemo(() => {
     return deliveryNo.trim().match(/^(\d+)/)?.[1] ?? bulkInvoiceNo.trim();
   }, [deliveryNo, bulkInvoiceNo]);
@@ -1781,9 +1782,8 @@ export default function Deliveries() {
                     const rows = checkedItems.filter((item) => item.sellingPrice != null);
                     const total = rows.reduce((sum, item) => sum + (item.sellingPrice! * item.quantity), 0);
                     const totalQty = checkedItems.reduce((sum, item) => sum + item.quantity, 0);
-                    // Samee（サミー発送管理）の場合はドル、それ以外はユーロ
-                    const isSamee = bulkSheetName === "サミー発送管理";
-                    const currencySymbol = isSamee ? "$" : "€";
+                    // Luca（独発送管理）の場合はユーロ、それ以外はドル
+                    const currencySymbol = bulkSheetName === "独発送管理" ? "€" : "$";
                     // 金額を「数値 + 通貨記号」の後置形式で表示するヘルパー
                     const fmt = (amount: number) => `${amount.toLocaleString()}${currencySymbol}`;
                     return (
@@ -2098,13 +2098,14 @@ export default function Deliveries() {
               {bulkTrackingNumber.trim() && (
                 <div className="space-y-1">
                   <label className="text-xs font-medium">シート</label>
-                  <Select value={bulkSheetName} onValueChange={(v) => setBulkSheetName(v as "独発送管理" | "サミー発送管理")}>
+                  <Select value={bulkSheetName} onValueChange={(v) => setBulkSheetName(v as ShipmentSheetName)}>
                     <SelectTrigger className="h-8">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="独発送管理">独発送管理</SelectItem>
                       <SelectItem value="サミー発送管理">サミー発送管理</SelectItem>
+                      <SelectItem value="サイモン発送管理">サイモン発送管理</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2300,13 +2301,14 @@ export default function Deliveries() {
                 {singleTrackingNumber.trim() && (
                   <div className="space-y-1">
                     <label className="text-xs font-medium">シート</label>
-                    <Select value={singleSheetName} onValueChange={(v) => setSingleSheetName(v as "独発送管理" | "サミー発送管理")}>
+                    <Select value={singleSheetName} onValueChange={(v) => setSingleSheetName(v as ShipmentSheetName)}>
                       <SelectTrigger className="h-8">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="独発送管理">独発送管理</SelectItem>
                         <SelectItem value="サミー発送管理">サミー発送管理</SelectItem>
+                        <SelectItem value="サイモン発送管理">サイモン発送管理</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

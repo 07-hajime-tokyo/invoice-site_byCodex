@@ -45,7 +45,7 @@ interface FormState {
   shippingCost: string; // 送料（550×注文数で自動計算、手動編集可）
 }
 
-const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン"] as const;
+const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン", "サイモン"] as const;
 
 function getTodayDateString() {
   const today = new Date();
@@ -88,6 +88,7 @@ const PARTNER_MAP: Record<string, string> = {
   "sammy": "サミー",
   "devon": "デボン",
   "devon brako": "デボン",
+  "simon": "サイモン",
 };
 
 // 商品名・フレーズの英語→日本語変換マッピング（部分一致・置換）
@@ -117,6 +118,7 @@ const PARTNER_PREFIX_MAP: Array<[RegExp, string]> = [
   [/^sami\b/i, "サミー"],
   [/^sammy\b/i, "サミー"],
   [/^devon\b/i, "デボン"],
+  [/^simon\b/i, "サイモン"],
 ];
 
 function toJapanesePartner(name: string): string {

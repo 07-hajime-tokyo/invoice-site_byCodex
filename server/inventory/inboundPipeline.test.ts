@@ -15,7 +15,7 @@ import {
 } from "@shared/inboundPipeline";
 
 describe("classifyInbound", () => {
-  const partners = DEFAULT_DIRECT_PARTNER_NAMES; // サミー, ルカ
+  const partners = DEFAULT_DIRECT_PARTNER_NAMES; // サミー, ルカ, サイモン
 
   it("classifies E-prefixed management numbers as ebay", () => {
     expect(classifyInbound({ managementNo: "E0403-12" })).toBe("ebay");

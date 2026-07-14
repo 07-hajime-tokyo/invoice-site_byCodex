@@ -62,13 +62,14 @@ export interface HistoryItem {
   managementNo?: string;
 }
 
-type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理";
+type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理";
 
-const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理"];
+const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"];
 
 function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
   const haystack = texts.filter(Boolean).join(" ").toLowerCase();
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
     return "サミー発送管理";
   }
@@ -77,8 +78,14 @@ function detectShipmentSheetName(...texts: Array<string | null | undefined>): Sh
 
 function sheetBadgeClass(sheetName: ShipmentSheetName) {
   if (sheetName === "デボン発送管理") return "bg-amber-100 text-amber-700 border-amber-200";
+  if (sheetName === "サイモン発送管理") return "bg-cyan-100 text-cyan-700 border-cyan-200";
   if (sheetName === "サミー発送管理") return "bg-purple-100 text-purple-700 border-purple-200";
   return "bg-blue-100 text-blue-700 border-blue-200";
+}
+
+function isDollarPartnerName(partner: string): boolean {
+  const p = partner.toLowerCase();
+  return p.includes("samee") || p.includes("sami") || p.includes("sammy") || p.includes("simon") || partner.includes("サミー") || partner.includes("サイモン");
 }
 
 interface CancelledItem {
@@ -2169,8 +2176,8 @@ export default function DeliveryHistory() {
             // 販売価格計算: CSVの商品別単価 × 出庫数を合算
             const csvPriceRows = csvPriceMap.get(groupKey) ?? [];
             const groupPartner = csvPriceRows[0]?.partner ?? "";
-            const isSamee = groupPartner.toLowerCase().includes("samee") || groupPartner.toLowerCase().includes("sami") || groupPartner.toLowerCase().includes("sammy");
-            const groupCurrency = isSamee ? "$" : "€";
+            const isDollarPartner = isDollarPartnerName(groupPartner);
+            const groupCurrency = isDollarPartner ? "$" : "€";
             let groupSellingTotal: number | null = null;
             if (csvPriceRows.length > 0) {
               // CSV商品別に単価×出庫数を合算
@@ -2199,7 +2206,7 @@ export default function DeliveryHistory() {
                 if (gDate !== groupDate) continue;
                 const gCsvPriceRows = csvPriceMap.get(gKey) ?? [];
                 const gPartner = gCsvPriceRows[0]?.partner ?? "";
-                const gIsSamee = gPartner.toLowerCase().includes("samee") || gPartner.toLowerCase().includes("sami") || gPartner.toLowerCase().includes("sammy");
+                const gIsDollarPartner = isDollarPartnerName(gPartner);
                 const gAllItems: HistoryItem[] = withManagementNos(gHistories.flatMap((h) => getActiveHistoryItems(h)));
                 const gCsvProducts = csvProductsMap.get(gKey) ?? [];
                 const gDelivered = buildGroupDeliveredSummary(gCsvProducts, gAllItems);
@@ -2207,7 +2214,7 @@ export default function DeliveryHistory() {
                   if (csvRow.sellingPrice == null) continue;
                   const matched = gDelivered.find((d) => { const dL = d.name.toLowerCase(); const cL = csvRow.productName.toLowerCase(); return dL.includes(cL) || cL.includes(dL); });
                   const qty = matched ? matched.deliveredQty : 0;
-                  if (gIsSamee) dateTotalDollar += csvRow.sellingPrice * qty;
+                  if (gIsDollarPartner) dateTotalDollar += csvRow.sellingPrice * qty;
                   else dateTotalEuro += csvRow.sellingPrice * qty;
                 }
               }
@@ -2247,7 +2254,7 @@ export default function DeliveryHistory() {
                       {groupHasDeleted && <Badge variant="outline" className="text-xs text-amber-600 border-amber-400">削除済み商品あり</Badge>}
                       <Badge variant="secondary" className="text-xs">{groupTotalItems}商品</Badge>
                       {groupSellingTotal !== null && groupSellingTotal > 0 && (
-                        <Badge className={`text-xs font-bold ${isSamee ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-blue-100 text-blue-700 border-blue-200"} border`}>
+                        <Badge className={`text-xs font-bold ${isDollarPartner ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-blue-100 text-blue-700 border-blue-200"} border`}>
                           {groupSellingTotal}{groupCurrency}
                         </Badge>
                       )}

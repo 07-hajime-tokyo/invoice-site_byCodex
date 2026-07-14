@@ -185,7 +185,7 @@ export function extractPartnerToken(managementNo: string | null | undefined): st
 
 /**
  * 管理番号が「直取の相手名リスト」に前方一致するか。
- * partnerNames は表示名の配列（初期値: サミー, ルカ）。
+ * partnerNames は表示名の配列（初期値: サミー, ルカ, サイモン）。
  * 相手名トークン、または管理番号全体が、いずれかの相手名で前方一致すれば true。
  */
 export function matchesDirectPartner(
@@ -212,7 +212,7 @@ export type ClassifyInboundInput = {
   place?: string | null;
   /** 紐づく在庫の eBay 注文URL（あれば eBay 由来の強い証拠） */
   ebayOrderUrl?: string | null;
-  /** 直取の相手名リスト（表示名。初期値: サミー, ルカ。設定で追加可能） */
+  /** 直取の相手名リスト（表示名。初期値: サミー, ルカ, サイモン。設定で追加可能） */
   directPartnerNames?: readonly string[];
   /** 管理番号の数値プレフィックスが、発行済みインボイス番号集合に含まれるか */
   hasLinkedInvoice?: boolean;
@@ -261,7 +261,7 @@ export function isInboundClass(value: unknown): value is InboundClass {
 }
 
 /** 直取の相手名リストの初期値（設定未登録時のフォールバック） */
-export const DEFAULT_DIRECT_PARTNER_NAMES: readonly string[] = ["サミー", "ルカ"] as const;
+export const DEFAULT_DIRECT_PARTNER_NAMES: readonly string[] = ["サミー", "ルカ", "サイモン"] as const;
 
 /** システム設定キー: 直取の相手名リスト（カンマ区切り保存） */
 export const DIRECT_PARTNER_NAMES_SETTING_KEY = "inbound_direct_partner_names";
