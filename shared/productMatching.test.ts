@@ -74,6 +74,19 @@ describe("productMatching", () => {
     expect(suggestion?.name).toBe("New3DS ランダムカラー");
   });
 
+  it("3DS LLランダムカラーをNew 3DS LLに吸収しない", () => {
+    expect(extractModel("3DS LL ランダムカラー")).toBe("3DSLL");
+    expect(extractModel("New 3DS LL ランダムカラー")).toBe("New3DSLL");
+
+    const products = [
+      { name: "3DS LL ランダムカラー", qty: 15 },
+      { name: "New 3DS LL ランダムカラー", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("3DSLL レッド×ブラック", "394_サイモン_9/15", products)?.name).toBe("3DS LL ランダムカラー");
+    expect(suggestCsvProduct("New 3DS LL ブラック", "394_サイモン_New3DSLL_1/5", products)?.name).toBe("New 3DS LL ランダムカラー");
+  });
+
   it("New 2DS LLを2DSとして扱わない", () => {
     expect(extractModel("New 2DS LL ブラック×ターコイズ")).toBe("New2DSLL");
     expect(extractModel("2DS クリアブラック")).toBe("2DS");

@@ -240,7 +240,6 @@ function extractModelFromCsvName(name: string): string {
   if (n.includes("vita 2000") || n.includes("vita2000")) return "Vita2000";
   if (n.includes("vita 1000") || n.includes("vita1000") || (n.includes("vita") && !n.includes("2000"))) return "Vita1000";
   if (n.includes("new 3ds ll") || n.includes("new 3dsll") || n.includes("new3ds ll") || n.includes("new3dsll")) return "New3DSLL";
-  if ((n.includes("3ds ll") || n.includes("3dsll")) && (n.includes("ランダム") || n.includes("random"))) return "New3DSLL";
   if (n.includes("new 3ds") || n.includes("new3ds")) return "New3DS";
   if (n.includes("2ds")) return "2DS";
   if (n.includes("3ds ll") || n.includes("3dsll")) return "3DSLL";

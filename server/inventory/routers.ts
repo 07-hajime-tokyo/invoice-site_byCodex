@@ -4397,7 +4397,6 @@ export const inventoryRouter = router({
         if (t.includes("vita 2000") || t.includes("vita2000") || (t.includes("vita") && t.includes("2000"))) return "Vita2000";
         if (t.includes("vita 1000") || t.includes("vita1000") || (t.includes("vita") && !t.includes("2000"))) return "Vita1000";
         if (t.includes("new 3ds ll") || t.includes("new 3dsll") || t.includes("new3ds ll") || t.includes("new3dsll")) return "New3DSLL";
-        if ((t.includes("3ds ll") || t.includes("3dsll")) && (t.includes("ランダム") || t.includes("random"))) return "New3DSLL";
         if ((t.includes("new 3ds") || t.includes("new3ds")) && !t.includes("ll")) return "New3DS";
         if (t.includes("2ds") && !t.includes("new") && !t.includes("ll")) return "2DS";
         if ((t.includes("3ds ll") || t.includes("3dsll")) && !t.includes("new")) return "3DSLL";

@@ -158,7 +158,6 @@ export function extractManagementInvoiceKey(value: string | null | undefined): s
 export function extractModel(title: string): string {
   const normalized = normalizeText(title);
   const loose = normalizeLooseText(normalized);
-  if ((loose.includes("3dsll") || loose.includes("3dsxl")) && isRandomColor(normalized)) return "New3DSLL";
   for (const [pattern, model] of MODEL_PATTERNS) {
     if (pattern.test(normalized) || pattern.test(loose)) return model;
   }
