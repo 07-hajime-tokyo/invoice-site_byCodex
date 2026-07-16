@@ -10,6 +10,7 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { inventoryRouter } from "./inventory/routers";
+import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
@@ -544,18 +545,8 @@ function applySheetShipmentStatuses<T extends { no: number | null; productName: 
   });
 }
 
-function isClosedTradeYear(row: { paymentDate?: string | null }) {
-  const paymentDate = String(row.paymentDate ?? "").trim();
-  return /^2025[/-]/.test(paymentDate);
-}
-
 function applyClosedTradeYearStatuses<T extends { paymentDate?: string | null; status: string | null }>(rows: T[]) {
-  return rows.map((row) => (isClosedTradeYear(row) ? { ...row, status: "complete" } : row));
-}
-
-function isTradeStatusComplete(status: unknown) {
-  const normalized = String(status ?? "").trim().toLowerCase();
-  return normalized === "complete" || normalized === "\u5b8c\u4e86";
+  return rows.map((row) => (isClosedTradeYear(row.paymentDate) ? { ...row, status: "complete" } : row));
 }
 
 async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
@@ -781,6 +772,68 @@ function allocateQtyToTrades(
   }
 
   return result;
+}
+
+type TradeShipmentRegistrationProgress = {
+  registeredQtyByTradeId: Map<number, number>;
+  invoiceNosWithShipmentSignal: Set<string>;
+};
+
+async function getTradeShipmentRegistrationProgress(
+  db: RouterDb,
+  rows: TradeRow[],
+): Promise<TradeShipmentRegistrationProgress> {
+  const invoiceNos = Array.from(
+    new Set(
+      rows
+        .map((row) => Number(row.no ?? 0))
+        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 383),
+    ),
+  );
+
+  if (invoiceNos.length === 0) {
+    return {
+      registeredQtyByTradeId: new Map(),
+      invoiceNosWithShipmentSignal: new Set(),
+    };
+  }
+
+  const allItems = await db
+    .select()
+    .from(shipmentItems)
+    .where(inArray(shipmentItems.invoiceNo, invoiceNos));
+
+  const registeredQtyByTradeId = new Map<number, number>();
+  const invoiceNosWithShipmentSignal = new Set<string>();
+
+  for (const item of allItems) {
+    const tradeId = getShipmentTradeRecordId(item);
+    if (!tradeId) continue;
+    registeredQtyByTradeId.set(tradeId, (registeredQtyByTradeId.get(tradeId) ?? 0) + item.quantity);
+    invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
+  }
+
+  return { registeredQtyByTradeId, invoiceNosWithShipmentSignal };
+}
+
+function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
+  rows: T[],
+  progress: TradeShipmentRegistrationProgress,
+) {
+  if (progress.invoiceNosWithShipmentSignal.size === 0) return rows;
+
+  return rows.map((row): T => {
+    const invoiceNo = row.no == null ? null : Number(row.no);
+    const status = deriveTradeShipmentRegistrationStatus({
+      status: row.status,
+      invoiceNo,
+      paymentDate: row.paymentDate,
+      orderedQty: toNumber(row.quantity),
+      registeredQty: progress.registeredQtyByTradeId.get(Number(row.id)) ?? 0,
+      hasShipmentSignal: invoiceNo !== null && progress.invoiceNosWithShipmentSignal.has(String(invoiceNo)),
+    });
+    return status === (row.status ?? "") ? row : { ...row, status };
+  });
 }
 
 /**
@@ -1278,7 +1331,12 @@ export const appRouter = router({
         const rowsWithSheetStatus = sheetProgress
           ? applySheetShipmentStatuses(baseRows, sheetProgress)
           : baseRows;
-        const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithSheetStatus);
+        const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithSheetStatus);
+        const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
+          rowsWithSheetStatus,
+          shipmentRegistrationProgress,
+        );
+        const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithShipmentRegistrationStatus);
         const statusFilter = input.status.trim().toLowerCase();
         const statusFilteredRows = statusFilter
           ? rowsWithComputedStatus.filter((row) => {
