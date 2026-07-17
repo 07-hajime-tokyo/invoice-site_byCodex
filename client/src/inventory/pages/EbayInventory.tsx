@@ -190,6 +190,7 @@ export default function EbayInventory() {
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [shaftSaleUrlInputs, setShaftSaleUrlInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowInputs, setShaftSaleRowInputs] = useState<Record<number, string>>({});
+  const [shaftSaleRowTitleInputs, setShaftSaleRowTitleInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowUrlInputs, setShaftSaleRowUrlInputs] = useState<Record<number, string>>({});
   const [shaftSaleDateInputs, setShaftSaleDateInputs] = useState<Record<number, string>>({});
   const [editingShaftInventoryId, setEditingShaftInventoryId] = useState<number | null>(null);
@@ -310,6 +311,12 @@ export default function EbayInventory() {
     return sale.saleUrl ?? "";
   }
 
+  function getShaftSaleRowTitleInput(sale: ShaftSale) {
+    const draft = shaftSaleRowTitleInputs[sale.id];
+    if (draft !== undefined) return draft;
+    return sale.title;
+  }
+
   function getShaftSaleRowInput(sale: ShaftSale) {
     const draft = shaftSaleRowInputs[sale.id];
     if (draft !== undefined) return draft;
@@ -379,12 +386,17 @@ export default function EbayInventory() {
       toast.error("売上は数字で入力してください");
       return;
     }
+    const title = getShaftSaleRowTitleInput(sale).trim();
+    if (!title) {
+      toast.error("商品名を入力してください");
+      return;
+    }
     try {
       const saleUrl = getShaftSaleRowUrlInput(sale).trim();
       await upsertShaftSaleMutation.mutateAsync({
         inventoryId: sale.inventoryId ?? null,
         managementNo: sale.managementNo,
-        title: sale.title,
+        title,
         category: sale.category ?? null,
         quantity: Math.max(1, Math.floor(Number(sale.quantity) || 1)),
         unitPrice: numberFromValue(sale.unitPrice),
@@ -402,6 +414,11 @@ export default function EbayInventory() {
         return next;
       });
       setShaftSaleRowUrlInputs((current) => {
+        const next = { ...current };
+        delete next[sale.id];
+        return next;
+      });
+      setShaftSaleRowTitleInputs((current) => {
         const next = { ...current };
         delete next[sale.id];
         return next;
@@ -733,6 +750,7 @@ export default function EbayInventory() {
                     const isEditingSale = editingShaftSaleId === sale.id;
                     const soldAtInput = getShaftSaleDateInput(sale);
                     const saleUrlInput = getShaftSaleRowUrlInput(sale);
+                    const saleTitleInput = getShaftSaleRowTitleInput(sale);
                     return (
                       <tr key={sale.id} className="border-b last:border-0">
                         <td className="px-3 py-2 whitespace-nowrap">
@@ -773,7 +791,23 @@ export default function EbayInventory() {
                             )}
                           </div>
                           {isEditingSale && (
-                            <div className="mt-2 space-y-1">
+                            <div className="mt-2 space-y-2">
+                              <div className="space-y-1">
+                                <Label htmlFor={`shaft-sale-title-${sale.id}`} className="text-[11px] text-muted-foreground">
+                                  商品名
+                                </Label>
+                                <Input
+                                  id={`shaft-sale-title-${sale.id}`}
+                                  value={saleTitleInput}
+                                  onChange={(event) => setShaftSaleRowTitleInputs((current) => ({ ...current, [sale.id]: event.target.value }))}
+                                  onFocus={(event) => event.currentTarget.select()}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") handleShaftSaleRowSave(sale);
+                                  }}
+                                  className="h-8 min-w-[260px] text-xs"
+                                />
+                              </div>
+                              <div className="space-y-1">
                               <Label htmlFor={`shaft-sale-url-${sale.id}`} className="text-[11px] text-muted-foreground">
                                 売上URL
                               </Label>
@@ -784,6 +818,7 @@ export default function EbayInventory() {
                                 placeholder="https://..."
                                 className="h-8 min-w-[260px] text-xs"
                               />
+                              </div>
                             </div>
                           )}
                         </td>
@@ -825,6 +860,11 @@ export default function EbayInventory() {
                                     delete next[sale.id];
                                     return next;
                                   });
+                                  setShaftSaleRowTitleInputs((current) => {
+                                    const next = { ...current };
+                                    delete next[sale.id];
+                                    return next;
+                                  });
                                 }}
                               >
                                 キャンセル
@@ -841,6 +881,7 @@ export default function EbayInventory() {
                                 } else {
                                   setEditingShaftSaleId(sale.id);
                                   setShaftSaleRowInputs((current) => ({ ...current, [sale.id]: amountInputText(saleAmount) }));
+                                  setShaftSaleRowTitleInputs((current) => ({ ...current, [sale.id]: sale.title }));
                                   setShaftSaleRowUrlInputs((current) => ({ ...current, [sale.id]: sale.saleUrl ?? "" }));
                                 }
                               }}
