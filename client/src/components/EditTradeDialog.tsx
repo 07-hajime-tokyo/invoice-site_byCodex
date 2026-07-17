@@ -31,7 +31,6 @@ import {
 import { Pencil, RefreshCw, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { TradeRecord } from "@/lib/csvUtils";
-import { calculateSafePurchaseLimit } from "@shared/tradeSafePurchaseLimit";
 
 // frankfurter.dev/v1 から指定日（または最新）の EUR/USD → JPY レートを取得
 async function fetchFrankfurterRate(date?: string): Promise<{ eur: number; usd: number } | null> {
@@ -220,22 +219,6 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
     return Math.round(priceJpy * qty);
   })();
 
-  const foreignTotal = (() => {
-    const price = parseFloat(form.unitPrice);
-    const qty = parseFloat(form.quantity);
-    if (isNaN(price) || isNaN(qty)) return null;
-    return price * qty;
-  })();
-
-  const activeRate = (() => {
-    const eurRate = parseFloat(form.eurRate);
-    const usdRate = parseFloat(form.usdRate);
-    if (form.currency === "ドル" || form.currency.toUpperCase() === "USD") {
-      return isNaN(usdRate) ? null : usdRate;
-    }
-    return isNaN(eurRate) ? null : eurRate;
-  })();
-
   // 還付込利益 = 売上合計 - 仕入れ合計 + 還付 - 送料 - 関税
   const profitWithRefund = (() => {
     if (totalSales === null) return null;
@@ -245,13 +228,6 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
     const customs = parseFloat(form.customsDuty) || 0;
     return Math.round(totalSales - procurement + refund - shipping - customs);
   })();
-
-  const safePurchaseLimit = calculateSafePurchaseLimit({
-    totalSalesJpy: totalSales,
-    totalForeignAmount: foreignTotal,
-    fxRate: activeRate,
-    shippingCostJpy: parseFloat(form.shippingCost) || 0,
-  });
 
   const updateMutation = trpc.trade.updateRecord.useMutation({
     onSuccess: () => {
@@ -594,12 +570,6 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
               }`}>
                 <span className="text-xs font-normal opacity-70">還付込利益（自動計算）</span>
                 <span>{formatJpy(profitWithRefund)}</span>
-              </div>
-            )}
-            {safePurchaseLimit && (
-              <div className="rounded-lg px-3 py-2 text-sm font-semibold flex items-center justify-between bg-slate-50 text-slate-700 border border-slate-200">
-                <span className="text-xs font-normal opacity-70">安全仕入上限（スプシ式）</span>
-                <span>{formatJpy(safePurchaseLimit.safePurchaseLimitJpy)}</span>
               </div>
             )}
 
