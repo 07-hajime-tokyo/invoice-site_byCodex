@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, RefreshCw, AlertCircle, CheckCircle2, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { calculateSafePurchaseLimit } from "@shared/tradeSafePurchaseLimit";
 
 interface FormState {
   month: string;
@@ -332,11 +333,34 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     return priceJpy * qty;
   })();
 
+  const foreignTotal = (() => {
+    const price = parseFloat(form.unitPrice);
+    const qty = parseFloat(form.quantity);
+    if (isNaN(price) || isNaN(qty)) return null;
+    return price * qty;
+  })();
+
+  const activeRate = (() => {
+    const eurRate = parseFloat(form.eurRate);
+    const usdRate = parseFloat(form.usdRate);
+    if (form.currency === "ドル" || form.currency.toUpperCase() === "USD") {
+      return isNaN(usdRate) ? null : usdRate;
+    }
+    return isNaN(eurRate) ? null : eurRate;
+  })();
+
   const shippingNum = parseFloat(form.shippingCost) || 0;
   const profitPreview = (() => {
     if (totalJpy === null) return null;
     return totalJpy - shippingNum;
   })();
+
+  const safePurchaseLimit = calculateSafePurchaseLimit({
+    totalSalesJpy: totalJpy,
+    totalForeignAmount: foreignTotal,
+    fxRate: activeRate,
+    shippingCostJpy: shippingNum,
+  });
 
   const handleSubmit = () => {
     setSubmitError(null);
@@ -735,6 +759,11 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               {profitPreview !== null && (
                 <p className="text-[10px] text-muted-foreground mt-1">
                   売上合計 ¥{totalJpy?.toLocaleString()} − 送料 ¥{shippingNum.toLocaleString()} = 概算利益 ¥{profitPreview.toLocaleString()}
+                </p>
+              )}
+              {safePurchaseLimit && (
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  安全仕入上限（スプシ式） ¥{safePurchaseLimit.safePurchaseLimitJpy.toLocaleString()}
                 </p>
               )}
             </div>
