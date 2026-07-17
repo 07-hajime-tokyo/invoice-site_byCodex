@@ -189,6 +189,7 @@ export default function EbayInventory() {
   const [shaftSalesSort, setShaftSalesSort] = useState<ShaftSalesSort>("soldAtDesc");
   const [shaftSaleInputs, setShaftSaleInputs] = useState<Record<number, string>>({});
   const [shaftSaleUrlInputs, setShaftSaleUrlInputs] = useState<Record<number, string>>({});
+  const [shaftSaleTitleInputs, setShaftSaleTitleInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowInputs, setShaftSaleRowInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowTitleInputs, setShaftSaleRowTitleInputs] = useState<Record<number, string>>({});
   const [shaftSaleRowUrlInputs, setShaftSaleRowUrlInputs] = useState<Record<number, string>>({});
@@ -305,6 +306,12 @@ export default function EbayInventory() {
     return getShaftSale(item)?.saleUrl ?? "";
   }
 
+  function getShaftSaleTitleInput(item: EbayInventoryItem) {
+    const draft = shaftSaleTitleInputs[item.id];
+    if (draft !== undefined) return draft;
+    return getShaftSale(item)?.title ?? item.title;
+  }
+
   function getShaftSaleRowUrlInput(sale: ShaftSale) {
     const draft = shaftSaleRowUrlInputs[sale.id];
     if (draft !== undefined) return draft;
@@ -335,11 +342,16 @@ export default function EbayInventory() {
     const quantity = Math.max(1, stockQuantity(item));
     const existingProfit = numberFromValue(getShaftSale(item)?.profitAmount);
     const saleUrl = getShaftSaleUrlInput(item).trim();
+    const title = getShaftSaleTitleInput(item).trim();
+    if (!title) {
+      toast.error("商品名を入力してください");
+      return;
+    }
     try {
       await upsertShaftSaleMutation.mutateAsync({
         inventoryId: item.id,
         managementNo: item.managementNo,
-        title: item.title,
+        title,
         category: item.category ?? item.categories?.[0] ?? null,
         quantity,
         unitPrice,
@@ -351,7 +363,7 @@ export default function EbayInventory() {
         supplierUrl: item.supplierUrl ?? null,
         snapshot: {
           inventoryId: item.id,
-          title: item.title,
+          title,
           quantity: item.quantity,
           unit: item.unit,
           category: item.category ?? item.categories?.[0] ?? null,
@@ -368,6 +380,11 @@ export default function EbayInventory() {
         return next;
       });
       setShaftSaleUrlInputs((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      setShaftSaleTitleInputs((current) => {
         const next = { ...current };
         delete next[item.id];
         return next;
@@ -931,6 +948,7 @@ export default function EbayInventory() {
             const shaftSale = stockType === "shaft" ? getShaftSale(item) : null;
             const shaftSaleInput = stockType === "shaft" ? getShaftSaleInput(item) : "";
             const shaftSaleUrlInput = stockType === "shaft" ? getShaftSaleUrlInput(item) : "";
+            const shaftSaleTitleInput = stockType === "shaft" ? getShaftSaleTitleInput(item) : "";
             const shaftSaleAmount = numberFromValue(shaftSaleInput) ?? numberFromValue(shaftSale?.saleAmount);
             const isEditingShaftInventorySale = editingShaftInventoryId === item.id;
             return (
@@ -1027,6 +1045,23 @@ export default function EbayInventory() {
                             <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                             <div className="min-w-0">
                               <div className="font-medium">{item.title}</div>
+                              {stockType === "shaft" && isEditingShaftInventorySale && (
+                                <div className="mt-2 max-w-md space-y-1">
+                                  <Label htmlFor={`shaft-inventory-sale-title-${item.id}`} className="text-[11px] text-muted-foreground">
+                                    商品名
+                                  </Label>
+                                  <Input
+                                    id={`shaft-inventory-sale-title-${item.id}`}
+                                    value={shaftSaleTitleInput}
+                                    onChange={(event) => setShaftSaleTitleInputs((current) => ({ ...current, [item.id]: event.target.value }))}
+                                    onFocus={(event) => event.currentTarget.select()}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") handleShaftSaleSave(item);
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                              )}
                               {(item.supplierName || item.supplierUrl) && (
                                 <div className="mt-1 text-xs">
                                   {item.supplierUrl ? (
@@ -1107,6 +1142,11 @@ export default function EbayInventory() {
                                       delete next[item.id];
                                       return next;
                                     });
+                                    setShaftSaleTitleInputs((current) => {
+                                      const next = { ...current };
+                                      delete next[item.id];
+                                      return next;
+                                    });
                                   }}
                                   className="h-8"
                                 >
@@ -1128,6 +1168,10 @@ export default function EbayInventory() {
                                     setShaftSaleUrlInputs((current) => ({
                                       ...current,
                                       [item.id]: shaftSale?.saleUrl ?? "",
+                                    }));
+                                    setShaftSaleTitleInputs((current) => ({
+                                      ...current,
+                                      [item.id]: shaftSale?.title ?? item.title,
                                     }));
                                   }
                                 }}
