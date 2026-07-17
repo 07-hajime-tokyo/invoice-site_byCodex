@@ -798,6 +798,15 @@ async function getTradeShipmentRegistrationProgress(
     };
   }
 
+  const visibleTradesByInvoiceNo = new Map<string, TradeRow[]>();
+  for (const row of rows) {
+    const invoiceNo = String(row.no ?? "");
+    if (!invoiceNo) continue;
+    const trades = visibleTradesByInvoiceNo.get(invoiceNo) ?? [];
+    trades.push(row);
+    visibleTradesByInvoiceNo.set(invoiceNo, trades);
+  }
+
   const [allTrades, allItems] = await Promise.all([
     db
       .select()
@@ -825,8 +834,14 @@ async function getTradeShipmentRegistrationProgress(
   for (const item of allItems) {
     let tradeId = getShipmentTradeRecordId(item);
     if (!tradeId) {
-      const invoiceTrades = tradesByInvoiceNo.get(String(item.invoiceNo)) ?? [];
-      tradeId = invoiceTrades.length === 1 ? Number(invoiceTrades[0].id) : null;
+      const invoiceNo = String(item.invoiceNo);
+      const visibleTrades = visibleTradesByInvoiceNo.get(invoiceNo) ?? [];
+      const invoiceTrades = tradesByInvoiceNo.get(invoiceNo) ?? [];
+      if (visibleTrades.length === 1) {
+        tradeId = Number(visibleTrades[0].id);
+      } else if (invoiceTrades.length === 1) {
+        tradeId = Number(invoiceTrades[0].id);
+      }
     }
     if (!tradeId) continue;
     registeredQtyByTradeId.set(tradeId, (registeredQtyByTradeId.get(tradeId) ?? 0) + item.quantity);
