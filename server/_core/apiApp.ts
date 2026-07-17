@@ -7,6 +7,59 @@ import { registerCronRoutes } from "./cron";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { generateInvoicePdf } from "../pdfGenerator";
+import { getShaftSales } from "../inventory/db";
+
+type ShaftSalesResponseItem = {
+  name: string;
+  averageJpy: number;
+  count: number;
+};
+
+function normalizeShaftName(value: unknown): string {
+  return String(value ?? "")
+    .replace(/^[\s\u3000]*(シャフト|shaft)\s*[：:\-ー]?\s*/i, "")
+    .replace(/[\s\u3000]+/g, " ")
+    .trim();
+}
+
+function parseAmount(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value !== "string") return null;
+
+  const normalized = value.replace(/,/g, "").trim();
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildShaftSalesSummary(rows: Awaited<ReturnType<typeof getShaftSales>>): ShaftSalesResponseItem[] {
+  const grouped = new Map<string, { name: string; total: number; count: number }>();
+
+  for (const row of rows) {
+    const name = normalizeShaftName(row.title);
+    const saleAmount = parseAmount(row.saleAmount);
+    if (!name || saleAmount === null) continue;
+
+    const key = name.normalize("NFKC").toLocaleLowerCase("ja-JP");
+    const current = grouped.get(key);
+    if (current) {
+      current.total += saleAmount;
+      current.count += 1;
+    } else {
+      grouped.set(key, { name, total: saleAmount, count: 1 });
+    }
+  }
+
+  return Array.from(grouped.values())
+    .map((item) => ({
+      name: item.name,
+      averageJpy: Math.round(item.total / item.count),
+      count: item.count,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ja-JP"));
+}
 
 export async function createApiApp() {
   const app = express();
@@ -18,6 +71,41 @@ export async function createApiApp() {
   registerChatRoutes(app);
   registerGasWebhookRoutes(app);
   registerCronRoutes(app);
+
+  const setShaftSalesHeaders = (res: express.Response) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Cache-Control", "no-store");
+  };
+
+  app.options("/api/shaft-sales", (_req, res) => {
+    setShaftSalesHeaders(res);
+    res.status(204).end();
+  });
+
+  app.get("/api/shaft-sales", async (_req, res) => {
+    const fetchedAt = new Date().toISOString();
+    setShaftSalesHeaders(res);
+
+    try {
+      const rows = await getShaftSales();
+      res.json({
+        ok: true,
+        source: "shaft_sales",
+        fetchedAt,
+        shafts: buildShaftSalesSummary(rows),
+      });
+    } catch (err) {
+      console.error("shaft sales API error:", err);
+      res.status(500).json({
+        ok: false,
+        source: "shaft_sales",
+        fetchedAt,
+        error: "Failed to fetch shaft sales",
+      });
+    }
+  });
 
   app.post("/api/invoice-pdf", async (req, res) => {
     try {
