@@ -798,16 +798,36 @@ async function getTradeShipmentRegistrationProgress(
     };
   }
 
-  const allItems = await db
-    .select()
-    .from(shipmentItems)
-    .where(inArray(shipmentItems.invoiceNo, invoiceNos));
+  const [allTrades, allItems] = await Promise.all([
+    db
+      .select()
+      .from(tradeRecords)
+      .where(inArray(tradeRecords.no, invoiceNos))
+      .orderBy(asc(tradeRecords.id)),
+    db
+      .select()
+      .from(shipmentItems)
+      .where(inArray(shipmentItems.invoiceNo, invoiceNos)),
+  ]);
+
+  const tradesByInvoiceNo = new Map<string, TradeRow[]>();
+  for (const trade of allTrades) {
+    const invoiceNo = String(trade.no ?? "");
+    if (!invoiceNo) continue;
+    const trades = tradesByInvoiceNo.get(invoiceNo) ?? [];
+    trades.push(trade);
+    tradesByInvoiceNo.set(invoiceNo, trades);
+  }
 
   const registeredQtyByTradeId = new Map<number, number>();
   const invoiceNosWithShipmentSignal = new Set<string>();
 
   for (const item of allItems) {
-    const tradeId = getShipmentTradeRecordId(item);
+    let tradeId = getShipmentTradeRecordId(item);
+    if (!tradeId) {
+      const invoiceTrades = tradesByInvoiceNo.get(String(item.invoiceNo)) ?? [];
+      tradeId = invoiceTrades.length === 1 ? Number(invoiceTrades[0].id) : null;
+    }
     if (!tradeId) continue;
     registeredQtyByTradeId.set(tradeId, (registeredQtyByTradeId.get(tradeId) ?? 0) + item.quantity);
     invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
