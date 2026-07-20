@@ -199,6 +199,8 @@ Googleスプレッドシートの「6月末確定」「6月末在庫明細」
 
 ## 別PCでの再開
 
+SellerScopeリサーチを含むPC全体のセットアップと、そのまま貼れるCodex用プロンプトは、`07-hajime-tokyo/sellerscope-site` の `initiative/ai-native-research-v1` ブランチにある `MULTI_PC_HANDOFF.md` を正本とする。
+
 ```powershell
 git clone https://github.com/07-hajime-tokyo/invoice-site_byCodex.git
 Set-Location invoice-site_byCodex
