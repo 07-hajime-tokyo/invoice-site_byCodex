@@ -32,6 +32,7 @@ function Router() {
         <Route path={"/inventory/delivery-history"} component={Home} />
         <Route path={"/inventory/purchase-history"} component={Home} />
         <Route path={"/inventory/order-management"} component={Home} />
+        <Route path={"/inventory/order-monitor"} component={Home} />
         <Route path={"/inventory/deleted-items"} component={Home} />
         <Route path={"/inventory/monthly-report"} component={Home} />
         <Route path={"/inventory/settings"} component={Home} />

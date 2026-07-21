@@ -9,6 +9,7 @@ const DeliveryHistory = lazy(() => import("@/inventory/pages/DeliveryHistory"));
 const PurchaseHistory = lazy(() => import("@/inventory/pages/PurchaseHistory"));
 const Settings = lazy(() => import("@/inventory/pages/Settings"));
 const OrderManagement = lazy(() => import("@/inventory/pages/OrderManagement"));
+const OrderMonitor = lazy(() => import("@/inventory/pages/OrderMonitor"));
 const DeletedItems = lazy(() => import("@/inventory/pages/DeletedItems"));
 const MonthlyReport = lazy(() => import("@/inventory/pages/MonthlyReport"));
 const OverseasShipping = lazy(() => import("@/inventory/pages/OverseasShipping"));
@@ -35,6 +36,7 @@ const REMEMBERED_PATHS = [
   "/inventory/delivery-history",
   "/inventory/purchase-history",
   "/inventory/order-management",
+  "/inventory/order-monitor",
   "/inventory/deleted-items",
   "/inventory/monthly-report",
   "/inventory/settings",
@@ -68,6 +70,14 @@ function InventoryLocationPersister() {
 export default function InventoryApp() {
   const [location] = useLocation();
 
+  if (location === "/inventory/order-monitor" && new URLSearchParams(window.location.search).get("compact") === "1") {
+    return (
+      <Suspense fallback={<InventoryPageLoading />}>
+        <OrderMonitor compact />
+      </Suspense>
+    );
+  }
+
   if (location.startsWith("/inventory/partner/")) {
     return (
       <Suspense fallback={<InventoryPageLoading />}>
@@ -91,6 +101,7 @@ export default function InventoryApp() {
           <Route path={"/inventory/delivery-history"} component={DeliveryHistory} />
           <Route path={"/inventory/purchase-history"} component={PurchaseHistory} />
           <Route path={"/inventory/order-management"} component={OrderManagement} />
+          <Route path={"/inventory/order-monitor"}><OrderMonitor /></Route>
           <Route path={"/inventory/deleted-items"} component={DeletedItems} />
           <Route path={"/inventory/monthly-report"} component={MonthlyReport} />
           <Route path={"/inventory/settings"} component={Settings} />
