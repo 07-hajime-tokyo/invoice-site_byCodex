@@ -157,8 +157,8 @@ async function fetchFrankfurterRate(date?: string): Promise<{ eur: number; usd: 
     const baseUrl = "https://api.frankfurter.dev/v1";
     const dateParam = date ?? "latest";
     const [eurRes, usdRes] = await Promise.all([
-      fetch(`${baseUrl}/${dateParam}?from=EUR&to=JPY`),
-      fetch(`${baseUrl}/${dateParam}?from=USD&to=JPY`),
+      fetch(`${baseUrl}/${dateParam}?base=EUR&symbols=JPY`),
+      fetch(`${baseUrl}/${dateParam}?base=USD&symbols=JPY`),
     ]);
     if (!eurRes.ok || !usdRes.ok) return null;
     const [eurData, usdData] = await Promise.all([eurRes.json(), usdRes.json()]);

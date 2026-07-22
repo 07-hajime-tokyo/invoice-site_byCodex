@@ -340,8 +340,8 @@ function normalizeRateDate(value: string | null | undefined) {
 
 async function fetchJpyRateByDate(date: string, currency: "EUR" | "USD") {
   const endpoint = date
-    ? `https://api.frankfurter.dev/v1/${date}?from=${currency}&to=JPY`
-    : `https://api.frankfurter.dev/v1/latest?from=${currency}&to=JPY`;
+    ? `https://api.frankfurter.dev/v1/${date}?base=${currency}&symbols=JPY`
+    : `https://api.frankfurter.dev/v1/latest?base=${currency}&symbols=JPY`;
   const res = await fetch(endpoint);
   if (!res.ok) throw new Error(`Failed to fetch ${currency}/JPY rate: ${res.status}`);
   const data = await res.json() as { rates?: { JPY?: number } };
@@ -393,6 +393,66 @@ async function repairKnownEuroRateRows(db: TradeDb) {
     });
   }
   await knownEuroRateRepairPromise;
+}
+
+function shouldRepairDisplayedEuroRate(row: TradeRow) {
+  const partner = String(row.partner ?? "").trim().toLowerCase();
+  const invoiceNo = Number(row.no ?? 0);
+  return normalizeTradeCurrency(inferTradeCurrencyForPartner(row.partner, row.currency)) === "EUR"
+    && (
+      invoiceNo === 385
+      || invoiceNo === 386
+      || invoiceNo === 387
+      || partner.includes("サイモン")
+      || partner.includes("simon")
+    );
+}
+
+async function applyDisplayedEuroRateRepairs<T extends TradeRow>(db: TradeDb, rows: T[]): Promise<T[]> {
+  const targets = rows.filter(shouldRepairDisplayedEuroRate);
+  if (targets.length === 0) return rows;
+
+  const repairedById = new Map<number, T>();
+  await Promise.all(targets.map(async (row) => {
+    const unitPrice = Number(row.unitPrice ?? 0);
+    const quantity = Number(row.quantity ?? 0);
+    const id = Number(row.id ?? 0);
+    if (!unitPrice || !quantity || !id) return;
+
+    const rateDate = normalizeRateDate(row.paymentDate);
+    const eurRate = await fetchJpyRateByDate(rateDate, "EUR");
+    const unitPriceJPY = Math.round(unitPrice * eurRate * 10000) / 10000;
+    const totalSales = Math.round(quantity * unitPriceJPY * 10000) / 10000;
+    const procurementTotal = Number(row.procurementTotal ?? 0);
+    const refund = Number(row.refund ?? 0);
+    const shippingCost = Number(row.shippingCost ?? 0);
+    const customsDuty = Number(row.customsDuty ?? 0);
+    const profitWithRefund = Math.round((totalSales - procurementTotal + refund - shippingCost - customsDuty) * 10000) / 10000;
+    const repaired = {
+      ...row,
+      currency: "ユーロ",
+      unitPriceJPY: String(unitPriceJPY),
+      totalSales: String(totalSales),
+      profitWithRefund: String(profitWithRefund),
+    } as T;
+    repairedById.set(id, repaired);
+
+    const currentUnitPriceJPY = Number(row.unitPriceJPY ?? 0);
+    if (Math.abs(currentUnitPriceJPY - unitPriceJPY) < 0.5 && normalizeTradeCurrency(row.currency) === "EUR") return;
+    await db.update(tradeRecords)
+      .set({
+        currency: "ユーロ",
+        unitPriceJPY: String(unitPriceJPY),
+        totalSales: String(totalSales),
+        profitWithRefund: String(profitWithRefund),
+      })
+      .where(eq(tradeRecords.id, id));
+  })).catch((error) => {
+    console.warn("[Trade] Failed to apply displayed EUR rate repairs", error);
+  });
+
+  if (repairedById.size === 0) return rows;
+  return rows.map((row) => repairedById.get(Number(row.id ?? 0)) ?? row);
 }
 
 function changedNumber(a: unknown, b: number) {
@@ -957,7 +1017,7 @@ async function recalcShippingCostsLegacy(
         let usdRate: number | null = null;
         try {
           const rateRes = await fetch(
-            `https://api.frankfurter.dev/v1/${s.shippingDate}?from=USD&to=JPY`
+            `https://api.frankfurter.dev/v1/${s.shippingDate}?base=USD&symbols=JPY`
           );
           if (rateRes.ok) {
             const rateData = await rateRes.json() as { rates?: { JPY?: number } };
@@ -1045,7 +1105,7 @@ async function recalcShippingCosts(
       const loadUsdRate = async () => {
         if (usdRate !== null) return usdRate;
         try {
-          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${shipment.shippingDate}?from=USD&to=JPY`);
+          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${shipment.shippingDate}?base=USD&symbols=JPY`);
           if (rateRes.ok) {
             const rateData = await rateRes.json() as { rates?: { JPY?: number } };
             usdRate = rateData.rates?.JPY ?? null;
@@ -1378,9 +1438,10 @@ export const appRouter = router({
           console.warn("[Trade] Failed to load sheet shipment progress", error);
           return null;
         });
-        const baseRows = whereClause
+        const baseRowsFromDb = whereClause
           ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
           : await db.select().from(tradeRecords).orderBy(orderExpr);
+        const baseRows = await applyDisplayedEuroRateRepairs(db, baseRowsFromDb);
         const rowsWithSheetStatus = sheetProgress
           ? applySheetShipmentStatuses(baseRows, sheetProgress)
           : baseRows;
@@ -1715,8 +1776,8 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         const endpoint = input.date === "latest"
-          ? `https://api.frankfurter.dev/v1/latest?from=${input.currency}&to=JPY`
-          : `https://api.frankfurter.dev/v1/${input.date}?from=${input.currency}&to=JPY`;
+          ? `https://api.frankfurter.dev/v1/latest?base=${input.currency}&symbols=JPY`
+          : `https://api.frankfurter.dev/v1/${input.date}?base=${input.currency}&symbols=JPY`;
         const res = await fetch(endpoint);
         if (!res.ok) throw new Error(`Frankfurter API error: ${res.status}`);
         const data = await res.json() as { rates: { JPY?: number } };
