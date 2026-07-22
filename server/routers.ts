@@ -312,6 +312,17 @@ function normalizeTradeCurrency(value: string | null | undefined) {
   return "EUR";
 }
 
+function inferTradeCurrencyForPartner(partner: string | null | undefined, fallback: string | null | undefined) {
+  const text = String(partner ?? "").trim().toLowerCase();
+  if (text.includes("ルカ") || text.includes("luca") || text.includes("サイモン") || text.includes("simon")) {
+    return "ユーロ" as const;
+  }
+  if (text.includes("サミー") || text.includes("samee") || text.includes("デボン") || text.includes("devon")) {
+    return "ドル" as const;
+  }
+  return normalizeTradeCurrency(fallback) === "USD" ? "ドル" as const : "ユーロ" as const;
+}
+
 function selectTradeRate(currency: string | null | undefined, eurRate: number | null | undefined, usdRate: number | null | undefined) {
   const rate = normalizeTradeCurrency(currency) === "EUR" ? eurRate : usdRate;
   return typeof rate === "number" && Number.isFinite(rate) ? rate : null;
@@ -343,9 +354,15 @@ async function repairKnownEuroRateRows(db: TradeDb) {
   if (!knownEuroRateRepairPromise) {
     knownEuroRateRepairPromise = (async () => {
       const rows = await db.select().from(tradeRecords).where(
-        or(eq(tradeRecords.no, 385), eq(tradeRecords.no, 386), eq(tradeRecords.no, 387)),
+        or(
+          eq(tradeRecords.no, 385),
+          eq(tradeRecords.no, 386),
+          eq(tradeRecords.no, 387),
+          like(tradeRecords.partner, "%サイモン%"),
+          like(tradeRecords.partner, "%simon%"),
+        ),
       );
-      const targets = rows.filter((row) => normalizeTradeCurrency(row.currency) === "EUR");
+      const targets = rows.filter((row) => normalizeTradeCurrency(inferTradeCurrencyForPartner(row.partner, row.currency)) === "EUR");
       await Promise.all(targets.map(async (row) => {
         const unitPrice = Number(row.unitPrice ?? 0);
         const quantity = Number(row.quantity ?? 0);
@@ -363,6 +380,7 @@ async function repairKnownEuroRateRows(db: TradeDb) {
         if (Math.abs(currentUnitPriceJPY - unitPriceJPY) < 0.5) return;
         await db.update(tradeRecords)
           .set({
+            currency: "ユーロ",
             unitPriceJPY: String(unitPriceJPY),
             totalSales: String(totalSales),
             profitWithRefund: String(profitWithRefund),
@@ -1749,6 +1767,7 @@ export const appRouter = router({
         const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
           ? input.paymentDate
           : null;
+        const currency = inferTradeCurrencyForPartner(input.partner, input.currency);
         const db = await getDb();
         let existing: TradeRow[] = [];
         let target: TradeRow | undefined;
@@ -1780,8 +1799,8 @@ export const appRouter = router({
               const shouldRecalculateSales =
                 changedNumber(target.quantity, input.quantity) ||
                 changedNumber(target.unitPrice, input.unitPrice) ||
-                normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(input.currency);
-              const normalizedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate);
+                normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(currency);
+              const normalizedRate = selectTradeRate(currency, input.eurRate, input.usdRate);
               const unitPriceJPY = shouldRecalculateSales && normalizedRate ? Math.round(input.unitPrice * normalizedRate * 10000) / 10000 : null;
               const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
               const effectiveTotalSales = totalSalesNew ?? Number(target.totalSales ?? 0);
@@ -1799,7 +1818,7 @@ export const appRouter = router({
                   productName: input.productName,
                   quantity: String(input.quantity),
                   unitPrice: String(input.unitPrice),
-                  currency: input.currency,
+                  currency,
                   status: input.status,
                   ...(unitPriceJPY !== null ? { unitPriceJPY: String(unitPriceJPY) } : {}),
                   ...(totalSalesNew !== null ? { totalSales: String(totalSalesNew) } : {}),
@@ -1872,7 +1891,7 @@ export const appRouter = router({
                   input.productName,
                   input.quantity,
                   input.unitPrice,
-                  input.currency,
+                  currency,
                 ]],
               },
               {
@@ -1889,11 +1908,11 @@ export const appRouter = router({
           if (no === null) return { success: false, updatedRow: targetRow };
             // 商品名が一致するレコードを更新、なければ最初のレコードを更新
             // 商品価格(円)・売上合計・還付込利益を自動計算
-            const normalizedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate);
+            const normalizedRate = selectTradeRate(currency, input.eurRate, input.usdRate);
             const shouldRecalculateSales =
               changedNumber(target.quantity, input.quantity) ||
               changedNumber(target.unitPrice, input.unitPrice) ||
-              normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(input.currency);
+              normalizeTradeCurrency(target.currency) !== normalizeTradeCurrency(currency);
             const unitPriceJPY = shouldRecalculateSales && normalizedRate ? Math.round(input.unitPrice * normalizedRate * 10000) / 10000 : null;
             const totalSalesNew = unitPriceJPY ? Math.round(input.quantity * unitPriceJPY * 10000) / 10000 : null;
             // 為替レートが未取得の場合はDBの既存totalSalesを使って利益を計算する
@@ -1914,7 +1933,7 @@ export const appRouter = router({
                 productName: input.productName,
                 quantity: String(input.quantity),
                 unitPrice: String(input.unitPrice),
-                currency: input.currency,
+                currency,
                 status: input.status,
                 ...(unitPriceJPY !== null ? { unitPriceJPY: String(unitPriceJPY) } : {}),
                 ...(totalSalesNew !== null ? { totalSales: String(totalSalesNew) } : {}),
@@ -1946,11 +1965,12 @@ export const appRouter = router({
         shippingCost: z.number().default(0),
       }))
       .mutation(async ({ input }) => {
+        const currency = inferTradeCurrencyForPartner(input.partner, input.currency);
         if (!TRADE_SHEET_WRITE_BACK_ENABLED || !canSyncTradeSheet()) {
           const db = await getDb();
           if (db) {
             const no = parseInt(input.invoiceNo) || null;
-            const selectedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate) ?? 0;
+            const selectedRate = selectTradeRate(currency, input.eurRate, input.usdRate) ?? 0;
             const unitPriceJPY = input.unitPrice * selectedRate;
             const totalSales = unitPriceJPY * input.quantity;
             const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
@@ -1964,7 +1984,7 @@ export const appRouter = router({
               productName: input.productName,
               quantity: String(input.quantity),
               unitPrice: String(input.unitPrice),
-              currency: input.currency,
+              currency,
               unitPriceJPY: String(unitPriceJPY),
               status: input.status,
               procurement: "",
@@ -1997,7 +2017,7 @@ export const appRouter = router({
         });
         const existingRows = existingData.data.values ?? [];
         const newRowNumber = existingRows.length + 1; // 追加後の行番号
-        const rateCell = normalizeTradeCurrency(input.currency) === "EUR" ? "$G$1" : "$G$2";
+        const rateCell = normalizeTradeCurrency(currency) === "EUR" ? "$G$1" : "$G$2";
 
         const newRow = [
           input.month,
@@ -2007,7 +2027,7 @@ export const appRouter = router({
           input.productName,
           input.quantity,
           input.unitPrice,
-          input.currency,
+          currency,
           `=G${newRowNumber}*${rateCell}`, // I列: 商品価格 = 単価 × 通貨別レート
           input.status,
         ];
@@ -2022,7 +2042,7 @@ export const appRouter = router({
         const db = await getDb();
         if (db) {
           const no = parseInt(input.invoiceNo) || null;
-          const selectedRate = selectTradeRate(input.currency, input.eurRate, input.usdRate) ?? 0;
+          const selectedRate = selectTradeRate(currency, input.eurRate, input.usdRate) ?? 0;
           const unitPriceJPY = input.unitPrice * selectedRate;
           const totalSales = unitPriceJPY * input.quantity;
           const paymentDate = input.paymentDate && input.paymentDate.trim() !== ""
@@ -2036,7 +2056,7 @@ export const appRouter = router({
             productName: input.productName,
             quantity: String(input.quantity),
             unitPrice: String(input.unitPrice),
-            currency: input.currency,
+            currency,
             unitPriceJPY: String(unitPriceJPY),
             status: input.status,
             procurement: "",

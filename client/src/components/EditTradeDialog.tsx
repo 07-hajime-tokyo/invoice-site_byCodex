@@ -86,6 +86,26 @@ interface EditTradeDialogProps {
   onSuccess?: () => void;
 }
 
+type TradeCurrency = EditFormState["currency"];
+
+function getCurrencyForPartner(partner: string): TradeCurrency | null {
+  const normalized = partner.trim().toLowerCase();
+  if (normalized.includes("ルカ") || normalized.includes("luca") || normalized.includes("サイモン") || normalized.includes("simon")) {
+    return "ユーロ";
+  }
+  if (normalized.includes("サミー") || normalized.includes("samee") || normalized.includes("デボン") || normalized.includes("devon")) {
+    return "ドル";
+  }
+  return null;
+}
+
+function normalizeCurrency(c: string, partner?: string): TradeCurrency {
+  const partnerCurrency = getCurrencyForPartner(partner ?? "");
+  if (partnerCurrency) return partnerCurrency;
+  if (c === "ドル") return "ドル";
+  return "ユーロ";
+}
+
 export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
   const [open, setOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -96,12 +116,6 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
   const [rateQueryDate, setRateQueryDate] = useState<string>("latest");
   const [rateEnabled, setRateEnabled] = useState(false);
 
-  // 通貨の正規化
-  const normalizeCurrency = (c: string): "ユーロ" | "ドル" => {
-    if (c === "ドル") return "ドル";
-    return "ユーロ";
-  };
-
   const buildInitialForm = useCallback((): EditFormState => ({
     month: String(record.month),
     partner: record.partner,
@@ -110,7 +124,7 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
     productName: record.productName,
     quantity: String(record.quantity),
     unitPrice: String(record.unitPrice),
-    currency: normalizeCurrency(record.currency),
+    currency: normalizeCurrency(record.currency, record.partner),
     status: record.status ?? "",
     eurRate: "",
     usdRate: "",
@@ -191,6 +205,15 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
 
   const set = (key: keyof EditFormState, value: string) =>
     setForm(prev => ({ ...prev, [key]: value }));
+
+  const handlePartnerChange = (partner: string) => {
+    const partnerCurrency = getCurrencyForPartner(partner);
+    setForm(prev => ({
+      ...prev,
+      partner,
+      ...(partnerCurrency ? { currency: partnerCurrency } : {}),
+    }));
+  };
 
   // 注文数が変わったとき、手動編集中でなければ送料を自動計算
   useEffect(() => {
@@ -349,7 +372,7 @@ export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
                 <Label className="text-xs">取引相手 <span className="text-destructive">*</span></Label>
                 <Input
                   value={form.partner}
-                  onChange={e => set("partner", e.target.value)}
+                  onChange={e => handlePartnerChange(e.target.value)}
                   placeholder="例: ルカ"
                   className="h-8 text-sm mt-1"
                 />
