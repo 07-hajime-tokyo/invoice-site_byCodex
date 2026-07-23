@@ -2696,8 +2696,12 @@ Return ONLY valid JSON, no markdown, no explanation.`
 
         const createdIds: number[] = [];
         for (const split of input.splits) {
+          const invoiceNumber = split.invoiceNumber.trim();
+          const normalizedInvoiceNumber = /^\d+$/.test(invoiceNumber)
+            ? invoiceNumber.padStart(4, "0")
+            : invoiceNumber;
           const result = await db.insert(invoices).values({
-            invoiceNumber: split.invoiceNumber,
+            invoiceNumber: normalizedInvoiceNumber,
             clientId: input.clientId ?? null,
             clientSnapshot: input.clientSnapshot ?? null,
             invoiceDate: input.invoiceDate ?? null,
