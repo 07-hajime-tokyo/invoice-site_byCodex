@@ -1307,6 +1307,17 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const db = await getDb();
         if (!db) throw new Error("DB not available");
+        const existing = await db
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(and(eq(invoices.invoiceNumber, input.invoiceNumber), isNull(invoices.deletedAt)))
+          .limit(1);
+        if (existing.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `インボイス番号 ${input.invoiceNumber} は既に存在します。新規作成し直してください。`,
+          });
+        }
         const result = await db.insert(invoices).values({
           invoiceNumber: input.invoiceNumber,
           clientId: input.clientId ?? null,
@@ -2425,6 +2436,17 @@ Return ONLY valid JSON, no markdown, no explanation.`
       .mutation(async ({ input }) => {
         const db = await getDb();
         if (!db) throw new Error("DB not available");
+        const existing = await db
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(and(eq(invoices.invoiceNumber, input.invoiceNumber), isNull(invoices.deletedAt)))
+          .limit(1);
+        if (existing.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `インボイス番号 ${input.invoiceNumber} は既に存在します。新規作成し直してください。`,
+          });
+        }
         const result = await db.insert(invoices).values({
           invoiceNumber: input.invoiceNumber,
           clientId: input.clientId ?? null,

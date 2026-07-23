@@ -1279,6 +1279,7 @@ function InvoiceEditor({
   const createMutation = trpc.invoices.create.useMutation({
     onSuccess: () => {
       utils.invoices.list.invalidate();
+      utils.whatsappHistory.getNextNumber.invalidate();
       toast.success("請求書を保存しました");
     },
     onError: (e) => toast.error(e.message),
@@ -3370,13 +3371,16 @@ export default function InvoicePage({ initialEditId }: { initialEditId?: number 
 
   // Fetch next invoice number (used when creating new invoice)
   const isNewView = view === "new";
-  const { data: nextNumberData, isLoading: nextNumberLoading } = trpc.whatsappHistory.getNextNumber.useQuery(
+  const { data: nextNumberData, isLoading: nextNumberLoading, isFetching: nextNumberFetching } = trpc.whatsappHistory.getNextNumber.useQuery(
     undefined,
-    { enabled: isNewView, staleTime: 0 }
+    { enabled: isNewView, staleTime: 0, refetchOnMount: "always" }
   );
 
   const handleEdit = useCallback((id: number) => setView({ editId: id }), []);
-  const handleNew = useCallback(() => setView("new"), []);
+  const handleNew = useCallback(() => {
+    void utils.whatsappHistory.getNextNumber.invalidate();
+    setView("new");
+  }, [utils]);
   const handleNewWithNumber = useCallback((num: string, items?: InvoiceItem[]) => setView({ newWithNumber: num, items }), []);
   const handleBack = useCallback(() => {
     setView("list");
@@ -3390,7 +3394,7 @@ export default function InvoicePage({ initialEditId }: { initialEditId?: number 
 
   if (view === "new") {
     // Wait for next number to load before rendering the editor
-    if (nextNumberLoading) {
+    if (nextNumberLoading || nextNumberFetching || !nextNumberData) {
       return (
         <div className="flex items-center justify-center py-16">
           <RefreshCw size={18} className="animate-spin text-muted-foreground" />
@@ -3401,6 +3405,7 @@ export default function InvoicePage({ initialEditId }: { initialEditId?: number 
     const newForm: InvoiceFormData = { ...EMPTY_FORM, invoiceNumber: autoNumber };
     return (
       <InvoiceEditor
+        key={newForm.invoiceNumber || "new"}
         initialData={newForm}
         invoiceId={null}
         onSaved={handleBack}
