@@ -6,6 +6,7 @@ import {
   isInboundComplete,
   isFinalStage,
   isRegisterStage,
+  parseLocalRegistrationItems,
   isOregonPlace,
   extractInvoicePrefix,
   extractPartnerToken,
@@ -148,6 +149,27 @@ describe("stages", () => {
   it("identifies the register stage (status=purchased trigger)", () => {
     expect(isRegisterStage("registered")).toBe(true);
     expect(isRegisterStage("received")).toBe(false);
+  });
+
+  it("parses local purchase items for inventory registration", () => {
+    expect(parseLocalRegistrationItems(JSON.stringify([
+      { inventory_id: 12, quantity: "2", unit_price: "12500", title: "item" },
+    ]))).toEqual([
+      { inventoryId: 12, quantity: 2, unitPrice: "12500", title: "item" },
+    ]);
+  });
+
+  it("uses the local inventory fallback and rejects unusable rows", () => {
+    expect(parseLocalRegistrationItems("broken", {
+      inventoryId: 34,
+      quantity: 1,
+      unitPrice: "9800",
+      title: "fallback",
+    })).toEqual([
+      { inventoryId: 34, quantity: 1, unitPrice: "9800", title: "fallback" },
+    ]);
+    expect(parseLocalRegistrationItems("[]")).toEqual([]);
+    expect(parseLocalRegistrationItems('[{"inventory_id":0,"quantity":1}]')).toEqual([]);
   });
 
   it("computes stage index for progress bars", () => {

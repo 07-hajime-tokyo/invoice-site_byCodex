@@ -7,6 +7,7 @@ import {
   nextStage,
   isInboundClass,
   isRegisterStage,
+  parseLocalRegistrationItems,
   isInboundComplete,
   extractInvoicePrefix,
   getStagesForClass,
@@ -2785,39 +2786,148 @@ export const inventoryRouter = router({
         if (await isZaicoEnabled()) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Zaico連携中は未対応です" });
         }
-        const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-        const { eq, or } = await import("drizzle-orm");
+        const {
+          localPurchases: lpTbl,
+          localInventories: liTbl,
+          purchaseHistories: phTbl,
+        } = await import("../../drizzle/schema");
+        const { eq, or, sql } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        const [lp] = await db
-          .select()
-          .from(lpTbl)
-          .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
-          .limit(1);
-        if (!lp) throw new TRPCError({ code: "NOT_FOUND", message: "発注が見つかりません" });
-
-        const inboundClass = (lp.inboundClass ?? null) as InboundClass | null;
-        if (!inboundClass) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "先に分類を確定してください（未仕訳のままでは工程を進められません）" });
-        }
-        const currentStage = lp.stage ?? "received";
-        if (input.expectedStage && input.expectedStage !== currentStage) {
-          throw new TRPCError({ code: "CONFLICT", message: "工程が更新されています。画面を更新してください" });
-        }
-        const next = nextStage(inboundClass, currentStage);
-        if (!next) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "すでに最終工程です" });
-        }
         const updatedBy = (input.operatorName ?? "").trim() || ctx.user?.name || ctx.user?.email || null;
-        // 「登録」工程に入るとき status=purchased を連動（既存completePurchaseと同義の入庫確定）
-        const statusUpdate = isRegisterStage(next) ? "purchased" : undefined;
         const today = new Date().toISOString().slice(0, 10);
-        await updateLocalPurchaseStage(lp.id, next, {
-          updatedBy,
-          status: statusUpdate,
-          receivedDate: statusUpdate === "purchased" ? today : undefined,
+
+        const result = await db.transaction(async (tx) => {
+          const [lp] = await tx
+            .select()
+            .from(lpTbl)
+            .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
+            .limit(1)
+            .for("update");
+          if (!lp) throw new TRPCError({ code: "NOT_FOUND", message: "発注が見つかりません" });
+
+          const inboundClass = (lp.inboundClass ?? null) as InboundClass | null;
+          if (!inboundClass) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "先に分類を確定してください（未仕訳のままでは工程を進められません）" });
+          }
+          const currentStage = lp.stage ?? "received";
+          if (input.expectedStage && input.expectedStage !== currentStage) {
+            throw new TRPCError({ code: "CONFLICT", message: "工程が更新されています。画面を更新してください" });
+          }
+          const next = nextStage(inboundClass, currentStage);
+          if (!next) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "すでに最終工程です" });
+          }
+
+          const shouldRegister = isRegisterStage(next) && lp.status !== "purchased";
+          const registrationItems = shouldRegister
+            ? parseLocalRegistrationItems(lp.itemsJson, {
+              inventoryId: lp.localInventoryId,
+              quantity: lp.quantity,
+              unitPrice: lp.unitPrice,
+              title: lp.title,
+            })
+            : [];
+
+          if (shouldRegister && registrationItems.length === 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "在庫へ反映できる商品明細がないため、登録工程へ進めません",
+            });
+          }
+
+          const resolvedItems: Array<{ id: number; quantity: number }> = [];
+          for (const item of registrationItems) {
+            const [byZaico] = await tx
+              .select({ id: liTbl.id })
+              .from(liTbl)
+              .where(eq(liTbl.zaicoId, item.inventoryId))
+              .limit(1)
+              .for("update");
+            const [inventory] = byZaico
+              ? [byZaico]
+              : await tx
+                .select({ id: liTbl.id })
+                .from(liTbl)
+                .where(eq(liTbl.id, item.inventoryId))
+                .limit(1)
+                .for("update");
+            if (!inventory) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `在庫ID ${item.inventoryId} が見つからないため、登録工程へ進めません`,
+              });
+            }
+            resolvedItems.push({ id: inventory.id, quantity: item.quantity });
+          }
+
+          for (const item of resolvedItems) {
+            await tx
+              .update(liTbl)
+              .set({ quantity: sql`${liTbl.quantity} + ${item.quantity}` })
+              .where(eq(liTbl.id, item.id));
+          }
+
+          await tx
+            .update(lpTbl)
+            .set({
+              stage: next,
+              stageUpdatedAt: new Date(),
+              stageUpdatedBy: updatedBy,
+              ...(shouldRegister ? { status: "purchased", receivedDate: today } : {}),
+            })
+            .where(eq(lpTbl.id, lp.id));
+
+          if (shouldRegister) {
+            await tx.insert(phTbl).values(registrationItems.map((item) => ({
+              zaicoId: Number(lp.zaicoId ?? lp.id),
+              kanriNo: lp.managementNo ?? null,
+              title: item.title || lp.title || "",
+              category: lp.category ?? null,
+              supplier: lp.supplierName ?? null,
+              quantity: String(item.quantity),
+              unitPrice: item.unitPrice,
+              purchaseDate: today,
+              inventoryId: item.inventoryId,
+              cancelled: 0,
+              operatorName: updatedBy,
+            })));
+          }
+
+          return {
+            stage: next,
+            registeredNow: shouldRegister,
+            purchaseId: lp.id,
+            managementNo: lp.managementNo,
+            title: lp.title,
+            registrationItems,
+          };
         });
-        return { success: true, stage: next };
+
+        if (result.registeredNow) {
+          const workOperatorName = resolveWorkOperatorName(updatedBy, null);
+          await recordWorkLog({
+            workerName: workOperatorName,
+            category: "入庫登録",
+            status: "done",
+            startedAt: new Date(),
+            endedAt: new Date(),
+            quantity: result.registrationItems.reduce((sum, item) => sum + item.quantity, 0),
+            memo: `管理番号: ${result.managementNo ?? result.purchaseId}`,
+            createdBy: workOperatorName,
+            sourceType: "purchase",
+            sourceId: String(result.purchaseId),
+            detailsJson: JSON.stringify({
+              purchaseId: result.purchaseId,
+              purchaseDate: today,
+              managementNo: result.managementNo ?? null,
+              title: result.title,
+              items: result.registrationItems,
+            }),
+          });
+        }
+
+        return { success: true, stage: result.stage, registeredNow: result.registeredNow };
       }),
 
     /**
@@ -3016,6 +3126,15 @@ export const inventoryRouter = router({
         let zaicoResult: { code: number; status: string; message: string; data_id: number } | null = null;
         let historyStatus: "success" | "error" = "success";
         let errorMessage: string | undefined;
+        let historySaved = false;
+        let historyItems: Array<{
+          inventoryId: number;
+          title: string;
+          quantity: number;
+          managementNo?: string;
+          tradeRecordId?: number;
+          csvProductName?: string | null;
+        }> = [];
 
         if (zaicoEnabled) {
           // Zaico連携ON: Zaico APIに出庫データを作成
@@ -3035,51 +3154,119 @@ export const inventoryRouter = router({
             historyStatus = "error";
             errorMessage = err instanceof Error ? err.message : "不明なエラー";
           }
+
+          historyItems = await Promise.all(
+            input.items.map(async (item) => {
+              const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId).catch(() => null);
+              const managementNo = localInv?.etc?.split(",")[0]?.trim() || null;
+              const csvProductName = item.csvProductName === undefined
+                ? undefined
+                : item.csvProductName === null
+                  ? null
+                  : item.csvProductName.trim();
+              return {
+                inventoryId: item.inventoryId,
+                title: item.title,
+                quantity: item.quantity,
+                ...(managementNo ? { managementNo } : {}),
+                ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
+                ...(csvProductName !== undefined ? { csvProductName } : {}),
+              };
+            })
+          );
         } else {
-          // Zaico連携OFF: ローカルDBの在庫数を減算する
-          try {
+          // Zaico連携OFF: 在庫確認・減算・履歴保存を同一トランザクションで確定する。
+          // 在庫不足を0へ丸めると履歴数量と実在庫の差異になるため、処理全体を中止する。
+          const {
+            localInventories: liTbl,
+            deliveryHistories: dhTbl,
+          } = await import("../../drizzle/schema");
+          const { eq, sql } = await import("drizzle-orm");
+          const db = await getDb();
+          if (!db) throw new Error("Database not available");
+
+          historyItems = await db.transaction(async (tx) => {
+            const resolvedItems: typeof historyItems = [];
             for (const item of input.items) {
-              // zaicoIdで検索（inventoryIdはZaico側のID）
-              const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId);
-              if (localInv) {
-                const newQty = Math.max(0, (localInv.quantity ?? 0) - item.quantity);
-                await updateLocalInventory(localInv.id, { quantity: newQty });
+              if (!Number.isInteger(item.quantity)) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `${item.title} の出庫数量は整数で入力してください`,
+                });
               }
+
+              const [byZaico] = await tx
+                .select()
+                .from(liTbl)
+                .where(eq(liTbl.zaicoId, item.inventoryId))
+                .limit(1)
+                .for("update");
+              const [localInv] = byZaico
+                ? [byZaico]
+                : await tx
+                  .select()
+                  .from(liTbl)
+                  .where(eq(liTbl.id, item.inventoryId))
+                  .limit(1)
+                  .for("update");
+              if (!localInv) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `${item.title}（在庫ID ${item.inventoryId}）が見つかりません`,
+                });
+              }
+
+              const available = Number(localInv.quantity ?? 0);
+              if (available < item.quantity) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `${item.title} の在庫が不足しています（在庫 ${available}、出庫 ${item.quantity}）`,
+                });
+              }
+
+              await tx
+                .update(liTbl)
+                .set({ quantity: sql`${liTbl.quantity} - ${item.quantity}` })
+                .where(eq(liTbl.id, localInv.id));
+
+              const managementNo = localInv.etc?.split(",")[0]?.trim() || null;
+              const csvProductName = item.csvProductName === undefined
+                ? undefined
+                : item.csvProductName === null
+                  ? null
+                  : item.csvProductName.trim();
+              resolvedItems.push({
+                inventoryId: item.inventoryId,
+                title: item.title,
+                quantity: item.quantity,
+                ...(managementNo ? { managementNo } : {}),
+                ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
+                ...(csvProductName !== undefined ? { csvProductName } : {}),
+              });
             }
-          } catch (err: unknown) {
-            historyStatus = "error";
-            errorMessage = err instanceof Error ? err.message : "ローカルDB在庫更新エラー";
-          }
+
+            await tx.insert(dhTbl).values({
+              deliveryNo: input.deliveryNo,
+              zaicoDeliveryId: null,
+              itemsJson: JSON.stringify(resolvedItems),
+              status: "success",
+              errorMessage: null,
+            });
+            return resolvedItems;
+          });
+          historySaved = true;
         }
 
-        const historyItems = await Promise.all(
-          input.items.map(async (item) => {
-            const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId).catch(() => null);
-            const managementNo = localInv?.etc?.split(",")[0]?.trim() || null;
-            const csvProductName = item.csvProductName === undefined
-              ? undefined
-              : item.csvProductName === null
-                ? null
-                : item.csvProductName.trim();
-            return {
-              inventoryId: item.inventoryId,
-              title: item.title,
-              quantity: item.quantity,
-              ...(managementNo ? { managementNo } : {}),
-              ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
-              ...(csvProductName !== undefined ? { csvProductName } : {}),
-            };
-          })
-        );
-
         // 出庫履歴をDBに保存
-        await createDeliveryHistory({
-          deliveryNo: input.deliveryNo,
-          zaicoDeliveryId: zaicoResult?.data_id ?? null,
-          itemsJson: JSON.stringify(historyItems),
-          status: historyStatus,
-          errorMessage: errorMessage ?? null,
-        });
+        if (!historySaved) {
+          await createDeliveryHistory({
+            deliveryNo: input.deliveryNo,
+            zaicoDeliveryId: zaicoResult?.data_id ?? null,
+            itemsJson: JSON.stringify(historyItems),
+            status: historyStatus,
+            errorMessage: errorMessage ?? null,
+          });
+        }
 
         if (historyStatus === "error") {
           throw new Error(errorMessage ?? "出庫処理に失敗しました");

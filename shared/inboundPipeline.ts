@@ -91,6 +91,59 @@ export function isRegisterStage(stage: string | null | undefined): boolean {
   return String(stage ?? "").trim() === "registered";
 }
 
+export type LocalRegistrationItem = {
+  inventoryId: number;
+  quantity: number;
+  unitPrice: string;
+  title: string;
+};
+
+/**
+ * local_purchases.itemsJson を、実在庫へ反映できる安全な登録明細へ変換する。
+ * 壊れたJSONや在庫IDのない行を黙って「登録済み」にしないため、変換不能時は空配列を返す。
+ */
+export function parseLocalRegistrationItems(
+  itemsJson: string | null | undefined,
+  fallback?: {
+    inventoryId?: number | null;
+    quantity?: number | null;
+    unitPrice?: string | number | null;
+    title?: string | null;
+  },
+): LocalRegistrationItem[] {
+  let rawItems: unknown[] = [];
+  try {
+    const parsed = JSON.parse(itemsJson ?? "[]");
+    if (Array.isArray(parsed)) rawItems = parsed;
+  } catch {
+    rawItems = [];
+  }
+
+  if (rawItems.length === 0 && Number(fallback?.inventoryId) > 0) {
+    rawItems = [{
+      inventory_id: fallback?.inventoryId,
+      quantity: fallback?.quantity ?? 1,
+      unit_price: fallback?.unitPrice ?? 0,
+      title: fallback?.title ?? "",
+    }];
+  }
+
+  return rawItems.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const inventoryId = Number(item.inventory_id ?? item.inventoryId);
+    const quantity = Number(item.quantity ?? 1);
+    if (!Number.isInteger(inventoryId) || inventoryId <= 0) return [];
+    if (!Number.isInteger(quantity) || quantity <= 0) return [];
+    return [{
+      inventoryId,
+      quantity,
+      unitPrice: String(item.unit_price ?? item.unitPrice ?? fallback?.unitPrice ?? "0"),
+      title: String(item.title ?? fallback?.title ?? ""),
+    }];
+  });
+}
+
 /** その分類において stage が最終（完了）工程かどうか */
 export function isFinalStage(inboundClass: InboundClass | null | undefined, stage: string | null | undefined): boolean {
   const stages = getStagesForClass(inboundClass);
