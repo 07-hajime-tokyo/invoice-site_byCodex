@@ -15,7 +15,7 @@ import {
 } from "@shared/inboundPipeline";
 
 describe("classifyInbound", () => {
-  const partners = DEFAULT_DIRECT_PARTNER_NAMES; // サミー, ルカ, サイモン
+  const partners = DEFAULT_DIRECT_PARTNER_NAMES; // サミー, ルカ, サイモン, マキシム
 
   it("classifies E-prefixed management numbers as ebay", () => {
     expect(classifyInbound({ managementNo: "E0403-12" })).toBe("ebay");
@@ -30,6 +30,7 @@ describe("classifyInbound", () => {
     expect(classifyInbound({ managementNo: "サミー_001", directPartnerNames: partners })).toBe("direct");
     expect(classifyInbound({ managementNo: "371_ルカ_商品名", directPartnerNames: partners })).toBe("direct");
     expect(classifyInbound({ managementNo: "ルカ", directPartnerNames: partners })).toBe("direct");
+    expect(classifyInbound({ managementNo: "394_マキシム_商品名", directPartnerNames: partners })).toBe("direct");
   });
 
   it("classifies rows linked to a published invoice as direct", () => {

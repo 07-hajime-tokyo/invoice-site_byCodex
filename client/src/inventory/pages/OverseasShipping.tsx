@@ -496,7 +496,7 @@ function extractInvoiceNo(deliveryNo: string): string {
 
 // 取引先ラベルを返す
 function partnerLabel(sheetName: string): string {
-  if (sheetName === "独発送管理") return "Luca";
+  if (sheetName === "独発送管理") return "Luca/Maxim";
   if (sheetName === "サミー発送管理") return "Samee";
   if (sheetName === "サイモン発送管理") return "Simon";
   return sheetName;
@@ -505,7 +505,7 @@ function partnerLabel(sheetName: string): string {
 type PartnerTab = "all" | "luca" | "samee" | "simon";
 
 function partnerTabLabel(tab: PartnerTab): string {
-  if (tab === "luca") return "Luca";
+  if (tab === "luca") return "Luca/Maxim";
   if (tab === "samee") return "Samee";
   if (tab === "simon") return "Simon";
   return "すべて";
@@ -793,10 +793,10 @@ export default function OverseasShipping() {
     return Array.from(set).sort();
   }, [invoiceEntries]);
 
-  // ルカ/サミー/サイモン判定ヘルパー
+  // ルカ/マキシム/サミー/サイモン判定ヘルパー
   const isLucaPartner = (partner: string) => {
     const p = partner.toLowerCase();
-    return p.includes("ルカ") || p.includes("luca");
+    return p.includes("ルカ") || p.includes("luca") || p.includes("マキシム") || p.includes("maxim");
   };
   const isSameePartner = (partner: string) => {
     const p = partner.toLowerCase();
@@ -813,7 +813,7 @@ export default function OverseasShipping() {
     return invoiceEntries.filter(entry => {
       if (!showComplete && entry.isComplete) return false;
       if (selectedPartners.size > 0 && !selectedPartners.has(entry.partner)) return false;
-      // ルカ/サミー/サイモンタブフィルター
+      // ルカ/マキシム/サミー/サイモンタブフィルター
       if (partnerTab === "luca" && !isLucaPartner(entry.partner)) return false;
       if (partnerTab === "samee" && !isSameePartner(entry.partner)) return false;
       if (partnerTab === "simon" && !isSimonPartner(entry.partner)) return false;
@@ -1611,7 +1611,7 @@ export default function OverseasShipping() {
                     value={manualForm.sheetName}
                     onChange={e => setManualForm(f => ({ ...f, sheetName: e.target.value }))}
                   >
-                    <option value="独発送管理">Luca（独発送管理）</option>
+                    <option value="独発送管理">Luca/Maxim（独発送管理）</option>
                     <option value="サミー発送管理">Samee（サミー発送管理）</option>
                     <option value="サイモン発送管理">Simon（サイモン発送管理）</option>
                   </select>

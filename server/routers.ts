@@ -314,7 +314,14 @@ function normalizeTradeCurrency(value: string | null | undefined) {
 
 function inferTradeCurrencyForPartner(partner: string | null | undefined, fallback: string | null | undefined) {
   const text = String(partner ?? "").trim().toLowerCase();
-  if (text.includes("ルカ") || text.includes("luca") || text.includes("サイモン") || text.includes("simon")) {
+  if (
+    text.includes("ルカ") ||
+    text.includes("luca") ||
+    text.includes("サイモン") ||
+    text.includes("simon") ||
+    text.includes("マキシム") ||
+    text.includes("maxim")
+  ) {
     return "ユーロ" as const;
   }
   if (text.includes("サミー") || text.includes("samee") || text.includes("デボン") || text.includes("devon")) {
@@ -360,6 +367,8 @@ async function repairKnownEuroRateRows(db: TradeDb) {
           eq(tradeRecords.no, 387),
           like(tradeRecords.partner, "%サイモン%"),
           like(tradeRecords.partner, "%simon%"),
+          like(tradeRecords.partner, "%マキシム%"),
+          like(tradeRecords.partner, "%maxim%"),
         ),
       );
       const targets = rows.filter((row) => normalizeTradeCurrency(inferTradeCurrencyForPartner(row.partner, row.currency)) === "EUR");
@@ -405,6 +414,8 @@ function shouldRepairDisplayedEuroRate(row: TradeRow) {
       || invoiceNo === 387
       || partner.includes("サイモン")
       || partner.includes("simon")
+      || partner.includes("マキシム")
+      || partner.includes("maxim")
     );
 }
 

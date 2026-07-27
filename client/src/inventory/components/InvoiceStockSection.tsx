@@ -245,7 +245,8 @@ export function InvoiceStockSection({
   const isLuca = partnerLookupLower.includes("luca") || partnerLookupText.includes("ルカ");
   const isSamee = partnerLookupLower.includes("samee") || partnerLookupLower.includes("sami") || partnerLookupLower.includes("sammy") || partnerLookupText.includes("サミー");
   const isSimon = partnerLookupLower.includes("simon") || partnerLookupText.includes("サイモン");
-  const isEuroPartner = isLuca || isSimon;
+  const isMaxim = partnerLookupLower.includes("maxim") || partnerLookupText.includes("マキシム");
+  const isEuroPartner = isLuca || isSimon || isMaxim;
   const currencySymbol = isEuroPartner ? "€" : "$";
   const defaultCurrency = isEuroPartner ? "EUR" : "USD";
   const sheetName = isSimon
@@ -256,9 +257,9 @@ export function InvoiceStockSection({
 
   // 出庫No自動生成（表示用プレースホルダー）
   const autoDeliveryNo = useMemo(() => {
-    const code = customerCode || (isSimon ? "simon" : isSamee ? "samee" : "luca");
+    const code = customerCode || (isSimon ? "simon" : isSamee ? "samee" : isMaxim ? "maxim" : "luca");
     return generateDeliveryNo(code, invoiceNo);
-  }, [customerCode, invoiceNo, isSamee, isSimon]);
+  }, [customerCode, invoiceNo, isMaxim, isSamee, isSimon]);
 
   // 全選択/全解除
   const allChecked = matchedInventories.length > 0 &&

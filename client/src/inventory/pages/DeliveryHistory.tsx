@@ -70,6 +70,7 @@ function detectShipmentSheetName(...texts: Array<string | null | undefined>): Sh
   const haystack = texts.filter(Boolean).join(" ").toLowerCase();
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
   if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
+  if (haystack.includes("マキシム") || haystack.includes("maxim")) return "独発送管理";
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
     return "サミー発送管理";
   }

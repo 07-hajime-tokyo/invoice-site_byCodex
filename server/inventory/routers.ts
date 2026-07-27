@@ -177,6 +177,7 @@ function detectShipmentSheetName(...texts: Array<string | null | undefined>): Sh
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {
     return "サミー発送管理";
   }
+  if (haystack.includes("マキシム") || haystack.includes("maxim")) return "独発送管理";
   return "独発送管理";
 }
 
@@ -873,7 +874,7 @@ type InboundInfo = {
   shaftParentPurchaseId: number | null;
 };
 
-/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ, サイモン） */
+/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ, サイモン, マキシム） */
 async function getDirectPartnerNames(): Promise<string[]> {
   try {
     const raw = await getSystemSetting(DIRECT_PARTNER_NAMES_SETTING_KEY);
@@ -6626,7 +6627,7 @@ export const inventoryRouter = router({
           const isDevon = sheetName === "デボン発送管理";
           const isSimon = sheetName === "サイモン発送管理";
           const partnerLower = partner.toLowerCase();
-          if (isLuca && !partnerLower.includes("ルカ") && !partnerLower.includes("luca")) continue;
+          if (isLuca && !partnerLower.includes("ルカ") && !partnerLower.includes("luca") && !partnerLower.includes("マキシム") && !partnerLower.includes("maxim")) continue;
           if (isSamee && !partnerLower.includes("サミ") && !partnerLower.includes("samm") && !partnerLower.includes("same")) continue;
           if (isDevon && !partnerLower.includes("デボン") && !partnerLower.includes("devon")) continue;
           if (isSimon && !partnerLower.includes("サイモン") && !partnerLower.includes("simon")) continue;

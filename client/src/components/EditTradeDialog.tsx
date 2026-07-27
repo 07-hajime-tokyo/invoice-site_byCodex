@@ -90,7 +90,14 @@ type TradeCurrency = EditFormState["currency"];
 
 function getCurrencyForPartner(partner: string): TradeCurrency | null {
   const normalized = partner.trim().toLowerCase();
-  if (normalized.includes("ルカ") || normalized.includes("luca") || normalized.includes("サイモン") || normalized.includes("simon")) {
+  if (
+    normalized.includes("ルカ") ||
+    normalized.includes("luca") ||
+    normalized.includes("サイモン") ||
+    normalized.includes("simon") ||
+    normalized.includes("マキシム") ||
+    normalized.includes("maxim")
+  ) {
     return "ユーロ";
   }
   if (normalized.includes("サミー") || normalized.includes("samee") || normalized.includes("デボン") || normalized.includes("devon")) {
