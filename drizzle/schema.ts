@@ -898,6 +898,7 @@ export const actionItems = mysqlTable("action_items", {
   sourceQuestion: text("sourceQuestion"),
   reviewerChecksJson: text("reviewerChecksJson"),
   createdBy: varchar("createdBy", { length: 200 }),
+  isPinned: boolean("isPinned").default(false).notNull(),
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

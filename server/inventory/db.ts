@@ -189,6 +189,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         sourceQuestion text NULL,
         reviewerChecksJson text NULL,
         createdBy varchar(200) NULL,
+        isPinned boolean NOT NULL DEFAULT false,
         completedAt timestamp NULL,
         createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -217,6 +218,11 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     const actionReviewerChecksRows = getRawRows(existingActionReviewerChecks);
     if (actionReviewerChecksRows.length === 0) {
       await db.execute(sql`ALTER TABLE action_items ADD COLUMN reviewerChecksJson text NULL`);
+    }
+    const existingActionPinned = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'isPinned'`);
+    const actionPinnedRows = getRawRows(existingActionPinned);
+    if (actionPinnedRows.length === 0) {
+      await db.execute(sql`ALTER TABLE action_items ADD COLUMN isPinned boolean NOT NULL DEFAULT false`);
     }
     const existingActionSourceKeyIndex = await db.execute(sql`SHOW INDEX FROM action_items WHERE Key_name = 'idx_action_items_source_key'`);
     const actionSourceKeyIndexRows = getRawRows(existingActionSourceKeyIndex);

@@ -65,10 +65,17 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const status = input?.status ?? "open";
       if (status === "all") {
-        const items = await db.select().from(actionItems).orderBy(asc(actionItems.status), desc(actionItems.createdAt));
+        const items = await db
+          .select()
+          .from(actionItems)
+          .orderBy(desc(actionItems.isPinned), asc(actionItems.status), desc(actionItems.createdAt));
         return attachReplies(items);
       }
-      const items = await db.select().from(actionItems).where(eq(actionItems.status, status)).orderBy(desc(actionItems.createdAt));
+      const items = await db
+        .select()
+        .from(actionItems)
+        .where(eq(actionItems.status, status))
+        .orderBy(desc(actionItems.isPinned), desc(actionItems.createdAt));
       return attachReplies(items);
     }),
 
@@ -194,6 +201,16 @@ export const actionItemsRouter = router({
       await db.update(actionItems).set({
         status: input.status,
         completedAt: input.status === "done" ? new Date() : null,
+      }).where(eq(actionItems.id, input.id));
+      return { success: true };
+    }),
+
+  setPinned: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), pinned: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.update(actionItems).set({
+        isPinned: input.pinned,
       }).where(eq(actionItems.id, input.id));
       return { success: true };
     }),

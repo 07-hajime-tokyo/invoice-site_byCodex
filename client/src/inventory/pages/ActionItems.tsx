@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, ClipboardCheck, ExternalLink, MessageSquare, Pencil, RefreshCw, Search, Send, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, ExternalLink, MessageSquare, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
@@ -153,6 +153,14 @@ export default function ActionItems() {
     onError: (error) => toast.error(`更新失敗: ${error.message}`),
   });
 
+  const setPinnedMutation = trpc.inventory.actionItems.setPinned.useMutation({
+    onSuccess: async (_, variables) => {
+      await utils.inventory.actionItems.list.invalidate();
+      toast.success(variables.pinned ? "ピン留めしました" : "ピン留めを解除しました");
+    },
+    onError: (error) => toast.error(`ピン留め更新失敗: ${error.message}`),
+  });
+
   const setReviewerCheckMutation = trpc.inventory.actionItems.setReviewerCheck.useMutation({
     onSuccess: async () => {
       await utils.inventory.actionItems.list.invalidate();
@@ -220,7 +228,11 @@ export default function ActionItems() {
   }, [assigneeFilter, hasRepliesOnly, items, search]);
 
   const sortedItems = useMemo(() => {
-    return [...filteredItems].sort((a, b) => getTimestamp(b.createdAt) - getTimestamp(a.createdAt));
+    return [...filteredItems].sort((a, b) => {
+      const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+      if (pinDiff !== 0) return pinDiff;
+      return getTimestamp(b.createdAt) - getTimestamp(a.createdAt);
+    });
   }, [filteredItems]);
 
   const getReplyAuthor = (itemId: number) => replyAuthors[itemId] || defaultReplyAuthor;
@@ -379,6 +391,7 @@ export default function ActionItems() {
         <div className="space-y-3">
           {sortedItems.map((item) => {
             const done = item.status === "done";
+            const pinned = Boolean(item.isPinned);
             const deliveryLink = getDeliveryHistoryLink(item);
             const reviewerChecks = parseReviewerChecks(item.reviewerChecksJson);
             const replyText = replyDrafts[item.id] ?? "";
@@ -415,6 +428,12 @@ export default function ActionItems() {
                             <Badge variant="outline" className={getAssigneeBadgeClass(item.assignee, done)}>
                               {item.assignee || "未設定"}
                             </Badge>
+                            {pinned ? (
+                              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                <Pin className="mr-1 h-3 w-3" />
+                                ピン留め
+                              </Badge>
+                            ) : null}
                             {item.assignee === "出荷担当" ? (
                               <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
                                 {SHIPPING_REVIEWERS.map((reviewer) => (
@@ -590,6 +609,21 @@ export default function ActionItems() {
                       </div>
                       <div className="flex shrink-0 items-start gap-1">
                         <div className="flex flex-col gap-1">
+                          <Button
+                            type="button"
+                            variant={pinned ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() => setPinnedMutation.mutate({ id: item.id, pinned: !pinned })}
+                            disabled={setPinnedMutation.isPending}
+                            className={
+                              pinned
+                                ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                : "text-muted-foreground"
+                            }
+                          >
+                            {pinned ? <PinOff className="h-4 w-4 mr-1" /> : <Pin className="h-4 w-4 mr-1" />}
+                            {pinned ? "ピン解除" : "ピン留め"}
+                          </Button>
                           <Button
                             type="button"
                             variant="outline"
