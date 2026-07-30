@@ -431,7 +431,7 @@ export default function Home() {
                 <Package size={15} className="text-primary-foreground" />
               </div>
               <div className="hidden sm:block">
-                <h1 className="text-sm font-bold text-white leading-tight">ゲーム機取引データ</h1>
+                <h1 className="text-sm font-bold text-white leading-tight">取引ハブ</h1>
                 <p className="text-[10px] text-slate-400 leading-tight">検索・分析ダッシュボード</p>
               </div>
             </div>
