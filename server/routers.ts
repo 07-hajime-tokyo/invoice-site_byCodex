@@ -10,12 +10,13 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { inventoryRouter } from "./inventory/routers";
+import { suggestCsvProduct } from "@shared/productMatching";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
-import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems } from "../drizzle/schema";
+import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
 import { eq, desc, asc, or, like, and, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
@@ -821,6 +822,7 @@ function generateInvoiceNumber(): string {
 // ============================================================
 type TradeRow = typeof tradeRecords.$inferSelect;
 type ShipmentItemRow = typeof shipmentItems.$inferSelect;
+type FedexShipmentRow = typeof fedexShipments.$inferSelect;
 type RouterDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 function toNumber(value: unknown): number {
@@ -831,6 +833,82 @@ function toNumber(value: unknown): number {
 function getShipmentTradeRecordId(item: ShipmentItemRow): number | null {
   const id = Number(item.tradeRecordId ?? 0);
   return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function getDeliveryInvoiceNo(value: string | null | undefined): string | null {
+  const match = String(value ?? "").match(/^(\d+)/);
+  return match ? match[1] : null;
+}
+
+function parseFedexShipmentItems(value: string | null | undefined): Array<{ productNameJa: string; productNameEn: string; quantity: number }> {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const row = item as Record<string, unknown>;
+        const productNameJa = String(row.productNameJa ?? row.title ?? row.productNameEn ?? "").trim();
+        const productNameEn = String(row.productNameEn ?? productNameJa).trim();
+        const quantity = toNumber(row.quantity);
+        if (!productNameJa || quantity <= 0) return null;
+        return { productNameJa, productNameEn, quantity };
+      })
+      .filter((item): item is { productNameJa: string; productNameEn: string; quantity: number } => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+function addTradeQuantity(map: Map<number, number>, tradeId: number, quantity: number) {
+  if (!Number.isFinite(tradeId) || tradeId <= 0 || quantity <= 0) return;
+  map.set(tradeId, (map.get(tradeId) ?? 0) + quantity);
+}
+
+function allocateFedexItemsToTradeRows(
+  invoiceTrades: TradeRow[],
+  shipmentRows: FedexShipmentRow[],
+): Map<number, number> {
+  const allocated = new Map<number, number>();
+  const remainingByTradeId = new Map<number, number>();
+  const csvProducts = invoiceTrades
+    .map((trade) => ({
+      tradeId: Number(trade.id),
+      name: String(trade.productName ?? "").trim(),
+      qty: toNumber(trade.quantity),
+    }))
+    .filter((trade) => trade.tradeId > 0 && trade.name);
+
+  for (const trade of csvProducts) {
+    remainingByTradeId.set(trade.tradeId, trade.qty);
+  }
+
+  for (const shipment of shipmentRows) {
+    for (const item of parseFedexShipmentItems(shipment.itemsJson)) {
+      const shippedName = item.productNameJa || item.productNameEn;
+      const suggestion = suggestCsvProduct(
+        shippedName,
+        shipment.deliveryNo,
+        csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
+      );
+      if (!suggestion) continue;
+
+      const candidates = csvProducts.filter((product) => product.name === suggestion.name);
+      const chosen =
+        candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) >= item.quantity) ??
+        candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) > 0) ??
+        candidates[0];
+      if (!chosen) continue;
+
+      addTradeQuantity(allocated, chosen.tradeId, item.quantity);
+      remainingByTradeId.set(
+        chosen.tradeId,
+        Math.max(0, (remainingByTradeId.get(chosen.tradeId) ?? 0) - item.quantity),
+      );
+    }
+  }
+
+  return allocated;
 }
 
 function allocateQtyToTrades(
@@ -896,7 +974,16 @@ async function getTradeShipmentRegistrationProgress(
     visibleTradesByInvoiceNo.set(invoiceNo, trades);
   }
 
-  const [allTrades, allItems] = await Promise.all([
+  const fedexDeliveryNoConditions = invoiceNos.flatMap((invoiceNo) => {
+    const key = String(invoiceNo);
+    return [
+      eq(fedexShipments.deliveryNo, key),
+      like(fedexShipments.deliveryNo, `${key}_%`),
+      like(fedexShipments.deliveryNo, `${key}-%`),
+    ];
+  });
+
+  const [allTrades, allItems, allFedexRows] = await Promise.all([
     db
       .select()
       .from(tradeRecords)
@@ -906,6 +993,11 @@ async function getTradeShipmentRegistrationProgress(
       .select()
       .from(shipmentItems)
       .where(inArray(shipmentItems.invoiceNo, invoiceNos)),
+    db
+      .select()
+      .from(fedexShipments)
+      .where(or(...fedexDeliveryNoConditions))
+      .orderBy(asc(fedexShipments.id)),
   ]);
 
   const tradesByInvoiceNo = new Map<string, TradeRow[]>();
@@ -917,7 +1009,7 @@ async function getTradeShipmentRegistrationProgress(
     tradesByInvoiceNo.set(invoiceNo, trades);
   }
 
-  const registeredQtyByTradeId = new Map<number, number>();
+  const shipmentItemQtyByTradeId = new Map<number, number>();
   const invoiceNosWithShipmentSignal = new Set<string>();
 
   for (const item of allItems) {
@@ -933,8 +1025,41 @@ async function getTradeShipmentRegistrationProgress(
       }
     }
     if (!tradeId) continue;
-    registeredQtyByTradeId.set(tradeId, (registeredQtyByTradeId.get(tradeId) ?? 0) + item.quantity);
+    addTradeQuantity(shipmentItemQtyByTradeId, tradeId, item.quantity);
     invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
+  }
+
+  const fedexRowsByInvoiceNo = new Map<string, FedexShipmentRow[]>();
+  for (const shipment of allFedexRows) {
+    const invoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
+    if (!invoiceNo) continue;
+    const rows = fedexRowsByInvoiceNo.get(invoiceNo) ?? [];
+    rows.push(shipment);
+    fedexRowsByInvoiceNo.set(invoiceNo, rows);
+    if (parseFedexShipmentItems(shipment.itemsJson).length > 0) {
+      invoiceNosWithShipmentSignal.add(invoiceNo);
+    }
+  }
+
+  const fedexQtyByTradeId = new Map<number, number>();
+  for (const [invoiceNo, shipmentRows] of fedexRowsByInvoiceNo) {
+    const invoiceTrades = tradesByInvoiceNo.get(invoiceNo) ?? [];
+    const allocated = allocateFedexItemsToTradeRows(invoiceTrades, shipmentRows);
+    for (const [tradeId, quantity] of allocated) {
+      addTradeQuantity(fedexQtyByTradeId, tradeId, quantity);
+    }
+  }
+
+  const registeredQtyByTradeId = new Map<number, number>();
+  const tradeIds = new Set<number>([
+    ...Array.from(shipmentItemQtyByTradeId.keys()),
+    ...Array.from(fedexQtyByTradeId.keys()),
+  ]);
+  for (const tradeId of tradeIds) {
+    registeredQtyByTradeId.set(
+      tradeId,
+      Math.max(shipmentItemQtyByTradeId.get(tradeId) ?? 0, fedexQtyByTradeId.get(tradeId) ?? 0),
+    );
   }
 
   return { registeredQtyByTradeId, invoiceNosWithShipmentSignal };
