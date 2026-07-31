@@ -4226,12 +4226,33 @@ export const inventoryRouter = router({
             .map((h) => h.zaicoId as number)
         );
         allPurchases = localPurchaseRows.map((p) => {
+          const fallbackItem = {
+            inventory_id: p.localInventoryId ?? null,
+            title: p.title ?? "",
+            quantity: String(p.quantity ?? 1),
+            unit_price: p.unitPrice != null ? Number(p.unitPrice) : null,
+            etc: p.managementNo ?? null,
+          };
           let items: Array<{ inventory_id?: number | null; title: string; quantity: string; unit_price?: string | number | null; etc?: string | null }> = [];
           try {
             const parsed = JSON.parse(p.itemsJson ?? "[]");
-            items = Array.isArray(parsed) ? parsed : [];
+            const parsedItems = Array.isArray(parsed) ? parsed : [];
+            items = (parsedItems.length > 0 ? parsedItems : [fallbackItem]).map((raw) => {
+              const item = raw as Record<string, unknown>;
+              return {
+                inventory_id: typeof item.inventory_id === "number"
+                  ? item.inventory_id
+                  : typeof item.inventoryId === "number"
+                    ? item.inventoryId
+                    : p.localInventoryId ?? null,
+                title: String(item.title ?? p.title ?? ""),
+                quantity: String(item.quantity ?? p.quantity ?? 1),
+                unit_price: (item.unit_price ?? item.unitPrice ?? p.unitPrice ?? null) as string | number | null,
+                etc: (item.etc ?? item.managementNo ?? p.managementNo ?? null) as string | null,
+              };
+            });
           } catch {
-            items = [{ inventory_id: p.localInventoryId ?? null, title: p.title ?? "", quantity: String(p.quantity ?? 1), unit_price: p.unitPrice != null ? Number(p.unitPrice) : null, etc: p.managementNo ?? null }];
+            items = [fallbackItem];
           }
           const localId = p.zaicoId ?? p.id;
           const isPurchased = p.status === "purchased" || _purchasedIds.has(localId);
