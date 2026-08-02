@@ -3,6 +3,8 @@ import { createFedexMissingActionItems } from "../inventory/fedexMissingTasks";
 import { reclassifyInboundAuto } from "../inventory/inboundClassify";
 import { captureDailySnapshot } from "../inventory/dailySnapshot";
 import { appRouter } from "../routers";
+import { ADMIN_EMAILS } from "@shared/const";
+import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -45,10 +47,23 @@ export function registerCronRoutes(app: Express) {
     }
 
     try {
+      // 在庫APIは publicProcedure が protectedProcedure の別名になっており、
+      // user が null だと UNAUTHORIZED で落ちる。cron用のシステムユーザーを渡す。
+      const now = new Date();
       const caller = appRouter.createCaller({
         req: req as never,
         res: res as never,
-        user: null,
+        user: {
+          id: 0,
+          openId: "cron-inventory-snapshot",
+          name: "cron",
+          email: ADMIN_EMAILS[0] ?? "cron@localhost",
+          loginMethod: EMAIL_AUTH_LOGIN_METHOD,
+          role: "admin",
+          createdAt: now,
+          updatedAt: now,
+          lastSignedIn: now,
+        },
       });
       const preview = await caller.inventory.monthlyReport.preview();
       const result = await captureDailySnapshot(preview, { createdBy: "cron" });
