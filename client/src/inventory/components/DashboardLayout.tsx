@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { PackageCheck, PackageMinus, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe, Store, Sparkles, ListTodo, Timer } from "lucide-react";
+import { PackageCheck, PackageMinus, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe, Store, Sparkles, ListTodo, Timer, TrendingUp } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -37,6 +37,7 @@ const menuItems = [
   { icon: Globe, label: "海外発送", path: "/inventory/overseas-shipping", color: "text-sky-500" },
   { icon: Trash2, label: "削除済み商品", path: "/inventory/deleted-items", color: "text-rose-400" },
   { icon: CalendarDays, label: "月次棚卸し", path: "/inventory/monthly-report", color: "text-amber-500" },
+  { icon: TrendingUp, label: "在庫の推移", path: "/inventory/trend", color: "text-emerald-600" },
   { icon: Settings, label: "設定", path: "/inventory/settings", color: "text-slate-500" },
 ];
 

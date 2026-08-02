@@ -34,6 +34,7 @@ function Router() {
         <Route path={"/inventory/order-management"} component={Home} />
         <Route path={"/inventory/deleted-items"} component={Home} />
         <Route path={"/inventory/monthly-report"} component={Home} />
+        <Route path={"/inventory/trend"} component={Home} />
         <Route path={"/inventory/settings"} component={Home} />
         <Route path={"/inventory/overseas-shipping"} component={Home} />
         <Route path={"/inventory/ai-investigation"} component={Home} />

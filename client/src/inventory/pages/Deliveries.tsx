@@ -889,6 +889,8 @@ export default function Deliveries() {
         etc: inv.etc ?? "",
         purchase_unit_price: inv.purchase_unit_price ?? undefined,
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
+        // 直後に自前でメモを書くので、サーバー側の自動履歴は止める
+        skipChangeLog: true,
       });
       // 在庫メモをDBに保存する
       const changeType = delta > 0 ? "increase" : delta < 0 ? "decrease" : "set";

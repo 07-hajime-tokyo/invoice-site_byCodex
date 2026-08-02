@@ -1,6 +1,8 @@
 import type { Express, Request } from "express";
 import { createFedexMissingActionItems } from "../inventory/fedexMissingTasks";
 import { reclassifyInboundAuto } from "../inventory/inboundClassify";
+import { captureDailySnapshot } from "../inventory/dailySnapshot";
+import { appRouter } from "../routers";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -26,6 +28,35 @@ export function registerCronRoutes(app: Express) {
       console.error("[cron/fedex-missing] failed", error);
       res.status(500).json({
         error: "FedEx missing check failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * 日次在庫スナップショット
+   * 月次棚卸しは「今この瞬間の在庫」しか返せず過去を再現できないため、
+   * 毎日1回その日の在庫の姿を保存して履歴を残す。同じ日に二重実行しても増えない。
+   */
+  app.get("/api/cron/inventory-snapshot", async (req, res) => {
+    if (!isAuthorizedCronRequest(req)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const caller = appRouter.createCaller({
+        req: req as never,
+        res: res as never,
+        user: null,
+      });
+      const preview = await caller.inventory.monthlyReport.preview();
+      const result = await captureDailySnapshot(preview, { createdBy: "cron" });
+      res.json(result);
+    } catch (error) {
+      console.error("[cron/inventory-snapshot] failed", error);
+      res.status(500).json({
+        error: "Inventory snapshot failed",
         detail: error instanceof Error ? error.message : String(error),
       });
     }

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { buildSnapshotBreakdown, todayInJst } from "@shared/inventorySnapshot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -190,6 +191,15 @@ export default function MonthlyReport() {
       refetchList();
     },
     onError: (e) => toast.error(`保存失敗: ${e.message}`),
+  });
+
+  // 日次スナップショットの手動保存
+  const captureSnapshotMutation = trpc.inventory.snapshot.capture.useMutation({
+    onSuccess: (result) => {
+      if (result.saved) toast.success(`${result.date} のスナップショットを保存しました`);
+      else toast.info(`${result.date} のスナップショットは既に保存されています`);
+    },
+    onError: (e) => toast.error(`スナップショット保存失敗: ${e.message}`),
   });
 
   // 削除mutation
@@ -420,6 +430,16 @@ export default function MonthlyReport() {
     }
     return total;
   }, [categorySummary, inventoryPriceOverrides]);
+
+  /**
+   * 区分別サマリー
+   * 在庫金額を1つの数字で出すと税理士報告に使えないので、報告で必要な切り分けをそのまま出す。
+   * 「売り先未定」が税理士へ出す本体、「売り先決定済み」は別枠報告になる。
+   */
+  const breakdown = useMemo(() => {
+    if (!previewData) return null;
+    return buildSnapshotBreakdown(previewData.inventorySummary, previewData.invoiceList);
+  }, [previewData]);
 
   const filteredTotal = useMemo(() => {
     let total = 0;
@@ -678,8 +698,75 @@ export default function MonthlyReport() {
             </div>
           )}
 
-          {previewData && (
+          {previewData && breakdown && (
             <>
+              {/* ========== セクション0: 区分別サマリー ========== */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    <CalendarDays className="h-4 w-4 text-emerald-500" />
+                    区分別サマリー
+                    <span className="text-xs font-normal text-muted-foreground">
+                      税理士報告に出すのは「売り先未定」です
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto h-8 text-xs"
+                      disabled={captureSnapshotMutation.isPending}
+                      onClick={() =>
+                        captureSnapshotMutation.mutate({
+                          inventorySummaryJson: JSON.stringify(previewData.inventorySummary),
+                          invoiceListJson: JSON.stringify(previewData.invoiceList),
+                        })
+                      }
+                    >
+                      <Save className="mr-1 h-3.5 w-3.5" />
+                      今日（{todayInJst()}）のスナップショットを保存
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="bg-background p-3">
+                      <div className="text-xs text-muted-foreground">売り先未定（税理士報告の本体）</div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {fmt(breakdown.unassignedAmount)}
+                      </div>
+                    </div>
+                    <div className="bg-background p-3">
+                      <div className="text-xs text-muted-foreground">売り先決定済み（別枠報告）</div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums">
+                        {fmt(breakdown.assignedAmount)}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        支払済み・未完了インボイスに引き当て済み
+                      </div>
+                    </div>
+                    <div className="bg-background p-3">
+                      <div className="text-xs text-muted-foreground">在庫金額 合計</div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums">
+                        {fmt(breakdown.totalAmount)}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {breakdown.rowCount}行 / {breakdown.itemCount}点
+                      </div>
+                    </div>
+                    <div className="bg-background p-3">
+                      <div className="text-xs text-muted-foreground">発注済み・未到着（在庫外）</div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground">
+                        {fmt(breakdown.onOrderAmount)}
+                      </div>
+                      {breakdown.zeroPricedRowCount > 0 && (
+                        <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                          単価未設定（0円計上）{breakdown.zeroPricedRowCount}行
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* ========== セクション1: 在庫金額サマリー ========== */}
               <Card>
                 <CardHeader className="pb-3">
