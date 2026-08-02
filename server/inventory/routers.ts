@@ -23,6 +23,9 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
 import { recordWorkLog, workLogsRouter } from "./workLogs";
+import { diffInventoryFields, recordInventoryChange } from "./changeLog";
+import { captureDailySnapshot, listDailySnapshots } from "./dailySnapshot";
+import { buildSnapshotBreakdown, parseDailySnapshotDate } from "@shared/inventorySnapshot";
 import {
   testConnection,
   getPurchases,
@@ -2116,6 +2119,15 @@ export const inventoryRouter = router({
               snapshotJson: JSON.stringify(localInv),
             }).catch(() => {});
             await deleteLocalInventory(localInv.id);
+            await recordInventoryChange({
+              inventoryId: localInv.zaicoId ?? localInv.id,
+              title: localInv.title,
+              changeType: "deleted",
+              source: "ui",
+              quantityBefore: localInv.quantity,
+              quantityAfter: 0,
+              note: localInv.etc ? `管理番号・備考: ${localInv.etc}` : null,
+            });
           }
           // 連動削除が指定された場合はlocal_purchasesも削除
           if (input.alsoDeletePurchaseIds && input.alsoDeletePurchaseIds.length > 0) {
@@ -2223,12 +2235,13 @@ export const inventoryRouter = router({
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBに商品を作成
-          await upsertLocalInventory({
+          const createdQuantity = Math.round(parseFloat(payload.quantity ?? "0") || 0);
+          const createdId = await upsertLocalInventory({
             zaicoId: null,
             title: payload.title,
             category: payload.category ?? null,
             place: payload.place ?? null,
-            quantity: Math.round(parseFloat(payload.quantity ?? "0") || 0),
+            quantity: createdQuantity,
             unit: payload.unit ?? "個",
             unitPrice: payload.purchase_unit_price != null ? String(payload.purchase_unit_price) : null,
             etc: payload.etc ?? null,
@@ -2239,7 +2252,19 @@ export const inventoryRouter = router({
             ebayOrderStatus: isEbayManagementNo(payload.etc) ? normalizeEbayOrderStatus(ebayOrderStatus) : "normal",
             isDeleted: 0,
           });
-          return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: 0 };
+          await recordInventoryChange({
+            inventoryId: createdId,
+            title: payload.title,
+            changeType: "created",
+            source: "ui",
+            quantityAfter: createdQuantity,
+            note: [
+              payload.category ? `カテゴリ: ${payload.category}` : null,
+              payload.purchase_unit_price != null ? `仕入単価: ${payload.purchase_unit_price}` : null,
+              payload.etc ? `管理番号・備考: ${payload.etc}` : null,
+            ].filter(Boolean).join(" / ") || null,
+          });
+          return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: createdId };
         }
 
         const token = resolveOperatorToken(operatorKey);
@@ -2277,11 +2302,15 @@ export const inventoryRouter = router({
           ebayListingUrl: z.string().max(1000).nullable().optional(),
           ebayOrderUrl: z.string().max(1000).nullable().optional(),
           ebayOrderStatus: z.enum(["normal", "cancelled", "returned"]).optional(),
+          /** 呼び出し元が自前で在庫メモを書く場合に true（履歴の二重登録を防ぐ） */
+          skipChangeLog: z.boolean().optional(),
+          /** 変更元の識別子。履歴に残して原因追跡に使う */
+          changeSource: z.enum(["ui", "api", "cron", "delivery", "purchase"]).optional(),
         })
       )
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
-        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ebayOrderStatus, ...payload } = input;
+        const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ebayOrderStatus, skipChangeLog, changeSource, ...payload } = input;
 
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBの商品を更新
@@ -2293,7 +2322,7 @@ export const inventoryRouter = router({
             const nextInventoryEtc = payload.etc ?? null;
             const nextManagementNo = nextInventoryEtc?.split(",")[0]?.trim() || null;
             const nextEbayStockType = getEbayStockType(nextInventoryEtc);
-            await updateLocalInventory(localInv.id, {
+            const nextValues = {
               title: payload.title,
               category: payload.category ?? null,
               place: payload.place ?? null,
@@ -2310,7 +2339,39 @@ export const inventoryRouter = router({
               ebayOrderStatus: isEbayManagementNo(nextInventoryEtc)
                 ? (ebayOrderStatus === undefined ? normalizeEbayOrderStatus(localInv.ebayOrderStatus) : normalizeEbayOrderStatus(ebayOrderStatus))
                 : "normal",
-            });
+            };
+            await updateLocalInventory(localInv.id, nextValues);
+            // 在庫変動履歴を残す。skipChangeLog=true の呼び出し元は自前でメモを書く
+            if (!skipChangeLog) {
+              const diffs = diffInventoryFields(
+                {
+                  title: localInv.title,
+                  category: localInv.category,
+                  place: localInv.place,
+                  quantity: localInv.quantity,
+                  unit: localInv.unit,
+                  unitPrice: localInv.unitPrice,
+                  etc: localInv.etc,
+                  supplierUrl: localInv.supplierUrl,
+                  supplierName: localInv.supplierName,
+                  ebayListingUrl: localInv.ebayListingUrl,
+                  ebayOrderUrl: localInv.ebayOrderUrl,
+                  ebayOrderStatus: localInv.ebayOrderStatus,
+                },
+                nextValues
+              );
+              if (diffs.length > 0) {
+                await recordInventoryChange({
+                  inventoryId: localInv.zaicoId ?? localInv.id,
+                  title: payload.title,
+                  changeType: "updated",
+                  source: changeSource ?? "ui",
+                  diffs,
+                  quantityBefore: localInv.quantity,
+                  quantityAfter: nextValues.quantity,
+                });
+              }
+            }
             const db = await getDb();
             if (db) {
               const { localPurchases: lpTbl } = await import("../../drizzle/schema");
@@ -5092,6 +5153,62 @@ export const inventoryRouter = router({
   }),
 
   // ============================================================
+  // 日次在庫スナップショット（monthly_reports に [日次] ラベルで保存）
+  // ============================================================
+  snapshot: router({
+    /**
+     * 日次スナップショットの推移を返す。
+     * 明細JSONは重いので、一覧では区分別サマリーだけに畳んで返す。
+     */
+    list: publicProcedure
+      .input(z.object({ limit: z.number().int().positive().max(400).default(120) }).optional())
+      .query(async ({ input }) => {
+        const rows = await listDailySnapshots(input?.limit ?? 120);
+        return rows.map(({ report, date }) => {
+          let breakdown = null;
+          try {
+            const inventorySummary = JSON.parse(report.inventorySummaryJson ?? "[]");
+            const invoiceList = JSON.parse(report.invoiceListJson ?? "[]");
+            breakdown = buildSnapshotBreakdown(inventorySummary, invoiceList);
+          } catch {
+            breakdown = null;
+          }
+          return {
+            id: report.id,
+            date,
+            label: report.label,
+            createdBy: report.createdBy,
+            createdAt: report.createdAt,
+            breakdown,
+          };
+        });
+      }),
+
+    /**
+     * 手動でその日のスナップショットを保存する。
+     * 画面が持っているプレビュー結果をそのまま渡す（preview を再計算すると重いため）。
+     */
+    capture: publicProcedure
+      .input(z.object({
+        inventorySummaryJson: z.string(),
+        invoiceListJson: z.string(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        force: z.boolean().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const preview = {
+          inventorySummary: JSON.parse(input.inventorySummaryJson),
+          invoiceList: JSON.parse(input.invoiceListJson),
+        };
+        return captureDailySnapshot(preview, {
+          date: input.date,
+          force: input.force,
+          createdBy: (ctx as { user?: { name?: string } }).user?.name ?? "manual",
+        });
+      }),
+  }),
+
+  // ============================================================
   // 月次棚卸しレポート（monthly_reports）
   // ============================================================
   monthlyReport: router({
@@ -5535,10 +5652,18 @@ export const inventoryRouter = router({
         return { id };
       }),
 
-    /** レポート一覧を取得する */
-    list: publicProcedure.query(async () => {
-      return getMonthlyReports(50);
-    }),
+    /**
+     * レポート一覧を取得する
+     * 日次スナップショット（label が "[日次] " 始まり）は既定で除外する。
+     * 月次の保存済み一覧に毎日の自動保存が混ざると使い物にならないため。
+     */
+    list: publicProcedure
+      .input(z.object({ includeDaily: z.boolean().optional() }).optional())
+      .query(async ({ input }) => {
+        const reports = await getMonthlyReports(input?.includeDaily ? 50 : 400);
+        if (input?.includeDaily) return reports;
+        return reports.filter((report) => parseDailySnapshotDate(report.label) === null).slice(0, 50);
+      }),
 
     /** レポート詳細を取得する */
     get: publicProcedure

@@ -966,7 +966,9 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
     ebayOrderStatus: data.ebayOrderStatus,
     isDeleted: data.isDeleted,
   };
-  await db.insert(localInventories).values(data).onDuplicateKeyUpdate({ set: updateSet });
+  const result = await db.insert(localInventories).values(data).onDuplicateKeyUpdate({ set: updateSet });
+  // 変動履歴に残すため、採番されたIDを返す（既存行の更新時は0が返ることがある）
+  return (result as unknown as { insertId?: number }).insertId ?? 0;
 }
 
 export async function getLocalInventories(includeDeleted = false): Promise<LocalInventory[]> {
