@@ -44,6 +44,7 @@ interface PurchaseItem {
   etc?: string | null;
   category?: string | null;
   itemLabels?: InventoryItemLabel[];
+  currentInventoryQuantity?: string | number | null;
 }
 
 interface PurchaseRow {
@@ -81,6 +82,7 @@ interface ProductSummary {
   title: string;
   required: number;
   secured: number;
+  waiting: number;
   unitPriceTotal: number;
   unitPriceCount: number;
 }
@@ -94,6 +96,7 @@ interface AllocationGroup {
   labels: LabelView[];
   required: number;
   secured: number;
+  waiting: number;
   purchaseTotal: number;
 }
 
@@ -143,6 +146,10 @@ function formatDate(value?: string | null): string {
 
 function itemQuantity(item: PurchaseItem): number {
   return toNumber(item.quantity);
+}
+
+function itemStockQuantity(item: PurchaseItem): number {
+  return Math.max(0, toNumber(item.currentInventoryQuantity));
 }
 
 function sumQuantity(items: PurchaseItem[]): number {
@@ -212,6 +219,17 @@ function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "received") return isReceived(row);
   return !isReceived(row);
+}
+
+function visiblePurchaseItems(row: PurchaseRow): PurchaseItem[] {
+  if (!isReceived(row)) return row.purchase_items;
+  return row.purchase_items.filter((item) => itemStockQuantity(item) > 0);
+}
+
+function withVisiblePurchaseItems(row: PurchaseRow): PurchaseRow | null {
+  const purchaseItems = visiblePurchaseItems(row);
+  if (purchaseItems.length === 0) return null;
+  return purchaseItems.length === row.purchase_items.length ? row : { ...row, purchase_items: purchaseItems };
 }
 
 function productKey(title: string): string {
@@ -294,12 +312,17 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
         title,
         required: 0,
         secured: 0,
+        waiting: 0,
         unitPriceTotal: 0,
         unitPriceCount: 0,
       };
       const quantity = itemQuantity(item);
       current.required += quantity;
-      current.secured += quantity;
+      if (isReceived(row)) {
+        current.secured += Math.min(quantity, itemStockQuantity(item));
+      } else {
+        current.waiting += quantity;
+      }
       const unitPrice = toNumber(item.unit_price);
       if (unitPrice > 0) {
         current.unitPriceTotal += unitPrice;
@@ -328,6 +351,7 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
       const labels = buildLabelViews(groupRows);
       const required = products.reduce((total, item) => total + item.required, 0);
       const secured = products.reduce((total, item) => total + item.secured, 0);
+      const waiting = products.reduce((total, item) => total + item.waiting, 0);
       const purchaseTotal = groupRows.reduce(
         (total, row) =>
           total +
@@ -352,6 +376,7 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
         labels,
         required,
         secured,
+        waiting,
         purchaseTotal,
       };
     })
@@ -371,6 +396,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   const managementNos = getManagementNos(row.purchase_items);
   const supplier = getSupplier(row);
   const totalQuantity = sumQuantity(row.purchase_items);
+  const currentStockQuantity = row.purchase_items.reduce((total, item) => total + itemStockQuantity(item), 0);
   const firstItem = row.purchase_items[0];
   const displayItems = row.purchase_items.slice(0, 4);
   const hiddenItemCount = Math.max(0, row.purchase_items.length - displayItems.length);
@@ -399,6 +425,15 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             <Badge variant="outline" className={statusClass(row)}>
               {statusLabel(row)}
             </Badge>
+            {!isReceived(row) ? (
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                入庫まち
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                現在庫 {currentStockQuantity.toLocaleString()}個
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
@@ -545,6 +580,77 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
   );
 }
 
+function ProductFulfillmentTableV2({ products }: { products: ProductSummary[] }) {
+  return (
+    <div className="overflow-hidden rounded-md border bg-background">
+      <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead className="border-b text-xs text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">品目</th>
+              <th className="px-4 py-3 text-right font-medium">必要</th>
+              <th className="px-4 py-3 text-right font-medium">現在庫</th>
+              <th className="px-4 py-3 text-right font-medium">入庫まち</th>
+              <th className="px-4 py-3 text-right font-medium">不足</th>
+              <th className="px-4 py-3 text-right font-medium">平均仕入</th>
+              <th className="px-4 py-3 text-right font-medium">売価</th>
+              <th className="px-4 py-3 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  表示できる商品がありません
+                </td>
+              </tr>
+            ) : (
+              products.map((product) => {
+                const shortage = Math.max(product.required - product.secured - product.waiting, 0);
+                const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
+                return (
+                  <tr key={product.key} className="border-b last:border-0">
+                    <td className="px-4 py-3 font-medium">{product.title}</td>
+                    <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      {product.waiting > 0 ? (
+                        <span className="inline-flex min-w-7 justify-center rounded bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                          {product.waiting.toLocaleString()}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className={cn(
+                          "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold",
+                          shortage > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700",
+                        )}
+                      >
+                        {shortage.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
+                    <td className="px-4 py-3 text-right">-</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button type="button" variant="outline" size="sm">
+                        仕入れを追加
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function OrderDashboard({
   group,
   rows,
@@ -578,7 +684,7 @@ function OrderDashboard({
         </div>
       </section>
 
-      <ProductFulfillmentTable products={products} />
+      <ProductFulfillmentTableV2 products={products} />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2 text-sm font-medium">
@@ -738,7 +844,7 @@ function ShippingPanel({ products }: { products: ProductSummary[] }) {
           </Button>
         </div>
       </section>
-      <ProductFulfillmentTable products={products} />
+      <ProductFulfillmentTableV2 products={products} />
     </div>
   );
 }
@@ -818,10 +924,11 @@ export default function PurchaseRegistration() {
   const searchText = normalizedSearch.toLowerCase();
 
   const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      if (!matchesStatus(row, statusFilter)) return false;
-      if (!searchText) return true;
-      return buildSearchText(row).includes(searchText);
+    return rows.flatMap((row) => {
+      if (!matchesStatus(row, statusFilter)) return [];
+      if (searchText && !buildSearchText(row).includes(searchText)) return [];
+      const visibleRow = withVisiblePurchaseItems(row);
+      return visibleRow ? [visibleRow] : [];
     });
   }, [rows, searchText, statusFilter]);
 

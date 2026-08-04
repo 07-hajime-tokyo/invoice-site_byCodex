@@ -773,11 +773,15 @@ type PurchasePageRow = {
   /** T22: シャフト分離元の発注ID */
   shaftParentPurchaseId?: number | null;
   purchase_items: Array<{
+    id?: string | number | null;
+    inventory_id?: number | null;
+    inventoryId?: number | null;
     title?: string | null;
     quantity?: string | number | null;
     unit_price?: string | number | null;
     etc?: string | null;
     category?: string | null;
+    currentInventoryQuantity?: string | number | null;
     itemLabels?: InventoryItemLabelView[];
   }>;
 };
@@ -1518,12 +1522,13 @@ export const inventoryRouter = router({
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
-          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
+          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
           for (const inv of localInventoryRows) {
             invSupplierMap.set(inv.id, {
               supplierName: inv.supplierName ?? null,
               supplierUrl: inv.supplierUrl ?? null,
               ebayListingUrl: inv.ebayListingUrl ?? null,
+              quantity: inv.quantity ?? null,
             });
           }
 
@@ -1537,12 +1542,14 @@ export const inventoryRouter = router({
                 supplierName: localInvTbl.supplierName,
                 supplierUrl: localInvTbl.supplierUrl,
                 ebayListingUrl: localInvTbl.ebayListingUrl,
+                quantity: localInvTbl.quantity,
               }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
               for (const row of rows) {
                 invSupplierMap.set(row.id, {
                   supplierName: row.supplierName ?? null,
                   supplierUrl: row.supplierUrl ?? null,
                   ebayListingUrl: row.ebayListingUrl ?? null,
+                  quantity: row.quantity ?? null,
                 });
               }
             }
@@ -1572,12 +1579,20 @@ export const inventoryRouter = router({
               purchase_items: (() => {
                 try {
                   const items = JSON.parse(p.itemsJson ?? "[]");
-                  return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
-                    ...item,
-                    category: p.category ?? "未分類",
-                    itemLabels: labelsForPurchaseItem(p, item),
-                  })) : [];
+                  return Array.isArray(items) ? items.map((item: Record<string, unknown>) => {
+                    const parsedInventoryId = Number(item.inventory_id ?? item.inventoryId ?? p.localInventoryId);
+                    const inventoryId = Number.isFinite(parsedInventoryId) ? parsedInventoryId : null;
+                    const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
+                    return {
+                      ...item,
+                      inventory_id: inventoryId,
+                      category: p.category ?? "未分類",
+                      currentInventoryQuantity: invInfo?.quantity ?? null,
+                      itemLabels: labelsForPurchaseItem(p, item),
+                    };
+                  }) : [];
                 } catch {
+                  const invInfo = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
                   return [{
                     id: p.id,
                     title: p.title,
@@ -1585,8 +1600,9 @@ export const inventoryRouter = router({
                     unit_price: p.unitPrice ?? null,
                     etc: p.managementNo ?? null,
                     status: p.status,
-                    inventory_id: null,
+                    inventory_id: p.localInventoryId ?? null,
                     category: p.category ?? "未分類",
+                    currentInventoryQuantity: invInfo?.quantity ?? null,
                     itemLabels: getPurchaseItemLabels(p),
                   }];
                 }
@@ -1599,6 +1615,7 @@ export const inventoryRouter = router({
               const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
               const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
               item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
+              item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
             }
           }
 
@@ -1628,6 +1645,7 @@ export const inventoryRouter = router({
               return {
                 ...item,
                 category: inv?.categories?.[0] ?? inv?.category ?? "未分類",
+                currentInventoryQuantity: inv?.quantity ?? null,
                 etc: (() => {
                   const itemEtc = item.etc?.trim() ?? "";
                   const invEtc = inv?.etc?.trim() ?? "";
