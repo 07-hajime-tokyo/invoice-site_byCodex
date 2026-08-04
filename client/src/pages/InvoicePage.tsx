@@ -915,13 +915,13 @@ async function generateInvoicePdf(
   const fromToY = y;
   const formatAddressLine = (line: string) => line.trim().replace(/([:：])(?=\S)/g, "$1 ");
   const drawAddressLines = (lines: string[], x: number, startY: number) => {
-    const lineHeight = 4.8;
+    const lineHeight = 7;
     let currentY = startY;
     lines.forEach((rawLine) => {
       const line = formatAddressLine(rawLine);
       if (!line) return;
       const wrapped = pdf.splitTextToSize(line, colW);
-      pdf.text(wrapped, x, currentY, { maxWidth: colW });
+      pdf.text(wrapped, x, currentY, { maxWidth: colW, lineHeightFactor: 1.6 });
       currentY += Math.max(lineHeight, wrapped.length * lineHeight);
     });
     return currentY;

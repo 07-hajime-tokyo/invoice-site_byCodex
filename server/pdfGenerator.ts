@@ -253,11 +253,11 @@ function drawInvoice(doc: PDFKit.PDFDocument, params: InvoicePdfParams) {
     const fontName = options.font ?? "Regular";
     const fontSize = options.size ?? 9;
     const color = options.color ?? GRAY;
-    const minHeight = options.minHeight ?? 12;
+    const minHeight = options.minHeight ?? 15;
     doc.font(fontName).fontSize(fontSize).fillColor(color);
     doc.text(value, x, currentY, { width: colW, lineBreak: true });
     const textHeight = doc.heightOfString(value, { width: colW });
-    return currentY + Math.max(minHeight, textHeight + 3);
+    return currentY + Math.max(minHeight, textHeight + 6);
   };
 
   // FROM content
