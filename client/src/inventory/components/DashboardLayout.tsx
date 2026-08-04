@@ -41,11 +41,12 @@ const menuItems = [
   { icon: Settings, label: "設定", path: "/inventory/settings", color: "text-slate-500" },
 ];
 
-menuItems.splice(3, 0, { icon: Store, label: "eBay在庫", path: "/inventory/ebay-inventory", color: "text-cyan-500" });
+menuItems.splice(1, 0, { icon: ClipboardList, label: "発注登録", path: "/inventory/purchase-registration", color: "text-amber-500" });
+menuItems.splice(4, 0, { icon: Store, label: "eBay在庫", path: "/inventory/ebay-inventory", color: "text-cyan-500" });
 
-menuItems.splice(7, 0, { icon: Sparkles, label: "AI調査", path: "/inventory/ai-investigation", color: "text-emerald-500" });
-menuItems.splice(8, 0, { icon: ListTodo, label: "やること", path: "/inventory/action-items", color: "text-lime-600" });
-menuItems.splice(9, 0, { icon: Timer, label: "作業管理", path: "/inventory/work-management", color: "text-indigo-500" });
+menuItems.splice(8, 0, { icon: Sparkles, label: "AI調査", path: "/inventory/ai-investigation", color: "text-emerald-500" });
+menuItems.splice(9, 0, { icon: ListTodo, label: "やること", path: "/inventory/action-items", color: "text-lime-600" });
+menuItems.splice(10, 0, { icon: Timer, label: "作業管理", path: "/inventory/work-management", color: "text-indigo-500" });
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
