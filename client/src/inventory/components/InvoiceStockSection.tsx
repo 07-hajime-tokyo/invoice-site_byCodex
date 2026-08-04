@@ -100,11 +100,20 @@ function extractPrefixFromManagementNo(etc: string | null | undefined): string |
   return match ? match[1] : undefined;
 }
 
+function getShortPartnerDeliveryCode(customerCode: string): string | null {
+  const normalized = customerCode.normalize("NFKC").trim().toLowerCase();
+  if (normalized.includes("maxim") || normalized.includes("マキシム")) return "Maxim";
+  if (normalized.includes("simon") || normalized.includes("サイモン")) return "Simon";
+  return null;
+}
+
 function generateDeliveryNo(customerCode: string, invoiceNo: string): string {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
+  const shortPartnerCode = getShortPartnerDeliveryCode(customerCode);
+  if (shortPartnerCode) return `${shortPartnerCode}${String(y).slice(-2)}${m}${d}`;
   return `${invoiceNo}_${customerCode}${y}${m}${d}`;
 }
 

@@ -235,11 +235,20 @@ export default function Deliveries() {
   }
 
   /** 出庫Noを自動生成する: {prefix_}{code}{YYYYMMDD} */
+  function getShortPartnerDeliveryCode(customerCode: string): string | null {
+    const normalized = customerCode.normalize("NFKC").trim().toLowerCase();
+    if (normalized.includes("maxim") || normalized.includes("マキシム")) return "Maxim";
+    if (normalized.includes("simon") || normalized.includes("サイモン")) return "Simon";
+    return null;
+  }
+
   function generateDeliveryNo(customerCode: string, prefix?: string): string {
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, "0");
     const d = String(now.getDate()).padStart(2, "0");
+    const shortPartnerCode = getShortPartnerDeliveryCode(customerCode);
+    if (shortPartnerCode) return `${shortPartnerCode}${String(y).slice(-2)}${m}${d}`;
     const base = `${customerCode}${y}${m}${d}`;
     return prefix ? `${prefix}_${base}` : base;
   }
@@ -261,6 +270,14 @@ export default function Deliveries() {
     if (!managementNo) return undefined;
     const match = managementNo.match(/^(\d+)/);
     return match ? match[1] : undefined;
+  }
+
+  function extractCommonInvoiceNoFromItems(items: Array<{ etc?: string | null }>): string {
+    const prefixes = items
+      .map((item) => extractPrefixFromManagementNo(item.etc ?? undefined))
+      .filter((prefix): prefix is string => !!prefix);
+    const uniquePrefixes = Array.from(new Set(prefixes));
+    return uniquePrefixes.length === 1 ? uniquePrefixes[0] : "";
   }
 
   // 発注済み登録用state
@@ -431,16 +448,23 @@ export default function Deliveries() {
   const [singleSheetName, setSingleSheetName] = useState<ShipmentSheetName>("独発送管理");
   const [bulkTrackingNumber, setBulkTrackingNumber] = useState("");
   const [bulkSheetName, setBulkSheetName] = useState<ShipmentSheetName>("独発送管理");
+  const bulkManagementInvoiceNo = useMemo(() => {
+    const selectedItems = Array.from(deliveryItems.values()).filter((item) => item.checked);
+    return extractCommonInvoiceNoFromItems(selectedItems);
+  }, [deliveryItems]);
   const bulkInvoiceNoForOrder = useMemo(() => {
-    return deliveryNo.trim().match(/^(\d+)/)?.[1] ?? bulkInvoiceNo.trim();
-  }, [deliveryNo, bulkInvoiceNo]);
+    const deliveryNoInvoice = deliveryNo.trim().match(/^(\d+)/)?.[1] ?? "";
+    return bulkManagementInvoiceNo || deliveryNoInvoice || bulkInvoiceNo.trim();
+  }, [bulkManagementInvoiceNo, deliveryNo, bulkInvoiceNo]);
   const { data: bulkInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
     { invoiceNo: bulkInvoiceNoForOrder },
     { enabled: showDeliveryConfirm && !!bulkInvoiceNoForOrder }
   );
   const singleInvoiceNoForOrder = useMemo(() => {
-    return singleDeliveryNo.trim().match(/^(\d+)/)?.[1] ?? singleInvoiceNo.trim();
-  }, [singleDeliveryNo, singleInvoiceNo]);
+    const managementInvoiceNo = extractPrefixFromManagementNo(singleDeliveryItem?.inv.etc);
+    const deliveryNoInvoice = singleDeliveryNo.trim().match(/^(\d+)/)?.[1] ?? "";
+    return managementInvoiceNo || deliveryNoInvoice || singleInvoiceNo.trim();
+  }, [singleDeliveryItem, singleDeliveryNo, singleInvoiceNo]);
   const { data: singleInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
     { invoiceNo: singleInvoiceNoForOrder },
     { enabled: showSingleDeliveryDialog && !!singleInvoiceNoForOrder }
@@ -704,7 +728,11 @@ export default function Deliveries() {
   // まとめて出庫: checkedItemsが変わったときに共通取引先を自動判別
   useEffect(() => {
     if (!customers || checkedItems.length === 0) {
-      if (checkedItems.length === 0) setBulkInvoiceNo(""); // チェック解除時にリセット
+      if (checkedItems.length === 0) {
+        setBulkInvoiceNo(""); // チェック解除時にリセット
+        setBulkCustomerCode("");
+        setDeliveryNo("");
+      }
       return;
     }
     // 全チェック商品の取引先を判別し、共通する取引先が1つのみなら自動設定
@@ -722,7 +750,7 @@ export default function Deliveries() {
       .filter(Boolean);
     const uniqueCodes = Array.from(new Set(detectedCodes));
     // 全商品が同じ取引先の場合のみ自動設定（ユーザーが手動変更した場合は上書きしない）
-    if (uniqueCodes.length === 1 && !bulkCustomerCode) {
+    if (uniqueCodes.length === 1 && (!bulkCustomerCode || !deliveryNo.trim())) {
       const code = uniqueCodes[0] as string;
       setBulkCustomerCode(code);
       // 先頭数字（prefix）を全チェック商品から抽出（共通の場合のみ使用）
@@ -967,7 +995,7 @@ export default function Deliveries() {
         ...(singleTrackingNumber.trim() ? {
           trackingNumber: singleTrackingNumber.trim(),
           sheetName: singleSheetName,
-          invoiceNo: singleDeliveryNo.trim().match(/^(\d+)/)?.[1] ?? singleDeliveryNo.trim(),
+          invoiceNo: singleInvoiceNoForOrder || singleDeliveryNo.trim(),
         } : {}),
       });
       if (singleTrackingNumber.trim() && singleResult.fedexResult) {
@@ -1028,7 +1056,7 @@ export default function Deliveries() {
         ...(bulkTrackingNumber.trim() ? {
           trackingNumber: bulkTrackingNumber.trim(),
           sheetName: bulkSheetName,
-          invoiceNo: deliveryNo.trim().match(/^(\d+)/)?.[1] ?? deliveryNo.trim(),
+          invoiceNo: bulkInvoiceNoForOrder || deliveryNo.trim(),
         } : {}),
       });
       if (bulkTrackingNumber.trim() && bulkResult.fedexResult) {
