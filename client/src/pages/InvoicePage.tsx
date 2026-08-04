@@ -588,6 +588,8 @@ function InvoicePreview({
     if (form.currency === "JPY") return n.toLocaleString();
     return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   };
+  const contactLineStyle = { margin: "2px 0", lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" } as const;
+  const formatContactLine = (line: string) => line.replace(/([:：])(?=\S)/g, "$1 ");
 
   const subtotal = form.items.reduce((s, item) => s + item.quantity * item.unitPrice, 0);
   const taxTotal = form.items.reduce((s, item) => {
@@ -678,19 +680,19 @@ function InvoicePreview({
           <p style={{ fontWeight: 700, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: accent, marginBottom: "10px", borderBottom: `2px solid ${accent}`, paddingBottom: "4px", display: "inline-block" }}>To</p>
           {clientData ? (
             <>
-              {clientData.company && <p style={{ margin: "2px 0" }}>{clientData.company}</p>}
-              {clientData.name && <p style={{ margin: "2px 0" }}>{clientData.name}</p>}
-              {clientData.address && <p style={{ margin: "2px 0" }}>{clientData.address}</p>}
+              {clientData.company && <p style={contactLineStyle}>{formatContactLine(clientData.company)}</p>}
+              {clientData.name && <p style={contactLineStyle}>{formatContactLine(clientData.name)}</p>}
+              {clientData.address && <p style={contactLineStyle}>{formatContactLine(clientData.address)}</p>}
               {(clientData.city || clientData.country) && (
-                <p style={{ margin: "2px 0" }}>
-                  {[clientData.city, clientData.country].filter(Boolean).join(" ")}
+                <p style={contactLineStyle}>
+                  {formatContactLine([clientData.city, clientData.country].filter(Boolean).join(" "))}
                 </p>
               )}
-              {clientData.email && <p style={{ margin: "2px 0" }}>{clientData.email}</p>}
-              {clientData.phone && <p style={{ margin: "2px 0" }}>{clientData.phone}</p>}
-              {clientData.notes && <p style={{ margin: "2px 0" }}>{clientData.notes}</p>}
+              {clientData.email && <p style={contactLineStyle}>{formatContactLine(clientData.email)}</p>}
+              {clientData.phone && <p style={contactLineStyle}>{formatContactLine(clientData.phone)}</p>}
+              {clientData.notes && <p style={contactLineStyle}>{formatContactLine(clientData.notes)}</p>}
               {clientData.extraInfo && clientData.extraInfo.split("\n").map((line, i) => (
-                <p key={i} style={{ margin: "2px 0" }}>{line}</p>
+                <p key={i} style={contactLineStyle}>{formatContactLine(line)}</p>
               ))}
             </>
           ) : (
@@ -911,6 +913,19 @@ async function generateInvoicePdf(
   const fromX = margin;
   const toX = margin + colW + 10;
   const fromToY = y;
+  const formatAddressLine = (line: string) => line.trim().replace(/([:：])(?=\S)/g, "$1 ");
+  const drawAddressLines = (lines: string[], x: number, startY: number) => {
+    const lineHeight = 4.8;
+    let currentY = startY;
+    lines.forEach((rawLine) => {
+      const line = formatAddressLine(rawLine);
+      if (!line) return;
+      const wrapped = pdf.splitTextToSize(line, colW);
+      pdf.text(wrapped, x, currentY, { maxWidth: colW });
+      currentY += Math.max(lineHeight, wrapped.length * lineHeight);
+    });
+    return currentY;
+  };
 
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(8);
@@ -939,10 +954,7 @@ async function generateInvoicePdf(
   if (senderSettings?.senderExtraInfo) {
     senderSettings.senderExtraInfo.split("\n").forEach(l => { if (l.trim()) fromLines.push(l); });
   }
-  fromLines.forEach((line, i) => {
-    pdf.text(line, fromX, fromY + i * 5, { maxWidth: colW });
-  });
-  fromY += fromLines.length * 5;
+  fromY = drawAddressLines(fromLines, fromX, fromY);
 
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(9);
@@ -962,10 +974,7 @@ async function generateInvoicePdf(
     if (selectedClient.extraInfo) {
       selectedClient.extraInfo.split("\n").forEach(l => { if (l.trim()) toLines.push(l); });
     }
-    toLines.forEach((line, i) => {
-      pdf.text(line, toX, toY + i * 5, { maxWidth: colW });
-    });
-    toY += toLines.length * 5;
+    toY = drawAddressLines(toLines, toX, toY);
   }
 
   y = Math.max(fromY, toY) + 10;

@@ -241,39 +241,51 @@ function drawInvoice(doc: PDFKit.PDFDocument, params: InvoicePdfParams) {
 
   y += 14;
 
+  const formatContactLine = (line: string) => esc(line).trim().replace(/([:：])(?=\S)/g, "$1 ");
+  const drawContactLine = (
+    line: string | null | undefined,
+    x: number,
+    currentY: number,
+    options: { font?: "Regular" | "Bold"; size?: number; color?: string; minHeight?: number } = {},
+  ) => {
+    const value = formatContactLine(line ?? "");
+    if (!value) return currentY;
+    const fontName = options.font ?? "Regular";
+    const fontSize = options.size ?? 9;
+    const color = options.color ?? GRAY;
+    const minHeight = options.minHeight ?? 12;
+    doc.font(fontName).fontSize(fontSize).fillColor(color);
+    doc.text(value, x, currentY, { width: colW, lineBreak: true });
+    const textHeight = doc.heightOfString(value, { width: colW });
+    return currentY + Math.max(minHeight, textHeight + 3);
+  };
+
   // FROM content
   let fromY = y;
   if (senderSettings) {
     const s = senderSettings;
     if (s.senderCompany) {
-      doc.font("Bold").fontSize(11).fillColor(DARK).text(esc(s.senderCompany), LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 15;
+      fromY = drawContactLine(s.senderCompany, LEFT, fromY, { font: "Bold", size: 11, color: DARK, minHeight: 15 });
     }
     if (s.senderName) {
-      doc.font("Regular").fontSize(10).fillColor("#333333").text(esc(s.senderName), LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 13;
+      fromY = drawContactLine(s.senderName, LEFT, fromY, { size: 10, color: "#333333", minHeight: 13 });
     }
     if (s.senderEmail) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(s.senderEmail), LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 12;
+      fromY = drawContactLine(s.senderEmail, LEFT, fromY);
     }
     if (s.senderPhone) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(s.senderPhone), LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 12;
+      fromY = drawContactLine(s.senderPhone, LEFT, fromY);
     }
     if (s.senderAddress) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(s.senderAddress), LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 12;
+      fromY = drawContactLine(s.senderAddress, LEFT, fromY);
     }
     if (s.senderCity || s.senderCountry) {
       const cityCountry = [s.senderCity, s.senderCountry].filter(Boolean).join(", ");
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(cityCountry, LEFT, fromY, { width: colW, lineBreak: false });
-      fromY += 12;
+      fromY = drawContactLine(cityCountry, LEFT, fromY);
     }
     if (s.senderExtraInfo) {
       s.senderExtraInfo.split("\n").forEach((line) => {
-        doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(line), LEFT, fromY, { width: colW, lineBreak: false });
-        fromY += 12;
+        fromY = drawContactLine(line, LEFT, fromY);
       });
     }
   }
@@ -284,38 +296,30 @@ function drawInvoice(doc: PDFKit.PDFDocument, params: InvoicePdfParams) {
   if (clientData) {
     const c = clientData;
     if (c.company) {
-      doc.font("Bold").fontSize(11).fillColor(DARK).text(esc(c.company), toX, toY, { width: colW, lineBreak: false });
-      toY += 15;
+      toY = drawContactLine(c.company, toX, toY, { font: "Bold", size: 11, color: DARK, minHeight: 15 });
     }
     if (c.name) {
-      doc.font("Regular").fontSize(10).fillColor("#333333").text(esc(c.name), toX, toY, { width: colW, lineBreak: false });
-      toY += 13;
+      toY = drawContactLine(c.name, toX, toY, { size: 10, color: "#333333", minHeight: 13 });
     }
     if (c.email) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(c.email), toX, toY, { width: colW, lineBreak: false });
-      toY += 12;
+      toY = drawContactLine(c.email, toX, toY);
     }
     if (c.phone) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(c.phone), toX, toY, { width: colW, lineBreak: false });
-      toY += 12;
+      toY = drawContactLine(c.phone, toX, toY);
     }
     if (c.address) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(c.address), toX, toY, { width: colW, lineBreak: false });
-      toY += 12;
+      toY = drawContactLine(c.address, toX, toY);
     }
     if (c.city || c.country) {
       const cityCountry = [c.city, c.country].filter(Boolean).join(", ");
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(cityCountry, toX, toY, { width: colW, lineBreak: false });
-      toY += 12;
+      toY = drawContactLine(cityCountry, toX, toY);
     }
     if (c.notes) {
-      doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(c.notes), toX, toY, { width: colW, lineBreak: false });
-      toY += 12;
+      toY = drawContactLine(c.notes, toX, toY);
     }
     if (c.extraInfo) {
       c.extraInfo.split("\n").forEach((line) => {
-        doc.font("Regular").fontSize(9).fillColor(GRAY).text(esc(line), toX, toY, { width: colW, lineBreak: false });
-        toY += 12;
+        toY = drawContactLine(line, toX, toY);
       });
     }
   }
