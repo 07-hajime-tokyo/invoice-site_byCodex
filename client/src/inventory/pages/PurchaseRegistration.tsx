@@ -109,6 +109,8 @@ const workflowTabs: Array<{ value: WorkflowTab; label: string; icon: typeof Pack
 const fieldClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
+const OTHER_INVOICE_KEY = "invoice-other";
+
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
   const parts = etc.split(",").map((part) => part.trim());
@@ -163,6 +165,34 @@ function getManagementNos(items: PurchaseItem[]): string[] {
       return [parsed.managementNo, ...labelNos];
     }),
   );
+}
+
+function parseInvoiceFromManagementNo(managementNo: string): { invoiceNo: string; partner: string } | null {
+  const trimmed = managementNo.trim();
+  const match = trimmed.match(/^(\d{3})(?:_([^_,\s]+))?/);
+  if (!match || !trimmed.startsWith(`${match[1]}_`)) return null;
+  return {
+    invoiceNo: match[1],
+    partner: match[2] ?? "",
+  };
+}
+
+function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; partner: string } {
+  for (const managementNo of getManagementNos(row.purchase_items)) {
+    const parsed = parseInvoiceFromManagementNo(managementNo);
+    if (parsed) {
+      return {
+        key: `invoice-${parsed.invoiceNo}`,
+        invoiceNo: parsed.invoiceNo,
+        partner: parsed.partner,
+      };
+    }
+  }
+  return {
+    key: OTHER_INVOICE_KEY,
+    invoiceNo: "その他",
+    partner: "",
+  };
 }
 
 function getSupplier(row: PurchaseRow): SupplierView {
@@ -284,8 +314,7 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
 function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
   const map = new Map<string, PurchaseRow[]>();
   for (const row of rows) {
-    const supplier = getSupplier(row);
-    const key = `${row.num || `purchase-${row.id}`}|${supplier.name}`;
+    const key = getInvoiceInfo(row).key;
     const current = map.get(key) ?? [];
     current.push(row);
     map.set(key, current);
@@ -308,10 +337,16 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
           ),
         0,
       );
+      const invoiceInfo = getInvoiceInfo(first);
+      const partners = unique(groupRows.map((row) => getInvoiceInfo(row).partner).filter(Boolean));
+      const label =
+        invoiceInfo.key === OTHER_INVOICE_KEY
+          ? "その他"
+          : `No.${invoiceInfo.invoiceNo}${partners.length ? ` ${partners.join(" / ")}` : ""}`;
       return {
         key,
-        label: `${first.num || "発注Noなし"} ${supplier.name}`,
-        partner: supplier.name,
+        label,
+        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "その他" : partners.join(" / ") || supplier.name,
         rows: groupRows,
         products,
         labels,
@@ -320,7 +355,11 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
         purchaseTotal,
       };
     })
-    .sort((a, b) => b.key.localeCompare(a.key, "ja"));
+    .sort((a, b) => {
+      if (a.key === OTHER_INVOICE_KEY) return 1;
+      if (b.key === OTHER_INVOICE_KEY) return -1;
+      return b.key.localeCompare(a.key, "ja", { numeric: true });
+    });
 }
 
 function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: PurchaseRow[]): PurchaseRow[] {
@@ -820,42 +859,7 @@ export default function PurchaseRegistration() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
-      <div className="border-b bg-slate-950 px-4 py-4 text-white md:px-6">
-        <div className="text-lg font-semibold">取引ハブ</div>
-        <div className="mt-1 text-xs text-slate-300">個体ラベル運用 / 発注登録プロトタイプ</div>
-      </div>
-
-      <div className="grid gap-0 lg:grid-cols-[188px_1fr]">
-        <aside className="border-b bg-background p-2 lg:min-h-[calc(100vh-8rem)] lg:border-b-0 lg:border-r">
-          <nav className="grid gap-1">
-            {workflowTabs.map((tab) => {
-              const Icon = tab.icon;
-              const active = workflowTab === tab.value;
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  onClick={() => setWorkflowTab(tab.value)}
-                  className={cn(
-                    "flex h-11 items-center justify-between rounded-md px-3 text-left text-sm transition-colors",
-                    active
-                      ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
-                      : "text-slate-700 hover:bg-slate-100",
-                  )}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {workflowCounts[tab.value as keyof typeof workflowCounts]}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
-
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_188px]">
         <main className="space-y-5 p-4 md:p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
@@ -957,6 +961,36 @@ export default function PurchaseRegistration() {
           )}
 
         </main>
+
+        <aside className="border-t bg-background p-2 lg:min-h-[calc(100vh-4rem)] lg:border-l lg:border-t-0">
+          <nav className="grid gap-1">
+            {workflowTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = workflowTab === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setWorkflowTab(tab.value)}
+                  className={cn(
+                    "flex h-11 items-center justify-between rounded-md px-3 text-left text-sm transition-colors",
+                    active
+                      ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-100",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {workflowCounts[tab.value as keyof typeof workflowCounts]}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
       </div>
     </div>
   );

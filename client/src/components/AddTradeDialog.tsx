@@ -275,6 +275,12 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     },
   });
 
+  const invoiceAddMutation = trpc.trade.addRecord.useMutation({
+    onError: (err) => {
+      setSubmitError(err.message);
+    },
+  });
+
   const set = (key: keyof FormState, value: string) =>
     setForm(prev => ({ ...prev, [key]: value }));
 
@@ -382,9 +388,10 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     });
   };
 
-  // 最新インボイスの内容をフォームに自動入力して登録フォームを開く
-  const handleApplyInvoice = () => {
+  // 最新インボイスの全明細を取引データへ登録する
+  const handleApplyInvoice = async () => {
     if (!latestInvoice) return;
+    setSubmitError(null);
 
     const numMatch = latestInvoice.invoiceNumber.match(/(\d+)$/);
     const invoiceNo = numMatch ? numMatch[1] : latestInvoice.invoiceNumber;
@@ -394,34 +401,69 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
 
     const currencyRaw = latestInvoice.currency ?? "EUR";
     const currency: "ユーロ" | "ドル" = partner ? getCurrencyForPartner(partner) : currencyRaw === "USD" ? "ドル" : "ユーロ";
-
-    const firstItem = latestInvoice.items?.[0];
-    const rawProductName = firstItem
-      ? [firstItem.description, firstItem.variant].filter(Boolean).join(" ")
-      : "";
-    const productName = toJapaneseProductName(rawProductName);
-    const quantity = firstItem ? String(Math.round(parseFloat(String(firstItem.quantity)))) : "";
-    const unitPrice = firstItem ? String(parseFloat(String(firstItem.unitPrice))) : "";
+    if (!partner) {
+      setSubmitError("取引相手を判定できませんでした。手動入力で登録してください。");
+      return;
+    }
 
     const baseForm = createInitialForm();
+    const paymentDate = normalizeDate(String(latestInvoice.invoiceDate ?? "")) ?? baseForm.paymentDate;
+    const month = Number(paymentDate.slice(5, 7));
+    const rates = await fetchFrankfurterRate(paymentDate) ?? await fetchFrankfurterRate();
+    if (!rates) {
+      setSubmitError("為替レートを取得できませんでした。手動入力で登録してください。");
+      return;
+    }
 
-    setForm({
-      ...baseForm,
-      invoiceNo,
-      partner,
-      currency,
-      productName,
-      quantity,
-      unitPrice,
-      eurRate: "", // レートはダイアログ開いたときに自動取得
-      usdRate: "",
-    });
+    const rows = (latestInvoice.items ?? [])
+      .map((item) => {
+        const rawProductName = [item.description, item.variant].filter(Boolean).join(" ");
+        const productName = toJapaneseProductName(rawProductName).trim();
+        const quantity = Math.round(parseFloat(String(item.quantity)));
+        const unitPrice = parseFloat(String(item.unitPrice));
+        return { productName, quantity, unitPrice };
+      })
+      .filter((row) => row.productName && Number.isFinite(row.quantity) && row.quantity > 0 && Number.isFinite(row.unitPrice));
 
-    setConfirmOpen(false);
-    setOpen(true);
+    if (rows.length === 0) {
+      setSubmitError("登録できるインボイス明細がありません。手動入力で登録してください。");
+      return;
+    }
+
+    try {
+      for (const row of rows) {
+        await invoiceAddMutation.mutateAsync({
+          month,
+          partner,
+          invoiceNo,
+          paymentDate,
+          productName: row.productName,
+          quantity: row.quantity,
+          unitPrice: row.unitPrice,
+          currency,
+          status: "",
+          eurRate: rates.eur,
+          usdRate: rates.usd,
+          shippingCost: 550 * row.quantity,
+        });
+      }
+      toast.success("登録完了", {
+        description: `インボイス No.${invoiceNo} の明細を ${rows.length} 件登録しました。`,
+      });
+      setForm(createInitialForm());
+      setSubmitError(null);
+      setRateSource(null);
+      setStatusMode("select");
+      setShippingManual(false);
+      onSuccess?.();
+      setConfirmOpen(false);
+    } catch {
+      // onError で表示する
+    }
   };
 
   const handleNewClick = () => {
+    setSubmitError(null);
     setConfirmOpen(true);
   };
 
@@ -465,7 +507,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
                 </span>
               ) : invoiceSummary ? (
                 <span>
-                  インボイス <strong>No.{invoiceSummary.no}</strong>（{invoiceSummary.partner}）の内容を自動入力して登録フォームを開きますか？
+                  インボイス <strong>No.{invoiceSummary.no}</strong>（{invoiceSummary.partner}）の明細をすべて取引データに登録しますか？
                   <br />
                   <span className="text-xs text-muted-foreground mt-1 block">{invoiceSummary.itemSummary}</span>
                 </span>
@@ -474,6 +516,12 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               )}
             </DialogDescription>
           </DialogHeader>
+          {submitError && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+              <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-destructive" />
+              <p className="text-xs text-destructive">{submitError}</p>
+            </div>
+          )}
           <DialogFooter className="gap-2 flex-col sm:flex-row">
             <Button
               variant="outline"
@@ -486,10 +534,15 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
             <Button
               size="sm"
               onClick={handleApplyInvoice}
-              disabled={latestLoading || !latestInvoice}
+              disabled={latestLoading || !latestInvoice || invoiceAddMutation.isPending}
               className="w-full sm:w-auto"
             >
-              はい、自動入力する
+              {invoiceAddMutation.isPending ? (
+                <>
+                  <RefreshCw size={12} className="animate-spin mr-1" />
+                  登録中...
+                </>
+              ) : "はい、全明細を登録する"}
             </Button>
           </DialogFooter>
         </DialogContent>
