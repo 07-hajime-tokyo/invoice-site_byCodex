@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { eq, desc, and, inArray, gt, like, isNotNull, sql } from "drizzle-orm";
 import {
   InsertUser,
@@ -150,6 +151,26 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     if (getRawRows(existingShaftSaleUrl).length === 0) {
       await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN saleUrl text NULL AFTER saleAmount`);
     }
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS inventory_item_labels (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        labelId varchar(7) NOT NULL UNIQUE,
+        purchaseId int NULL,
+        localInventoryId int NULL,
+        legacyManagementNo varchar(200) NULL,
+        title varchar(500) NOT NULL,
+        status varchar(32) NOT NULL DEFAULT 'ordered',
+        sourceKey varchar(255) NULL,
+        receivedAt timestamp NULL,
+        shippedAt timestamp NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_inventory_item_labels_purchase_id (purchaseId),
+        INDEX idx_inventory_item_labels_inventory_id (localInventoryId),
+        INDEX idx_inventory_item_labels_legacy_management_no (legacyManagementNo),
+        INDEX idx_inventory_item_labels_source_key (sourceKey)
+      )
+    `);
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS action_item_assignees (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -944,9 +965,213 @@ import {
   localPurchases,
   LocalPurchase,
   InsertLocalPurchase,
+  inventoryItemLabels,
+  InventoryItemLabel,
+  InsertInventoryItemLabel,
   systemSettings,
 } from "../../drizzle/schema";
 import { isNull, or, ne } from "drizzle-orm";
+
+export type InventoryItemLabelStatus =
+  | "ordered"
+  | "received"
+  | "stocked"
+  | "shipped"
+  | "returned"
+  | "cancelled";
+
+export type LocalInventoryWithLabels = LocalInventory & {
+  itemLabels?: InventoryItemLabel[];
+};
+
+export type LocalPurchaseWithLabels = LocalPurchase & {
+  itemLabels?: InventoryItemLabel[];
+};
+
+const LABEL_ID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const LABEL_ID_LENGTH = 7;
+
+function createLabelIdCandidate(): string {
+  let id = "";
+  for (let i = 0; i < LABEL_ID_LENGTH; i++) {
+    id += LABEL_ID_ALPHABET[randomInt(0, LABEL_ID_ALPHABET.length)];
+  }
+  return id;
+}
+
+function normalizeLabelQuantity(quantity: number): number {
+  if (!Number.isFinite(quantity)) return 0;
+  return Math.max(0, Math.floor(quantity));
+}
+
+function groupLabelsByNumber<T extends InventoryItemLabel>(
+  labels: T[],
+  key: "purchaseId" | "localInventoryId",
+): Map<number, T[]> {
+  const map = new Map<number, T[]>();
+  for (const label of labels) {
+    const rawId = label[key];
+    if (rawId == null) continue;
+    const id = Number(rawId);
+    if (!Number.isFinite(id)) continue;
+    const current = map.get(id) ?? [];
+    current.push(label);
+    map.set(id, current);
+  }
+  return map;
+}
+
+function isDuplicateLabelError(error: unknown): boolean {
+  const message = errorText(error);
+  return (
+    message.includes("Duplicate entry") ||
+    message.includes("ER_DUP_ENTRY") ||
+    message.includes("1062") ||
+    message.toLowerCase().includes("unique")
+  );
+}
+
+async function insertInventoryLabelWithRetry(
+  db: AppDatabase,
+  values: Omit<InsertInventoryItemLabel, "id" | "labelId" | "createdAt" | "updatedAt">,
+): Promise<InventoryItemLabel> {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const labelId = createLabelIdCandidate();
+    try {
+      const [result] = await db.insert(inventoryItemLabels).values({ ...values, labelId });
+      const insertedId = Number((result as { insertId?: number }).insertId ?? 0);
+      const rows = insertedId
+        ? await db.select().from(inventoryItemLabels).where(eq(inventoryItemLabels.id, insertedId)).limit(1)
+        : await db.select().from(inventoryItemLabels).where(eq(inventoryItemLabels.labelId, labelId)).limit(1);
+      const inserted = rows[0];
+      if (inserted) return inserted;
+    } catch (error) {
+      if (isDuplicateLabelError(error)) continue;
+      throw error;
+    }
+  }
+  throw new Error("Failed to generate unique item label ID");
+}
+
+async function attachInventoryItemLabelsToPurchases(
+  rows: LocalPurchase[],
+  db: AppDatabase | null,
+): Promise<LocalPurchaseWithLabels[]> {
+  if (rows.length === 0) return [];
+  if (!db) {
+    const labels = await getDumpRows<InventoryItemLabel>("inventory_item_labels");
+    const byPurchase = groupLabelsByNumber(labels, "purchaseId");
+    return rows.map((row) => ({ ...row, itemLabels: byPurchase.get(row.id) ?? [] }));
+  }
+  const purchaseIds = rows.map((row) => row.id).filter((id) => Number.isFinite(id));
+  if (purchaseIds.length === 0) return rows.map((row) => ({ ...row, itemLabels: [] }));
+  const labels = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(inArray(inventoryItemLabels.purchaseId, purchaseIds))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+  const byPurchase = groupLabelsByNumber(labels, "purchaseId");
+  return rows.map((row) => ({ ...row, itemLabels: byPurchase.get(row.id) ?? [] }));
+}
+
+async function attachInventoryItemLabelsToInventories(
+  rows: LocalInventory[],
+  db: AppDatabase | null,
+): Promise<LocalInventoryWithLabels[]> {
+  if (rows.length === 0) return [];
+  if (!db) {
+    const labels = await getDumpRows<InventoryItemLabel>("inventory_item_labels");
+    const byInventory = groupLabelsByNumber(labels, "localInventoryId");
+    return rows.map((row) => ({ ...row, itemLabels: byInventory.get(row.id) ?? [] }));
+  }
+  const inventoryIds = rows.map((row) => row.id).filter((id) => Number.isFinite(id));
+  if (inventoryIds.length === 0) return rows.map((row) => ({ ...row, itemLabels: [] }));
+  const labels = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(inArray(inventoryItemLabels.localInventoryId, inventoryIds))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+  const byInventory = groupLabelsByNumber(labels, "localInventoryId");
+  return rows.map((row) => ({ ...row, itemLabels: byInventory.get(row.id) ?? [] }));
+}
+
+export async function ensureInventoryItemLabels(input: {
+  purchaseId: number;
+  localInventoryId?: number | null;
+  legacyManagementNo?: string | null;
+  title: string;
+  quantity: number;
+  status?: InventoryItemLabelStatus;
+  sourceKey?: string | null;
+}): Promise<InventoryItemLabel[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const desiredQuantity = normalizeLabelQuantity(input.quantity);
+  const status = input.status ?? "ordered";
+  const now = new Date();
+  const sourceKey = input.sourceKey?.trim() || null;
+  const legacyManagementNo = input.legacyManagementNo?.trim() || null;
+
+  const existingByPurchase = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+  let existing = existingByPurchase;
+
+  if (existing.length === 0 && sourceKey) {
+    existing = await db
+      .select()
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.sourceKey, sourceKey))
+      .orderBy(desc(inventoryItemLabels.createdAt));
+  }
+
+  if (existing.length === 0 && legacyManagementNo) {
+    existing = await db
+      .select()
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.legacyManagementNo, legacyManagementNo))
+      .orderBy(desc(inventoryItemLabels.createdAt));
+  }
+
+  for (const label of existing) {
+    const nextStatus = status === "received" && label.status === "ordered" ? "received" : label.status;
+    await db
+      .update(inventoryItemLabels)
+      .set({
+        purchaseId: input.purchaseId,
+        localInventoryId: input.localInventoryId ?? label.localInventoryId,
+        legacyManagementNo,
+        title: input.title,
+        status: nextStatus,
+        sourceKey,
+        receivedAt: nextStatus === "received" && !label.receivedAt ? now : label.receivedAt,
+      })
+      .where(eq(inventoryItemLabels.id, label.id));
+  }
+
+  const missingCount = Math.max(0, desiredQuantity - existing.length);
+  for (let i = 0; i < missingCount; i++) {
+    await insertInventoryLabelWithRetry(db, {
+      purchaseId: input.purchaseId,
+      localInventoryId: input.localInventoryId ?? null,
+      legacyManagementNo,
+      title: input.title,
+      status,
+      sourceKey,
+      receivedAt: status === "received" ? now : null,
+      shippedAt: null,
+    });
+  }
+
+  return db
+    .select()
+    .from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+}
 
 export async function upsertLocalInventory(data: InsertLocalInventory) {
   const db = await getDb();
@@ -971,15 +1196,16 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
   return (result as unknown as { insertId?: number }).insertId ?? 0;
 }
 
-export async function getLocalInventories(includeDeleted = false): Promise<LocalInventory[]> {
+export async function getLocalInventories(includeDeleted = false): Promise<LocalInventoryWithLabels[]> {
   const db = await getDb();
   if (!db) {
     const rows = byUpdatedDesc(await getDumpRows<LocalInventory>("local_inventories"));
-    return includeDeleted ? rows : rows.filter((row) => !row.isDeleted);
+    const filtered = includeDeleted ? rows : rows.filter((row) => !row.isDeleted);
+    return attachInventoryItemLabelsToInventories(filtered, null);
   }
   const rows = await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt));
-  if (includeDeleted) return rows;
-  return rows.filter((r) => !r.isDeleted);
+  const filtered = includeDeleted ? rows : rows.filter((r) => !r.isDeleted);
+  return attachInventoryItemLabelsToInventories(filtered, db);
 }
 
 export async function getLocalInventoryById(id: number): Promise<LocalInventory | null> {
@@ -1194,16 +1420,36 @@ export async function upsertLocalPurchase(data: InsertLocalPurchase) {
   await db.insert(localPurchases).values(data).onDuplicateKeyUpdate({ set: updateSet });
 }
 
-export async function getLocalPurchases(status?: string): Promise<LocalPurchase[]> {
+export async function getLocalPurchases(status?: string): Promise<LocalPurchaseWithLabels[]> {
   const db = await getDb();
   if (!db) {
     const rows = byCreatedDesc(await getDumpRows<LocalPurchase>("local_purchases"));
-    return status ? rows.filter((row) => row.status === status) : rows;
+    const filtered = status ? rows.filter((row) => row.status === status) : rows;
+    return attachInventoryItemLabelsToPurchases(filtered, null);
   }
-  if (status) {
-    return db.select().from(localPurchases).where(eq(localPurchases.status, status)).orderBy(desc(localPurchases.createdAt));
+  const rows = status
+    ? await db.select().from(localPurchases).where(eq(localPurchases.status, status)).orderBy(desc(localPurchases.createdAt))
+    : await db.select().from(localPurchases).orderBy(desc(localPurchases.createdAt));
+  return attachInventoryItemLabelsToPurchases(rows, db);
+}
+
+export async function getLocalPurchaseByIdWithLabels(id: number): Promise<LocalPurchaseWithLabels | null> {
+  const db = await getDb();
+  if (!db) {
+    const rows = await getDumpRows<LocalPurchase>("local_purchases");
+    const row = rows.find((purchase) => purchase.id === id || purchase.zaicoId === id);
+    if (!row) return null;
+    const withLabels = await attachInventoryItemLabelsToPurchases([row], null);
+    return withLabels[0] ?? null;
   }
-  return db.select().from(localPurchases).orderBy(desc(localPurchases.createdAt));
+  const rows = await db
+    .select()
+    .from(localPurchases)
+    .where(or(eq(localPurchases.id, id), eq(localPurchases.zaicoId, id)))
+    .limit(1);
+  if (!rows[0]) return null;
+  const withLabels = await attachInventoryItemLabelsToPurchases(rows, db);
+  return withLabels[0] ?? null;
 }
 
 export async function updateLocalPurchaseStatus(id: number, status: string, receivedDate?: string) {

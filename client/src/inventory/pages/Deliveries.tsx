@@ -63,6 +63,13 @@ import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEdito
 import { getEbayStockType } from "@shared/ebayInventory";
 import { suggestCsvProduct } from "@shared/productMatching";
 
+interface InventoryItemLabel {
+  id?: number;
+  labelId: string;
+  status?: string | null;
+  legacyManagementNo?: string | null;
+}
+
 interface InventoryItem {
   id: number;
   title: string;
@@ -81,6 +88,7 @@ interface InventoryItem {
   supplierUrl?: string | null;
   supplierName?: string | null;
   ebayListingUrl?: string | null;
+  itemLabels?: InventoryItemLabel[];
 }
 
 /** 在庫一覧CSVエクスポート */
@@ -161,6 +169,28 @@ function getManagementNo(etc: string | undefined): string {
   const raw = firstPart.split(" ")[0].trim();
   if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw) || /^E/i.test(raw) || /^シャフト/i.test(raw)) return raw;
   return "";
+}
+
+function getInventoryLabelIds(inv: InventoryItem): string[] {
+  return (inv.itemLabels ?? []).map((label) => label.labelId).filter(Boolean);
+}
+
+function InventoryLabelIds({ inv, managementNo }: { inv: InventoryItem; managementNo: string }) {
+  const labelIds = getInventoryLabelIds(inv);
+  if (labelIds.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {labelIds.map((labelId) => (
+        <span
+          key={labelId}
+          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-xs font-semibold tracking-wide text-emerald-800"
+        >
+          {labelId}
+        </span>
+      ))}
+      {managementNo && <span className="text-[11px] text-muted-foreground">旧管理番号: {managementNo}</span>}
+    </div>
+  );
 }
 
 // ============================================================
@@ -692,11 +722,13 @@ export default function Deliveries() {
         if (selectedCategory !== "すべて" && cat !== selectedCategory) return false;
         if (q) {
           const managementNo = getManagementNo(inv.etc).toLowerCase().replace(/\s+/g, "");
+          const labelText = getInventoryLabelIds(inv).join(" ").toLowerCase().replace(/\s+/g, "");
           return (
             inv.title.toLowerCase().replace(/\s+/g, "").includes(q) ||
             (inv.category ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
             (inv.place ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
-            managementNo.includes(q)
+            managementNo.includes(q) ||
+            labelText.includes(q)
           );
         }
         return true;
@@ -1617,6 +1649,7 @@ export default function Deliveries() {
                             compact
                             className="mt-0.5"
                           />
+                          <InventoryLabelIds inv={inv} managementNo={managementNo} />
                           {openDetailId === inv.id && (
                             <div className="mt-2 pt-2 border-t border-blue-100 text-xs space-y-1.5 bg-blue-50/40 rounded p-2">
                               {isDetailLoading ? (

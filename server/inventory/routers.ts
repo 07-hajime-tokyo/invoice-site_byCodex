@@ -87,6 +87,7 @@ import {
   upsertLocalPurchase,
   getLocalPurchases,
   updateLocalPurchaseStatus,
+  ensureInventoryItemLabels,
   countLocalPurchases,
   setLocalPurchaseInboundClass,
   updateLocalPurchaseStage,
@@ -777,11 +778,19 @@ type PurchasePageRow = {
     unit_price?: string | number | null;
     etc?: string | null;
     category?: string | null;
+    itemLabels?: InventoryItemLabelView[];
   }>;
 };
 
 type LocalInventoryRow = Awaited<ReturnType<typeof getLocalInventories>>[number];
 type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
+type InventoryItemLabelView = {
+  id?: number;
+  labelId: string;
+  status?: string | null;
+  legacyManagementNo?: string | null;
+  localInventoryId?: number | null;
+};
 
 function getInventoryManagementNo(etc: string | null | undefined) {
   return String(etc ?? "").split(",")[0]?.trim() ?? "";
@@ -789,6 +798,23 @@ function getInventoryManagementNo(etc: string | null | undefined) {
 
 function getInventoryEtcPart(etc: string | null | undefined, index: number) {
   return String(etc ?? "").split(",")[index]?.trim() ?? "";
+}
+
+function getPurchaseItemLabels(row: LocalPurchaseRow): InventoryItemLabelView[] {
+  const labels = (row as { itemLabels?: InventoryItemLabelView[] }).itemLabels;
+  return Array.isArray(labels) ? labels : [];
+}
+
+function labelsForPurchaseItem(row: LocalPurchaseRow, item: Record<string, unknown>): InventoryItemLabelView[] {
+  const labels = getPurchaseItemLabels(row);
+  if (labels.length === 0) return [];
+  const rawInventoryId = item.inventory_id ?? item.inventoryId ?? row.localInventoryId;
+  const inventoryId = Number(rawInventoryId);
+  if (Number.isFinite(inventoryId)) {
+    const labelsByInventory = labels.filter((label) => Number(label.localInventoryId) === inventoryId);
+    if (labelsByInventory.length > 0) return labelsByInventory;
+  }
+  return labels;
 }
 
 async function ensureShaftPurchases(
@@ -974,7 +1000,7 @@ function purchaseRowMatchesSearch(row: PurchasePageRow, rawSearch: string) {
     ...row.purchase_items.flatMap((item) => {
       const etc = item.etc ?? "";
       const parts = etc.split(",").map((part) => part.trim());
-      return [item.title, etc, parts[0], parts[2]];
+      return [item.title, etc, parts[0], parts[2], ...(item.itemLabels ?? []).map((label) => label.labelId)];
     }),
   ]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
@@ -1228,6 +1254,7 @@ export const inventoryRouter = router({
             purchase_date: p.receivedDate ?? null,
             estimated_purchase_date: p.purchaseDate ?? null,
             etc: typeof item.etc === "string" ? item.etc : p.managementNo ?? undefined,
+            itemLabels: labelsForPurchaseItem(p, item),
           })),
         };
       });
@@ -1280,6 +1307,15 @@ export const inventoryRouter = router({
           );
           if (localPurchase) {
             await updateLocalPurchaseStatus(localPurchase.id, "purchased", input.purchaseDate);
+            await ensureInventoryItemLabels({
+              purchaseId: localPurchase.id,
+              localInventoryId: localPurchase.localInventoryId ?? input.purchaseItems[0]?.inventory_id ?? null,
+              legacyManagementNo: localPurchase.managementNo,
+              title: localPurchase.title ?? input.historyData?.title ?? "",
+              quantity: localPurchase.quantity ?? (Number(input.purchaseItems[0]?.quantity ?? 1) || 1),
+              status: "received",
+              sourceKey: localPurchase.managementNo ? `management:${localPurchase.managementNo}` : null,
+            });
           }
           // 在庫数を増加する
           for (const item of input.purchaseItems) {
@@ -1370,6 +1406,13 @@ export const inventoryRouter = router({
           ebayListingUrl: inv.ebayListingUrl ?? null,
           ebayOrderUrl: inv.ebayOrderUrl ?? null,
           ebayOrderStatus: normalizeEbayOrderStatus(inv.ebayOrderStatus),
+          itemLabels: (inv.itemLabels ?? []).map((label) => ({
+            id: label.id,
+            labelId: label.labelId,
+            status: label.status,
+            legacyManagementNo: label.legacyManagementNo,
+            localInventoryId: label.localInventoryId,
+          })),
         }));
       }
       const [inventories, zaicoDateMap, dbDateMap, inventoryExtras, increaseMemosMap] = await Promise.all([
@@ -1532,6 +1575,7 @@ export const inventoryRouter = router({
                   return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
                     ...item,
                     category: p.category ?? "未分類",
+                    itemLabels: labelsForPurchaseItem(p, item),
                   })) : [];
                 } catch {
                   return [{
@@ -1543,6 +1587,7 @@ export const inventoryRouter = router({
                     status: p.status,
                     inventory_id: null,
                     category: p.category ?? "未分類",
+                    itemLabels: getPurchaseItemLabels(p),
                   }];
                 }
               })(),
@@ -1671,6 +1716,7 @@ export const inventoryRouter = router({
                 return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
                   ...item,
                   category: p.category ?? "未分類",
+                  itemLabels: labelsForPurchaseItem(p, item),
                 })) : [];
               } catch {
                 return [{
@@ -1682,6 +1728,7 @@ export const inventoryRouter = router({
                   status: p.status,
                   inventory_id: null,
                   category: p.category ?? "未分類",
+                  itemLabels: getPurchaseItemLabels(p),
                 }];
               }
             })(),

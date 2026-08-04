@@ -7,7 +7,7 @@ import {
   localPurchases,
   purchaseHistories,
 } from "../../drizzle/schema";
-import { getDb } from "../inventory/db";
+import { ensureInventoryItemLabels, getDb } from "../inventory/db";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -490,6 +490,24 @@ export function registerGasWebhookRoutes(app: Express) {
         historyInserted = true;
       }
 
+      const itemLabels = purchaseId == null
+        ? []
+        : await ensureInventoryItemLabels({
+            purchaseId,
+            localInventoryId: inventoryId,
+            legacyManagementNo: managementNo,
+            title,
+            quantity,
+            status: markPurchased ? "received" : "ordered",
+            sourceKey,
+          });
+      const responseItemLabels = itemLabels.map((label) => ({
+        id: label.id,
+        labelId: label.labelId,
+        status: label.status,
+        legacyManagementNo: label.legacyManagementNo,
+      }));
+
       res.json({
         success: true,
         sourceKey,
@@ -498,9 +516,10 @@ export function registerGasWebhookRoutes(app: Express) {
         purchaseHistoryZaicoId: gasZaicoId,
         historyInserted,
         alreadyReceived,
+        itemLabels: responseItemLabels,
         results: {
           inventory: inventoryId == null ? null : { id: inventoryId },
-          purchase: purchaseId == null ? null : { id: purchaseId },
+          purchase: purchaseId == null ? null : { id: purchaseId, itemLabels: responseItemLabels },
         },
       });
     } catch (error) {

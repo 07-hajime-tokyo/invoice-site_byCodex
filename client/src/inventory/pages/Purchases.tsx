@@ -69,6 +69,13 @@ import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 
+interface InventoryItemLabel {
+  id?: number;
+  labelId: string;
+  status?: string | null;
+  legacyManagementNo?: string | null;
+}
+
 interface PurchaseItem {
   id: number;
   inventory_id: number;
@@ -82,6 +89,7 @@ interface PurchaseItem {
   etc?: string;
   category: string;
   ebayListingUrl?: string | null;
+  itemLabels?: InventoryItemLabel[];
 }
 
 interface Purchase {
@@ -192,6 +200,40 @@ function parseEtc(etc?: string | null): { managementNo: string; supplierSite: st
     managementNo: parts[0] ?? "",
     supplierSite: parts[2] ?? "",
   };
+}
+
+function getPurchaseItemLabelIds(item: PurchaseItem): string[] {
+  return (item.itemLabels ?? []).map((label) => label.labelId).filter(Boolean);
+}
+
+function ItemLabelsBlock({ item }: { item: PurchaseItem }) {
+  const labelIds = getPurchaseItemLabelIds(item);
+  if (labelIds.length === 0) return null;
+  const { managementNo } = parseEtc(item.etc);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {labelIds.map((labelId) => (
+        <span
+          key={labelId}
+          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-sm font-semibold tracking-wide text-emerald-800"
+        >
+          {labelId}
+        </span>
+      ))}
+      {managementNo && (
+        <span className="text-xs text-muted-foreground">旧管理番号: {managementNo}</span>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={() => toast.success("ラベル印刷は次の段階で接続します")}
+      >
+        ラベル印刷
+      </Button>
+    </div>
+  );
 }
 
 function hasUnitPrice(value: unknown): boolean {
@@ -317,12 +359,14 @@ function filterPurchasesForView(
       return purchase.purchase_items.some((item) => {
         const itemTitle = (item.title ?? "").toLowerCase();
         const etcField = (item.etc ?? "").toLowerCase();
+        const labelIds = getPurchaseItemLabelIds(item).join(" ").toLowerCase();
         const kanriNo = etcField.split(",")[0].trim();
         const invoiceNo = etcField.split(",")[2]?.trim() ?? "";
         return (
           kanriNo.includes(q) ||
           invoiceNo.includes(q) ||
           itemTitle.includes(q) ||
+          labelIds.includes(q) ||
           trackingNo.includes(q)
         );
       });
@@ -591,6 +635,7 @@ function PurchaseCardMobile({
                     <span className="text-xs text-muted-foreground">予定: {item.estimated_purchase_date}</span>
                   )}
                 </div>
+                <ItemLabelsBlock item={item} />
                 <EbayListingUrlEditor
                   inventoryId={item.inventory_id}
                   managementNo={parseEtc(item.etc).managementNo}
@@ -2095,7 +2140,10 @@ export default function Purchases() {
                                 </div>
                               )}
                               {!isEditing && (
-                                <div>{item.title}</div>
+                                <div>
+                                  <div>{item.title}</div>
+                                  <ItemLabelsBlock item={item} />
+                                </div>
                               )}
                               <EbayListingUrlEditor
                                 inventoryId={item.inventory_id}
