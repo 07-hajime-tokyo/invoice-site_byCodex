@@ -110,4 +110,34 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("New 3DS LL ピカチュウ", "393_ルカ_限定版_1/2", products)?.name).toBe("限定版");
     expect(suggestCsvProduct("New 2DS LL モンスターボール", "393_ルカ_限定版_2/2", products)?.name).toBe("限定版");
   });
+
+  it("PSP3000の状態表記を色指定なしの注文行として扱う", () => {
+    const products = [
+      { name: "PSP 3000 bad screens", qty: 15 },
+      { name: "PSP 2000 good condition", qty: 25 },
+    ];
+
+    expect(suggestCsvProduct("PSP 3000 ピアノ・ブラック", "399_マキシム_PSP3000_1/5", products)?.name).toBe("PSP 3000 bad screens");
+    expect(suggestCsvProduct("PSP 3000 ランダムカラー", "", products)?.name).toBe("PSP 3000 bad screens");
+    expect(suggestCsvProduct("PSP 2000 セラミック・ホワイト", "399_マキシム_PSP2000_1/5", products)?.name).toBe("PSP 2000 good condition");
+  });
+
+  it("PSP3000の状態表記行とランダムカラー行が両方ある場合は状態表記行を優先する", () => {
+    const products = [
+      { name: "PSP 3000 bad screens", qty: 15 },
+      { name: "PSP 3000 ランダムカラー", qty: 15 },
+    ];
+
+    expect(suggestCsvProduct("PSP 3000 ピアノ・ブラック", "399_マキシム_PSP3000_1/5", products)?.name).toBe("PSP 3000 bad screens");
+    expect(suggestCsvProduct("PSP 3000 ランダムカラー", "", products)?.name).toBe("PSP 3000 ランダムカラー");
+  });
+
+  it("ランダムカラーは英語の状態表記も吸収する", () => {
+    const products = [
+      { name: "PSP 3000 ランダムカラー", qty: 15 },
+    ];
+
+    expect(suggestCsvProduct("PSP 3000 bad screens", "", products)?.name).toBe("PSP 3000 ランダムカラー");
+    expect(suggestCsvProduct("PSP 3000 good condition", "", products)?.name).toBe("PSP 3000 ランダムカラー");
+  });
 });

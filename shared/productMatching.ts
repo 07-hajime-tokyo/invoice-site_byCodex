@@ -208,10 +208,22 @@ function normalizeColorToken(value: string): string {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function normalizeColorlessQualifierToken(value: string): string {
+  return normalizeColorToken(value).replace(
+    /(?:badscreens?|goodcondition|badcondition|damaged?|damage|condition|screens?|screenburn|scratched?|faulty|junk|tested|working)/g,
+    "",
+  );
+}
+
+function hasColorlessQualifierText(value: string): boolean {
+  const compact = normalizeColorToken(value);
+  return compact !== normalizeColorlessQualifierToken(value);
+}
+
 function isColorlessRandomColor(colorName: string): boolean {
   const normalized = normalizeText(colorName);
   if (!normalized) return true;
-  const compact = normalizeColorToken(normalized);
+  const compact = normalizeColorlessQualifierToken(normalized);
   if (!compact) return false;
   if (/^(psp|pspgo|psp1000|psp2000|psp3000|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
   if (/^\d{3,4}$/.test(compact)) return true;
@@ -221,7 +233,7 @@ function isColorlessRandomColor(colorName: string): boolean {
 }
 
 function colorlessQualifierMatches(colorName: string, targetText: string): boolean {
-  const compactColor = normalizeColorToken(colorName);
+  const compactColor = normalizeColorlessQualifierToken(colorName);
   const compactTarget = normalizeColorToken(targetText);
   const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
   if (version && !compactTarget.includes(version)) return false;
@@ -274,6 +286,7 @@ function isVita2000AquaBlueMisdelivery(itemTitle: string, csvProductName: string
 
 function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName: string): number {
   const targetText = `${normalizeText(itemTitle)} ${normalizeText(managementNo)}`.trim();
+  const targetIsRandomColor = isRandomColor(targetText) || isRandomColor(extractColor(targetText));
   const itemModel = extractModel(targetText);
   const csvModel = extractModel(csvProductName);
   if (csvModel && (!itemModel || itemModel !== csvModel)) return -1;
@@ -290,8 +303,13 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
   if (isVita2000AquaBlueMisdelivery(itemTitle, csvProductName)) return 80;
   if (managementText && csvColorText && !isRandomColor(csvColor) && managementText.includes(csvColorText)) return 70;
 
-  if (isRandomColor(csvColor) || isColorlessRandomColor(csvColor)) {
-    if (isColorlessRandomColor(csvColor) && !colorlessQualifierMatches(csvColor, targetText)) return -1;
+  const csvIsRandomColor = isRandomColor(csvColor);
+  const csvIsColorlessRandomColor = isColorlessRandomColor(csvColor);
+  if (csvIsRandomColor || csvIsColorlessRandomColor) {
+    if (csvIsColorlessRandomColor && !colorlessQualifierMatches(csvColor, targetText)) return -1;
+    if (csvModel && csvIsColorlessRandomColor && !csvIsRandomColor && hasColorlessQualifierText(csvColor)) {
+      return targetIsRandomColor ? 25 : 35;
+    }
     return csvModel ? 30 : 10;
   }
 

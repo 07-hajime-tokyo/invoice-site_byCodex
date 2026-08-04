@@ -296,9 +296,21 @@ function normalizeColorToken(value: string): string {
   return value.normalize("NFKC").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function normalizeColorlessQualifierToken(value: string): string {
+  return normalizeColorToken(value).replace(
+    /(?:badscreens?|goodcondition|badcondition|damaged?|damage|condition|screens?|screenburn|scratched?|faulty|junk|tested|working)/g,
+    "",
+  );
+}
+
+function hasColorlessQualifierText(value: string): boolean {
+  const compact = normalizeColorToken(value);
+  return compact !== normalizeColorlessQualifierToken(value);
+}
+
 function isColorlessRandomColor(colorName: string): boolean {
   if (!colorName.normalize("NFKC").trim()) return true;
-  const compact = normalizeColorToken(colorName);
+  const compact = normalizeColorlessQualifierToken(colorName);
   if (!compact) return false;
   if (/^(psp|pspgo|ps5|ps4|psvita|vita|vita1000|vita2000|new3dsll|new3ds|new2dsll|2ds|3dsll|3ds|dslite|dsill|dsi)$/.test(compact)) return true;
   if (/^\d{3,4}$/.test(compact)) return true;
@@ -308,7 +320,7 @@ function isColorlessRandomColor(colorName: string): boolean {
 }
 
 function colorlessQualifierMatches(colorName: string, title: string): boolean {
-  const compactColor = normalizeColorToken(colorName);
+  const compactColor = normalizeColorlessQualifierToken(colorName);
   const compactTitle = normalizeColorToken(title);
   const version = compactColor.match(/(?:1000|2000|3000)/)?.[0];
   if (version && !compactTitle.includes(version)) return false;
@@ -489,10 +501,13 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     if (managementText && entryColorText && !isRandomColor(entry.colorOnly) && managementText.includes(entryColorText)) return 7;
     const zt = targetText.toLowerCase();
     const zaicoModel = extractModelFromCsvName(targetText);
+    const targetIsRandomColor = isRandomColor(targetText);
     if (isVita2000AquaBlueMisdelivery(targetText, entry)) return 5;
 
-    if (isRandomColor(entry.colorOnly) || isColorlessRandomColor(entry.colorOnly)) {
-      if (isColorlessRandomColor(entry.colorOnly) && !colorlessQualifierMatches(entry.colorOnly, targetText)) return -1;
+    const entryIsRandomColor = isRandomColor(entry.colorOnly);
+    const entryIsColorlessRandomColor = isColorlessRandomColor(entry.colorOnly);
+    if (entryIsRandomColor || entryIsColorlessRandomColor) {
+      if (entryIsColorlessRandomColor && !colorlessQualifierMatches(entry.colorOnly, targetText)) return -1;
       // ランダムカラーグループ: 機種が一致するものはすべて満たす
       // 機種情報がある場合は已にチェック済みなので、ここに届いたら機種一致
       // 機種なしの場合はランダムカラーという文字列を商品名に含むか確認
@@ -501,6 +516,10 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
         return -1;
       }
       // 機種一致するのでマッチ（Zaico商品名の機種が一致するかどうかでスコア差をつける）
+      if (entryIsColorlessRandomColor && !entryIsRandomColor && hasColorlessQualifierText(entry.colorOnly)) {
+        if (targetIsRandomColor) return zaicoModel === entry.model ? 2 : 1;
+        return zaicoModel === entry.model ? 4 : 3;
+      }
       return zaicoModel === entry.model ? 3 : 2;
     } else if (isOtherColor(entry.colorOnly)) {
       return zaicoModel === entry.model ? 1 : -1;
