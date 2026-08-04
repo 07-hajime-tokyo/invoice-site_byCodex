@@ -1,20 +1,27 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Barcode,
   Boxes,
   CalendarDays,
+  CheckCircle2,
   ExternalLink,
+  FileText,
   Loader2,
   PackageCheck,
   PackagePlus,
   Printer,
   RefreshCw,
+  RotateCcw,
+  ScanLine,
   Search,
   Tag,
+  Truck,
 } from "lucide-react";
 
 interface InventoryItemLabel {
@@ -50,6 +57,57 @@ interface PurchaseRow {
 }
 
 type StatusFilter = "all" | "ordered" | "received";
+type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
+
+interface SupplierView {
+  name: string;
+  url: string;
+}
+
+interface LabelView {
+  key: string;
+  labelId: string;
+  status: string;
+  title: string;
+  legacyManagementNo: string;
+  supplier: SupplierView;
+  purchaseDate: string;
+  rowId: number;
+  itemId: number;
+}
+
+interface ProductSummary {
+  key: string;
+  title: string;
+  required: number;
+  secured: number;
+  unitPriceTotal: number;
+  unitPriceCount: number;
+}
+
+interface AllocationGroup {
+  key: string;
+  label: string;
+  partner: string;
+  rows: PurchaseRow[];
+  products: ProductSummary[];
+  labels: LabelView[];
+  required: number;
+  secured: number;
+  purchaseTotal: number;
+}
+
+const workflowTabs: Array<{ value: WorkflowTab; label: string; icon: typeof PackagePlus }> = [
+  { value: "order", label: "発注登録", icon: PackagePlus },
+  { value: "labels", label: "ラベル印刷", icon: Printer },
+  { value: "scan", label: "入庫スキャン", icon: ScanLine },
+  { value: "stock", label: "在庫一覧", icon: Boxes },
+  { value: "shipping", label: "出庫", icon: Truck },
+  { value: "returns", label: "返品", icon: RotateCcw },
+];
+
+const fieldClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
@@ -60,10 +118,20 @@ function parseEtc(etc?: string | null): { managementNo: string; supplierSite: st
   };
 }
 
-function formatCurrency(value: unknown): string {
+function toNumber(value: unknown): number {
   const numberValue = Number(value ?? 0);
-  if (!Number.isFinite(numberValue)) return "-";
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function formatCurrency(value: unknown): string {
+  const numberValue = toNumber(value);
   return `¥${numberValue.toLocaleString()}`;
+}
+
+function formatEuro(value: unknown): string {
+  const numberValue = toNumber(value);
+  if (numberValue <= 0) return "-";
+  return `€${numberValue.toLocaleString()}`;
 }
 
 function formatDate(value?: string | null): string {
@@ -71,11 +139,12 @@ function formatDate(value?: string | null): string {
   return value.slice(0, 10);
 }
 
+function itemQuantity(item: PurchaseItem): number {
+  return toNumber(item.quantity);
+}
+
 function sumQuantity(items: PurchaseItem[]): number {
-  return items.reduce((total, item) => {
-    const quantity = Number(item.quantity);
-    return total + (Number.isFinite(quantity) ? quantity : 0);
-  }, 0);
+  return items.reduce((total, item) => total + itemQuantity(item), 0);
 }
 
 function unique(values: string[]): string[] {
@@ -96,7 +165,7 @@ function getManagementNos(items: PurchaseItem[]): string[] {
   );
 }
 
-function getSupplier(row: PurchaseRow): { name: string; url: string } {
+function getSupplier(row: PurchaseRow): SupplierView {
   const firstItem = row.purchase_items[0];
   const parsed = parseEtc(firstItem?.etc);
   return {
@@ -113,6 +182,10 @@ function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "received") return isReceived(row);
   return !isReceived(row);
+}
+
+function productKey(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function buildSearchText(row: PurchaseRow): string {
@@ -139,6 +212,119 @@ function statusClass(row: PurchaseRow): string {
   return isReceived(row)
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function labelStatusLabel(status?: string | null): string {
+  switch ((status ?? "").toLowerCase()) {
+    case "received":
+      return "入庫済み";
+    case "stocked":
+      return "在庫";
+    case "shipped":
+      return "出庫済み";
+    case "returned":
+      return "返品";
+    case "cancelled":
+      return "取消";
+    case "ordered":
+      return "発注済み";
+    default:
+      return status || "未入庫";
+  }
+}
+
+function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
+  return rows.flatMap((row) => {
+    const supplier = getSupplier(row);
+    return row.purchase_items.flatMap((item) => {
+      const managementNo = parseEtc(item.etc).managementNo;
+      return (item.itemLabels ?? []).map((label) => ({
+        key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
+        labelId: label.labelId,
+        status: labelStatusLabel(label.status),
+        title: item.title || "-",
+        legacyManagementNo: label.legacyManagementNo || managementNo || "-",
+        supplier,
+        purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
+        rowId: row.id,
+        itemId: item.id,
+      }));
+    });
+  });
+}
+
+function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
+  const map = new Map<string, ProductSummary>();
+  for (const row of rows) {
+    for (const item of row.purchase_items) {
+      const title = item.title?.trim() || "-";
+      const key = productKey(title);
+      const current = map.get(key) ?? {
+        key,
+        title,
+        required: 0,
+        secured: 0,
+        unitPriceTotal: 0,
+        unitPriceCount: 0,
+      };
+      const quantity = itemQuantity(item);
+      current.required += quantity;
+      current.secured += quantity;
+      const unitPrice = toNumber(item.unit_price);
+      if (unitPrice > 0) {
+        current.unitPriceTotal += unitPrice;
+        current.unitPriceCount += 1;
+      }
+      map.set(key, current);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title, "ja"));
+}
+
+function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
+  const map = new Map<string, PurchaseRow[]>();
+  for (const row of rows) {
+    const supplier = getSupplier(row);
+    const key = `${row.num || `purchase-${row.id}`}|${supplier.name}`;
+    const current = map.get(key) ?? [];
+    current.push(row);
+    map.set(key, current);
+  }
+
+  return Array.from(map.entries())
+    .map(([key, groupRows]) => {
+      const first = groupRows[0];
+      const supplier = getSupplier(first);
+      const products = buildProductSummaries(groupRows);
+      const labels = buildLabelViews(groupRows);
+      const required = products.reduce((total, item) => total + item.required, 0);
+      const secured = products.reduce((total, item) => total + item.secured, 0);
+      const purchaseTotal = groupRows.reduce(
+        (total, row) =>
+          total +
+          row.purchase_items.reduce(
+            (rowTotal, item) => rowTotal + toNumber(item.unit_price) * itemQuantity(item),
+            0,
+          ),
+        0,
+      );
+      return {
+        key,
+        label: `${first.num || "発注Noなし"} ${supplier.name}`,
+        partner: supplier.name,
+        rows: groupRows,
+        products,
+        labels,
+        required,
+        secured,
+        purchaseTotal,
+      };
+    })
+    .sort((a, b) => b.key.localeCompare(a.key, "ja"));
+}
+
+function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: PurchaseRow[]): PurchaseRow[] {
+  return group?.rows.length ? group.rows : fallbackRows;
 }
 
 function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
@@ -170,9 +356,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
                 個体ID未発行
               </span>
             )}
-            {labels.length > 8 ? (
-              <Badge variant="outline">他{labels.length - 8}件</Badge>
-            ) : null}
+            {labels.length > 8 ? <Badge variant="outline">他{labels.length - 8}件</Badge> : null}
             <Badge variant="outline" className={statusClass(row)}>
               {statusLabel(row)}
             </Badge>
@@ -182,7 +366,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             <span>発注No: {row.num || "-"}</span>
           </div>
         </div>
-        <Button type="button" variant="outline" size="sm" className="w-fit gap-2">
+        <Button type="button" variant="outline" size="sm" className="w-fit gap-2" onClick={() => window.print()}>
           <Printer className="h-4 w-4" />
           ラベル印刷
         </Button>
@@ -197,9 +381,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
                 {item.title || "-"}
               </div>
             ))}
-            {hiddenItemCount > 0 ? (
-              <div className="text-xs text-muted-foreground">他{hiddenItemCount}件</div>
-            ) : null}
+            {hiddenItemCount > 0 ? <div className="text-xs text-muted-foreground">他{hiddenItemCount}件</div> : null}
           </div>
         </div>
         <div>
@@ -243,9 +425,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             {labels.map((label) => (
               <div key={`${label.id ?? label.labelId}-${label.labelId}`} className="rounded-md border bg-muted/30 px-3 py-2">
                 <div className="font-mono text-base font-semibold text-emerald-800">{label.labelId}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {label.status || "-"}
-                </div>
+                <div className="mt-1 text-xs text-muted-foreground">{labelStatusLabel(label.status)}</div>
               </div>
             ))}
           </div>
@@ -255,9 +435,327 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   );
 }
 
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-md border bg-background p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-2 text-xl font-semibold tracking-tight">{value}</div>
+      {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
+    </div>
+  );
+}
+
+function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
+  return (
+    <div className="overflow-hidden rounded-md border bg-background">
+      <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="border-b text-xs text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">品目</th>
+              <th className="px-4 py-3 text-right font-medium">必要</th>
+              <th className="px-4 py-3 text-right font-medium">確保</th>
+              <th className="px-4 py-3 text-right font-medium">不足</th>
+              <th className="px-4 py-3 text-right font-medium">平均仕入</th>
+              <th className="px-4 py-3 text-right font-medium">売価</th>
+              <th className="px-4 py-3 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                  充足状況を表示できる商品がありません
+                </td>
+              </tr>
+            ) : (
+              products.map((product) => {
+                const shortage = Math.max(product.required - product.secured, 0);
+                const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
+                return (
+                  <tr key={product.key} className="border-b last:border-0">
+                    <td className="px-4 py-3 font-medium">{product.title}</td>
+                    <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className={cn(
+                          "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold",
+                          shortage > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700",
+                        )}
+                      >
+                        {shortage.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
+                    <td className="px-4 py-3 text-right">-</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button type="button" variant="outline" size="sm">
+                        仕入れを追加
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OrderDashboard({
+  group,
+  rows,
+}: {
+  group: AllocationGroup | null;
+  rows: PurchaseRow[];
+}) {
+  const displayRows = getAllRowsFromGroup(group, rows);
+  const products = group?.products ?? buildProductSummaries(displayRows);
+  const labels = group?.labels ?? buildLabelViews(displayRows);
+  const required = group?.required ?? products.reduce((total, item) => total + item.required, 0);
+  const secured = group?.secured ?? products.reduce((total, item) => total + item.secured, 0);
+  const purchaseTotal =
+    group?.purchaseTotal ??
+    displayRows.reduce(
+      (total, row) =>
+        total +
+        row.purchase_items.reduce((rowTotal, item) => rowTotal + toNumber(item.unit_price) * itemQuantity(item), 0),
+      0,
+    );
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-md border bg-background">
+        <div className="border-b bg-muted/30 px-4 py-3 text-sm text-muted-foreground">引当先を選ぶ</div>
+        <div className="grid gap-3 p-4 md:grid-cols-4">
+          <StatCard label="充足" value={`${secured.toLocaleString()} / ${required.toLocaleString()} 点`} />
+          <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} sub={`個体ID ${labels.length.toLocaleString()}件`} />
+          <StatCard label="想定売上" value={formatEuro(0)} />
+          <StatCard label="想定粗利" value={formatCurrency(0)} />
+        </div>
+      </section>
+
+      <ProductFulfillmentTable products={products} />
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <PackagePlus className="h-4 w-4 text-emerald-700" />
+          仕入れ登録
+          <Badge variant="outline">{displayRows.length}件</Badge>
+        </div>
+        <div className="space-y-3">
+          {displayRows.map((row) => (
+            <PurchaseRegistrationCard key={row.id} row={row} />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">ラベル印刷</h2>
+          </div>
+          <Button type="button" variant="outline" className="w-fit gap-2" onClick={() => window.print()}>
+            <Printer className="h-4 w-4" />
+            選択分を印刷
+          </Button>
+        </div>
+      </section>
+
+      {labels.length === 0 ? (
+        <EmptyState icon={Tag} title="印刷できる個体IDがありません" />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {labels.map((label) => (
+            <div key={label.key} className="rounded-md border bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                </div>
+                <div className="flex h-16 w-16 items-center justify-center rounded border bg-slate-50">
+                  <Barcode className="h-8 w-8 text-slate-600" />
+                </div>
+              </div>
+              <div className="mt-3 line-clamp-2 text-sm font-medium">{label.title}</div>
+              <div className="mt-2 text-xs text-muted-foreground">{label.supplier.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScanPanel({ labels }: { labels: LabelView[] }) {
+  const [scanValue, setScanValue] = useState("");
+  const normalized = scanValue.trim().toLowerCase();
+  const matched = normalized
+    ? labels.find(
+        (label) =>
+          label.labelId.toLowerCase() === normalized || label.legacyManagementNo.toLowerCase().includes(normalized),
+      )
+    : null;
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <h2 className="text-lg font-semibold">入庫スキャン</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+          <Input
+            value={scanValue}
+            onChange={(event) => setScanValue(event.target.value)}
+            placeholder="個体IDまたは旧管理番号をスキャン"
+          />
+          <Button type="button" className="gap-2" disabled={!matched}>
+            <CheckCircle2 className="h-4 w-4" />
+            入庫確定
+          </Button>
+        </div>
+      </section>
+
+      {matched ? (
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+            <CheckCircle2 className="h-4 w-4" />
+            対象IDを確認しました
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <StatCard label="個体ID" value={matched.labelId} sub={`旧管理番号: ${matched.legacyManagementNo}`} />
+            <StatCard label="商品" value={matched.title} />
+            <StatCard label="状態" value={matched.status} sub={matched.supplier.name} />
+          </div>
+        </section>
+      ) : (
+        <EmptyState icon={ScanLine} title="スキャン待ちです" />
+      )}
+    </div>
+  );
+}
+
+function StockPanel({ labels, rows }: { labels: LabelView[]; rows: PurchaseRow[] }) {
+  const stockRows = labels.length > 0 ? labels : buildLabelViews(rows);
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <h2 className="text-lg font-semibold">在庫一覧</h2>
+      </section>
+      {stockRows.length === 0 ? (
+        <EmptyState icon={Boxes} title="個体ID付き在庫がありません" />
+      ) : (
+        <div className="overflow-hidden rounded-md border bg-background">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">個体ID</th>
+                  <th className="px-4 py-3 text-left font-medium">旧管理番号</th>
+                  <th className="px-4 py-3 text-left font-medium">商品名</th>
+                  <th className="px-4 py-3 text-left font-medium">状態</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入先</th>
+                  <th className="px-4 py-3 text-left font-medium">発注日</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockRows.map((label) => (
+                  <tr key={label.key} className="border-b last:border-0">
+                    <td className="px-4 py-3 font-mono text-base font-semibold text-emerald-800">{label.labelId}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{label.legacyManagementNo}</td>
+                    <td className="px-4 py-3 font-medium">{label.title}</td>
+                    <td className="px-4 py-3">{label.status}</td>
+                    <td className="px-4 py-3">{label.supplier.name}</td>
+                    <td className="px-4 py-3">{formatDate(label.purchaseDate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShippingPanel({ products }: { products: ProductSummary[] }) {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <h2 className="text-lg font-semibold">出庫</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+          <Input placeholder="出庫する個体IDをスキャン" />
+          <Button type="button" className="gap-2">
+            <Truck className="h-4 w-4" />
+            出庫確認
+          </Button>
+        </div>
+      </section>
+      <ProductFulfillmentTable products={products} />
+    </div>
+  );
+}
+
+function ReturnPanel({ labels }: { labels: LabelView[] }) {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <h2 className="text-lg font-semibold">返品</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <Input placeholder="返品する個体IDをスキャン" />
+          <select className={fieldClass} defaultValue="sale">
+            <option value="sale">販売済みとして出庫</option>
+            <option value="supplier">仕入先返品</option>
+            <option value="disposal">処分</option>
+            <option value="customer">顧客返品</option>
+          </select>
+          <Button type="button" variant="outline" className="gap-2">
+            <RotateCcw className="h-4 w-4" />
+            返品登録
+          </Button>
+        </div>
+      </section>
+      {labels.length === 0 ? (
+        <EmptyState icon={RotateCcw} title="返品対象の個体IDがありません" />
+      ) : (
+        <div className="rounded-md border bg-background p-4 text-sm text-muted-foreground">返品対象 {labels.length}件</div>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: typeof PackageCheck;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex min-h-[180px] flex-col items-center justify-center rounded-lg border bg-background p-6 text-center text-muted-foreground">
+      <Icon className="mb-2 h-6 w-6" />
+      <div className="font-medium text-foreground">{title}</div>
+      {description ? <p className="mt-1 max-w-lg text-sm">{description}</p> : null}
+    </div>
+  );
+}
+
 export default function PurchaseRegistration() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [workflowTab, setWorkflowTab] = useState<WorkflowTab>("order");
+  const [selectedGroupKey, setSelectedGroupKey] = useState("");
+
   const normalizedSearch = search.trim();
 
   const queryInput = useMemo(
@@ -288,6 +786,12 @@ export default function PurchaseRegistration() {
     });
   }, [rows, searchText, statusFilter]);
 
+  const groups = useMemo(() => buildAllocationGroups(filteredRows), [filteredRows]);
+  const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
+  const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
+  const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
+  const selectedProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
+
   const counts = useMemo(() => {
     return rows.reduce(
       (acc, row) => {
@@ -302,68 +806,158 @@ export default function PurchaseRegistration() {
     );
   }, [rows]);
 
+  const workflowCounts = useMemo(
+    () => ({
+      order: filteredRows.length,
+      labels: buildLabelViews(filteredRows).length,
+      scan: selectedLabels.length,
+      stock: selectedLabels.length,
+      shipping: selectedProducts.length,
+      returns: 0,
+    }),
+    [filteredRows, selectedLabels.length, selectedProducts.length],
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">発注登録</h1>
-          <div className="mt-1 flex flex-wrap gap-2">
-            <Badge variant="outline" className="gap-1">
-              <PackagePlus className="h-3 w-3" />
-              仕入れ {counts.all.toLocaleString()}件
-            </Badge>
-            <Badge variant="outline" className="gap-1">
-              <Tag className="h-3 w-3" />
-              個体ID {counts.labels.toLocaleString()}件
-            </Badge>
-            <Badge variant="outline" className="gap-1">
-              <Boxes className="h-3 w-3" />
-              数量 {counts.quantity.toLocaleString()}個
-            </Badge>
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
+      <div className="border-b bg-slate-950 px-4 py-4 text-white md:px-6">
+        <div className="text-lg font-semibold">取引ハブ</div>
+        <div className="mt-1 text-xs text-slate-300">個体ラベル運用 / 発注登録プロトタイプ</div>
+      </div>
+
+      <div className="grid gap-0 lg:grid-cols-[188px_1fr]">
+        <aside className="border-b bg-background p-2 lg:min-h-[calc(100vh-8rem)] lg:border-b-0 lg:border-r">
+          <nav className="grid gap-1">
+            {workflowTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = workflowTab === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setWorkflowTab(tab.value)}
+                  className={cn(
+                    "flex h-11 items-center justify-between rounded-md px-3 text-left text-sm transition-colors",
+                    active
+                      ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-100",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {workflowCounts[tab.value as keyof typeof workflowCounts]}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="space-y-5 p-4 md:p-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">発注登録</h1>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="outline" className="gap-1">
+                  <PackagePlus className="h-3 w-3" />
+                  仕入れ {counts.all.toLocaleString()}件
+                </Badge>
+                <Badge variant="outline" className="gap-1">
+                  <Tag className="h-3 w-3" />
+                  個体ID {counts.labels.toLocaleString()}件
+                </Badge>
+                <Badge variant="outline" className="gap-1">
+                  <Boxes className="h-3 w-3" />
+                  数量 {counts.quantity.toLocaleString()}個
+                </Badge>
+              </div>
+            </div>
+            <Button type="button" variant="outline" onClick={() => refetch()} disabled={isFetching} className="w-fit gap-2">
+              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              更新
+            </Button>
           </div>
-        </div>
-        <Button type="button" variant="outline" onClick={() => refetch()} disabled={isFetching} className="w-fit gap-2">
-          {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          更新
-        </Button>
-      </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border bg-background p-4 md:flex-row md:items-center md:justify-between">
-        <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-          <TabsList>
-            <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
-            <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
-            <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="relative w-full md:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="商品名・個体ID・旧管理番号で検索"
-            className="pl-9"
-          />
-        </div>
-      </div>
+          <section className="rounded-md border bg-background">
+            <div className="grid gap-4 p-4 xl:grid-cols-[1fr_420px]">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  インボイス
+                </div>
+                <select
+                  className={fieldClass}
+                  value={selectedGroup?.key ?? ""}
+                  onChange={(event) => setSelectedGroupKey(event.target.value)}
+                >
+                  {groups.length === 0 ? (
+                    <option value="">対象なし</option>
+                  ) : (
+                    groups.map((group) => (
+                      <option key={group.key} value={group.key}>
+                        {group.label}（{group.required.toLocaleString()}点）
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
 
-      {isLoading ? (
-        <div className="flex min-h-[220px] items-center justify-center rounded-lg border bg-background text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          読み込み中
-        </div>
-      ) : filteredRows.length === 0 ? (
-        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-lg border bg-background text-muted-foreground">
-          <PackageCheck className="mb-2 h-6 w-6" />
-          表示できる発注登録がありません
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredRows.map((row) => (
-            <PurchaseRegistrationCard key={row.id} row={row} />
-          ))}
-        </div>
-      )}
+              <div className="flex flex-col gap-3 md:flex-row xl:justify-end">
+                <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+                  <TabsList>
+                    <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
+                    <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
+                    <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="relative w-full md:max-w-xs">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="商品名・個体ID・旧管理番号で検索"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {isLoading ? (
+            <div className="flex min-h-[220px] items-center justify-center rounded-lg border bg-background text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              読み込み中
+            </div>
+          ) : filteredRows.length === 0 ? (
+            <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
+          ) : (
+            <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
+              <TabsContent value="order">
+                <OrderDashboard group={selectedGroup} rows={filteredRows} />
+              </TabsContent>
+              <TabsContent value="labels">
+                <LabelPrintPanel labels={selectedLabels} />
+              </TabsContent>
+              <TabsContent value="scan">
+                <ScanPanel labels={selectedLabels} />
+              </TabsContent>
+              <TabsContent value="stock">
+                <StockPanel labels={selectedLabels} rows={selectedRows} />
+              </TabsContent>
+              <TabsContent value="shipping">
+                <ShippingPanel products={selectedProducts} />
+              </TabsContent>
+              <TabsContent value="returns">
+                <ReturnPanel labels={selectedLabels} />
+              </TabsContent>
+            </Tabs>
+          )}
+
+        </main>
+      </div>
     </div>
   );
 }
