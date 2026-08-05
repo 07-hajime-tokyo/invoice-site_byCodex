@@ -22,7 +22,6 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   hasShipmentSignal: boolean;
 }) {
   const currentStatus = input.status ?? "";
-  if (!isTradeStatusComplete(currentStatus)) return currentStatus;
   if (isClosedTradeYear(input.paymentDate)) return currentStatus;
 
   const invoiceNo = Number(input.invoiceNo ?? 0);
@@ -32,6 +31,8 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   if (!input.hasShipmentSignal || input.orderedQty <= 0) return currentStatus;
 
   const remaining = Math.max(0, input.orderedQty - input.registeredQty);
+  if (remaining <= 0) return "complete";
+  if (!isTradeStatusComplete(currentStatus)) return currentStatus;
   return remaining > 0
     ? `発送登録未完了（残${formatRemainingQty(remaining)}台）`
     : currentStatus;

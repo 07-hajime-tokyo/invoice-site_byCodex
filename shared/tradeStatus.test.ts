@@ -24,6 +24,18 @@ describe("tradeStatus", () => {
     ).toBe("complete");
   });
 
+  it("promotes stale sheet remaining status when registered shipment quantities are covered", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "remaining 1",
+        invoiceNo: 393,
+        orderedQty: 10,
+        registeredQty: 10,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("complete");
+  });
+
   it("downgrades complete when shipment registration is short", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
