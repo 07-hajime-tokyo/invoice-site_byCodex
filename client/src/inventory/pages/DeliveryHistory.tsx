@@ -66,8 +66,21 @@ type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボ�
 
 const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"];
 
-function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
-  const haystack = texts.filter(Boolean).join(" ").toLowerCase();
+function detectShipmentSheetNameInText(text: string | null | undefined): ShipmentSheetName | null {
+  const haystack = text?.toLowerCase() ?? "";
+  if (!haystack) return null;
+  if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
+  if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) return "サミー発送管理";
+  if (haystack.includes("マキシム") || haystack.includes("maxim") || haystack.includes("ルカ") || haystack.includes("luca")) return "独発送管理";
+  return null;
+}
+
+function detectShipmentSheetName(primaryText?: string | null, ...fallbackTexts: Array<string | null | undefined>): ShipmentSheetName {
+  const primary = detectShipmentSheetNameInText(primaryText);
+  if (primary) return primary;
+
+  const haystack = fallbackTexts.filter(Boolean).join(" ").toLowerCase();
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
   if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
   if (haystack.includes("マキシム") || haystack.includes("maxim")) return "独発送管理";
@@ -1224,6 +1237,7 @@ function FedexBatchDialog({
   selectedHistoryIds,
   groupedHistories,
   csvProductsMap,
+  shipmentSheetByInvoiceMap,
   inventoryManagementMap,
   initialShippingDate,
   initialTrackingNumber,
@@ -1235,6 +1249,7 @@ function FedexBatchDialog({
   selectedHistoryIds: number[];
   groupedHistories: GroupedHistoryEntry[];
   csvProductsMap: Map<string, Array<{ name: string; qty: number }>>;
+  shipmentSheetByInvoiceMap: Map<string, ShipmentSheetName>;
   inventoryManagementMap: Map<number, string>;
   initialShippingDate?: string;
   initialTrackingNumber?: string;
@@ -1271,7 +1286,9 @@ function FedexBatchDialog({
         const items: EditableItem[] = aggregated
           .filter((a) => a.deliveredQty > 0)
           .map((a) => ({ productNameJa: a.csvName, productNameEn: a.csvName, quantity: a.deliveredQty }));
-        const sheetLabel = detectShipmentSheetName(h.deliveryNo, ...allItems.map((item) => item.managementNo));
+        const invoiceKey = extractDeliveryGroup(h.deliveryNo);
+        const explicitSheetLabel = detectShipmentSheetNameInText(h.deliveryNo);
+        const sheetLabel = explicitSheetLabel ?? shipmentSheetByInvoiceMap.get(invoiceKey) ?? detectShipmentSheetName(h.deliveryNo, ...allItems.map((item) => item.managementNo));
         groups.push({ rowKey: String(h.id), deliveryNo: h.deliveryNo, sheetLabel, historyId: h.id, createdAt: h.createdAt, items });
       }
     }
@@ -1515,6 +1532,14 @@ export default function DeliveryHistory() {
     }
     return map;
   }, [csvRawData]);
+  const shipmentSheetByInvoiceMap = useMemo(() => {
+    const map = new Map<string, ShipmentSheetName>();
+    for (const [invoiceNo, rows] of csvPriceMap) {
+      const partner = rows.find((row) => row.partner?.trim())?.partner;
+      if (partner) map.set(invoiceNo, detectShipmentSheetName(partner));
+    }
+    return map;
+  }, [csvPriceMap]);
   // URLパラメータ読み取り（発注管理からのリンク用）
   const [location, setLocation] = useLocation();
   const urlParams = useMemo(() => {
@@ -2990,6 +3015,7 @@ export default function DeliveryHistory() {
         selectedHistoryIds={Array.from(fedexSelectedHistoryIds)}
         groupedHistories={groupedHistories}
         csvProductsMap={csvProductsMap}
+        shipmentSheetByInvoiceMap={shipmentSheetByInvoiceMap}
         inventoryManagementMap={inventoryManagementMap}
         initialShippingDate={fedexBarShippingDate}
         initialTrackingNumber={fedexBarTrackingNumber}
