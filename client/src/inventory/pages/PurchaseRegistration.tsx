@@ -717,7 +717,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
               ))
             ) : (
               <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-600">
-                個体ID未発行
+                商品ID未発行
               </span>
             )}
             {labels.length > 8 ? <Badge variant="outline">他{labels.length - 8}件</Badge> : null}
@@ -808,7 +808,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
 
       {labels.length > 0 ? (
         <details className="border-t px-4 py-3 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">個体ID一覧</summary>
+          <summary className="cursor-pointer text-muted-foreground">商品ID一覧</summary>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {labels.map((label) => (
               <div key={`${label.id ?? label.labelId}-${label.labelId}`} className="rounded-md border bg-muted/30 px-3 py-2">
@@ -1115,7 +1115,7 @@ function OrderDashboard({
         <div className="border-b bg-muted/30 px-4 py-3 text-sm text-muted-foreground">引当先を選ぶ</div>
         <div className="grid gap-3 p-4 md:grid-cols-4">
           <StatCard label="充足" value={`${secured.toLocaleString()} / ${required.toLocaleString()} 点`} />
-          <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} sub={`個体ID ${labels.length.toLocaleString()}件`} />
+          <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} sub={`商品ID ${labels.length.toLocaleString()}件`} />
           <StatCard label="想定売上" value={formatEuro(0)} />
           <StatCard label="想定粗利" value={formatCurrency(0)} />
         </div>
@@ -1174,7 +1174,7 @@ function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
       </section>
 
       {labels.length === 0 ? (
-        <EmptyState icon={Tag} title="印刷できる個体IDがありません" />
+        <EmptyState icon={Tag} title="印刷できる商品IDがありません" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {labels.map((label) => (
@@ -1216,7 +1216,7 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
           <Input
             value={scanValue}
             onChange={(event) => setScanValue(event.target.value)}
-            placeholder="個体IDまたは旧管理番号をスキャン"
+            placeholder="商品IDまたは旧管理番号をスキャン"
           />
           <Button type="button" className="gap-2" disabled={!matched}>
             <CheckCircle2 className="h-4 w-4" />
@@ -1232,7 +1232,7 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
             対象IDを確認しました
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <StatCard label="個体ID" value={matched.labelId} sub={`旧管理番号: ${matched.legacyManagementNo}`} />
+            <StatCard label="商品ID" value={matched.labelId} sub={`旧管理番号: ${matched.legacyManagementNo}`} />
             <StatCard label="商品" value={matched.title} />
             <StatCard label="状態" value={matched.status} sub={matched.supplier.name} />
           </div>
@@ -1252,14 +1252,14 @@ function StockPanel({ labels, rows }: { labels: LabelView[]; rows: PurchaseRow[]
         <h2 className="text-lg font-semibold">在庫一覧</h2>
       </section>
       {stockRows.length === 0 ? (
-        <EmptyState icon={Boxes} title="個体ID付き在庫がありません" />
+        <EmptyState icon={Boxes} title="商品ID付き在庫がありません" />
       ) : (
         <div className="overflow-hidden rounded-md border bg-background">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px] text-sm">
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium">個体ID</th>
+                  <th className="px-4 py-3 text-left font-medium">商品ID</th>
                   <th className="px-4 py-3 text-left font-medium">旧管理番号</th>
                   <th className="px-4 py-3 text-left font-medium">商品名</th>
                   <th className="px-4 py-3 text-left font-medium">状態</th>
@@ -1293,7 +1293,7 @@ function ShippingPanel({ products }: { products: ProductSummary[] }) {
       <section className="rounded-md border bg-background p-4">
         <h2 className="text-lg font-semibold">出庫</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-          <Input placeholder="出庫する個体IDをスキャン" />
+          <Input placeholder="出庫する商品IDをスキャン" />
           <Button type="button" className="gap-2">
             <Truck className="h-4 w-4" />
             出庫確認
@@ -1311,7 +1311,7 @@ function ReturnPanel({ labels }: { labels: LabelView[] }) {
       <section className="rounded-md border bg-background p-4">
         <h2 className="text-lg font-semibold">返品</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Input placeholder="返品する個体IDをスキャン" />
+          <Input placeholder="返品する商品IDをスキャン" />
           <select className={fieldClass} defaultValue="sale">
             <option value="sale">販売済みとして出庫</option>
             <option value="supplier">仕入先返品</option>
@@ -1325,7 +1325,7 @@ function ReturnPanel({ labels }: { labels: LabelView[] }) {
         </div>
       </section>
       {labels.length === 0 ? (
-        <EmptyState icon={RotateCcw} title="返品対象の個体IDがありません" />
+        <EmptyState icon={RotateCcw} title="返品対象の商品IDがありません" />
       ) : (
         <div className="rounded-md border bg-background p-4 text-sm text-muted-foreground">返品対象 {labels.length}件</div>
       )}
@@ -1457,7 +1457,7 @@ export default function PurchaseRegistration() {
                 </Badge>
                 <Badge variant="outline" className="gap-1">
                   <Tag className="h-3 w-3" />
-                  個体ID {counts.labels.toLocaleString()}件
+                  商品ID {counts.labels.toLocaleString()}件
                 </Badge>
                 <Badge variant="outline" className="gap-1">
                   <Boxes className="h-3 w-3" />
@@ -1518,7 +1518,7 @@ export default function PurchaseRegistration() {
                   <Input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="商品名・個体ID・旧管理番号で検索"
+                    placeholder="商品名・商品ID・旧管理番号で検索"
                     className="pl-9"
                   />
                 </div>

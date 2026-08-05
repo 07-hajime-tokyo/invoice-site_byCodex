@@ -988,7 +988,7 @@ export type LocalPurchaseWithLabels = LocalPurchase & {
   itemLabels?: InventoryItemLabel[];
 };
 
-const LABEL_ID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const LABEL_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const LABEL_ID_LENGTH = 7;
 
 function createLabelIdCandidate(): string {

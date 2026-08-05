@@ -504,6 +504,7 @@ export function registerGasWebhookRoutes(app: Express) {
       const responseItemLabels = itemLabels.map((label) => ({
         id: label.id,
         labelId: label.labelId,
+        productId: label.labelId,
         status: label.status,
         legacyManagementNo: label.legacyManagementNo,
       }));
