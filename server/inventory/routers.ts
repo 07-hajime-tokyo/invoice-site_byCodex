@@ -174,8 +174,21 @@ import {
 const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"]);
 type ShipmentSheetName = z.infer<typeof shipmentSheetNameSchema>;
 
-function detectShipmentSheetName(...texts: Array<string | null | undefined>): ShipmentSheetName {
-  const haystack = texts.filter(Boolean).join(" ").toLowerCase();
+function detectShipmentSheetNameInText(text: string | null | undefined): ShipmentSheetName | null {
+  const haystack = text?.toLowerCase() ?? "";
+  if (!haystack) return null;
+  if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
+  if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
+  if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) return "サミー発送管理";
+  if (haystack.includes("マキシム") || haystack.includes("maxim") || haystack.includes("ルカ") || haystack.includes("luca")) return "独発送管理";
+  return null;
+}
+
+function detectShipmentSheetName(primaryText?: string | null, ...fallbackTexts: Array<string | null | undefined>): ShipmentSheetName {
+  const primary = detectShipmentSheetNameInText(primaryText);
+  if (primary) return primary;
+
+  const haystack = fallbackTexts.filter(Boolean).join(" ").toLowerCase();
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
   if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) {

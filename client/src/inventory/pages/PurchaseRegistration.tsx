@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { suggestCsvProduct } from "@shared/productMatching";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,16 @@ const fieldClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
 const OTHER_INVOICE_KEY = "invoice-other";
+const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
+  yamato: "ヤマト運輸",
+  sagawa: "佐川急便",
+  japanpost: "日本郵便",
+  amazon: "Amazon",
+  seino: "西濃運輸",
+  fukuyama: "福山通運",
+  ecohai: "エコ配",
+  unknown: "追跡",
+};
 
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
@@ -568,6 +579,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   const hiddenItemCount = Math.max(0, row.purchase_items.length - displayItems.length);
   const unitPrice = firstItem?.unit_price;
   const trackingNumber = row.extra?.trackingNumber?.trim();
+  const trackingInfo = trackingNumber ? detectCarrier(trackingNumber) : null;
 
   return (
     <section className="rounded-lg border bg-background shadow-sm">
@@ -592,13 +604,30 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             <Badge variant="outline" className={statusClass(row)}>
               {statusLabel(row)}
             </Badge>
+            {!isReceived(row) && trackingNumber && trackingInfo ? (
+              <span className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-sm font-semibold text-blue-900">
+                <span className={`rounded px-1.5 py-0.5 text-xs ${getCarrierColor(trackingInfo.carrier)}`}>
+                  {TRACKING_CARRIER_LABELS[trackingInfo.carrier]}
+                </span>
+                <span className="text-xs text-blue-700">追跡番号</span>
+                <span className="font-mono text-base font-bold text-slate-950">{trackingNumber}</span>
+                {trackingInfo.trackingUrl ? (
+                  <a
+                    href={trackingInfo.trackingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    追跡
+                  </a>
+                ) : null}
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
-            {!isReceived(row) && trackingNumber ? (
-              <span className="text-sm font-bold text-foreground md:text-base">追跡番号: {trackingNumber}</span>
-            ) : null}
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" className="w-fit gap-2" onClick={() => window.print()}>
