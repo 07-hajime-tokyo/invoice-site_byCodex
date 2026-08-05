@@ -48,6 +48,18 @@ describe("tradeStatus", () => {
     ).toBe("発送登録未完了（残1台）");
   });
 
+  it("replaces stale sheet remaining status when shipment registration is short", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "残1",
+        invoiceNo: 393,
+        orderedQty: 6,
+        registeredQty: 5,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("発送登録未完了（残1台）");
+  });
+
   it("does not change old closed invoices", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({

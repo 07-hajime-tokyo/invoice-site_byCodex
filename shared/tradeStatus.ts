@@ -32,8 +32,5 @@ export function deriveTradeShipmentRegistrationStatus(input: {
 
   const remaining = Math.max(0, input.orderedQty - input.registeredQty);
   if (remaining <= 0) return "complete";
-  if (!isTradeStatusComplete(currentStatus)) return currentStatus;
-  return remaining > 0
-    ? `発送登録未完了（残${formatRemainingQty(remaining)}台）`
-    : currentStatus;
+  return `発送登録未完了（残${formatRemainingQty(remaining)}台）`;
 }

@@ -10,7 +10,7 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { inventoryRouter } from "./inventory/routers";
-import { suggestCsvProduct } from "@shared/productMatching";
+import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -896,14 +896,18 @@ function allocateFedexItemsToTradeRows(
   for (const shipment of shipmentRows) {
     for (const item of parseFedexShipmentItems(shipment.itemsJson)) {
       const shippedName = item.productNameJa || item.productNameEn;
-      const suggestion = suggestCsvProduct(
-        shippedName,
-        shipment.deliveryNo,
-        csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
-      );
-      if (!suggestion) continue;
+      const shippedNameKey = normalizeLooseText(shippedName);
+      let candidates = csvProducts.filter((product) => normalizeLooseText(product.name) === shippedNameKey);
+      if (candidates.length === 0) {
+        const suggestion = suggestCsvProduct(
+          shippedName,
+          shipment.deliveryNo,
+          csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
+        );
+        if (!suggestion) continue;
+        candidates = csvProducts.filter((product) => product.name === suggestion.name);
+      }
 
-      const candidates = csvProducts.filter((product) => product.name === suggestion.name);
       const chosen =
         candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) >= item.quantity) ??
         candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) > 0) ??
