@@ -230,7 +230,7 @@ function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; par
   }
   return {
     key: OTHER_INVOICE_KEY,
-    invoiceNo: "その他",
+    invoiceNo: "在庫",
     partner: "",
   };
 }
@@ -531,12 +531,12 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
       const partners = unique(groupRows.map((row) => getInvoiceInfo(row).partner).filter(Boolean));
       const label =
         invoiceInfo.key === OTHER_INVOICE_KEY
-          ? "その他"
+          ? "在庫"
           : `No.${invoiceInfo.invoiceNo}${partners.length ? ` ${partners.join(" / ")}` : ""}`;
       return {
         key,
         label,
-        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "その他" : partners.join(" / ") || supplier.name,
+        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "在庫" : partners.join(" / ") || supplier.name,
         rows: groupRows,
         products,
         labels,
@@ -751,10 +751,12 @@ function ProductFulfillmentTableV2({
   products,
   selectedFilter,
   onProductFilter,
+  stockOnly = false,
 }: {
   products: ProductSummary[];
   selectedFilter?: ProductDetailFilter | null;
   onProductFilter?: (filter: ProductDetailFilter) => void;
+  stockOnly?: boolean;
 }) {
   const stockHeaderActive = selectedFilter?.mode === "stock" && !selectedFilter.productKey;
   const waitingHeaderActive = selectedFilter?.mode === "waiting" && !selectedFilter.productKey;
@@ -763,13 +765,17 @@ function ProductFulfillmentTableV2({
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1040px] text-sm">
+        <table className={cn("w-full text-sm", stockOnly ? "min-w-[560px]" : "min-w-[1040px]")}>
           <thead className="border-b text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-3 text-left font-medium">品目</th>
-              <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
-              <th className="px-4 py-3 text-right font-medium">出庫数</th>
-              <th className="px-4 py-3 text-right font-medium">必要</th>
+              {!stockOnly ? (
+                <>
+                  <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
+                  <th className="px-4 py-3 text-right font-medium">出庫数</th>
+                  <th className="px-4 py-3 text-right font-medium">必要</th>
+                </>
+              ) : null}
               <th
                 className={cn(
                   "px-4 py-3 text-right font-medium",
@@ -816,16 +822,20 @@ function ProductFulfillmentTableV2({
                   "入庫まち"
                 )}
               </th>
-              <th className="px-4 py-3 text-right font-medium">不足</th>
-              <th className="px-4 py-3 text-right font-medium">平均仕入</th>
-              <th className="px-4 py-3 text-right font-medium">売価</th>
+              {!stockOnly ? (
+                <>
+                  <th className="px-4 py-3 text-right font-medium">不足</th>
+                  <th className="px-4 py-3 text-right font-medium">平均仕入</th>
+                  <th className="px-4 py-3 text-right font-medium">売価</th>
+                </>
+              ) : null}
               <th className="px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             {products.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={stockOnly ? 4 : 10} className="px-4 py-8 text-center text-muted-foreground">
                   表示できる商品がありません
                 </td>
               </tr>
@@ -838,13 +848,17 @@ function ProductFulfillmentTableV2({
                 return (
                   <tr key={product.key} className="border-b last:border-0">
                     <td className="px-4 py-3 font-medium">{product.title}</td>
-                    <td className="px-4 py-3 text-right">
-                      {product.invoiceOrdered == null ? "-" : product.invoiceOrdered.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                    {!stockOnly ? (
+                      <>
+                        <td className="px-4 py-3 text-right">
+                          {product.invoiceOrdered == null ? "-" : product.invoiceOrdered.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                      </>
+                    ) : null}
                     <td className="px-4 py-3 text-right">
                       {product.secured > 0 && onProductFilter ? (
                         <button
@@ -887,13 +901,17 @@ function ProductFulfillmentTableV2({
                         "-"
                       )}
                     </td>
-                    <td className={cn("px-4 py-3 text-right font-medium", shortage < 0 ? "text-rose-600" : "text-foreground")}>
-                      {shortage.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
-                    </td>
+                    {!stockOnly ? (
+                      <>
+                        <td className={cn("px-4 py-3 text-right font-medium", shortage < 0 ? "text-rose-600" : "text-foreground")}>
+                          {shortage.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
+                        <td className="px-4 py-3 text-right">
+                          {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
+                        </td>
+                      </>
+                    ) : null}
                     <td className="px-4 py-3 text-right">
                       <Button type="button" variant="outline" size="sm">
                         仕入れを追加
@@ -954,7 +972,12 @@ function OrderDashboard({
         </div>
       </section>
 
-      <ProductFulfillmentTableV2 products={products} selectedFilter={productFilter} onProductFilter={onProductFilter} />
+      <ProductFulfillmentTableV2
+        products={products}
+        selectedFilter={productFilter}
+        onProductFilter={onProductFilter}
+        stockOnly={group?.key === OTHER_INVOICE_KEY}
+      />
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
