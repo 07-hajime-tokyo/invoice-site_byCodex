@@ -1276,6 +1276,9 @@ function FedexBatchDialog({
     const selectedIdSet = new Set(selectedHistoryIds);
     for (const [key, histories] of groupedHistories) {
       const csvProducts = csvProductsMap.get(key) ?? [];
+      const groupDeliverySheetLabel = histories
+        .map((history) => detectShipmentSheetNameInText(history.deliveryNo))
+        .find((sheetName): sheetName is ShipmentSheetName => sheetName != null);
       for (const h of histories) {
         if (!selectedIdSet.has(h.id)) continue;
         const allItems: HistoryItem[] = getActiveHistoryItems(h).map((item) => ({
@@ -1288,7 +1291,7 @@ function FedexBatchDialog({
           .map((a) => ({ productNameJa: a.csvName, productNameEn: a.csvName, quantity: a.deliveredQty }));
         const invoiceKey = extractDeliveryGroup(h.deliveryNo);
         const explicitSheetLabel = detectShipmentSheetNameInText(h.deliveryNo);
-        const sheetLabel = explicitSheetLabel ?? shipmentSheetByInvoiceMap.get(invoiceKey) ?? detectShipmentSheetName(h.deliveryNo, ...allItems.map((item) => item.managementNo));
+        const sheetLabel = explicitSheetLabel ?? groupDeliverySheetLabel ?? shipmentSheetByInvoiceMap.get(invoiceKey) ?? detectShipmentSheetName(h.deliveryNo, ...allItems.map((item) => item.managementNo));
         groups.push({ rowKey: String(h.id), deliveryNo: h.deliveryNo, sheetLabel, historyId: h.id, createdAt: h.createdAt, items });
       }
     }
@@ -1313,6 +1316,12 @@ function FedexBatchDialog({
       prev.map((g, gi) =>
         gi !== groupIdx ? g : { ...g, items: g.items.filter((_, ii) => ii !== itemIdx) }
       )
+    );
+  }
+
+  function updateGroupSheetName(groupIdx: number, sheetName: ShipmentSheetName) {
+    setEditableGroups((prev) =>
+      prev.map((g, gi) => (gi !== groupIdx ? g : { ...g, sheetLabel: sheetName }))
     );
   }
 
@@ -1393,9 +1402,21 @@ function FedexBatchDialog({
                   )}
                   <span className="text-xs font-bold text-foreground">{groupQty}台</span>
                 </div>
-                <Badge className={`text-xs border ${sheetBadgeClass(group.sheetLabel)}`}>
-                  {group.sheetLabel}
-                </Badge>
+                <Select
+                  value={group.sheetLabel}
+                  onValueChange={(value) => updateGroupSheetName(groupIdx, value as ShipmentSheetName)}
+                >
+                  <SelectTrigger className={`h-7 w-[138px] text-xs border ${sheetBadgeClass(group.sheetLabel)}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SHIPMENT_SHEET_NAMES.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               {group.items.length === 0 ? (
                 <p className="text-xs text-muted-foreground px-3 py-3">集計できる商品がありません</p>
