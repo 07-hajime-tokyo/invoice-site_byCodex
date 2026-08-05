@@ -140,4 +140,35 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("PSP 3000 bad screens", "", products)?.name).toBe("PSP 3000 ランダムカラー");
     expect(suggestCsvProduct("PSP 3000 good condition", "", products)?.name).toBe("PSP 3000 ランダムカラー");
   });
+
+  it("Vita1100をVita1000注文行に色で紐づける", () => {
+    const products = [
+      { name: "PS Vita 1000 ブラック", qty: 5 },
+      { name: "PS Vita 1000 レッド・ブルー・ホワイト", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("Vita 1100 クリスタル・ブラック", "400_マキシム*Vita1000*ブラック_1/5", products)?.name).toBe("PS Vita 1000 ブラック");
+    expect(suggestCsvProduct("Vita 1100 クリスタル・ホワイト", "400_マキシム*Vita1000*ホワイト_1/5", products)?.name).toBe("PS Vita 1000 レッド・ブルー・ホワイト");
+    expect(suggestCsvProduct("Vita 1000 サファイア・ブルー", "400_マキシム*Vita1000*ブルー_4/5", products)?.name).toBe("PS Vita 1000 レッド・ブルー・ホワイト");
+  });
+
+  it("PSP GoをPSPの他モデルと分けて扱う", () => {
+    const products = [
+      { name: "PSP Go", qty: 2 },
+      { name: "PSP 3000 ランダムカラー", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("PSP Go パール・ホワイト", "400_マキシム_PSPGo_1/2", products)?.name).toBe("PSP Go");
+    expect(suggestCsvProduct("PSP 3000 ピアノ・ブラック", "400_マキシム_PSP3000_1/5", products)?.name).toBe("PSP 3000 ランダムカラー");
+  });
+
+  it("2DSをNew 2DS LLと分けて注文行に紐づける", () => {
+    const products = [
+      { name: "2DS", qty: 5 },
+      { name: "New 2DS LL", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("2DS クリアブラック", "393_ルカ_2DS_4/5", products)?.name).toBe("2DS");
+    expect(suggestCsvProduct("New 2DS LL ブラック×ターコイズ", "393_ルカ_New2DSLL_1/5", products)?.name).toBe("New 2DS LL");
+  });
 });

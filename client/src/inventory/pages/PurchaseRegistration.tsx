@@ -99,6 +99,7 @@ interface StockItemView {
 interface ProductSummary {
   key: string;
   title: string;
+  managementNos?: string[];
   invoiceOrdered?: number;
   invoiceShipped?: number;
   required: number;
@@ -457,15 +458,19 @@ function displayProductTitle(item: PurchaseItem): string {
   return title;
 }
 
-function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string): boolean {
-  return productKey(displayProductTitle(item)) === targetKey;
+function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targetTitle?: string): boolean {
+  const title = displayProductTitle(item);
+  if (productKey(title) === targetKey) return true;
+  if (!targetTitle) return false;
+  const managementNo = parseEtc(item.etc).managementNo;
+  return suggestCsvProduct(title, managementNo, [{ name: targetTitle, qty: 1 }])?.name === targetTitle;
 }
 
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
   if (!filter) return rows;
   return rows.flatMap((row) => {
     const purchaseItems = row.purchase_items.filter((item) => {
-      if (filter.productKey && !purchaseItemMatchesProduct(item, filter.productKey)) return false;
+      if (filter.productKey && !purchaseItemMatchesProduct(item, filter.productKey, filter.productTitle)) return false;
       if (filter.mode === "stock") return isReceived(row) && itemStockQuantity(item) > 0;
       return !isReceived(row);
     });
@@ -680,6 +685,7 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
       const current = map.get(key) ?? {
         key,
         title,
+        managementNos: [],
         required: 0,
         secured: 0,
         waiting: 0,
@@ -687,6 +693,10 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
         unitPriceCount: 0,
       };
       const quantity = itemQuantity(item);
+      const managementNo = parseEtc(item.etc).managementNo;
+      if (managementNo && !current.managementNos?.includes(managementNo)) {
+        current.managementNos = [...(current.managementNos ?? []), managementNo];
+      }
       current.required += quantity;
       if (isReceived(row)) {
         current.secured += Math.min(quantity, itemStockQuantity(item));
@@ -722,6 +732,7 @@ function withInvoiceProductCounts(
     sellingPriceJpyQuantity: number;
   };
   const statsByKey = new Map<string, InvoiceProductStats>();
+  const statsOrder: string[] = [];
   for (const product of invoiceProducts) {
     const key = productKey(product.productName);
     const current = statsByKey.get(key);
@@ -743,6 +754,7 @@ function withInvoiceProductCounts(
         current.sellingPriceJpy = current.sellingPriceJpyTotal / current.sellingPriceJpyQuantity;
       }
     } else {
+      statsOrder.push(key);
       statsByKey.set(key, {
         productName: product.productName,
         orderQty,
@@ -758,23 +770,26 @@ function withInvoiceProductCounts(
     }
   }
 
-  if (products.length === 0) {
-    return Array.from(statsByKey.entries())
-      .map(([key, product]) => ({
-        key,
-        title: product.productName,
-        invoiceOrdered: product.orderQty,
-        invoiceShipped: product.deliveredQty,
-        required: Math.max(0, product.orderQty - product.deliveredQty),
-        secured: 0,
-        waiting: 0,
-        unitPriceTotal: 0,
-        unitPriceCount: 0,
-        sellingPrice: product.sellingPrice ?? null,
-        sellingPriceJpy: product.sellingPriceJpy ?? null,
-        sellingCurrency: product.currency ?? null,
-      }))
-      .sort((a, b) => a.title.localeCompare(b.title, "ja"));
+  const createInvoiceSummary = (key: string, product: InvoiceProductStats): ProductSummary => ({
+    key,
+    title: product.productName,
+    managementNos: [],
+    invoiceOrdered: product.orderQty,
+    invoiceShipped: product.deliveredQty,
+    required: Math.max(0, product.orderQty - product.deliveredQty),
+    secured: 0,
+    waiting: 0,
+    unitPriceTotal: 0,
+    unitPriceCount: 0,
+    sellingPrice: product.sellingPrice ?? null,
+    sellingPriceJpy: product.sellingPriceJpy ?? null,
+    sellingCurrency: product.currency ?? null,
+  });
+
+  const summariesByInvoiceKey = new Map<string, ProductSummary>();
+  for (const key of statsOrder) {
+    const product = statsByKey.get(key);
+    if (product) summariesByInvoiceKey.set(key, createInvoiceSummary(key, product));
   }
 
   const candidates = Array.from(statsByKey.values()).map((product) => ({
@@ -782,20 +797,32 @@ function withInvoiceProductCounts(
     qty: product.orderQty,
   }));
 
-  return products.map((product) => {
+  const unmatched: ProductSummary[] = [];
+  for (const product of products) {
     const direct = statsByKey.get(product.key);
-    const suggestedName = direct ? null : suggestCsvProduct(product.title, "", candidates)?.name;
-    const matched = direct ?? (suggestedName ? statsByKey.get(productKey(suggestedName)) : undefined);
-    if (!matched) return product;
-    return {
-      ...product,
-      invoiceOrdered: matched.orderQty,
-      invoiceShipped: matched.deliveredQty,
-      sellingPrice: matched.sellingPrice ?? null,
-      sellingPriceJpy: matched.sellingPriceJpy ?? null,
-      sellingCurrency: matched.currency ?? null,
-    };
-  });
+    const managementText = (product.managementNos ?? []).join(" ");
+    const suggestedName = direct ? null : suggestCsvProduct(product.title, managementText, candidates)?.name;
+    const matchedKey = direct ? product.key : suggestedName ? productKey(suggestedName) : "";
+    const target = matchedKey ? summariesByInvoiceKey.get(matchedKey) : undefined;
+
+    if (!target) {
+      unmatched.push(product);
+      continue;
+    }
+
+    target.secured += product.secured;
+    target.waiting += product.waiting;
+    target.unitPriceTotal += product.unitPriceTotal;
+    target.unitPriceCount += product.unitPriceCount;
+    target.managementNos = unique([...(target.managementNos ?? []), ...(product.managementNos ?? [])]);
+  }
+
+  return [
+    ...statsOrder
+      .map((key) => summariesByInvoiceKey.get(key))
+      .filter((product): product is ProductSummary => Boolean(product)),
+    ...unmatched.sort((a, b) => a.title.localeCompare(b.title, "ja")),
+  ];
 }
 
 function hasOpenInvoiceQuantity(product: ProductSummary): boolean {

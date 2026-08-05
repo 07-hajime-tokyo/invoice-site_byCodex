@@ -3294,7 +3294,14 @@ export const inventoryRouter = router({
               const managementNo = historyItem && "managementNo" in historyItem ? String(historyItem.managementNo ?? "") : "";
 
               if (item.csvProductName !== undefined) {
-                addAggregatedItem(item.csvProductName === null ? item.title : item.csvProductName, item.quantity);
+                if (item.csvProductName !== null) {
+                  addAggregatedItem(item.csvProductName, item.quantity);
+                } else {
+                  const suggestion = csvProducts.length > 0
+                    ? suggestCsvProduct(item.title, managementNo, csvProducts)
+                    : null;
+                  addAggregatedItem(suggestion?.name ?? item.title, item.quantity);
+                }
                 continue;
               }
 
@@ -4266,6 +4273,7 @@ export const inventoryRouter = router({
 
             if (item.csvProductName !== undefined) {
               if (item.csvProductName !== null) addByProductName(suggestion?.name ?? item.csvProductName, effectiveQuantity);
+              else if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
               continue;
             }
 
