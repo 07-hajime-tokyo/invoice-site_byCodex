@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
@@ -71,9 +71,12 @@ interface SupplierView {
 interface LabelView {
   key: string;
   labelId: string;
+  rawStatus: string;
   status: string;
   title: string;
   legacyManagementNo: string;
+  allocationLabel: string;
+  unitPrice: number;
   supplier: SupplierView;
   purchaseDate: string;
   rowId: number;
@@ -448,24 +451,95 @@ function labelStatusLabel(status?: string | null): string {
   }
 }
 
+function labelAllocationLabel(managementNo: string): string {
+  const parsed = parseInvoiceFromManagementNo(managementNo);
+  return parsed ? `No.${parsed.invoiceNo}` : "一般在庫";
+}
+
 function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
   return rows.flatMap((row) => {
     const supplier = getSupplier(row);
     return row.purchase_items.flatMap((item) => {
       const managementNo = parseEtc(item.etc).managementNo;
-      return (item.itemLabels ?? []).map((label) => ({
-        key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
-        labelId: label.labelId,
-        status: labelStatusLabel(label.status),
-        title: item.title || "-",
-        legacyManagementNo: label.legacyManagementNo || managementNo || "-",
-        supplier,
-        purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
-        rowId: row.id,
-        itemId: item.id,
-      }));
+      return (item.itemLabels ?? []).map((label) => {
+        const legacyManagementNo = label.legacyManagementNo || managementNo || "-";
+        return {
+          key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          rawStatus: label.status ?? "",
+          status: labelStatusLabel(label.status),
+          title: displayProductTitle(item),
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice: toNumber(item.unit_price),
+          supplier,
+          purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
+          rowId: row.id,
+          itemId: item.id,
+        };
+      });
     });
   });
+}
+
+function isStockLabel(label: LabelView): boolean {
+  const status = label.rawStatus.trim().toLowerCase();
+  return status === "stocked" || status === "received";
+}
+
+function stockModelName(title: string): string {
+  const compact = compactProductText(title);
+  if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New 3DS LL";
+  if (compact.includes("new3ds")) return "New 3DS";
+  if (compact.includes("new2dsll") || compact.includes("new2dsxl")) return "New 2DS LL";
+  if (compact.includes("3dsll") || compact.includes("3dsxl")) return "3DS LL";
+  if (compact.includes("2ds")) return "2DS";
+  if (compact.includes("3ds")) return "3DS";
+  if (compact.includes("vita2000") || compact.includes("psvita2000")) return "PS Vita 2000";
+  if (compact.includes("vita1000") || compact.includes("psvita1000")) return "PS Vita 1000";
+  if (compact.includes("psp3000")) return "PSP 3000";
+  if (compact.includes("psp2000")) return "PSP 2000";
+  if (compact.includes("psp1000")) return "PSP 1000";
+  if (compact.includes("switch")) return "Switch";
+  if (compact.includes("shaft") || compact.includes("シャフト")) return "シャフト";
+  return "その他";
+}
+
+const STOCK_MODEL_ORDER = [
+  "New 3DS LL",
+  "New 3DS",
+  "New 2DS LL",
+  "3DS LL",
+  "3DS",
+  "2DS",
+  "PS Vita 2000",
+  "PS Vita 1000",
+  "PSP 3000",
+  "PSP 2000",
+  "PSP 1000",
+  "Switch",
+  "シャフト",
+  "その他",
+];
+
+function buildStockLabelGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
+  const map = new Map<string, LabelView[]>();
+  for (const label of labels) {
+    const name = stockModelName(label.title);
+    const current = map.get(name) ?? [];
+    current.push(label);
+    map.set(name, current);
+  }
+  return Array.from(map.entries())
+    .map(([name, groupLabels]) => ({ name, labels: groupLabels }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.name.localeCompare(b.name, "ja", { numeric: true });
+    });
 }
 
 function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
@@ -1244,8 +1318,9 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
   );
 }
 
-function StockPanel({ labels, rows }: { labels: LabelView[]; rows: PurchaseRow[] }) {
-  const stockRows = labels.length > 0 ? labels : buildLabelViews(rows);
+function StockPanel({ rows }: { rows: PurchaseRow[] }) {
+  const stockRows = buildLabelViews(rows).filter(isStockLabel);
+  const stockGroups = buildStockLabelGroups(stockRows);
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
@@ -1259,24 +1334,43 @@ function StockPanel({ labels, rows }: { labels: LabelView[]; rows: PurchaseRow[]
             <table className="w-full min-w-[820px] text-sm">
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium">商品ID</th>
-                  <th className="px-4 py-3 text-left font-medium">旧管理番号</th>
-                  <th className="px-4 py-3 text-left font-medium">商品名</th>
-                  <th className="px-4 py-3 text-left font-medium">状態</th>
+                  <th className="px-4 py-3 text-left font-medium">ID</th>
+                  <th className="px-4 py-3 text-left font-medium">商品</th>
+                  <th className="px-4 py-3 text-left font-medium">引当先</th>
                   <th className="px-4 py-3 text-left font-medium">仕入先</th>
-                  <th className="px-4 py-3 text-left font-medium">発注日</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入単価</th>
+                  <th className="px-4 py-3 text-left font-medium">状態</th>
                 </tr>
               </thead>
               <tbody>
-                {stockRows.map((label) => (
-                  <tr key={label.key} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-mono text-base font-semibold text-emerald-800">{label.labelId}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{label.legacyManagementNo}</td>
-                    <td className="px-4 py-3 font-medium">{label.title}</td>
-                    <td className="px-4 py-3">{label.status}</td>
-                    <td className="px-4 py-3">{label.supplier.name}</td>
-                    <td className="px-4 py-3">{formatDate(label.purchaseDate)}</td>
-                  </tr>
+                {stockGroups.map((group) => (
+                  <Fragment key={group.name}>
+                    <tr key={`${group.name}-header`} className="border-b bg-slate-50">
+                      <td colSpan={6} className="px-4 py-2 text-xs font-medium text-muted-foreground">
+                        棚 {group.name} - {group.labels.length.toLocaleString()}点
+                      </td>
+                    </tr>
+                    {group.labels.map((label) => (
+                      <tr key={label.key} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-mono text-base font-semibold text-emerald-800">{label.labelId}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{label.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="secondary" className="font-mono">{label.allocationLabel}</Badge>
+                        </td>
+                        <td className="px-4 py-3">{label.supplier.name}</td>
+                        <td className="px-4 py-3">
+                          <div>{formatCurrency(label.unitPrice)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{formatDate(label.purchaseDate)}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{label.status}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -1398,7 +1492,8 @@ export default function PurchaseRegistration() {
     () => buildAllocationGroups(filteredRows, purchaseRegistrationInvoices),
     [filteredRows, purchaseRegistrationInvoices],
   );
-  const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
+  const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
+  const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
   const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
@@ -1410,6 +1505,8 @@ export default function PurchaseRegistration() {
     },
   );
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
+  const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
+  const stockLabels = useMemo(() => allLabels.filter(isStockLabel), [allLabels]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
@@ -1434,13 +1531,13 @@ export default function PurchaseRegistration() {
   const workflowCounts = useMemo(
     () => ({
       order: filteredRows.length,
-      labels: buildLabelViews(filteredRows).length,
+      labels: allLabels.length,
       scan: selectedLabels.length,
-      stock: selectedLabels.length,
+      stock: stockLabels.length,
       shipping: selectedOpenProducts.length,
       returns: 0,
     }),
-    [filteredRows, selectedLabels.length, selectedOpenProducts.length],
+    [allLabels.length, filteredRows.length, selectedLabels.length, selectedOpenProducts.length, stockLabels.length],
   );
 
   return (
@@ -1486,10 +1583,10 @@ export default function PurchaseRegistration() {
                     setProductDetailFilter(null);
                   }}
                 >
-                  {groups.length === 0 ? (
+                  {invoiceGroups.length === 0 ? (
                     <option value="">対象なし</option>
                   ) : (
-                    groups.map((group) => (
+                    invoiceGroups.map((group) => (
                       <option key={group.key} value={group.key}>
                         {group.label}（{(group.invoiceRemainingQty ?? group.required).toLocaleString()}点）
                       </option>
@@ -1553,7 +1650,7 @@ export default function PurchaseRegistration() {
                 <ScanPanel labels={selectedLabels} />
               </TabsContent>
               <TabsContent value="stock">
-                <StockPanel labels={selectedLabels} rows={selectedRows} />
+                <StockPanel rows={rows} />
               </TabsContent>
               <TabsContent value="shipping">
                 <ShippingPanel products={selectedOpenProducts} />
