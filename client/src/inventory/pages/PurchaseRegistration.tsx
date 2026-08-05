@@ -236,6 +236,42 @@ function productKey(title: string): string {
   return title.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function compactProductText(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+}
+
+function hasAnyProductText(value: string, keywords: string[]): boolean {
+  const compact = compactProductText(value);
+  return keywords.some((keyword) => compact.includes(compactProductText(keyword)));
+}
+
+function displayProductTitle(item: PurchaseItem): string {
+  const title = item.title?.trim() || "-";
+  const managementNo = parseEtc(item.etc).managementNo;
+  const text = `${managementNo} ${title}`;
+
+  if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) return "New 3DS LL どうぶつの森";
+  if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) return "New 2DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds", "new3ds"])) return "New 3DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds ll", "3dsll", "3ds xl", "3dsxl"])) return "3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["2ds"])) return "2DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds"])) return "3DS ランダムカラー";
+
+  if (hasAnyProductText(text, ["psp 3000", "psp3000"])) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ"])
+      ? "PSP 3000 ブラック"
+      : "PSP 3000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp 2000", "psp2000"])) {
+    return hasAnyProductText(text, ["ホワイト", "白", "white", "セラミック"])
+      ? "PSP 2000 ホワイト"
+      : "PSP 2000 ランダムカラー";
+  }
+
+  return title;
+}
+
 function buildSearchText(row: PurchaseRow): string {
   const labels = getItemLabels(row.purchase_items).map((label) => label.labelId);
   const managementNos = getManagementNos(row.purchase_items);
@@ -305,7 +341,7 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
   const map = new Map<string, ProductSummary>();
   for (const row of rows) {
     for (const item of row.purchase_items) {
-      const title = item.title?.trim() || "-";
+      const title = displayProductTitle(item);
       const key = productKey(title);
       const current = map.get(key) ?? {
         key,
@@ -988,7 +1024,7 @@ export default function PurchaseRegistration() {
           </div>
 
           <section className="rounded-md border bg-background">
-            <div className="grid gap-4 p-4 xl:grid-cols-[1fr_420px]">
+            <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <FileText className="h-4 w-4" />
@@ -1011,15 +1047,19 @@ export default function PurchaseRegistration() {
                 </select>
               </div>
 
-              <div className="flex flex-col gap-3 md:flex-row xl:justify-end">
-                <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                  <TabsList>
+              <div className="flex min-w-0 flex-col gap-3 xl:items-end">
+                <Tabs
+                  value={statusFilter}
+                  onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+                  className="max-w-full"
+                >
+                  <TabsList className="h-auto flex-wrap justify-start gap-1">
                     <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
                     <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
                     <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
                   </TabsList>
                 </Tabs>
-                <div className="relative w-full md:max-w-xs">
+                <div className="relative w-full xl:max-w-sm">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={search}
