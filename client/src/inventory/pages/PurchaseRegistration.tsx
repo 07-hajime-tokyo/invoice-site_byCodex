@@ -425,15 +425,6 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             <Badge variant="outline" className={statusClass(row)}>
               {statusLabel(row)}
             </Badge>
-            {!isReceived(row) ? (
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-                入庫まち
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-                現在庫 {currentStockQuantity.toLocaleString()}個
-              </Badge>
-            )}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
@@ -446,7 +437,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
         </Button>
       </div>
 
-      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="min-w-0 xl:col-span-2">
           <div className="text-xs text-muted-foreground">商品名</div>
           <div className="mt-1 space-y-1">
@@ -459,8 +450,12 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
           </div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">数量</div>
+          <div className="text-xs text-muted-foreground">発注数</div>
           <div className="mt-1 text-sm font-semibold">{totalQuantity.toLocaleString()}個</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">在庫数</div>
+          <div className="mt-1 text-sm font-semibold">{currentStockQuantity.toLocaleString()}個</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground">仕入単価</div>
@@ -473,7 +468,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             {formatDate(row.purchase_date ?? firstItem?.estimated_purchase_date)}
           </div>
         </div>
-        <div className="min-w-0 md:col-span-2 xl:col-span-5">
+        <div className="min-w-0 md:col-span-2 xl:col-span-6">
           <div className="text-xs text-muted-foreground">仕入先</div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm">
             <span className="truncate font-medium">{supplier.name}</span>

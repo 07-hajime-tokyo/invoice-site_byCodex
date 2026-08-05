@@ -45,6 +45,21 @@ interface FormState {
   shippingCost: string; // 送料（550×注文数で自動計算、手動編集可）
 }
 
+interface InvoiceApplyPreview {
+  invoiceNo: string;
+  partner: string;
+  month: number;
+  paymentDate: string;
+  currency: FormState["currency"];
+  eurRate: number;
+  usdRate: number;
+  rows: Array<{
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+}
+
 const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン", "サイモン", "マキシム"] as const;
 
 function getTodayDateString() {
@@ -191,6 +206,8 @@ const initialForm: FormState = createInitialForm();
 export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
+  const [invoiceApplyPreview, setInvoiceApplyPreview] = useState<InvoiceApplyPreview | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
@@ -388,7 +405,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     });
   };
 
-  // 最新インボイスの全明細を取引データへ登録する
+  // 最新インボイスの全明細を確認画面へ渡す
   const handleApplyInvoice = async () => {
     if (!latestInvoice) return;
     setSubmitError(null);
@@ -430,25 +447,43 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       return;
     }
 
+    setInvoiceApplyPreview({
+      invoiceNo,
+      partner,
+      month,
+      paymentDate,
+      currency,
+      eurRate: rates.eur,
+      usdRate: rates.usd,
+      rows,
+    });
+    setConfirmOpen(false);
+    setInvoicePreviewOpen(true);
+  };
+
+  const handleConfirmApplyInvoice = async () => {
+    if (!invoiceApplyPreview) return;
+    setSubmitError(null);
+
     try {
-      for (const row of rows) {
+      for (const row of invoiceApplyPreview.rows) {
         await invoiceAddMutation.mutateAsync({
-          month,
-          partner,
-          invoiceNo,
-          paymentDate,
+          month: invoiceApplyPreview.month,
+          partner: invoiceApplyPreview.partner,
+          invoiceNo: invoiceApplyPreview.invoiceNo,
+          paymentDate: invoiceApplyPreview.paymentDate,
           productName: row.productName,
           quantity: row.quantity,
           unitPrice: row.unitPrice,
-          currency,
+          currency: invoiceApplyPreview.currency,
           status: "",
-          eurRate: rates.eur,
-          usdRate: rates.usd,
+          eurRate: invoiceApplyPreview.eurRate,
+          usdRate: invoiceApplyPreview.usdRate,
           shippingCost: 550 * row.quantity,
         });
       }
       toast.success("登録完了", {
-        description: `インボイス No.${invoiceNo} の明細を ${rows.length} 件登録しました。`,
+        description: `インボイス No.${invoiceApplyPreview.invoiceNo} の明細を ${invoiceApplyPreview.rows.length} 件登録しました。`,
       });
       setForm(createInitialForm());
       setSubmitError(null);
@@ -456,7 +491,8 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       setStatusMode("select");
       setShippingManual(false);
       onSuccess?.();
-      setConfirmOpen(false);
+      setInvoiceApplyPreview(null);
+      setInvoicePreviewOpen(false);
     } catch {
       // onError で表示する
     }
@@ -542,7 +578,104 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
                   <RefreshCw size={12} className="animate-spin mr-1" />
                   登録中...
                 </>
-              ) : "はい、全明細を登録する"}
+              ) : "確認へ進む"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 最新インボイス登録前の明細確認ダイアログ */}
+      <Dialog
+        open={invoicePreviewOpen}
+        onOpenChange={(nextOpen) => {
+          setInvoicePreviewOpen(nextOpen);
+          if (!nextOpen) setInvoiceApplyPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <FileText size={16} className="text-primary" />
+              登録内容を確認してください
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-1">
+              {invoiceApplyPreview ? (
+                <span>
+                  インボイス <strong>No.{invoiceApplyPreview.invoiceNo}</strong> の明細を
+                  <strong> {invoiceApplyPreview.rows.length}件 </strong>
+                  取引データに登録します。
+                </span>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          {invoiceApplyPreview ? (
+            <div className="space-y-3">
+              <div className="grid gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+                <div>
+                  取引相手: <span className="font-medium text-foreground">{invoiceApplyPreview.partner}</span>
+                </div>
+                <div>
+                  支払い日: <span className="font-medium text-foreground">{invoiceApplyPreview.paymentDate}</span>
+                </div>
+                <div>
+                  通貨: <span className="font-medium text-foreground">{invoiceApplyPreview.currency}</span>
+                </div>
+                <div>
+                  月: <span className="font-medium text-foreground">{invoiceApplyPreview.month}月</span>
+                </div>
+              </div>
+              <div className="max-h-72 overflow-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background text-xs text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="px-3 py-2 text-left font-medium">商品名</th>
+                      <th className="px-3 py-2 text-right font-medium">数量</th>
+                      <th className="px-3 py-2 text-right font-medium">単価</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceApplyPreview.rows.map((row, index) => (
+                      <tr key={`${row.productName}-${index}`} className="border-b last:border-0">
+                        <td className="px-3 py-2">{row.productName}</td>
+                        <td className="px-3 py-2 text-right">{row.quantity.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">{row.unitPrice.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+          {submitError && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+              <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-destructive" />
+              <p className="text-xs text-destructive">{submitError}</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 flex-col sm:flex-row">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setInvoicePreviewOpen(false);
+                setInvoiceApplyPreview(null);
+              }}
+              className="w-full sm:w-auto"
+            >
+              キャンセル
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConfirmApplyInvoice}
+              disabled={!invoiceApplyPreview || invoiceAddMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {invoiceAddMutation.isPending ? (
+                <>
+                  <RefreshCw size={12} className="animate-spin mr-1" />
+                  登録中...
+                </>
+              ) : "この内容で登録する"}
             </Button>
           </DialogFooter>
         </DialogContent>
