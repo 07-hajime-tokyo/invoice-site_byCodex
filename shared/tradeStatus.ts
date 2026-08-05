@@ -3,6 +3,11 @@ export function isTradeStatusComplete(status: unknown) {
   return normalized === "complete" || normalized === "完了";
 }
 
+export function isTradeRemainingStatus(status: unknown) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return /^残\s*[0-9０-９]/.test(normalized) || /^remaining\s*[0-9]/.test(normalized);
+}
+
 export function isClosedTradeYear(paymentDate?: string | null) {
   const text = String(paymentDate ?? "").trim();
   return /^2025[/-]/.test(text);
@@ -32,5 +37,7 @@ export function deriveTradeShipmentRegistrationStatus(input: {
 
   const remaining = Math.max(0, input.orderedQty - input.registeredQty);
   if (remaining <= 0) return "complete";
+  if (isTradeRemainingStatus(currentStatus)) return currentStatus;
+  if (!isTradeStatusComplete(currentStatus)) return currentStatus;
   return `発送登録未完了（残${formatRemainingQty(remaining)}台）`;
 }

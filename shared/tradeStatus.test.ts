@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveTradeShipmentRegistrationStatus,
   formatRemainingQty,
+  isTradeRemainingStatus,
   isTradeStatusComplete,
 } from "./tradeStatus";
 
@@ -10,6 +11,13 @@ describe("tradeStatus", () => {
     expect(isTradeStatusComplete("complete")).toBe(true);
     expect(isTradeStatusComplete("完了")).toBe(true);
     expect(isTradeStatusComplete("発送登録未完了（残1台）")).toBe(false);
+  });
+
+  it("treats simple remaining statuses as remaining", () => {
+    expect(isTradeRemainingStatus("残5")).toBe(true);
+    expect(isTradeRemainingStatus("残 ５台")).toBe(true);
+    expect(isTradeRemainingStatus("remaining 1")).toBe(true);
+    expect(isTradeRemainingStatus("発送登録未完了（残1台）")).toBe(false);
   });
 
   it("keeps complete when all registered shipment quantities are covered", () => {
@@ -48,7 +56,7 @@ describe("tradeStatus", () => {
     ).toBe("発送登録未完了（残1台）");
   });
 
-  it("replaces stale sheet remaining status when shipment registration is short", () => {
+  it("keeps simple sheet remaining status when shipment registration is short", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "残1",
@@ -57,7 +65,7 @@ describe("tradeStatus", () => {
         registeredQty: 5,
         hasShipmentSignal: true,
       }),
-    ).toBe("発送登録未完了（残1台）");
+    ).toBe("残1");
   });
 
   it("does not change old closed invoices", () => {
