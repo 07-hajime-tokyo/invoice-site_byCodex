@@ -56,7 +56,7 @@ interface PurchaseRow {
   status?: string | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
-  extra?: { trackingNumber?: string | null } | null;
+  extra?: { trackingNumber?: string | null; carrier?: string | null } | null;
   purchase_items: PurchaseItem[];
 }
 
@@ -144,6 +144,61 @@ const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
   ecohai: "エコ配",
   unknown: "追跡",
 };
+
+const TRACKING_CARRIER_KEYS = new Set<Carrier>([
+  "yamato",
+  "sagawa",
+  "japanpost",
+  "amazon",
+  "seino",
+  "fukuyama",
+  "ecohai",
+  "unknown",
+]);
+
+function normalizeCarrierKey(value: string | null | undefined, fallback: Carrier): Carrier {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "auto") return fallback;
+  if (TRACKING_CARRIER_KEYS.has(normalized as Carrier)) return normalized as Carrier;
+  if (value?.includes("ヤマト")) return "yamato";
+  if (value?.includes("佐川")) return "sagawa";
+  if (value?.includes("日本郵便") || value?.includes("郵便")) return "japanpost";
+  if (value?.includes("西濃")) return "seino";
+  if (value?.includes("福山")) return "fukuyama";
+  if (value?.includes("エコ配")) return "ecohai";
+  return fallback;
+}
+
+function getTrackingUrlForCarrier(carrier: Carrier, trackingNumber: string, fallbackUrl: string | null): string | null {
+  const num = trackingNumber.trim().replace(/[\s-]/g, "");
+  if (!num) return null;
+  switch (carrier) {
+    case "yamato":
+      return `https://jizen.kuronekoyamato.co.jp/jizen/servlet/crjz.b.NQ0010?id=${num}`;
+    case "sagawa":
+      return `https://k2k.sagawa-exp.co.jp/p/web/okurijosearch.do?okurijoNo=${num}`;
+    case "japanpost":
+      return `https://trackings.post.japanpost.jp/services/srv/search/direct?reqCodeNo1=${num}&searchKind=S002&locale=ja`;
+    case "amazon":
+      return `https://www.amazon.co.jp/progress-tracker/package/ref=pe_tracking?_encoding=UTF8&from=gp&nodeId=&orderId=&packageIndex=0&shipmentId=${num}`;
+    case "seino":
+      return `https://track.seino.co.jp/cgi-bin/gnpquery.pgm?GNPNO1=${num}`;
+    case "fukuyama":
+      return "https://corp.fukutsu.co.jp/situation/tracking_no_input.html";
+    default:
+      return fallbackUrl;
+  }
+}
+
+function getPurchaseTrackingMeta(trackingNumber: string, savedCarrier?: string | null) {
+  const autoInfo = detectCarrier(trackingNumber);
+  const carrier = normalizeCarrierKey(savedCarrier, autoInfo.carrier);
+  return {
+    carrier,
+    carrierName: TRACKING_CARRIER_LABELS[carrier] ?? autoInfo.carrierName,
+    trackingUrl: getTrackingUrlForCarrier(carrier, trackingNumber, autoInfo.trackingUrl),
+  };
+}
 
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
@@ -579,7 +634,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   const hiddenItemCount = Math.max(0, row.purchase_items.length - displayItems.length);
   const unitPrice = firstItem?.unit_price;
   const trackingNumber = row.extra?.trackingNumber?.trim();
-  const trackingInfo = trackingNumber ? detectCarrier(trackingNumber) : null;
+  const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
 
   return (
     <section className="rounded-lg border bg-background shadow-sm">
