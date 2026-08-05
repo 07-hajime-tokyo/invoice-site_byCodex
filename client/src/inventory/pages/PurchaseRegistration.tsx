@@ -83,6 +83,19 @@ interface LabelView {
   itemId: number;
 }
 
+interface StockItemView {
+  key: string;
+  labelId: string | null;
+  status: string;
+  title: string;
+  legacyManagementNo: string;
+  allocationLabel: string;
+  unitPrice: number;
+  quantity: number;
+  supplier: SupplierView;
+  purchaseDate: string;
+}
+
 interface ProductSummary {
   key: string;
   title: string;
@@ -94,6 +107,7 @@ interface ProductSummary {
   unitPriceTotal: number;
   unitPriceCount: number;
   sellingPrice?: number | null;
+  sellingPriceJpy?: number | null;
   sellingCurrency?: string | null;
 }
 
@@ -102,6 +116,7 @@ type InvoiceProductSummary = {
   orderQty: number;
   deliveredQty: number;
   sellingPrice?: number | null;
+  sellingPriceJpy?: number | null;
   currency?: string | null;
 };
 
@@ -250,6 +265,63 @@ function formatTradePrice(value: unknown, currency?: string | null): string {
     return `$${numberValue.toLocaleString()}`;
   }
   return numberValue.toLocaleString();
+}
+
+function normalizeCurrencyLabel(currency?: string | null): string {
+  const normalizedCurrency = (currency ?? "").toLowerCase();
+  if (normalizedCurrency.includes("eur") || normalizedCurrency.includes("ユーロ")) return "EUR";
+  if (normalizedCurrency.includes("usd") || normalizedCurrency.includes("ドル")) return "USD";
+  return currency?.trim() || "";
+}
+
+function buildForecastSummary(products: ProductSummary[], purchaseTotal: number) {
+  let originalTotal = 0;
+  let jpyTotal = 0;
+  let currency: string | null = null;
+  let hasOriginalPrice = false;
+  let hasJpyPrice = false;
+  let hasMixedCurrency = false;
+
+  for (const product of products) {
+    const quantity = Math.max(0, product.required);
+    if (quantity <= 0) continue;
+
+    const sellingPrice = toNumber(product.sellingPrice);
+    const sellingPriceJpy = toNumber(product.sellingPriceJpy);
+    if (sellingPrice > 0) {
+      hasOriginalPrice = true;
+      originalTotal += sellingPrice * quantity;
+      const productCurrency = normalizeCurrencyLabel(product.sellingCurrency);
+      if (!currency) {
+        currency = productCurrency;
+      } else if (productCurrency && productCurrency !== currency) {
+        hasMixedCurrency = true;
+      }
+    }
+    if (sellingPriceJpy > 0) {
+      hasJpyPrice = true;
+      jpyTotal += sellingPriceJpy * quantity;
+    }
+  }
+
+  const roundedJpyTotal = Math.round(jpyTotal);
+  const salesValue = hasOriginalPrice && !hasMixedCurrency
+    ? formatTradePrice(Math.round(originalTotal), currency)
+    : hasJpyPrice
+      ? formatCurrency(roundedJpyTotal)
+      : "-";
+  const salesSub = hasJpyPrice && hasOriginalPrice && !hasMixedCurrency ? formatCurrency(roundedJpyTotal) : undefined;
+  const grossProfit = hasJpyPrice ? Math.round(jpyTotal - purchaseTotal) : null;
+  const grossProfitRate = hasJpyPrice && jpyTotal > 0 && grossProfit != null
+    ? `${Math.round((grossProfit / jpyTotal) * 100)}%`
+    : undefined;
+
+  return {
+    salesValue,
+    salesSub,
+    grossValue: grossProfit == null ? "-" : formatCurrency(grossProfit),
+    grossSub: grossProfitRate,
+  };
 }
 
 function formatDate(value?: string | null): string {
@@ -522,16 +594,73 @@ const STOCK_MODEL_ORDER = [
   "その他",
 ];
 
-function buildStockLabelGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
-  const map = new Map<string, LabelView[]>();
-  for (const label of labels) {
-    const name = stockModelName(label.title);
+function buildStockItemViews(rows: PurchaseRow[]): StockItemView[] {
+  return rows.flatMap((row) => {
+    const supplier = getSupplier(row);
+    return row.purchase_items.flatMap((item) => {
+      const title = displayProductTitle(item);
+      const managementNo = parseEtc(item.etc).managementNo;
+      const purchaseDate = row.purchase_date ?? item.estimated_purchase_date ?? "";
+      const labels = (item.itemLabels ?? [])
+        .filter((label) => {
+          const status = (label.status ?? "").trim().toLowerCase();
+          return status === "stocked" || status === "received";
+        })
+        .map((label) => {
+          const legacyManagementNo = label.legacyManagementNo || managementNo || "-";
+          return {
+            key: `label-${row.id}-${item.id}-${label.id ?? label.labelId}`,
+            labelId: label.labelId,
+            status: labelStatusLabel(label.status),
+            title,
+            legacyManagementNo,
+            allocationLabel: labelAllocationLabel(legacyManagementNo),
+            unitPrice: toNumber(item.unit_price),
+            quantity: 1,
+            supplier,
+            purchaseDate,
+          };
+        });
+      const missingLabelQuantity = Math.max(0, itemStockQuantity(item) - labels.length);
+      if (missingLabelQuantity <= 0) return labels;
+      const fallbackManagementNo = managementNo || "-";
+      return [
+        ...labels,
+        {
+          key: `unlabeled-${row.id}-${item.id}`,
+          labelId: null,
+          status: "在庫",
+          title,
+          legacyManagementNo: fallbackManagementNo,
+          allocationLabel: labelAllocationLabel(fallbackManagementNo),
+          unitPrice: toNumber(item.unit_price),
+          quantity: missingLabelQuantity,
+          supplier,
+          purchaseDate,
+        },
+      ];
+    });
+  });
+}
+
+function buildStockItemGroups(items: StockItemView[]): { name: string; items: StockItemView[]; quantity: number }[] {
+  const map = new Map<string, StockItemView[]>();
+  for (const item of items) {
+    const name = stockModelName(item.title);
     const current = map.get(name) ?? [];
-    current.push(label);
+    current.push(item);
     map.set(name, current);
   }
   return Array.from(map.entries())
-    .map(([name, groupLabels]) => ({ name, labels: groupLabels }))
+    .map(([name, groupItems]) => ({
+      name,
+      items: groupItems.sort((a, b) => {
+        const titleCompare = a.title.localeCompare(b.title, "ja", { numeric: true });
+        if (titleCompare !== 0) return titleCompare;
+        return a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", { numeric: true });
+      }),
+      quantity: groupItems.reduce((total, item) => total + item.quantity, 0),
+    }))
     .sort((a, b) => {
       const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
       const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
@@ -589,6 +718,8 @@ function withInvoiceProductCounts(
   type InvoiceProductStats = InvoiceProductSummary & {
     sellingPriceTotal: number;
     sellingPriceQuantity: number;
+    sellingPriceJpyTotal: number;
+    sellingPriceJpyQuantity: number;
   };
   const statsByKey = new Map<string, InvoiceProductStats>();
   for (const product of invoiceProducts) {
@@ -597,6 +728,7 @@ function withInvoiceProductCounts(
     const orderQty = toNumber(product.orderQty);
     const deliveredQty = toNumber(product.deliveredQty);
     const sellingPrice = toNumber(product.sellingPrice);
+    const sellingPriceJpy = toNumber(product.sellingPriceJpy);
     if (current) {
       current.orderQty += orderQty;
       current.deliveredQty += deliveredQty;
@@ -605,15 +737,23 @@ function withInvoiceProductCounts(
         current.sellingPriceQuantity += orderQty;
         current.sellingPrice = current.sellingPriceTotal / current.sellingPriceQuantity;
       }
+      if (sellingPriceJpy > 0 && orderQty > 0) {
+        current.sellingPriceJpyTotal += sellingPriceJpy * orderQty;
+        current.sellingPriceJpyQuantity += orderQty;
+        current.sellingPriceJpy = current.sellingPriceJpyTotal / current.sellingPriceJpyQuantity;
+      }
     } else {
       statsByKey.set(key, {
         productName: product.productName,
         orderQty,
         deliveredQty,
         sellingPrice: sellingPrice > 0 ? sellingPrice : null,
+        sellingPriceJpy: sellingPriceJpy > 0 ? sellingPriceJpy : null,
         currency: product.currency ?? null,
         sellingPriceTotal: sellingPrice > 0 && orderQty > 0 ? sellingPrice * orderQty : 0,
         sellingPriceQuantity: sellingPrice > 0 && orderQty > 0 ? orderQty : 0,
+        sellingPriceJpyTotal: sellingPriceJpy > 0 && orderQty > 0 ? sellingPriceJpy * orderQty : 0,
+        sellingPriceJpyQuantity: sellingPriceJpy > 0 && orderQty > 0 ? orderQty : 0,
       });
     }
   }
@@ -631,6 +771,7 @@ function withInvoiceProductCounts(
         unitPriceTotal: 0,
         unitPriceCount: 0,
         sellingPrice: product.sellingPrice ?? null,
+        sellingPriceJpy: product.sellingPriceJpy ?? null,
         sellingCurrency: product.currency ?? null,
       }))
       .sort((a, b) => a.title.localeCompare(b.title, "ja"));
@@ -651,6 +792,7 @@ function withInvoiceProductCounts(
       invoiceOrdered: matched.orderQty,
       invoiceShipped: matched.deliveredQty,
       sellingPrice: matched.sellingPrice ?? null,
+      sellingPriceJpy: matched.sellingPriceJpy ?? null,
       sellingCurrency: matched.currency ?? null,
     };
   });
@@ -1182,6 +1324,7 @@ function OrderDashboard({
         row.purchase_items.reduce((rowTotal, item) => rowTotal + toNumber(item.unit_price) * itemQuantity(item), 0),
       0,
     );
+  const forecast = buildForecastSummary(products, purchaseTotal);
 
   return (
     <div className="space-y-5">
@@ -1190,8 +1333,8 @@ function OrderDashboard({
         <div className="grid gap-3 p-4 md:grid-cols-4">
           <StatCard label="充足" value={`${secured.toLocaleString()} / ${required.toLocaleString()} 点`} />
           <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} sub={`商品ID ${labels.length.toLocaleString()}件`} />
-          <StatCard label="想定売上" value={formatEuro(0)} />
-          <StatCard label="想定粗利" value={formatCurrency(0)} />
+          <StatCard label="想定売上" value={forecast.salesValue} sub={forecast.salesSub} />
+          <StatCard label="想定粗利" value={forecast.grossValue} sub={forecast.grossSub} />
         </div>
       </section>
 
@@ -1319,15 +1462,18 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
 }
 
 function StockPanel({ rows }: { rows: PurchaseRow[] }) {
-  const stockRows = buildLabelViews(rows).filter(isStockLabel);
-  const stockGroups = buildStockLabelGroups(stockRows);
+  const stockItems = buildStockItemViews(rows);
+  const stockGroups = buildStockItemGroups(stockItems);
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
         <h2 className="text-lg font-semibold">在庫一覧</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          商品IDが未発行の在庫も含めて、機種ごとに表示します。
+        </p>
       </section>
-      {stockRows.length === 0 ? (
-        <EmptyState icon={Boxes} title="商品ID付き在庫がありません" />
+      {stockItems.length === 0 ? (
+        <EmptyState icon={Boxes} title="在庫がありません" />
       ) : (
         <div className="overflow-hidden rounded-md border bg-background">
           <div className="overflow-x-auto">
@@ -1347,26 +1493,48 @@ function StockPanel({ rows }: { rows: PurchaseRow[] }) {
                   <Fragment key={group.name}>
                     <tr key={`${group.name}-header`} className="border-b bg-slate-50">
                       <td colSpan={6} className="px-4 py-2 text-xs font-medium text-muted-foreground">
-                        棚 {group.name} - {group.labels.length.toLocaleString()}点
+                        棚 {group.name} - {group.quantity.toLocaleString()}点
                       </td>
                     </tr>
-                    {group.labels.map((label) => (
-                      <tr key={label.key} className="border-b last:border-0">
-                        <td className="px-4 py-3 font-mono text-base font-semibold text-emerald-800">{label.labelId}</td>
+                    {group.items.map((item) => (
+                      <tr key={item.key} className="border-b last:border-0">
                         <td className="px-4 py-3">
-                          <div className="font-medium">{label.title}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                          {item.labelId ? (
+                            <span className="font-mono text-base font-semibold text-emerald-800">{item.labelId}</span>
+                          ) : (
+                            <Badge variant="outline">未発行</Badge>
+                          )}
+                          {item.quantity > 1 ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{item.quantity.toLocaleString()}点</div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant="secondary" className="font-mono">{label.allocationLabel}</Badge>
-                        </td>
-                        <td className="px-4 py-3">{label.supplier.name}</td>
-                        <td className="px-4 py-3">
-                          <div>{formatCurrency(label.unitPrice)}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{formatDate(label.purchaseDate)}</div>
+                          <div className="font-medium">{item.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{label.status}</Badge>
+                          <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {item.supplier.url ? (
+                            <a
+                              href={item.supplier.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-700 hover:underline"
+                            >
+                              {item.supplier.name}
+                            </a>
+                          ) : (
+                            item.supplier.name
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>{formatCurrency(item.unitPrice)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{formatDate(item.purchaseDate)}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{item.status}</Badge>
                         </td>
                       </tr>
                     ))}
@@ -1507,6 +1675,7 @@ export default function PurchaseRegistration() {
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const stockLabels = useMemo(() => allLabels.filter(isStockLabel), [allLabels]);
+  const allStockItems = useMemo(() => buildStockItemViews(rows), [rows]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
@@ -1533,11 +1702,11 @@ export default function PurchaseRegistration() {
       order: filteredRows.length,
       labels: allLabels.length,
       scan: selectedLabels.length,
-      stock: stockLabels.length,
+      stock: allStockItems.reduce((total, item) => total + item.quantity, 0),
       shipping: selectedOpenProducts.length,
       returns: 0,
     }),
-    [allLabels.length, filteredRows.length, selectedLabels.length, selectedOpenProducts.length, stockLabels.length],
+    [allLabels.length, allStockItems, filteredRows.length, selectedLabels.length, selectedOpenProducts.length],
   );
 
   return (

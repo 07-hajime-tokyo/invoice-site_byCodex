@@ -339,6 +339,7 @@ type OrderCsvRow = {
   productName: string;
   orderQty: number;
   sellingPrice: number | null;
+  sellingPriceJpy: number | null;
   currency: string;
   status: string;
 };
@@ -356,6 +357,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
       productName: tradeRecords.productName,
       orderQty: tradeRecords.quantity,
       sellingPrice: tradeRecords.unitPrice,
+      sellingPriceJpy: tradeRecords.unitPriceJPY,
       currency: tradeRecords.currency,
       status: tradeRecords.status,
     })
@@ -370,6 +372,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
       productName: row.productName ?? "",
       orderQty: Number(row.orderQty ?? 0) || 0,
       sellingPrice: row.sellingPrice == null ? null : Number(row.sellingPrice) || null,
+      sellingPriceJpy: row.sellingPriceJpy == null ? null : Number(row.sellingPriceJpy) || null,
       currency: row.currency ?? "",
       status: row.status ?? "",
     }))
@@ -4286,6 +4289,7 @@ export const inventoryRouter = router({
             deliveredQty,
             remainingQty: Math.max(0, row.orderQty - deliveredQty),
             sellingPrice: row.sellingPrice,
+            sellingPriceJpy: row.sellingPriceJpy,
             currency: row.currency,
             paymentDate: row.paymentDate,
             status: row.status,
