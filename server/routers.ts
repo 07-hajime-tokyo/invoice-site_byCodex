@@ -956,6 +956,8 @@ function allocateQtyToTrades(
 }
 
 type TradeShipmentRegistrationProgress = {
+  shippedQtyByTradeId: Map<number, number>;
+  fedexRegisteredQtyByTradeId: Map<number, number>;
   registeredQtyByTradeId: Map<number, number>;
   invoiceNosWithShipmentSignal: Set<string>;
 };
@@ -974,6 +976,8 @@ async function getTradeShipmentRegistrationProgress(
 
   if (invoiceNos.length === 0) {
     return {
+      shippedQtyByTradeId: new Map(),
+      fedexRegisteredQtyByTradeId: new Map(),
       registeredQtyByTradeId: new Map(),
       invoiceNosWithShipmentSignal: new Set(),
     };
@@ -1076,7 +1080,12 @@ async function getTradeShipmentRegistrationProgress(
     );
   }
 
-  return { registeredQtyByTradeId, invoiceNosWithShipmentSignal };
+  return {
+    shippedQtyByTradeId: shipmentItemQtyByTradeId,
+    fedexRegisteredQtyByTradeId: fedexQtyByTradeId,
+    registeredQtyByTradeId,
+    invoiceNosWithShipmentSignal,
+  };
 }
 
 function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
@@ -1087,12 +1096,19 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
 
   return rows.map((row): T => {
     const invoiceNo = row.no == null ? null : Number(row.no);
+    const tradeId = Number(row.id);
+    const shipmentQty = progress.shippedQtyByTradeId.get(tradeId) ?? 0;
+    const fedexQty = progress.fedexRegisteredQtyByTradeId.get(tradeId) ?? 0;
+    const hasActualShipmentQty =
+      progress.shippedQtyByTradeId.has(tradeId) || progress.fedexRegisteredQtyByTradeId.has(tradeId);
     const status = deriveTradeShipmentRegistrationStatus({
       status: row.status,
       invoiceNo,
       paymentDate: row.paymentDate,
       orderedQty: toNumber(row.quantity),
-      registeredQty: progress.registeredQtyByTradeId.get(Number(row.id)) ?? 0,
+      registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
+      actualShippedQty: hasActualShipmentQty ? Math.max(shipmentQty, fedexQty) : undefined,
+      fedexRegisteredQty: fedexQty,
       hasShipmentSignal: invoiceNo !== null && progress.invoiceNosWithShipmentSignal.has(String(invoiceNo)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };

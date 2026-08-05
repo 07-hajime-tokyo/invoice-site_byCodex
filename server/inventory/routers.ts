@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { suggestCsvProduct } from "@shared/productMatching";
+import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
   nextStage,
@@ -4067,6 +4068,108 @@ export const inventoryRouter = router({
         return await getOrderRowsFromTradeRecords();
       } catch (err) {
         console.error("Trade order data error:", err);
+        return [];
+      }
+    }),
+
+    getPurchaseRegistrationInvoices: publicProcedure.query(async () => {
+      try {
+        const [orderRows, histories, allMemos] = await Promise.all([
+          getOrderRowsFromTradeRecords(),
+          getAllDeliveryHistories().catch(() => []),
+          getAllInvoiceMemos().catch(() => []),
+        ]);
+
+        const manualCompleteSet = new Set<string>(
+          allMemos
+            .filter((memo) => memo.colorKey === "__manual_complete__" && memo.memo === "1")
+            .map((memo) => String(memo.invoiceKey)),
+        );
+
+        const invoiceMap = new Map<
+          string,
+          {
+            invoiceNo: string;
+            partner: string;
+            totalOrderQty: number;
+          }
+        >();
+
+        for (const row of orderRows) {
+          const invoiceNumber = Number(row.invoiceNo);
+          if (!Number.isFinite(invoiceNumber) || invoiceNumber <= 383) continue;
+          if (manualCompleteSet.has(row.invoiceNo) || isClosedTradeYear(row.paymentDate)) continue;
+
+          const current = invoiceMap.get(row.invoiceNo) ?? {
+            invoiceNo: row.invoiceNo,
+            partner: row.partner,
+            totalOrderQty: 0,
+          };
+          current.totalOrderQty += Number(row.orderQty ?? 0) || 0;
+          if (!current.partner && row.partner) current.partner = row.partner;
+          invoiceMap.set(row.invoiceNo, current);
+        }
+
+        const deliveredQtyByInvoiceNo = new Map<string, number>();
+        for (const history of histories) {
+          if (history.status !== "success") continue;
+          const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
+          if (!invoiceMap.has(invoiceNo)) continue;
+
+          type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
+          const items = parseDeliveryItemsJson(history.itemsJson);
+          let cancelledItems: CancelledDeliveryItem[] = [];
+          try {
+            const parsed = JSON.parse(history.cancelledItemsJson || "[]");
+            cancelledItems = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            cancelledItems = [];
+          }
+
+          const cancelledByInventoryId = new Map<number, number>();
+          for (const item of cancelledItems) {
+            const inventoryId = Number(item.inventoryId ?? 0);
+            const quantity = Number(item.quantity ?? 0);
+            if (inventoryId > 0 && quantity > 0) {
+              cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
+            }
+          }
+
+          let deliveredQty = 0;
+          for (const item of items) {
+            const quantity = Number(item.quantity ?? 0);
+            if (quantity <= 0) continue;
+            const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
+            const cancelledQty = inventoryId ? (cancelledByInventoryId.get(inventoryId) ?? 0) : 0;
+            const usedCancelledQty = Math.min(quantity, cancelledQty);
+            if (inventoryId && usedCancelledQty > 0) {
+              cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
+            }
+            deliveredQty += Math.max(0, quantity - usedCancelledQty);
+          }
+
+          if (deliveredQty > 0) {
+            deliveredQtyByInvoiceNo.set(
+              invoiceNo,
+              (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
+            );
+          }
+        }
+
+        return Array.from(invoiceMap.values())
+          .map((invoice) => {
+            const totalDeliveredQty = deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
+            const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
+            return {
+              ...invoice,
+              totalDeliveredQty,
+              remainingQty,
+            };
+          })
+          .filter((invoice) => invoice.remainingQty > 0)
+          .sort((a, b) => Number(b.invoiceNo) - Number(a.invoiceNo));
+      } catch (err) {
+        console.error("getPurchaseRegistrationInvoices error:", err);
         return [];
       }
     }),

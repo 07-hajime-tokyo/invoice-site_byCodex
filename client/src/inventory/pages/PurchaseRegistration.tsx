@@ -102,6 +102,14 @@ type InvoiceProductSummary = {
   currency?: string | null;
 };
 
+type PurchaseRegistrationInvoice = {
+  invoiceNo: string;
+  partner: string;
+  totalOrderQty: number;
+  totalDeliveredQty: number;
+  remainingQty: number;
+};
+
 type ProductDetailFilter = {
   productKey?: string;
   productTitle: string;
@@ -119,6 +127,9 @@ interface AllocationGroup {
   secured: number;
   waiting: number;
   purchaseTotal: number;
+  invoiceOrderQty?: number;
+  invoiceDeliveredQty?: number;
+  invoiceRemainingQty?: number;
 }
 
 const workflowTabs: Array<{ value: WorkflowTab; label: string; icon: typeof PackagePlus }> = [
@@ -499,7 +510,7 @@ function withInvoiceProductCounts(
   products: ProductSummary[],
   invoiceProducts: InvoiceProductSummary[],
 ): ProductSummary[] {
-  if (products.length === 0 || invoiceProducts.length === 0) return products;
+  if (invoiceProducts.length === 0) return products;
 
   type InvoiceProductStats = InvoiceProductSummary & {
     sellingPriceTotal: number;
@@ -531,6 +542,24 @@ function withInvoiceProductCounts(
         sellingPriceQuantity: sellingPrice > 0 && orderQty > 0 ? orderQty : 0,
       });
     }
+  }
+
+  if (products.length === 0) {
+    return Array.from(statsByKey.entries())
+      .map(([key, product]) => ({
+        key,
+        title: product.productName,
+        invoiceOrdered: product.orderQty,
+        invoiceShipped: product.deliveredQty,
+        required: Math.max(0, product.orderQty - product.deliveredQty),
+        secured: 0,
+        waiting: 0,
+        unitPriceTotal: 0,
+        unitPriceCount: 0,
+        sellingPrice: product.sellingPrice ?? null,
+        sellingCurrency: product.currency ?? null,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title, "ja"));
   }
 
   const candidates = Array.from(statsByKey.values()).map((product) => ({
@@ -566,7 +595,10 @@ function filterRowsByProductKeys(rows: PurchaseRow[], productKeys: Set<string>):
   });
 }
 
-function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
+function buildAllocationGroups(
+  rows: PurchaseRow[],
+  invoiceSummaries?: PurchaseRegistrationInvoice[],
+): AllocationGroup[] {
   const map = new Map<string, PurchaseRow[]>();
   for (const row of rows) {
     const key = getInvoiceInfo(row).key;
@@ -575,8 +607,14 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
     map.set(key, current);
   }
 
-  return Array.from(map.entries())
-    .map(([key, groupRows]) => {
+  const invoiceSummaryByKey = new Map<string, PurchaseRegistrationInvoice>(
+    (invoiceSummaries ?? []).map((summary) => [`invoice-${summary.invoiceNo}`, summary]),
+  );
+  const shouldFilterClosedInvoices = invoiceSummaries !== undefined;
+
+  const groups = Array.from(map.entries())
+    .flatMap(([key, groupRows]) => {
+      if (key !== OTHER_INVOICE_KEY && shouldFilterClosedInvoices && !invoiceSummaryByKey.has(key)) return [];
       const first = groupRows[0];
       const supplier = getSupplier(first);
       const products = buildProductSummaries(groupRows);
@@ -594,15 +632,17 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
         0,
       );
       const invoiceInfo = getInvoiceInfo(first);
+      const invoiceSummary = invoiceSummaryByKey.get(key);
       const partners = unique(groupRows.map((row) => getInvoiceInfo(row).partner).filter(Boolean));
+      const partnerLabel = invoiceSummary?.partner || partners.join(" / ");
       const label =
         invoiceInfo.key === OTHER_INVOICE_KEY
           ? "在庫"
-          : `No.${invoiceInfo.invoiceNo}${partners.length ? ` ${partners.join(" / ")}` : ""}`;
-      return {
+          : `No.${invoiceInfo.invoiceNo}${partnerLabel ? ` ${partnerLabel}` : ""}`;
+      return [{
         key,
         label,
-        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "在庫" : partners.join(" / ") || supplier.name,
+        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "在庫" : partnerLabel || supplier.name,
         rows: groupRows,
         products,
         labels,
@@ -610,17 +650,42 @@ function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
         secured,
         waiting,
         purchaseTotal,
-      };
-    })
-    .sort((a, b) => {
-      if (a.key === OTHER_INVOICE_KEY) return 1;
-      if (b.key === OTHER_INVOICE_KEY) return -1;
-      return b.key.localeCompare(a.key, "ja", { numeric: true });
+        invoiceOrderQty: invoiceSummary?.totalOrderQty,
+        invoiceDeliveredQty: invoiceSummary?.totalDeliveredQty,
+        invoiceRemainingQty: invoiceSummary?.remainingQty,
+      }];
     });
+
+  for (const summary of invoiceSummaries ?? []) {
+    const key = `invoice-${summary.invoiceNo}`;
+    if (map.has(key)) continue;
+    groups.push({
+      key,
+      label: `No.${summary.invoiceNo}${summary.partner ? ` ${summary.partner}` : ""}`,
+      partner: summary.partner,
+      rows: [],
+      products: [],
+      labels: [],
+      required: 0,
+      secured: 0,
+      waiting: 0,
+      purchaseTotal: 0,
+      invoiceOrderQty: summary.totalOrderQty,
+      invoiceDeliveredQty: summary.totalDeliveredQty,
+      invoiceRemainingQty: summary.remainingQty,
+    });
+  }
+
+  return groups.sort((a, b) => {
+    if (a.key === OTHER_INVOICE_KEY) return 1;
+    if (b.key === OTHER_INVOICE_KEY) return -1;
+    return b.key.localeCompare(a.key, "ja", { numeric: true });
+  });
 }
 
 function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: PurchaseRow[]): PurchaseRow[] {
-  return group?.rows.length ? group.rows : fallbackRows;
+  if (!group) return fallbackRows;
+  return group.rows;
 }
 
 function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
@@ -1033,8 +1098,8 @@ function OrderDashboard({
   const displayRows = detailRows ?? groupRows;
   const products = productsOverride ?? group?.products ?? buildProductSummaries(groupRows);
   const labels = group?.labels ?? buildLabelViews(displayRows);
-  const required = group?.required ?? products.reduce((total, item) => total + item.required, 0);
-  const secured = group?.secured ?? products.reduce((total, item) => total + item.secured, 0);
+  const required = products.reduce((total, item) => total + item.required, 0);
+  const secured = products.reduce((total, item) => total + item.secured, 0);
   const purchaseTotal =
     group?.purchaseTotal ??
     displayRows.reduce(
@@ -1314,6 +1379,11 @@ export default function PurchaseRegistration() {
 
   const rows = (data?.items ?? []) as PurchaseRow[];
   const searchText = normalizedSearch.toLowerCase();
+  const { data: purchaseRegistrationInvoices } =
+    trpc.inventory.orderManagement.getPurchaseRegistrationInvoices.useQuery(undefined, {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    });
 
   const filteredRows = useMemo(() => {
     return rows.flatMap((row) => {
@@ -1324,7 +1394,10 @@ export default function PurchaseRegistration() {
     });
   }, [rows, searchText, statusFilter]);
 
-  const groups = useMemo(() => buildAllocationGroups(filteredRows), [filteredRows]);
+  const groups = useMemo(
+    () => buildAllocationGroups(filteredRows, purchaseRegistrationInvoices),
+    [filteredRows, purchaseRegistrationInvoices],
+  );
   const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
@@ -1418,7 +1491,7 @@ export default function PurchaseRegistration() {
                   ) : (
                     groups.map((group) => (
                       <option key={group.key} value={group.key}>
-                        {group.label}（{group.required.toLocaleString()}点）
+                        {group.label}（{(group.invoiceRemainingQty ?? group.required).toLocaleString()}点）
                       </option>
                     ))
                   )}
@@ -1458,7 +1531,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : filteredRows.length === 0 ? (
+          ) : groups.length === 0 ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">

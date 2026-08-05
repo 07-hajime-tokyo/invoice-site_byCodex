@@ -1,11 +1,11 @@
 export function isTradeStatusComplete(status: unknown) {
   const normalized = String(status ?? "").trim().toLowerCase();
-  return normalized === "complete" || normalized === "完了";
+  return normalized === "complete" || normalized === "\u5b8c\u4e86";
 }
 
 export function isTradeRemainingStatus(status: unknown) {
   const normalized = String(status ?? "").trim().toLowerCase();
-  return /^残\s*[0-9０-９]/.test(normalized) || /^remaining\s*[0-9]/.test(normalized);
+  return /^\u6b8b\s*[0-9\uff10-\uff19]/.test(normalized) || /^remaining\s*[0-9]/.test(normalized);
 }
 
 export function isClosedTradeYear(paymentDate?: string | null) {
@@ -24,6 +24,8 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   paymentDate?: string | null;
   orderedQty: number;
   registeredQty: number;
+  actualShippedQty?: number;
+  fedexRegisteredQty?: number;
   hasShipmentSignal: boolean;
 }) {
   const currentStatus = input.status ?? "";
@@ -35,9 +37,16 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   }
   if (!input.hasShipmentSignal || input.orderedQty <= 0) return currentStatus;
 
-  const remaining = Math.max(0, input.orderedQty - input.registeredQty);
-  if (remaining <= 0) return "complete";
-  if (isTradeRemainingStatus(currentStatus)) return currentStatus;
-  if (!isTradeStatusComplete(currentStatus)) return currentStatus;
-  return `発送登録未完了（残${formatRemainingQty(remaining)}台）`;
+  const actualShippedQty =
+    input.actualShippedQty ?? (isTradeStatusComplete(currentStatus) ? input.orderedQty : input.registeredQty);
+  const actualRemaining = Math.max(0, input.orderedQty - actualShippedQty);
+  if (actualRemaining > 0) {
+    return `\u6b8b${formatRemainingQty(actualRemaining)}`;
+  }
+
+  const fedexRegisteredQty = input.fedexRegisteredQty ?? input.registeredQty;
+  const fedexRemaining = Math.max(0, input.orderedQty - fedexRegisteredQty);
+  if (fedexRemaining <= 0) return "complete";
+  if (!isTradeStatusComplete(currentStatus) && !isTradeRemainingStatus(currentStatus)) return currentStatus;
+  return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(fedexRemaining)}\u53f0\uff09`;
 }
