@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { suggestCsvProduct } from "@shared/productMatching";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,7 @@ interface PurchaseRow {
   status?: string | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
+  extra?: { trackingNumber?: string | null } | null;
   purchase_items: PurchaseItem[];
 }
 
@@ -80,12 +82,26 @@ interface LabelView {
 interface ProductSummary {
   key: string;
   title: string;
+  invoiceOrdered?: number;
+  invoiceShipped?: number;
   required: number;
   secured: number;
   waiting: number;
   unitPriceTotal: number;
   unitPriceCount: number;
 }
+
+type InvoiceProductSummary = {
+  productName: string;
+  orderQty: number;
+  deliveredQty: number;
+};
+
+type ProductDetailFilter = {
+  productKey: string;
+  productTitle: string;
+  mode: "stock" | "waiting";
+};
 
 interface AllocationGroup {
   key: string;
@@ -272,6 +288,22 @@ function displayProductTitle(item: PurchaseItem): string {
   return title;
 }
 
+function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string): boolean {
+  return productKey(displayProductTitle(item)) === targetKey;
+}
+
+function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
+  if (!filter) return rows;
+  return rows.flatMap((row) => {
+    const purchaseItems = row.purchase_items.filter((item) => {
+      if (!purchaseItemMatchesProduct(item, filter.productKey)) return false;
+      if (filter.mode === "stock") return isReceived(row) && itemStockQuantity(item) > 0;
+      return !isReceived(row);
+    });
+    return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
+  });
+}
+
 function buildSearchText(row: PurchaseRow): string {
   const labels = getItemLabels(row.purchase_items).map((label) => label.labelId);
   const managementNos = getManagementNos(row.purchase_items);
@@ -370,6 +402,51 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
   return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title, "ja"));
 }
 
+function invoiceNoFromGroupKey(key?: string | null): string | null {
+  const match = key?.match(/^invoice-(\d+)$/);
+  return match?.[1] ?? null;
+}
+
+function withInvoiceProductCounts(
+  products: ProductSummary[],
+  invoiceProducts: InvoiceProductSummary[],
+): ProductSummary[] {
+  if (products.length === 0 || invoiceProducts.length === 0) return products;
+
+  const statsByKey = new Map<string, InvoiceProductSummary>();
+  for (const product of invoiceProducts) {
+    const key = productKey(product.productName);
+    const current = statsByKey.get(key);
+    if (current) {
+      current.orderQty += toNumber(product.orderQty);
+      current.deliveredQty += toNumber(product.deliveredQty);
+    } else {
+      statsByKey.set(key, {
+        productName: product.productName,
+        orderQty: toNumber(product.orderQty),
+        deliveredQty: toNumber(product.deliveredQty),
+      });
+    }
+  }
+
+  const candidates = Array.from(statsByKey.values()).map((product) => ({
+    name: product.productName,
+    qty: product.orderQty,
+  }));
+
+  return products.map((product) => {
+    const direct = statsByKey.get(product.key);
+    const suggestedName = direct ? null : suggestCsvProduct(product.title, "", candidates)?.name;
+    const matched = direct ?? (suggestedName ? statsByKey.get(productKey(suggestedName)) : undefined);
+    if (!matched) return product;
+    return {
+      ...product,
+      invoiceOrdered: matched.orderQty,
+      invoiceShipped: matched.deliveredQty,
+    };
+  });
+}
+
 function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
   const map = new Map<string, PurchaseRow[]>();
   for (const row of rows) {
@@ -437,6 +514,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   const displayItems = row.purchase_items.slice(0, 4);
   const hiddenItemCount = Math.max(0, row.purchase_items.length - displayItems.length);
   const unitPrice = firstItem?.unit_price;
+  const trackingNumber = row.extra?.trackingNumber?.trim();
 
   return (
     <section className="rounded-lg border bg-background shadow-sm">
@@ -465,6 +543,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
+            {!isReceived(row) && trackingNumber ? <span>追跡番号: {trackingNumber}</span> : null}
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" className="w-fit gap-2" onClick={() => window.print()}>
@@ -611,15 +690,25 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
   );
 }
 
-function ProductFulfillmentTableV2({ products }: { products: ProductSummary[] }) {
+function ProductFulfillmentTableV2({
+  products,
+  selectedFilter,
+  onProductFilter,
+}: {
+  products: ProductSummary[];
+  selectedFilter?: ProductDetailFilter | null;
+  onProductFilter?: (filter: ProductDetailFilter) => void;
+}) {
   return (
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[1040px] text-sm">
           <thead className="border-b text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-3 text-left font-medium">品目</th>
+              <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
+              <th className="px-4 py-3 text-right font-medium">出庫数</th>
               <th className="px-4 py-3 text-right font-medium">必要</th>
               <th className="px-4 py-3 text-right font-medium">現在庫</th>
               <th className="px-4 py-3 text-right font-medium">入庫まち</th>
@@ -632,7 +721,7 @@ function ProductFulfillmentTableV2({ products }: { products: ProductSummary[] })
           <tbody>
             {products.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
                   表示できる商品がありません
                 </td>
               </tr>
@@ -640,16 +729,56 @@ function ProductFulfillmentTableV2({ products }: { products: ProductSummary[] })
               products.map((product) => {
                 const shortage = Math.max(product.required - product.secured - product.waiting, 0);
                 const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
+                const stockFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "stock";
+                const waitingFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "waiting";
                 return (
                   <tr key={product.key} className="border-b last:border-0">
                     <td className="px-4 py-3 font-medium">{product.title}</td>
+                    <td className="px-4 py-3 text-right">
+                      {product.invoiceOrdered == null ? "-" : product.invoiceOrdered.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}
+                    </td>
                     <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      {product.secured > 0 && onProductFilter ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100",
+                            stockFilterActive ? "bg-emerald-100 text-emerald-800" : "bg-emerald-50 text-emerald-700",
+                          )}
+                          onClick={() =>
+                            onProductFilter({ productKey: product.key, productTitle: product.title, mode: "stock" })
+                          }
+                        >
+                          {product.secured.toLocaleString()}
+                        </button>
+                      ) : (
+                        product.secured.toLocaleString()
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {product.waiting > 0 ? (
-                        <span className="inline-flex min-w-7 justify-center rounded bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                          {product.waiting.toLocaleString()}
-                        </span>
+                        onProductFilter ? (
+                          <button
+                            type="button"
+                            className={cn(
+                              "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100",
+                              waitingFilterActive ? "bg-amber-100 text-amber-800" : "bg-amber-50 text-amber-700",
+                            )}
+                            onClick={() =>
+                              onProductFilter({ productKey: product.key, productTitle: product.title, mode: "waiting" })
+                            }
+                          >
+                            {product.waiting.toLocaleString()}
+                          </button>
+                        ) : (
+                          <span className="inline-flex min-w-7 justify-center rounded bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                            {product.waiting.toLocaleString()}
+                          </span>
+                        )
                       ) : (
                         "-"
                       )}
@@ -685,12 +814,23 @@ function ProductFulfillmentTableV2({ products }: { products: ProductSummary[] })
 function OrderDashboard({
   group,
   rows,
+  products: productsOverride,
+  detailRows,
+  productFilter,
+  onProductFilter,
+  onClearProductFilter,
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
+  products?: ProductSummary[];
+  detailRows?: PurchaseRow[];
+  productFilter?: ProductDetailFilter | null;
+  onProductFilter?: (filter: ProductDetailFilter) => void;
+  onClearProductFilter?: () => void;
 }) {
-  const displayRows = getAllRowsFromGroup(group, rows);
-  const products = group?.products ?? buildProductSummaries(displayRows);
+  const groupRows = getAllRowsFromGroup(group, rows);
+  const displayRows = detailRows ?? groupRows;
+  const products = productsOverride ?? group?.products ?? buildProductSummaries(groupRows);
   const labels = group?.labels ?? buildLabelViews(displayRows);
   const required = group?.required ?? products.reduce((total, item) => total + item.required, 0);
   const secured = group?.secured ?? products.reduce((total, item) => total + item.secured, 0);
@@ -715,18 +855,34 @@ function OrderDashboard({
         </div>
       </section>
 
-      <ProductFulfillmentTableV2 products={products} />
+      <ProductFulfillmentTableV2 products={products} selectedFilter={productFilter} onProductFilter={onProductFilter} />
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <PackagePlus className="h-4 w-4 text-emerald-700" />
           仕入れ登録
           <Badge variant="outline">{displayRows.length}件</Badge>
+          {productFilter ? (
+            <>
+              <Badge variant="secondary">
+                {productFilter.productTitle} / {productFilter.mode === "stock" ? "現在庫" : "入庫まち"}
+              </Badge>
+              <Button type="button" variant="ghost" size="sm" onClick={onClearProductFilter}>
+                絞り込み解除
+              </Button>
+            </>
+          ) : null}
         </div>
         <div className="space-y-3">
-          {displayRows.map((row) => (
-            <PurchaseRegistrationCard key={row.id} row={row} />
-          ))}
+          {displayRows.length === 0 ? (
+            <EmptyState
+              icon={PackageCheck}
+              title="該当する仕入れ登録がありません"
+              description="充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。"
+            />
+          ) : (
+            displayRows.map((row) => <PurchaseRegistrationCard key={row.id} row={row} />)
+          )}
         </div>
       </section>
     </div>
@@ -931,6 +1087,7 @@ export default function PurchaseRegistration() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [workflowTab, setWorkflowTab] = useState<WorkflowTab>("order");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
+  const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
 
   const normalizedSearch = search.trim();
 
@@ -966,8 +1123,19 @@ export default function PurchaseRegistration() {
   const groups = useMemo(() => buildAllocationGroups(filteredRows), [filteredRows]);
   const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
+  const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
+  const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
+    { invoiceNo: selectedInvoiceNo ?? "0" },
+    {
+      enabled: Boolean(selectedInvoiceNo),
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  );
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
-  const selectedProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
+  const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
+  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
+  const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
 
   const counts = useMemo(() => {
     return rows.reduce(
@@ -1033,7 +1201,10 @@ export default function PurchaseRegistration() {
                 <select
                   className={fieldClass}
                   value={selectedGroup?.key ?? ""}
-                  onChange={(event) => setSelectedGroupKey(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedGroupKey(event.target.value);
+                    setProductDetailFilter(null);
+                  }}
                 >
                   {groups.length === 0 ? (
                     <option value="">対象なし</option>
@@ -1050,7 +1221,10 @@ export default function PurchaseRegistration() {
               <div className="flex min-w-0 flex-col gap-3 xl:items-end">
                 <Tabs
                   value={statusFilter}
-                  onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+                  onValueChange={(value) => {
+                    setStatusFilter(value as StatusFilter);
+                    setProductDetailFilter(null);
+                  }}
                   className="max-w-full"
                 >
                   <TabsList className="h-auto flex-wrap justify-start gap-1">
@@ -1082,7 +1256,15 @@ export default function PurchaseRegistration() {
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
               <TabsContent value="order">
-                <OrderDashboard group={selectedGroup} rows={filteredRows} />
+                <OrderDashboard
+                  group={selectedGroup}
+                  rows={filteredRows}
+                  products={selectedProducts}
+                  detailRows={selectedDetailRows}
+                  productFilter={productDetailFilter}
+                  onProductFilter={setProductDetailFilter}
+                  onClearProductFilter={() => setProductDetailFilter(null)}
+                />
               </TabsContent>
               <TabsContent value="labels">
                 <LabelPrintPanel labels={selectedLabels} />
