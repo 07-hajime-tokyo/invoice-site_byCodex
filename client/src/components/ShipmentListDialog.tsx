@@ -2,7 +2,7 @@
  * ShipmentListDialog — 全発送記録一覧ダイアログ
  * 全ての発送便を一覧表示し、編集・削除が可能。
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,15 @@ interface ShipmentListDialogProps {
   onUpdated?: () => void;
 }
 
+function normalizeShipmentTrackingNumber(value: string | null | undefined): string {
+  return String(value ?? "").replace(/[\s-]/g, "").trim();
+}
+
+function getShipmentAllocationGroupKey(shipment: { id: number; trackingNumber?: string | null }): string {
+  const trackingNumber = normalizeShipmentTrackingNumber(shipment.trackingNumber);
+  return trackingNumber ? `tracking:${trackingNumber}` : `shipment:${shipment.id}`;
+}
+
 export function ShipmentListDialog({ onUpdated }: ShipmentListDialogProps) {
   const [open, setOpen] = useState(false);
 
@@ -27,6 +36,26 @@ export function ShipmentListDialog({ onUpdated }: ShipmentListDialogProps) {
     undefined,
     { enabled: open }
   );
+  const allocationGroups = useMemo(() => {
+    const groups = new Map<string, { totalQty: number; shippingCost: number }>();
+    for (const shipment of shipments ?? []) {
+      const key = getShipmentAllocationGroupKey(shipment);
+      const group = groups.get(key) ?? { totalQty: 0, shippingCost: 0 };
+      group.totalQty += shipment.items.reduce((sum, item) => sum + item.quantity, 0);
+      const shippingCost = Number(shipment.shippingCost ?? 0);
+      if (Number.isFinite(shippingCost) && shippingCost > 0) {
+        group.shippingCost = Math.max(group.shippingCost, shippingCost);
+      }
+      groups.set(key, group);
+    }
+    return groups;
+  }, [shipments]);
+
+  function getAllocatedShippingCost(shipment: { id: number; trackingNumber?: string | null }, quantity: number) {
+    const group = allocationGroups.get(getShipmentAllocationGroupKey(shipment));
+    if (!group || group.totalQty <= 0) return 0;
+    return Math.round((group.shippingCost / group.totalQty) * quantity);
+  }
 
   const deleteMutation = trpc.shipment.delete.useMutation({
     onSuccess: () => {
@@ -139,9 +168,7 @@ export function ShipmentListDialog({ onUpdated }: ShipmentListDialogProps) {
                     <p className="text-xs font-medium text-muted-foreground mb-1">インボイス明細</p>
                     <div className="flex flex-wrap gap-2">
                       {s.items.map((item, idx) => {
-                        const allocated = totalQty > 0
-                          ? Math.round((Number(s.shippingCost) / totalQty) * item.quantity)
-                          : 0;
+                        const allocated = getAllocatedShippingCost(s, item.quantity);
                         return (
                           <div
                             key={idx}

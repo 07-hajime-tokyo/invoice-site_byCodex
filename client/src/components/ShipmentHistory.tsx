@@ -78,8 +78,10 @@ export function ShipmentHistory({ invoiceNo, orderedQty, onDeleted }: ShipmentHi
           .filter((i) => i.invoiceNo === invoiceNo)
           .reduce((sum, i) => sum + i.quantity, 0);
         const totalQtyInShipment = s.items.reduce((sum, i) => sum + i.quantity, 0);
-        const allocated = totalQtyInShipment > 0
-          ? Math.round((Number(s.shippingCost) / totalQtyInShipment) * thisQty)
+        const allocationTotalQty = Number(s.allocationTotalQty ?? totalQtyInShipment);
+        const allocationShippingCost = Number(s.allocationShippingCost ?? s.shippingCost);
+        const allocated = allocationTotalQty > 0
+          ? Math.round((allocationShippingCost / allocationTotalQty) * thisQty)
           : 0;
 
         return (
@@ -115,9 +117,9 @@ export function ShipmentHistory({ invoiceNo, orderedQty, onDeleted }: ShipmentHi
             )}
             <div className="text-muted-foreground">
               発送台数: <strong className="text-foreground">{thisQty}台</strong>
-              {s.items.length > 1 && (
+              {allocationTotalQty > thisQty && (
                 <span className="ml-1">
-                  （この便の合計: {totalQtyInShipment}台）
+                  （この便の合計: {allocationTotalQty}台）
                 </span>
               )}
             </div>
@@ -130,7 +132,7 @@ export function ShipmentHistory({ invoiceNo, orderedQty, onDeleted }: ShipmentHi
                   </div>
                 ))}
               送料: ¥{Number(s.shippingCost).toLocaleString()}
-              {s.items.length > 1 && (
+              {allocationTotalQty > thisQty && (
                 <span className="ml-1 text-orange-700">
                   → 按分: ¥{allocated.toLocaleString()}
                 </span>

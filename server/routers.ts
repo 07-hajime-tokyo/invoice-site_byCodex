@@ -821,6 +821,7 @@ function generateInvoiceNumber(): string {
 // Shipment shipping cost & customs duty recalculation helper
 // ============================================================
 type TradeRow = typeof tradeRecords.$inferSelect;
+type ShipmentRow = typeof shipments.$inferSelect;
 type ShipmentItemRow = typeof shipmentItems.$inferSelect;
 type FedexShipmentRow = typeof fedexShipments.$inferSelect;
 type RouterDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -833,6 +834,15 @@ function toNumber(value: unknown): number {
 function getShipmentTradeRecordId(item: ShipmentItemRow): number | null {
   const id = Number(item.tradeRecordId ?? 0);
   return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function normalizeShipmentTrackingNumber(value: string | null | undefined): string {
+  return String(value ?? "").replace(/[\s-]/g, "").trim();
+}
+
+function getShipmentAllocationGroupKey(shipment: Pick<ShipmentRow, "id" | "trackingNumber">): string {
+  const trackingNumber = normalizeShipmentTrackingNumber(shipment.trackingNumber);
+  return trackingNumber ? `tracking:${trackingNumber}` : `shipment:${shipment.id}`;
 }
 
 function getDeliveryInvoiceNo(value: string | null | undefined): string | null {
@@ -1198,7 +1208,41 @@ async function recalcShippingCosts(
   db: RouterDb,
   invoiceNos: number[]
 ): Promise<void> {
-  const uniqueInvoiceNos = Array.from(new Set(invoiceNos.filter((n) => Number.isFinite(n))));
+  let uniqueInvoiceNos = Array.from(new Set(invoiceNos.filter((n) => Number.isFinite(n))));
+
+  if (uniqueInvoiceNos.length > 0) {
+    const baseItems = await db
+      .select()
+      .from(shipmentItems)
+      .where(inArray(shipmentItems.invoiceNo, uniqueInvoiceNos));
+    const baseShipmentIds = Array.from(new Set(baseItems.map((item) => item.shipmentId)));
+    const baseShipments = baseShipmentIds.length > 0
+      ? await db.select().from(shipments).where(inArray(shipments.id, baseShipmentIds))
+      : [];
+    const trackingNumbers = new Set(
+      baseShipments
+        .map((shipment) => normalizeShipmentTrackingNumber(shipment.trackingNumber))
+        .filter((trackingNumber) => trackingNumber.length > 0)
+    );
+    if (trackingNumbers.size > 0) {
+      const relatedShipmentIds = (await db.select().from(shipments))
+        .filter((shipment) => {
+          const trackingNumber = normalizeShipmentTrackingNumber(shipment.trackingNumber);
+          return baseShipmentIds.includes(shipment.id) || (trackingNumber.length > 0 && trackingNumbers.has(trackingNumber));
+        })
+        .map((shipment) => shipment.id);
+      if (relatedShipmentIds.length > 0) {
+        const relatedItems = await db
+          .select({ invoiceNo: shipmentItems.invoiceNo })
+          .from(shipmentItems)
+          .where(inArray(shipmentItems.shipmentId, Array.from(new Set(relatedShipmentIds))));
+        uniqueInvoiceNos = Array.from(new Set([
+          ...uniqueInvoiceNos,
+          ...relatedItems.map((item) => item.invoiceNo).filter((invoiceNo) => Number.isFinite(invoiceNo)),
+        ]));
+      }
+    }
+  }
 
   for (const invoiceNo of uniqueInvoiceNos) {
     const trades = await db
@@ -1225,23 +1269,63 @@ async function recalcShippingCosts(
     const shippingByTradeId = new Map<number, number>();
     const customsByTradeId = new Map<number, number>();
     const shipmentIds = Array.from(new Set(allItems.map((item) => item.shipmentId)));
+    const baseShipments = shipmentIds.length > 0
+      ? await db.select().from(shipments).where(inArray(shipments.id, shipmentIds))
+      : [];
+    const trackingNumbers = new Set(
+      baseShipments
+        .map((shipment) => normalizeShipmentTrackingNumber(shipment.trackingNumber))
+        .filter((trackingNumber) => trackingNumber.length > 0)
+    );
+    const relatedShipments = trackingNumbers.size > 0
+      ? (await db.select().from(shipments)).filter((shipment) => {
+          const trackingNumber = normalizeShipmentTrackingNumber(shipment.trackingNumber);
+          return shipmentIds.includes(shipment.id) || (trackingNumber.length > 0 && trackingNumbers.has(trackingNumber));
+        })
+      : baseShipments;
+    relatedShipments.sort((a, b) => Number(a.id) - Number(b.id));
 
-    for (const shipmentId of shipmentIds) {
-      const [shipment] = await db.select().from(shipments).where(eq(shipments.id, shipmentId));
+    const relatedShipmentIds = Array.from(new Set(relatedShipments.map((shipment) => shipment.id)));
+    const relatedShipmentItems = relatedShipmentIds.length > 0
+      ? await db.select().from(shipmentItems).where(inArray(shipmentItems.shipmentId, relatedShipmentIds))
+      : [];
+    const shipmentById = new Map(relatedShipments.map((shipment) => [shipment.id, shipment]));
+    const shipmentGroups = new Map<string, { shippingDate: string; shippingCost: number; items: ShipmentItemRow[] }>();
+
+    for (const shipment of relatedShipments) {
+      const key = getShipmentAllocationGroupKey(shipment);
+      const group = shipmentGroups.get(key) ?? {
+        shippingDate: shipment.shippingDate,
+        shippingCost: 0,
+        items: [],
+      };
+      if (shipment.shippingDate && (!group.shippingDate || shipment.shippingDate < group.shippingDate)) {
+        group.shippingDate = shipment.shippingDate;
+      }
+      const shippingCost = toNumber(shipment.shippingCost);
+      if (shippingCost > 0) {
+        group.shippingCost = Math.max(group.shippingCost, shippingCost);
+      }
+      shipmentGroups.set(key, group);
+    }
+
+    for (const item of relatedShipmentItems) {
+      const shipment = shipmentById.get(item.shipmentId);
       if (!shipment) continue;
+      const group = shipmentGroups.get(getShipmentAllocationGroupKey(shipment));
+      if (!group) continue;
+      group.items.push(item);
+    }
 
-      const allShipmentItems = await db
-        .select()
-        .from(shipmentItems)
-        .where(eq(shipmentItems.shipmentId, shipmentId));
-      const totalQtyInShipment = allShipmentItems.reduce((sum, item) => sum + item.quantity, 0);
+    for (const group of shipmentGroups.values()) {
+      const totalQtyInShipment = group.items.reduce((sum, item) => sum + item.quantity, 0);
       if (totalQtyInShipment <= 0) continue;
 
       let usdRate: number | null = null;
       const loadUsdRate = async () => {
         if (usdRate !== null) return usdRate;
         try {
-          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${shipment.shippingDate}?base=USD&symbols=JPY`);
+          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${group.shippingDate}?base=USD&symbols=JPY`);
           if (rateRes.ok) {
             const rateData = await rateRes.json() as { rates?: { JPY?: number } };
             usdRate = rateData.rates?.JPY ?? null;
@@ -1252,8 +1336,8 @@ async function recalcShippingCosts(
         return usdRate;
       };
 
-      const unitShippingCost = Number(shipment.shippingCost) / totalQtyInShipment;
-      const invoiceShipmentItems = allShipmentItems.filter((item) => item.invoiceNo === invoiceNo);
+      const unitShippingCost = group.shippingCost / totalQtyInShipment;
+      const invoiceShipmentItems = group.items.filter((item) => item.invoiceNo === invoiceNo);
 
       for (const item of invoiceShipmentItems) {
         const explicitTradeId = getShipmentTradeRecordId(item);
@@ -4038,7 +4122,13 @@ ${contextText}`;
           : [];
         const productNameByTradeId = new Map(tradeRows.map((row) => [row.id, row.productName ?? ""]));
         const shipmentIds = Array.from(new Set(items.map((i) => i.shipmentId)));
-        const result: Array<typeof shipments.$inferSelect & { items: Array<typeof shipmentItems.$inferSelect & { productName?: string | null }> }> = [];
+        const result: Array<
+          typeof shipments.$inferSelect & {
+            allocationTotalQty?: number;
+            allocationShippingCost?: number;
+            items: Array<typeof shipmentItems.$inferSelect & { productName?: string | null }>;
+          }
+        > = [];
         for (const sid of shipmentIds) {
           const [s] = await db.select().from(shipments).where(eq(shipments.id, sid));
           if (s) {
@@ -4052,7 +4142,49 @@ ${contextText}`;
             });
           }
         }
-        return result.sort((a, b) => a.shippingDate.localeCompare(b.shippingDate));
+        const trackingNumbers = new Set(
+          result
+            .map((shipment) => normalizeShipmentTrackingNumber(shipment.trackingNumber))
+            .filter((trackingNumber) => trackingNumber.length > 0)
+        );
+        const relatedShipments = trackingNumbers.size > 0
+          ? (await db.select().from(shipments)).filter((shipment) => {
+              const trackingNumber = normalizeShipmentTrackingNumber(shipment.trackingNumber);
+              return shipmentIds.includes(shipment.id) || (trackingNumber.length > 0 && trackingNumbers.has(trackingNumber));
+            })
+          : result;
+        const relatedShipmentIds = Array.from(new Set(relatedShipments.map((shipment) => shipment.id)));
+        const relatedShipmentItems = relatedShipmentIds.length > 0
+          ? await db.select().from(shipmentItems).where(inArray(shipmentItems.shipmentId, relatedShipmentIds))
+          : [];
+        const shipmentById = new Map(relatedShipments.map((shipment) => [shipment.id, shipment]));
+        const groupStats = new Map<string, { totalQty: number; shippingCost: number }>();
+        for (const shipment of relatedShipments) {
+          const key = getShipmentAllocationGroupKey(shipment);
+          const group = groupStats.get(key) ?? { totalQty: 0, shippingCost: 0 };
+          const shippingCost = toNumber(shipment.shippingCost);
+          if (shippingCost > 0) {
+            group.shippingCost = Math.max(group.shippingCost, shippingCost);
+          }
+          groupStats.set(key, group);
+        }
+        for (const item of relatedShipmentItems) {
+          const shipment = shipmentById.get(item.shipmentId);
+          if (!shipment) continue;
+          const group = groupStats.get(getShipmentAllocationGroupKey(shipment));
+          if (!group) continue;
+          group.totalQty += item.quantity;
+        }
+        return result
+          .map((shipment) => {
+            const group = groupStats.get(getShipmentAllocationGroupKey(shipment));
+            return {
+              ...shipment,
+              allocationTotalQty: group?.totalQty ?? shipment.items.reduce((sum, item) => sum + item.quantity, 0),
+              allocationShippingCost: group?.shippingCost ?? toNumber(shipment.shippingCost),
+            };
+          })
+          .sort((a, b) => a.shippingDate.localeCompare(b.shippingDate));
       }),
 
     /** 発送記録を新規作成し、送料を按分更新する */
