@@ -98,7 +98,7 @@ type InvoiceProductSummary = {
 };
 
 type ProductDetailFilter = {
-  productKey: string;
+  productKey?: string;
   productTitle: string;
   mode: "stock" | "waiting";
 };
@@ -296,12 +296,17 @@ function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFil
   if (!filter) return rows;
   return rows.flatMap((row) => {
     const purchaseItems = row.purchase_items.filter((item) => {
-      if (!purchaseItemMatchesProduct(item, filter.productKey)) return false;
+      if (filter.productKey && !purchaseItemMatchesProduct(item, filter.productKey)) return false;
       if (filter.mode === "stock") return isReceived(row) && itemStockQuantity(item) > 0;
       return !isReceived(row);
     });
     return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
   });
+}
+
+function productDetailFilterLabel(filter: ProductDetailFilter): string {
+  if (!filter.productKey) return filter.mode === "stock" ? "現在庫すべて" : "入庫まちすべて";
+  return `${filter.productTitle} / ${filter.mode === "stock" ? "現在庫" : "入庫まち"}`;
 }
 
 function buildSearchText(row: PurchaseRow): string {
@@ -701,6 +706,9 @@ function ProductFulfillmentTableV2({
   selectedFilter?: ProductDetailFilter | null;
   onProductFilter?: (filter: ProductDetailFilter) => void;
 }) {
+  const stockHeaderActive = selectedFilter?.mode === "stock" && !selectedFilter.productKey;
+  const waitingHeaderActive = selectedFilter?.mode === "waiting" && !selectedFilter.productKey;
+
   return (
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
@@ -712,8 +720,38 @@ function ProductFulfillmentTableV2({
               <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
               <th className="px-4 py-3 text-right font-medium">出庫数</th>
               <th className="px-4 py-3 text-right font-medium">必要</th>
-              <th className="px-4 py-3 text-right font-medium">現在庫</th>
-              <th className="px-4 py-3 text-right font-medium">入庫まち</th>
+              <th className="px-4 py-3 text-right font-medium">
+                {onProductFilter ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded px-2 py-1 transition hover:bg-emerald-50 hover:text-emerald-700",
+                      stockHeaderActive && "bg-emerald-50 text-emerald-700",
+                    )}
+                    onClick={() => onProductFilter({ productTitle: "現在庫", mode: "stock" })}
+                  >
+                    現在庫
+                  </button>
+                ) : (
+                  "現在庫"
+                )}
+              </th>
+              <th className="px-4 py-3 text-right font-medium">
+                {onProductFilter ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded px-2 py-1 transition hover:bg-amber-50 hover:text-amber-700",
+                      waitingHeaderActive && "bg-amber-50 text-amber-700",
+                    )}
+                    onClick={() => onProductFilter({ productTitle: "入庫まち", mode: "waiting" })}
+                  >
+                    入庫まち
+                  </button>
+                ) : (
+                  "入庫まち"
+                )}
+              </th>
               <th className="px-4 py-3 text-right font-medium">不足</th>
               <th className="px-4 py-3 text-right font-medium">平均仕入</th>
               <th className="px-4 py-3 text-right font-medium">売価</th>
@@ -859,9 +897,7 @@ function OrderDashboard({
           <Badge variant="outline">{displayRows.length}件</Badge>
           {productFilter ? (
             <>
-              <Badge variant="secondary">
-                {productFilter.productTitle} / {productFilter.mode === "stock" ? "現在庫" : "入庫まち"}
-              </Badge>
+              <Badge variant="secondary">{productDetailFilterLabel(productFilter)}</Badge>
               <Button type="button" variant="ghost" size="sm" onClick={onClearProductFilter}>
                 絞り込み解除
               </Button>
