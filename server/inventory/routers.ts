@@ -4169,6 +4169,8 @@ export const inventoryRouter = router({
             orderQty: row.orderQty,
             deliveredQty,
             remainingQty: Math.max(0, row.orderQty - deliveredQty),
+            sellingPrice: row.sellingPrice,
+            currency: row.currency,
             paymentDate: row.paymentDate,
             status: row.status,
           };

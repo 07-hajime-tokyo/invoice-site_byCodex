@@ -89,12 +89,16 @@ interface ProductSummary {
   waiting: number;
   unitPriceTotal: number;
   unitPriceCount: number;
+  sellingPrice?: number | null;
+  sellingCurrency?: string | null;
 }
 
 type InvoiceProductSummary = {
   productName: string;
   orderQty: number;
   deliveredQty: number;
+  sellingPrice?: number | null;
+  currency?: string | null;
 };
 
 type ProductDetailFilter = {
@@ -153,6 +157,19 @@ function formatEuro(value: unknown): string {
   const numberValue = toNumber(value);
   if (numberValue <= 0) return "-";
   return `€${numberValue.toLocaleString()}`;
+}
+
+function formatTradePrice(value: unknown, currency?: string | null): string {
+  const numberValue = toNumber(value);
+  if (numberValue <= 0) return "-";
+  const normalizedCurrency = (currency ?? "").toLowerCase();
+  if (normalizedCurrency.includes("eur") || normalizedCurrency.includes("ユーロ")) {
+    return `€${numberValue.toLocaleString()}`;
+  }
+  if (normalizedCurrency.includes("usd") || normalizedCurrency.includes("ドル")) {
+    return `$${numberValue.toLocaleString()}`;
+  }
+  return numberValue.toLocaleString();
 }
 
 function formatDate(value?: string | null): string {
@@ -418,18 +435,34 @@ function withInvoiceProductCounts(
 ): ProductSummary[] {
   if (products.length === 0 || invoiceProducts.length === 0) return products;
 
-  const statsByKey = new Map<string, InvoiceProductSummary>();
+  type InvoiceProductStats = InvoiceProductSummary & {
+    sellingPriceTotal: number;
+    sellingPriceQuantity: number;
+  };
+  const statsByKey = new Map<string, InvoiceProductStats>();
   for (const product of invoiceProducts) {
     const key = productKey(product.productName);
     const current = statsByKey.get(key);
+    const orderQty = toNumber(product.orderQty);
+    const deliveredQty = toNumber(product.deliveredQty);
+    const sellingPrice = toNumber(product.sellingPrice);
     if (current) {
-      current.orderQty += toNumber(product.orderQty);
-      current.deliveredQty += toNumber(product.deliveredQty);
+      current.orderQty += orderQty;
+      current.deliveredQty += deliveredQty;
+      if (sellingPrice > 0 && orderQty > 0) {
+        current.sellingPriceTotal += sellingPrice * orderQty;
+        current.sellingPriceQuantity += orderQty;
+        current.sellingPrice = current.sellingPriceTotal / current.sellingPriceQuantity;
+      }
     } else {
       statsByKey.set(key, {
         productName: product.productName,
-        orderQty: toNumber(product.orderQty),
-        deliveredQty: toNumber(product.deliveredQty),
+        orderQty,
+        deliveredQty,
+        sellingPrice: sellingPrice > 0 ? sellingPrice : null,
+        currency: product.currency ?? null,
+        sellingPriceTotal: sellingPrice > 0 && orderQty > 0 ? sellingPrice * orderQty : 0,
+        sellingPriceQuantity: sellingPrice > 0 && orderQty > 0 ? orderQty : 0,
       });
     }
   }
@@ -448,6 +481,8 @@ function withInvoiceProductCounts(
       ...product,
       invoiceOrdered: matched.orderQty,
       invoiceShipped: matched.deliveredQty,
+      sellingPrice: matched.sellingPrice ?? null,
+      sellingCurrency: matched.currency ?? null,
     };
   });
 }
@@ -680,7 +715,9 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
-                    <td className="px-4 py-3 text-right">-</td>
+                    <td className="px-4 py-3 text-right">
+                      {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button type="button" variant="outline" size="sm">
                         仕入れを追加
@@ -720,34 +757,48 @@ function ProductFulfillmentTableV2({
               <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
               <th className="px-4 py-3 text-right font-medium">出庫数</th>
               <th className="px-4 py-3 text-right font-medium">必要</th>
-              <th className="px-4 py-3 text-right font-medium">
+              <th
+                className={cn(
+                  "px-4 py-3 text-right font-medium",
+                  onProductFilter && "cursor-pointer select-none transition hover:bg-emerald-50 hover:text-emerald-700",
+                  stockHeaderActive && "bg-emerald-50 text-emerald-700",
+                )}
+                role={onProductFilter ? "button" : undefined}
+                tabIndex={onProductFilter ? 0 : undefined}
+                onClick={() => onProductFilter?.({ productTitle: "現在庫", mode: "stock" })}
+                onKeyDown={(event) => {
+                  if (!onProductFilter) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onProductFilter({ productTitle: "現在庫", mode: "stock" });
+                  }
+                }}
+              >
                 {onProductFilter ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded px-2 py-1 transition hover:bg-emerald-50 hover:text-emerald-700",
-                      stockHeaderActive && "bg-emerald-50 text-emerald-700",
-                    )}
-                    onClick={() => onProductFilter({ productTitle: "現在庫", mode: "stock" })}
-                  >
-                    現在庫
-                  </button>
+                  <span className="inline-flex rounded px-2 py-1">現在庫</span>
                 ) : (
                   "現在庫"
                 )}
               </th>
-              <th className="px-4 py-3 text-right font-medium">
+              <th
+                className={cn(
+                  "px-4 py-3 text-right font-medium",
+                  onProductFilter && "cursor-pointer select-none transition hover:bg-amber-50 hover:text-amber-700",
+                  waitingHeaderActive && "bg-amber-50 text-amber-700",
+                )}
+                role={onProductFilter ? "button" : undefined}
+                tabIndex={onProductFilter ? 0 : undefined}
+                onClick={() => onProductFilter?.({ productTitle: "入庫まち", mode: "waiting" })}
+                onKeyDown={(event) => {
+                  if (!onProductFilter) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onProductFilter({ productTitle: "入庫まち", mode: "waiting" });
+                  }
+                }}
+              >
                 {onProductFilter ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded px-2 py-1 transition hover:bg-amber-50 hover:text-amber-700",
-                      waitingHeaderActive && "bg-amber-50 text-amber-700",
-                    )}
-                    onClick={() => onProductFilter({ productTitle: "入庫まち", mode: "waiting" })}
-                  >
-                    入庫まち
-                  </button>
+                  <span className="inline-flex rounded px-2 py-1">入庫まち</span>
                 ) : (
                   "入庫まち"
                 )}
@@ -827,7 +878,9 @@ function ProductFulfillmentTableV2({
                       {shortage.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
-                    <td className="px-4 py-3 text-right">-</td>
+                    <td className="px-4 py-3 text-right">
+                      {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button type="button" variant="outline" size="sm">
                         仕入れを追加
