@@ -487,6 +487,19 @@ function withInvoiceProductCounts(
   });
 }
 
+function hasOpenInvoiceQuantity(product: ProductSummary): boolean {
+  if (product.invoiceOrdered == null) return true;
+  return Math.max(0, product.invoiceOrdered - (product.invoiceShipped ?? 0)) > 0;
+}
+
+function filterRowsByProductKeys(rows: PurchaseRow[], productKeys: Set<string>): PurchaseRow[] {
+  if (productKeys.size === 0) return [];
+  return rows.flatMap((row) => {
+    const purchaseItems = row.purchase_items.filter((item) => productKeys.has(productKey(displayProductTitle(item))));
+    return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
+  });
+}
+
 function buildAllocationGroups(rows: PurchaseRow[]): AllocationGroup[] {
   const map = new Map<string, PurchaseRow[]>();
   for (const row of rows) {
@@ -1219,7 +1232,10 @@ export default function PurchaseRegistration() {
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
-  const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
+  const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
+  const selectedOpenProductKeys = new Set(selectedOpenProducts.map((product) => product.key));
+  const selectedOpenRows = filterRowsByProductKeys(selectedRows, selectedOpenProductKeys);
+  const selectedDetailRows = filterRowsByProductDetail(selectedOpenRows, productDetailFilter);
 
   const counts = useMemo(() => {
     return rows.reduce(
@@ -1241,10 +1257,10 @@ export default function PurchaseRegistration() {
       labels: buildLabelViews(filteredRows).length,
       scan: selectedLabels.length,
       stock: selectedLabels.length,
-      shipping: selectedProducts.length,
+      shipping: selectedOpenProducts.length,
       returns: 0,
     }),
-    [filteredRows, selectedLabels.length, selectedProducts.length],
+    [filteredRows, selectedLabels.length, selectedOpenProducts.length],
   );
 
   return (
@@ -1343,7 +1359,7 @@ export default function PurchaseRegistration() {
                 <OrderDashboard
                   group={selectedGroup}
                   rows={filteredRows}
-                  products={selectedProducts}
+                  products={selectedOpenProducts}
                   detailRows={selectedDetailRows}
                   productFilter={productDetailFilter}
                   onProductFilter={setProductDetailFilter}
@@ -1360,7 +1376,7 @@ export default function PurchaseRegistration() {
                 <StockPanel labels={selectedLabels} rows={selectedRows} />
               </TabsContent>
               <TabsContent value="shipping">
-                <ShippingPanel products={selectedProducts} />
+                <ShippingPanel products={selectedOpenProducts} />
               </TabsContent>
               <TabsContent value="returns">
                 <ReturnPanel labels={selectedLabels} />
