@@ -543,7 +543,9 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
-            {!isReceived(row) && trackingNumber ? <span>追跡番号: {trackingNumber}</span> : null}
+            {!isReceived(row) && trackingNumber ? (
+              <span className="text-sm font-bold text-foreground md:text-base">追跡番号: {trackingNumber}</span>
+            ) : null}
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" className="w-fit gap-2" onClick={() => window.print()}>
@@ -727,7 +729,7 @@ function ProductFulfillmentTableV2({
               </tr>
             ) : (
               products.map((product) => {
-                const shortage = Math.max(product.required - product.secured - product.waiting, 0);
+                const shortage = product.required - product.secured - product.waiting;
                 const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
                 const stockFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "stock";
                 const waitingFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "waiting";
@@ -783,15 +785,8 @@ function ProductFulfillmentTableV2({
                         "-"
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <span
-                        className={cn(
-                          "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold",
-                          shortage > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700",
-                        )}
-                      >
-                        {shortage.toLocaleString()}
-                      </span>
+                    <td className={cn("px-4 py-3 text-right font-medium", shortage < 0 ? "text-rose-600" : "text-foreground")}>
+                      {shortage.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
                     <td className="px-4 py-3 text-right">-</td>
