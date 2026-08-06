@@ -160,6 +160,24 @@ export function extractManagementInvoiceKey(value: string | null | undefined): s
   return match?.[1] ?? null;
 }
 
+export function extractManagementHints(...values: Array<string | null | undefined>): string[] {
+  const hints: string[] = [];
+  const managementTokenPattern =
+    /(?:\d{3}[_*][^\s,\u3001\uFF0C;\uFF1B]*|ebay_[^\s,\u3001\uFF0C;\uFF1B]*|E\d{4}[^\s,\u3001\uFF0C;\uFF1B]*)/gi;
+
+  for (const value of values) {
+    const text = normalizeText(value ?? "");
+    if (!text) continue;
+    hints.push(text);
+    for (const match of text.match(managementTokenPattern) ?? []) {
+      const token = match.trim();
+      if (token) hints.push(token);
+    }
+  }
+
+  return Array.from(new Set(hints));
+}
+
 export function extractModel(title: string): string {
   const normalized = normalizeText(title);
   const loose = normalizeLooseText(normalized);
@@ -167,6 +185,10 @@ export function extractModel(title: string): string {
     if (pattern.test(normalized) || pattern.test(loose)) return model;
   }
   return "";
+}
+
+export function extractPreferredModel(itemTitle: string, managementNo: string): string {
+  return extractModel(managementNo) || extractModel(itemTitle);
 }
 
 export function extractColor(name: string): string {
@@ -202,6 +224,11 @@ function isOtherColor(colorName: string): boolean {
     normalized.includes("その他") ||
     normalized.includes("それ以外") ||
     normalized.includes("以外");
+}
+
+function isBaseColorProduct(colorName: string): boolean {
+  const normalized = normalizeLooseText(colorName);
+  return normalized.includes("base") || normalized.includes("ベース");
 }
 
 function hasLimitedEditionMarker(value: string): boolean {
@@ -292,7 +319,7 @@ function isVita2000AquaBlueMisdelivery(itemTitle: string, csvProductName: string
 function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName: string): number {
   const targetText = `${normalizeText(itemTitle)} ${normalizeText(managementNo)}`.trim();
   const targetIsRandomColor = isRandomColor(targetText) || isRandomColor(extractColor(targetText));
-  const itemModel = extractModel(targetText);
+  const itemModel = extractPreferredModel(itemTitle, managementNo);
   const csvModel = extractModel(csvProductName);
   if (csvModel && (!itemModel || itemModel !== csvModel)) return -1;
 
@@ -306,6 +333,12 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
   const csvColorText = normalizeLooseText(csvColor);
 
   if (isVita2000AquaBlueMisdelivery(itemTitle, csvProductName)) return 80;
+  if (isBaseColorProduct(csvColor)) {
+    const csvTokens = colorTokens(csvColor);
+    const targetTokens = colorTokens(targetText);
+    if (Array.from(csvTokens).some((token) => targetTokens.has(token))) return 72;
+    return csvModel ? 58 : -1;
+  }
   if (managementText && csvColorText && !isRandomColor(csvColor) && managementText.includes(csvColorText)) return 70;
 
   const csvIsRandomColor = isRandomColor(csvColor);
@@ -350,6 +383,14 @@ export function suggestCsvProduct(
     }
   }
 
-  if (!best || tie) return null;
+  if (!best || tie) {
+    const model = extractPreferredModel(itemTitle, managementNo);
+    if (!model) return null;
+    const sameModelCandidates = csvProducts.filter((product) => extractModel(product.name) === model);
+    if (sameModelCandidates.length === 1) {
+      return { name: sameModelCandidates[0].name, score: 1 };
+    }
+    return null;
+  }
   return best;
 }

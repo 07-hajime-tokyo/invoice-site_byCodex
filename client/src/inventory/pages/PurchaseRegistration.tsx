@@ -2,13 +2,12 @@ import { Fragment, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
-import { suggestCsvProduct } from "@shared/productMatching";
+import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Barcode,
   Boxes,
   CalendarDays,
   CheckCircle2,
@@ -100,6 +99,7 @@ interface ProductSummary {
   key: string;
   title: string;
   managementNos?: string[];
+  matchTexts?: string[];
   invoiceOrdered?: number;
   invoiceShipped?: number;
   required: number;
@@ -444,6 +444,26 @@ function displayProductTitle(item: PurchaseItem): string {
   if (hasAnyProductText(text, ["2ds"])) return "2DS ランダムカラー";
   if (hasAnyProductText(text, ["3ds"])) return "3DS ランダムカラー";
 
+  if (
+    hasAnyProductText(text, [
+      "ps vita 1000",
+      "psvita1000",
+      "vita 1000",
+      "vita1000",
+      "ps vita 1100",
+      "psvita1100",
+      "vita 1100",
+      "vita1100",
+    ])
+  ) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ", "クリスタルブラック", "crystal black"])
+      ? "PS Vita 1000 ブラック"
+      : "PS Vita 1000 レッド・ブルー・ホワイト";
+  }
+  if (hasAnyProductText(text, ["ps vita 2000", "psvita2000", "vita 2000", "vita2000"])) {
+    return "PS Vita 2000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp go", "pspgo"])) return "PSP Go";
   if (hasAnyProductText(text, ["psp 3000", "psp3000"])) {
     return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ"])
       ? "PSP 3000 ブラック"
@@ -458,12 +478,72 @@ function displayProductTitle(item: PurchaseItem): string {
   return title;
 }
 
+function actualProductTitle(item: PurchaseItem): string {
+  return item.title?.trim() || displayProductTitle(item);
+}
+
+type CsvProductCandidate = { name: string; qty: number };
+
+function suggestInvoiceProductName(
+  title: string,
+  managementNo: string,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const suggestion = suggestCsvProduct(title, managementNo, candidates);
+  if (suggestion) return suggestion.name;
+
+  const model = extractPreferredModel(title, managementNo);
+  if (!model) return null;
+
+  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === model);
+  return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
+}
+
+function suggestInvoiceProductNameFromHints(
+  title: string,
+  managementHints: Array<string | null | undefined>,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const managementText = unique(extractManagementHints(...managementHints)).join(" ");
+  const titleText = String(title ?? "").trim();
+
+  return (
+    (managementText ? suggestInvoiceProductName("", managementText, candidates) : null) ??
+    (titleText ? suggestInvoiceProductName(titleText, managementText, candidates) : null)
+  );
+}
+
+function purchaseItemMatchTexts(item: PurchaseItem): string[] {
+  const managementNo = parseEtc(item.etc).managementNo;
+  const managementHints = extractManagementHints(item.etc, managementNo);
+  return unique([
+    item.title?.trim() ?? "",
+    item.etc?.trim() ?? "",
+    managementNo,
+    ...managementHints,
+    displayProductTitle(item),
+  ]);
+}
+
 function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targetTitle?: string): boolean {
   const title = displayProductTitle(item);
   if (productKey(title) === targetKey) return true;
   if (!targetTitle) return false;
   const managementNo = parseEtc(item.etc).managementNo;
-  return suggestCsvProduct(title, managementNo, [{ name: targetTitle, qty: 1 }])?.name === targetTitle;
+  const managementHints = extractManagementHints(item.etc, managementNo);
+  if (
+    suggestInvoiceProductNameFromHints("", managementHints, [{ name: targetTitle, qty: 1 }]) ===
+    targetTitle
+  ) {
+    return true;
+  }
+  const matchText = purchaseItemMatchTexts(item).join(" ");
+  const rawTitle = item.title?.trim() || title;
+  return (
+    suggestInvoiceProductNameFromHints(rawTitle, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
+    suggestInvoiceProductNameFromHints(title, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
+    suggestInvoiceProductName(matchText, managementHints.join(" "), [{ name: targetTitle, qty: 1 }]) === targetTitle
+  );
 }
 
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
@@ -530,7 +610,44 @@ function labelStatusLabel(status?: string | null): string {
 
 function labelAllocationLabel(managementNo: string): string {
   const parsed = parseInvoiceFromManagementNo(managementNo);
-  return parsed ? `No.${parsed.invoiceNo}` : "一般在庫";
+  if (!parsed) return "一般在庫";
+  const orderTitle = labelOrderTitleFromManagementNo(managementNo);
+  return orderTitle ? `No.${parsed.invoiceNo}-${orderTitle}` : `No.${parsed.invoiceNo}`;
+}
+
+function labelOrderTitleFromManagementNo(managementNo: string): string {
+  const normalized = managementNo.normalize("NFKC");
+  const parts = normalized.split(/[_\s*]+/).filter(Boolean);
+  const hint = parts.find((part, index) => index >= 2 && !/^\d+\s*\/\s*\d+$/.test(part));
+  return hint ? formatLabelOrderTitle(hint) : "";
+}
+
+function formatLabelOrderTitle(value: string): string {
+  const compact = compactProductText(value);
+  if (compact.includes("ホワイトベース") || compact.includes("whitebase")) return "3DSLL White base";
+  if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New3DSLL Random color";
+  if (compact.includes("new3ds")) return "New3DS Random color";
+  if (compact.includes("new2dsll") || compact.includes("new2dsxl")) return "New2DSLL Random color";
+  if (compact.includes("3dsll") || compact.includes("3dsxl")) return "3DSLL Random color";
+  if (compact.includes("2ds")) return "2DS Random color";
+  if (compact.includes("3ds")) return "3DS Random color";
+  if (
+    compact.includes("psvita1000") ||
+    compact.includes("psvita1100") ||
+    compact.includes("vita1000") ||
+    compact.includes("vita1100")
+  ) {
+    return "Vita1000 Random color";
+  }
+  if (compact.includes("psvita2000") || compact.includes("vita2000")) return "Vita2000 Random color";
+  if (compact.includes("psp3000")) return "PSP3000 Random color";
+  if (compact.includes("psp2000")) return "PSP2000 Random color";
+  if (compact.includes("pspgo")) return "PSP Go";
+  return value
+    .replace(/ランダムカラー/g, "Random color")
+    .replace(/ホワイトベース/g, "White base")
+    .replace(/[＿_]+/g, " ")
+    .trim();
 }
 
 function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
@@ -545,7 +662,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           labelId: label.labelId,
           rawStatus: label.status ?? "",
           status: labelStatusLabel(label.status),
-          title: displayProductTitle(item),
+          title: actualProductTitle(item),
           legacyManagementNo,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice: toNumber(item.unit_price),
@@ -557,6 +674,199 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
       });
     });
   });
+}
+
+function initQrTables(): { exp: number[]; log: number[] } {
+  const exp = Array<number>(512).fill(0);
+  const log = Array<number>(256).fill(0);
+  let value = 1;
+  for (let index = 0; index < 255; index++) {
+    exp[index] = value;
+    log[value] = index;
+    value <<= 1;
+    if (value & 0x100) value ^= 0x11d;
+  }
+  for (let index = 255; index < 512; index++) exp[index] = exp[index - 255];
+  return { exp, log };
+}
+
+const QR_TABLES = initQrTables();
+
+function qrMultiply(left: number, right: number): number {
+  if (left === 0 || right === 0) return 0;
+  return QR_TABLES.exp[QR_TABLES.log[left] + QR_TABLES.log[right]];
+}
+
+function qrGeneratorPolynomial(degree: number): number[] {
+  let poly = [1];
+  for (let index = 0; index < degree; index++) {
+    const next = Array<number>(poly.length + 1).fill(0);
+    for (let polyIndex = 0; polyIndex < poly.length; polyIndex++) {
+      next[polyIndex] ^= poly[polyIndex];
+      next[polyIndex + 1] ^= qrMultiply(poly[polyIndex], QR_TABLES.exp[index]);
+    }
+    poly = next;
+  }
+  return poly;
+}
+
+function qrEncodeBytes(value: string): number[] {
+  const bytes = Array.from(value.trim().toUpperCase()).map((char) => char.charCodeAt(0) & 0xff);
+  const bits: number[] = [];
+  const pushBits = (data: number, length: number) => {
+    for (let bit = length - 1; bit >= 0; bit--) bits.push((data >> bit) & 1);
+  };
+
+  pushBits(0b0100, 4);
+  pushBits(bytes.length, 8);
+  bytes.forEach((byte) => pushBits(byte, 8));
+
+  const capacityBits = 19 * 8;
+  const terminatorLength = Math.min(4, capacityBits - bits.length);
+  for (let index = 0; index < terminatorLength; index++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+
+  const dataCodewords: number[] = [];
+  for (let index = 0; index < bits.length; index += 8) {
+    dataCodewords.push(bits.slice(index, index + 8).reduce((sum, bit) => (sum << 1) | bit, 0));
+  }
+  const pads = [0xec, 0x11];
+  let padIndex = 0;
+  while (dataCodewords.length < 19) {
+    dataCodewords.push(pads[padIndex % pads.length]);
+    padIndex++;
+  }
+
+  const generator = qrGeneratorPolynomial(7);
+  const ecc = Array<number>(7).fill(0);
+  dataCodewords.forEach((codeword) => {
+    const factor = codeword ^ ecc[0];
+    ecc.shift();
+    ecc.push(0);
+    for (let index = 0; index < ecc.length; index++) {
+      ecc[index] ^= qrMultiply(generator[index + 1], factor);
+    }
+  });
+
+  return [...dataCodewords, ...ecc];
+}
+
+function createQrMatrix(value: string): boolean[][] {
+  const size = 21;
+  const matrix = Array.from({ length: size }, () => Array<boolean | null>(size).fill(null));
+  const reserved = Array.from({ length: size }, () => Array<boolean>(size).fill(false));
+  const setModule = (x: number, y: number, dark: boolean, reserve = true) => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    matrix[y][x] = dark;
+    if (reserve) reserved[y][x] = true;
+  };
+  const drawFinder = (x: number, y: number) => {
+    for (let dy = -1; dy <= 7; dy++) {
+      for (let dx = -1; dx <= 7; dx++) {
+        const xx = x + dx;
+        const yy = y + dy;
+        const inPattern = dx >= 0 && dx <= 6 && dy >= 0 && dy <= 6;
+        const dark =
+          inPattern &&
+          (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+        setModule(xx, yy, dark);
+      }
+    }
+  };
+
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+  for (let index = 8; index < size - 8; index++) {
+    setModule(index, 6, index % 2 === 0);
+    setModule(6, index, index % 2 === 0);
+  }
+  setModule(8, 13, true);
+
+  const formatBits = "111011111000100";
+  const formatCoords1 = [
+    [8, 0],
+    [8, 1],
+    [8, 2],
+    [8, 3],
+    [8, 4],
+    [8, 5],
+    [8, 7],
+    [8, 8],
+    [7, 8],
+    [5, 8],
+    [4, 8],
+    [3, 8],
+    [2, 8],
+    [1, 8],
+    [0, 8],
+  ];
+  const formatCoords2 = [
+    [8, 20],
+    [8, 19],
+    [8, 18],
+    [8, 17],
+    [8, 16],
+    [8, 15],
+    [8, 14],
+    [13, 8],
+    [14, 8],
+    [15, 8],
+    [16, 8],
+    [17, 8],
+    [18, 8],
+    [19, 8],
+    [20, 8],
+  ];
+  [...formatCoords1, ...formatCoords2].forEach(([x, y]) => {
+    reserved[y][x] = true;
+  });
+
+  const codewords = qrEncodeBytes(value || "-");
+  const dataBits = codewords.flatMap((codeword) =>
+    Array.from({ length: 8 }, (_, index) => (codeword >> (7 - index)) & 1),
+  );
+  let bitIndex = 0;
+  let upward = true;
+  for (let x = size - 1; x > 0; x -= 2) {
+    if (x === 6) x--;
+    for (let row = 0; row < size; row++) {
+      const y = upward ? size - 1 - row : row;
+      for (let dx = 0; dx < 2; dx++) {
+        const xx = x - dx;
+        if (reserved[y][xx]) continue;
+        const rawBit = bitIndex < dataBits.length ? dataBits[bitIndex] === 1 : false;
+        bitIndex++;
+        setModule(xx, y, rawBit !== ((xx + y) % 2 === 0), false);
+      }
+    }
+    upward = !upward;
+  }
+
+  formatCoords1.forEach(([x, y], index) => setModule(x, y, formatBits[index] === "1"));
+  formatCoords2.forEach(([x, y], index) => setModule(x, y, formatBits[index] === "1"));
+
+  return matrix.map((row) => row.map(Boolean));
+}
+
+function ProductQrCode({ value }: { value: string }) {
+  const matrix = useMemo(() => createQrMatrix(value), [value]);
+  const quietZone = 2;
+  const size = matrix.length + quietZone * 2;
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`QR ${value}`} className="h-full w-full bg-white">
+      <rect width={size} height={size} fill="white" />
+      {matrix.map((row, y) => (
+        <g key={y}>
+          {row.map((dark, x) =>
+            dark ? (
+              <rect key={x} x={x + quietZone} y={y + quietZone} width="1" height="1" fill="#0f172a" />
+            ) : null,
+          )}
+        </g>
+      ))}
+    </svg>
+  );
 }
 
 function isStockLabel(label: LabelView): boolean {
@@ -686,6 +996,7 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
         key,
         title,
         managementNos: [],
+        matchTexts: [],
         required: 0,
         secured: 0,
         waiting: 0,
@@ -694,9 +1005,11 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
       };
       const quantity = itemQuantity(item);
       const managementNo = parseEtc(item.etc).managementNo;
-      if (managementNo && !current.managementNos?.includes(managementNo)) {
-        current.managementNos = [...(current.managementNos ?? []), managementNo];
+      const managementHints = extractManagementHints(item.etc, managementNo);
+      if (managementHints.length > 0) {
+        current.managementNos = unique([...(current.managementNos ?? []), ...managementHints]);
       }
+      current.matchTexts = unique([...(current.matchTexts ?? []), ...purchaseItemMatchTexts(item)]);
       current.required += quantity;
       if (isReceived(row)) {
         current.secured += Math.min(quantity, itemStockQuantity(item));
@@ -774,6 +1087,7 @@ function withInvoiceProductCounts(
     key,
     title: product.productName,
     managementNos: [],
+    matchTexts: [],
     invoiceOrdered: product.orderQty,
     invoiceShipped: product.deliveredQty,
     required: Math.max(0, product.orderQty - product.deliveredQty),
@@ -797,16 +1111,30 @@ function withInvoiceProductCounts(
     qty: product.orderQty,
   }));
 
-  const unmatched: ProductSummary[] = [];
   for (const product of products) {
     const direct = statsByKey.get(product.key);
-    const managementText = (product.managementNos ?? []).join(" ");
-    const suggestedName = direct ? null : suggestCsvProduct(product.title, managementText, candidates)?.name;
-    const matchedKey = direct ? product.key : suggestedName ? productKey(suggestedName) : "";
+    const managementHints = extractManagementHints(
+      ...(product.managementNos ?? []),
+      ...(product.matchTexts ?? []),
+    );
+    const matchText = unique([...(product.matchTexts ?? []), ...managementHints]).join(" ");
+    const titleSuggestion =
+      suggestInvoiceProductNameFromHints(product.title, managementHints, candidates) ??
+      (product.title.trim() ? suggestInvoiceProductName(product.title, managementHints.join(" "), candidates) : null);
+    const suggestedName =
+      suggestInvoiceProductNameFromHints("", managementHints, candidates) ??
+      titleSuggestion ??
+      (matchText.trim() ? suggestInvoiceProductName(matchText, managementHints.join(" "), candidates) : null);
+    const suggestedKey = suggestedName ? productKey(suggestedName) : "";
+    const matchedKey =
+      suggestedKey && summariesByInvoiceKey.has(suggestedKey)
+        ? suggestedKey
+        : direct
+          ? product.key
+          : "";
     const target = matchedKey ? summariesByInvoiceKey.get(matchedKey) : undefined;
 
     if (!target) {
-      unmatched.push(product);
       continue;
     }
 
@@ -814,15 +1142,13 @@ function withInvoiceProductCounts(
     target.waiting += product.waiting;
     target.unitPriceTotal += product.unitPriceTotal;
     target.unitPriceCount += product.unitPriceCount;
-    target.managementNos = unique([...(target.managementNos ?? []), ...(product.managementNos ?? [])]);
+    target.managementNos = unique([...(target.managementNos ?? []), ...managementHints, ...(product.managementNos ?? [])]);
+    target.matchTexts = unique([...(target.matchTexts ?? []), ...(product.matchTexts ?? []), ...managementHints]);
   }
 
-  return [
-    ...statsOrder
-      .map((key) => summariesByInvoiceKey.get(key))
-      .filter((product): product is ProductSummary => Boolean(product)),
-    ...unmatched.sort((a, b) => a.title.localeCompare(b.title, "ja")),
-  ];
+  return statsOrder
+    .map((key) => summariesByInvoiceKey.get(key))
+    .filter((product): product is ProductSummary => Boolean(product));
 }
 
 function hasOpenInvoiceQuantity(product: ProductSummary): boolean {
@@ -830,10 +1156,12 @@ function hasOpenInvoiceQuantity(product: ProductSummary): boolean {
   return Math.max(0, product.invoiceOrdered - (product.invoiceShipped ?? 0)) > 0;
 }
 
-function filterRowsByProductKeys(rows: PurchaseRow[], productKeys: Set<string>): PurchaseRow[] {
-  if (productKeys.size === 0) return [];
+function filterRowsByProducts(rows: PurchaseRow[], products: ProductSummary[]): PurchaseRow[] {
+  if (products.length === 0) return [];
   return rows.flatMap((row) => {
-    const purchaseItems = row.purchase_items.filter((item) => productKeys.has(productKey(displayProductTitle(item))));
+    const purchaseItems = row.purchase_items.filter((item) =>
+      products.some((product) => purchaseItemMatchesProduct(item, product.key, product.title)),
+    );
     return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
   });
 }
@@ -1110,12 +1438,7 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
                     <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <span
-                        className={cn(
-                          "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold",
-                          shortage > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700",
-                        )}
-                      >
+                      <span className={cn("font-medium", shortage > 0 ? "text-rose-600" : "text-foreground")}>
                         {shortage.toLocaleString()}
                       </span>
                     </td>
@@ -1426,14 +1749,13 @@ function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
                 </div>
-                <div className="flex h-16 w-16 items-center justify-center rounded border bg-slate-50">
-                  <Barcode className="h-8 w-8 text-slate-600" />
+                <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
+                  <ProductQrCode value={label.labelId} />
                 </div>
               </div>
               <div className="mt-3 line-clamp-2 text-sm font-medium">{label.title}</div>
-              <div className="mt-2 text-xs text-muted-foreground">{label.supplier.name}</div>
             </div>
           ))}
         </div>
@@ -1706,8 +2028,7 @@ export default function PurchaseRegistration() {
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
-  const selectedOpenProductKeys = new Set(selectedOpenProducts.map((product) => product.key));
-  const selectedOpenRows = filterRowsByProductKeys(selectedRows, selectedOpenProductKeys);
+  const selectedOpenRows = filterRowsByProducts(selectedRows, selectedOpenProducts);
   const selectedDetailRows = filterRowsByProductDetail(selectedOpenRows, productDetailFilter);
 
   const counts = useMemo(() => {

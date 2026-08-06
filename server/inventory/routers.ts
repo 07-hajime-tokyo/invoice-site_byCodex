@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { suggestCsvProduct } from "@shared/productMatching";
+import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -344,6 +344,37 @@ type OrderCsvRow = {
   status: string;
 };
 
+type CsvProductCandidate = { name: string; qty: number };
+
+function suggestCsvProductNameWithFallback(
+  title: string,
+  managementNo: string,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const suggestion = suggestCsvProduct(title, managementNo, candidates);
+  if (suggestion) return suggestion.name;
+
+  const model = extractPreferredModel(title, managementNo);
+  if (!model) return null;
+
+  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === model);
+  return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
+}
+
+function suggestCsvProductNameFromHints(
+  title: string,
+  managementHints: Array<string | null | undefined>,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const managementText = Array.from(new Set(extractManagementHints(...managementHints))).join(" ");
+  const titleText = String(title ?? "").trim();
+
+  return (
+    (managementText ? suggestCsvProductNameWithFallback("", managementText, candidates) : null) ??
+    (titleText ? suggestCsvProductNameWithFallback(titleText, managementText, candidates) : null)
+  );
+}
+
 async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
   const db = await getDb();
   if (!db) return [];
@@ -545,9 +576,12 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
   const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
   for (const item of items) {
     const shippedName = item.productNameJa || item.productNameEn;
-    const suggestion = suggestCsvProduct(shippedName, item.managementNo ?? "", csvProducts);
-    const match = suggestion
-      ? orderRows.find((row) => row.productName === suggestion.name)
+    const managementHints = extractManagementHints(item.managementNo, shippedName);
+    const suggestionName =
+      suggestCsvProductNameFromHints("", managementHints, csvProducts) ??
+      suggestCsvProductNameFromHints(shippedName, managementHints, csvProducts);
+    const match = suggestionName
+      ? orderRows.find((row) => row.productName === suggestionName)
       : sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
     const name = match?.productName || item.productNameJa || item.productNameEn;
     const current = grouped.get(name);
@@ -3297,10 +3331,10 @@ export const inventoryRouter = router({
                 if (item.csvProductName !== null) {
                   addAggregatedItem(item.csvProductName, item.quantity);
                 } else {
-                  const suggestion = csvProducts.length > 0
-                    ? suggestCsvProduct(item.title, managementNo, csvProducts)
+                  const suggestionName = csvProducts.length > 0
+                    ? suggestCsvProductNameFromHints(item.title, extractManagementHints(managementNo, item.title), csvProducts)
                     : null;
-                  addAggregatedItem(suggestion?.name ?? item.title, item.quantity);
+                  addAggregatedItem(suggestionName ?? item.title, item.quantity);
                 }
                 continue;
               }
@@ -3313,10 +3347,10 @@ export const inventoryRouter = router({
                 }
               }
 
-              const suggestion = csvProducts.length > 0
-                ? suggestCsvProduct(item.title, managementNo, csvProducts)
+              const suggestionName = csvProducts.length > 0
+                ? suggestCsvProductNameFromHints(item.title, extractManagementHints(managementNo, item.title), csvProducts)
                 : null;
-              addAggregatedItem(suggestion?.name ?? item.title, item.quantity);
+              addAggregatedItem(suggestionName ?? item.title, item.quantity);
             }
             const fedexItems = Array.from(aggregated.values());
 
@@ -4204,6 +4238,7 @@ export const inventoryRouter = router({
 
         const deliveredByTradeRecordId = new Map<number, number>();
         const deliveredByProductName = new Map<string, number>();
+        const inventoryManagementMap = await buildInventoryManagementNoMap();
         const deliveries = (await getAllDeliveryHistories())
           .filter((history) => history.status === "success" && invoiceNoFromDeliveryNo(history.deliveryNo) === invoiceNo);
 
@@ -4265,18 +4300,40 @@ export const inventoryRouter = router({
               continue;
             }
 
-            const suggestion = suggestCsvProduct(
-              String(item.title ?? ""),
-              String(item.managementNo ?? ""),
-              csvProducts,
+            const fallbackManagement = inventoryId ? (inventoryManagementMap.get(inventoryId) ?? "") : "";
+            const storedCsvProductName = typeof item.csvProductName === "string" ? item.csvProductName.trim() : "";
+            const managementHints = extractManagementHints(
+              item.managementNo,
+              fallbackManagement.split(",")[0],
+              fallbackManagement,
+              delivery.deliveryNo,
             );
+            const suggestionName =
+              suggestCsvProductNameFromHints("", managementHints, csvProducts) ??
+              suggestCsvProductNameFromHints(String(item.title ?? ""), managementHints, csvProducts) ??
+              (storedCsvProductName
+                ? suggestCsvProductNameFromHints(storedCsvProductName, managementHints, csvProducts)
+                : null) ??
+              (storedCsvProductName
+                ? suggestCsvProductNameWithFallback(storedCsvProductName, managementHints.join(" "), csvProducts)
+                : null);
 
             if (item.csvProductName !== undefined) {
-              if (item.csvProductName !== null) addByProductName(suggestion?.name ?? item.csvProductName, effectiveQuantity);
-              else if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
+              if (suggestionName) addByProductName(suggestionName, effectiveQuantity);
+              else if (storedCsvProductName) addByProductName(storedCsvProductName, effectiveQuantity);
               continue;
             }
 
+            if (suggestionName) {
+              addByProductName(suggestionName, effectiveQuantity);
+              continue;
+            }
+
+            const suggestion = suggestCsvProduct(
+              String(item.title ?? ""),
+              String(item.managementNo ?? fallbackManagement),
+              csvProducts,
+            );
             if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
           }
         }
@@ -4397,13 +4454,16 @@ export const inventoryRouter = router({
             const inventoryId = item.inventoryId == null ? null : Number(item.inventoryId);
             const fallbackManagement = inventoryId ? (inventoryManagementMap.get(inventoryId) ?? "") : "";
             const managementNo = String(item.managementNo || fallbackManagement.split(",")[0] || "").trim();
-            const suggestion = suggestCsvProduct(String(item.title ?? ""), managementNo, csvProducts);
-            if (!suggestion) {
+            const managementHints = extractManagementHints(managementNo, fallbackManagement, history.deliveryNo);
+            const suggestionName =
+              suggestCsvProductNameFromHints("", managementHints, csvProducts) ??
+              suggestCsvProductNameFromHints(String(item.title ?? ""), managementHints, csvProducts);
+            if (!suggestionName) {
               skippedNoMatch += 1;
               return item;
             }
 
-            const candidateRows = rows.filter((row) => row.productName === suggestion.name);
+            const candidateRows = rows.filter((row) => row.productName === suggestionName);
             const chosenRow =
               candidateRows.find((row) => row.tradeRecordId && (remainingByTradeRecordId.get(row.tradeRecordId) ?? 0) >= quantity) ??
               candidateRows.find((row) => row.tradeRecordId && (remainingByTradeRecordId.get(row.tradeRecordId) ?? 0) > 0) ??
@@ -4422,7 +4482,7 @@ export const inventoryRouter = router({
 
             const nextItem = {
               ...item,
-              csvProductName: suggestion.name,
+              csvProductName: suggestionName,
               ...(chosenRow.tradeRecordId ? { tradeRecordId: chosenRow.tradeRecordId } : {}),
               ...(!item.managementNo && managementNo ? { managementNo } : {}),
             };
@@ -4786,7 +4846,11 @@ export const inventoryRouter = router({
       // invTitle: Zaico在庫商品名（例: "Vita1000 コズミックレッド"）
       // invManagementNo: Zaico在庫管理番号（例: "369_ルカ_レッド_3/10"）
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
-        return suggestCsvProduct(invTitle, invManagementNo ?? "", [{ name: csvProductName, qty: 1 }])?.name === csvProductName;
+        const managementHints = extractManagementHints(invManagementNo, invTitle);
+        return (
+          suggestCsvProductNameFromHints("", managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName ||
+          suggestCsvProductNameFromHints(invTitle, managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName
+        );
       }
 
       // inventoryId -> 仕入情報マップ（入庫履歴の最新レコードを使用）

@@ -8,7 +8,7 @@ import {
   RefreshCw, Search, X, ChevronDown, ChevronRight, Download, BarChart2, Package, Pencil, Check, AlertTriangle, CheckCircle2, Loader2, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
-import { suggestCsvProduct } from "@shared/productMatching";
+import { extractModel, suggestCsvProduct } from "@shared/productMatching";
 
 type SummaryItem = {
   key: string;
@@ -345,6 +345,8 @@ function hasLimitedEditionMarker(value: string | null | undefined): boolean {
 
 type ColorSummaryWithModel = ColorSummary & { model: string; colorOnly: string };
 
+type CsvProductCandidate = { name: string; qty: number };
+
 function normalizeLooseText(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/[\s　・･_\-ー,、]/g, "");
 }
@@ -355,6 +357,21 @@ function csvProductGroupKey(csvProductName: string): string {
   return model ? [model, colorOnly].filter(Boolean).join(" ") : colorOnly;
 }
 
+function suggestCsvProductNameWithFallback(
+  title: string,
+  managementNo: string,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const suggestion = suggestCsvProduct(title, managementNo, candidates);
+  if (suggestion) return suggestion.name;
+
+  const model = extractModel(`${title} ${managementNo}`);
+  if (!model) return null;
+
+  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === model);
+  return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
+}
+
 function findDeliveryCsvProduct(item: SummaryItem, delivery: DeliveryItem): CsvProductSummary | null {
   if (delivery.csvProductName) {
     const exact = item.csvProducts.find((product) => product.name === delivery.csvProductName);
@@ -363,12 +380,23 @@ function findDeliveryCsvProduct(item: SummaryItem, delivery: DeliveryItem): CsvP
 
   const candidates = item.csvProducts.map((product) => ({ name: product.name, qty: product.qty }));
   const fromStoredName = delivery.csvProductName
-    ? suggestCsvProduct(delivery.csvProductName, delivery.managementNo ?? "", candidates)
+    ? suggestCsvProductNameWithFallback(delivery.csvProductName, delivery.managementNo ?? "", candidates)
     : null;
-  const fromTitle = suggestCsvProduct(delivery.title, delivery.managementNo ?? "", candidates);
-  const suggestion = fromStoredName ?? fromTitle;
-  if (!suggestion) return null;
-  return item.csvProducts.find((product) => product.name === suggestion.name) ?? null;
+  const fromTitle = suggestCsvProductNameWithFallback(delivery.title, delivery.managementNo ?? "", candidates);
+  const suggestionName = fromStoredName ?? fromTitle;
+  if (!suggestionName) return null;
+  return item.csvProducts.find((product) => product.name === suggestionName) ?? null;
+}
+
+function findCsvProductByTitleAndManagement(
+  item: SummaryItem,
+  title: string,
+  managementNo?: string | null,
+): CsvProductSummary | null {
+  const candidates = item.csvProducts.map((product) => ({ name: product.name, qty: product.qty }));
+  const suggestionName = suggestCsvProductNameWithFallback(title, managementNo ?? "", candidates);
+  if (!suggestionName) return null;
+  return item.csvProducts.find((product) => product.name === suggestionName) ?? null;
 }
 
 function cleanDeliveryProductTitle(title: string): string {
@@ -566,6 +594,16 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
 
   // 発注一覧からグループ別に発注数・入庫済み数を集計
   for (const pi of item.purchaseItems) {
+    const csvProd = findCsvProductByTitleAndManagement(item, pi.title, pi.managementNo);
+    if (csvProd) {
+      const entry = colorMap.get(csvProductGroupKey(csvProd.name));
+      if (entry) {
+        entry.zaicoCount += pi.quantity;
+        if (pi.status === "purchased") entry.purchasedCount += pi.quantity;
+        continue;
+      }
+    }
+
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {
@@ -583,6 +621,15 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
 
   // 在庫一覧からグループ別に在庫数を集計
   for (const inv of item.inventoryItems) {
+    const csvProd = findCsvProductByTitleAndManagement(item, inv.title, inv.managementNo);
+    if (csvProd) {
+      const entry = colorMap.get(csvProductGroupKey(csvProd.name));
+      if (entry) {
+        entry.stockCount += inv.quantity;
+        continue;
+      }
+    }
+
     let bestEntry: ColorSummaryWithModel | null = null;
     let bestScore = -1;
     for (const [, entry] of Array.from(colorMap.entries())) {

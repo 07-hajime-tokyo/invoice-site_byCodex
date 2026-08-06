@@ -170,5 +170,16 @@ describe("productMatching", () => {
 
     expect(suggestCsvProduct("2DS クリアブラック", "393_ルカ_2DS_4/5", products)?.name).toBe("2DS");
     expect(suggestCsvProduct("New 2DS LL ブラック×ターコイズ", "393_ルカ_New2DSLL_1/5", products)?.name).toBe("New 2DS LL");
+    expect(suggestCsvProduct("New 2DS LL モンスターボール", "393_ルカ_2DS_5/5", products)?.name).toBe("2DS");
+  });
+
+  it("3DS LLホワイトベースだけが注文行にある場合は3DS LL仕入れをそこへ寄せる", () => {
+    const products = [
+      { name: "3DS LL ホワイトベース", qty: 5 },
+      { name: "New 3DS LL ランダムカラー", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("3DSLL ミント×ホワイト", "400_マキシム_3DSLL_1/5", products)?.name).toBe("3DS LL ホワイトベース");
+    expect(suggestCsvProduct("3DSLL レッド×ブラック", "400_マキシム_3DSLL_2/5", products)?.name).toBe("3DS LL ホワイトベース");
   });
 });
