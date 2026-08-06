@@ -2055,12 +2055,14 @@ function LabelPrintStyles() {
 
       @media print {
         @page {
-          size: A4 portrait;
+          size: 210mm 297mm;
           margin: 0;
         }
 
         html,
         body {
+          width: 210mm !important;
+          min-width: 210mm !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #fff !important;
@@ -2082,21 +2084,24 @@ function LabelPrintStyles() {
           top: 0;
           box-sizing: border-box;
           width: 210mm;
-          min-height: 297mm;
-          padding: 12.9mm 3mm;
+          min-height: 0;
+          padding: 0;
           background: #fff;
         }
 
         .label-print-sheet {
+          box-sizing: border-box;
           display: grid;
           grid-template-columns: repeat(3, 66mm);
           grid-template-rows: repeat(8, 33.9mm);
           column-gap: 3mm;
           row-gap: 0;
-          width: 204mm;
-          height: 271.2mm;
+          width: 210mm;
+          height: 297mm;
+          padding: 12.9mm 3mm;
           align-content: start;
           justify-content: start;
+          overflow: hidden;
           break-after: page;
           page-break-after: always;
         }
