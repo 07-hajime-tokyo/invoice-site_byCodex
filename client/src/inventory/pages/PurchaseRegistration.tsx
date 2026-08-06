@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
@@ -82,6 +82,8 @@ interface LabelView {
   rowId: number;
   itemId: number;
 }
+
+type LabelPrintRequest = (labels: LabelView[]) => void;
 
 interface StockItemView {
   key: string;
@@ -1308,7 +1310,7 @@ function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: Purcha
   return group.rows;
 }
 
-function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
+function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; onPrintLabels: LabelPrintRequest }) {
   const labels = getItemLabels(row.purchase_items);
   const managementNos = getManagementNos(row.purchase_items);
   const supplier = getSupplier(row);
@@ -1320,6 +1322,7 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
   const unitPrice = firstItem?.unit_price;
   const trackingNumber = row.extra?.trackingNumber?.trim();
   const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
+  const rowLabels = buildLabelViews([row]);
 
   return (
     <section className="rounded-lg border bg-background shadow-sm">
@@ -1370,7 +1373,14 @@ function PurchaseRegistrationCard({ row }: { row: PurchaseRow }) {
             <span>発注No: {row.num || "-"}</span>
           </div>
         </div>
-        <Button type="button" variant="outline" size="sm" className="w-fit gap-2" onClick={() => window.print()}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-fit gap-2"
+          disabled={rowLabels.length === 0}
+          onClick={() => onPrintLabels(rowLabels)}
+        >
           <Printer className="h-4 w-4" />
           ラベル印刷
         </Button>
@@ -1700,6 +1710,7 @@ function OrderDashboard({
   productFilter,
   onProductFilter,
   onClearProductFilter,
+  onPrintLabels,
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
@@ -1708,6 +1719,7 @@ function OrderDashboard({
   productFilter?: ProductDetailFilter | null;
   onProductFilter?: (filter: ProductDetailFilter) => void;
   onClearProductFilter?: () => void;
+  onPrintLabels: LabelPrintRequest;
 }) {
   const groupRows = getAllRowsFromGroup(group, rows);
   const displayRows = detailRows ?? groupRows;
@@ -1766,7 +1778,7 @@ function OrderDashboard({
               description="充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。"
             />
           ) : (
-            displayRows.map((row) => <PurchaseRegistrationCard key={row.id} row={row} />)
+            displayRows.map((row) => <PurchaseRegistrationCard key={row.id} row={row} onPrintLabels={onPrintLabels} />)
           )}
         </div>
       </section>
@@ -1774,18 +1786,86 @@ function OrderDashboard({
   );
 }
 
-function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
+function LabelPrintPanel({
+  labels,
+  allLabels,
+  onPrintLabels,
+}: {
+  labels: LabelView[];
+  allLabels: LabelView[];
+  onPrintLabels: LabelPrintRequest;
+}) {
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
+  const selectedLabels = useMemo(
+    () => labels.filter((label) => selectedKeySet.has(label.key)),
+    [labels, selectedKeySet],
+  );
+  const currentPrintLabels = selectedLabels.length > 0 ? selectedLabels : labels;
+  const selectedCount = selectedLabels.length;
+
+  useEffect(() => {
+    const visibleKeys = new Set(labels.map((label) => label.key));
+    setSelectedKeys((current) => current.filter((key) => visibleKeys.has(key)));
+  }, [labels]);
+
+  const toggleLabel = (key: string, checked: boolean) => {
+    setSelectedKeys((current) => {
+      if (checked) return current.includes(key) ? current : [...current, key];
+      return current.filter((item) => item !== key);
+    });
+  };
+
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold">ラベル印刷</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              チェックした商品IDだけを印刷できます。未選択の場合は表示中のラベルを印刷します。
+            </p>
           </div>
-          <Button type="button" variant="outline" className="w-fit gap-2" onClick={() => window.print()}>
-            <Printer className="h-4 w-4" />
-            選択分を印刷
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit"
+              disabled={labels.length === 0}
+              onClick={() => setSelectedKeys(labels.map((label) => label.key))}
+            >
+              全選択
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit"
+              disabled={selectedCount === 0}
+              onClick={() => setSelectedKeys([])}
+            >
+              選択解除
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit gap-2"
+              disabled={currentPrintLabels.length === 0}
+              onClick={() => onPrintLabels(currentPrintLabels)}
+            >
+              <Printer className="h-4 w-4" />
+              ラベルを印刷
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit gap-2"
+              disabled={allLabels.length === 0}
+              onClick={() => onPrintLabels(allLabels)}
+            >
+              <Printer className="h-4 w-4" />
+              全インボイスを印刷
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -1793,22 +1873,167 @@ function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
         <EmptyState icon={Tag} title="印刷できる商品IDがありません" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {labels.map((label) => (
-            <div key={label.key} className="rounded-md border bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+          {labels.map((label) => {
+            const checked = selectedKeySet.has(label.key);
+            return (
+              <div
+                key={label.key}
+                className={cn(
+                  "rounded-md border bg-white p-4 shadow-sm",
+                  checked && "border-emerald-500 ring-1 ring-emerald-500",
+                )}
+              >
+                <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => toggleLabel(label.key, event.target.checked)}
+                    className="h-4 w-4 accent-emerald-700"
+                  />
+                  印刷対象
+                </label>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+                  </div>
+                  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
+                    <ProductQrCode value={label.labelId} />
+                  </div>
                 </div>
-                <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
-                  <ProductQrCode value={label.labelId} />
-                </div>
+                <div className="mt-3 line-clamp-2 text-sm font-medium">{label.printTitle}</div>
               </div>
-              <div className="mt-3 line-clamp-2 text-sm font-medium">{label.printTitle}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function LabelPrintStyles() {
+  return (
+    <style>{`
+      .label-print-root {
+        display: none;
+      }
+
+      @media print {
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+
+        html,
+        body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+        }
+
+        body * {
+          visibility: hidden !important;
+        }
+
+        .label-print-root,
+        .label-print-root * {
+          visibility: visible !important;
+        }
+
+        .label-print-root {
+          display: block !important;
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 210mm;
+          min-height: 297mm;
+          background: #fff;
+        }
+
+        .label-print-sheet {
+          display: grid;
+          grid-template-columns: repeat(4, 52.5mm);
+          grid-auto-rows: 29.7mm;
+          width: 210mm;
+          min-height: 297mm;
+          align-content: start;
+          justify-content: start;
+        }
+
+        .label-print-item {
+          box-sizing: border-box;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 15mm;
+          column-gap: 1.5mm;
+          align-items: center;
+          width: 52.5mm;
+          height: 29.7mm;
+          overflow: hidden;
+          padding: 2mm 2.2mm;
+          break-inside: avoid;
+          page-break-inside: avoid;
+          color: #0f172a;
+          background: #fff;
+          font-family: Arial, sans-serif;
+        }
+
+        .label-print-id {
+          margin-bottom: 1.2mm;
+          font-family: Consolas, "Courier New", monospace;
+          font-size: 12pt;
+          font-weight: 700;
+          line-height: 1.1;
+          letter-spacing: 0;
+        }
+
+        .label-print-ref {
+          margin-bottom: 1mm;
+          overflow: hidden;
+          font-size: 6.8pt;
+          line-height: 1.2;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .label-print-title {
+          max-height: 8.6mm;
+          overflow: hidden;
+          font-size: 7.2pt;
+          font-weight: 700;
+          line-height: 1.2;
+        }
+
+        .label-print-qr {
+          width: 15mm;
+          height: 15mm;
+        }
+
+        .label-print-qr svg {
+          width: 100%;
+          height: 100%;
+        }
+      }
+    `}</style>
+  );
+}
+
+function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
+  return (
+    <div className="label-print-root" aria-hidden="true">
+      <div className="label-print-sheet">
+        {labels.map((label) => (
+          <div key={label.key} className="label-print-item">
+            <div>
+              <div className="label-print-id">{label.labelId}</div>
+              <div className="label-print-ref">{label.allocationLabel}</div>
+              <div className="label-print-title">{label.printTitle}</div>
+            </div>
+            <div className="label-print-qr">
+              <ProductQrCode value={label.labelId} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2017,6 +2242,8 @@ export default function PurchaseRegistration() {
   const [workflowTab, setWorkflowTab] = useState<WorkflowTab>("order");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
+  const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
+  const [printJobId, setPrintJobId] = useState(0);
 
   const normalizedSearch = search.trim();
 
@@ -2072,6 +2299,7 @@ export default function PurchaseRegistration() {
   );
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
+  const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const stockLabels = useMemo(() => allLabels.filter(isStockLabel), [allLabels]);
   const allStockItems = useMemo(() => buildStockItemViews(rows), [rows]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
@@ -2106,8 +2334,24 @@ export default function PurchaseRegistration() {
     [allLabels.length, allStockItems, filteredRows.length, selectedLabels.length, selectedOpenProducts.length],
   );
 
+  const handlePrintLabels = (targetLabels: LabelView[]) => {
+    if (targetLabels.length === 0) return;
+    setLabelsToPrint(targetLabels);
+    setPrintJobId((current) => current + 1);
+  };
+
+  useEffect(() => {
+    if (printJobId === 0 || labelsToPrint.length === 0) return;
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => window.clearTimeout(timer);
+  }, [labelsToPrint, printJobId]);
+
+  const isStockWorkflow = workflowTab === "stock";
+
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
+      <LabelPrintStyles />
+      <PrintableLabelSheet labels={labelsToPrint} />
       <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_188px]">
         <main className="space-y-5 p-4 md:p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -2136,46 +2380,65 @@ export default function PurchaseRegistration() {
 
           <section className="rounded-md border bg-background">
             <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  <FileText className="h-4 w-4" />
-                  インボイス
+              {isStockWorkflow ? (
+                <div className="rounded-md border bg-slate-50 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Boxes className="h-4 w-4 text-emerald-700" />
+                    在庫一覧
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    現状サイトに登録されている在庫ありの商品をすべて表示します。
+                  </p>
                 </div>
-                <select
-                  className={fieldClass}
-                  value={selectedGroup?.key ?? ""}
-                  onChange={(event) => {
-                    setSelectedGroupKey(event.target.value);
-                    setProductDetailFilter(null);
-                  }}
-                >
-                  {invoiceGroups.length === 0 ? (
-                    <option value="">対象なし</option>
-                  ) : (
-                    invoiceGroups.map((group) => (
-                      <option key={group.key} value={group.key}>
-                        {group.label}（{(group.invoiceRemainingQty ?? group.required).toLocaleString()}点）
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <FileText className="h-4 w-4" />
+                    インボイス
+                  </div>
+                  <select
+                    className={fieldClass}
+                    value={selectedGroup?.key ?? ""}
+                    onChange={(event) => {
+                      setSelectedGroupKey(event.target.value);
+                      setProductDetailFilter(null);
+                    }}
+                  >
+                    {invoiceGroups.length === 0 ? (
+                      <option value="">対象なし</option>
+                    ) : (
+                      invoiceGroups.map((group) => (
+                        <option key={group.key} value={group.key}>
+                          {group.label}（{(group.invoiceRemainingQty ?? group.required).toLocaleString()}点）
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
 
               <div className="flex min-w-0 flex-col gap-3 xl:items-end">
-                <Tabs
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    setStatusFilter(value as StatusFilter);
-                    setProductDetailFilter(null);
-                  }}
-                  className="max-w-full"
-                >
-                  <TabsList className="h-auto flex-wrap justify-start gap-1">
-                    <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
-                    <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
-                    <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+                {isStockWorkflow ? (
+                  <Badge variant="outline" className="w-fit gap-1 px-3 py-1.5">
+                    <Boxes className="h-3.5 w-3.5" />
+                    現在庫 {workflowCounts.stock.toLocaleString()}点
+                  </Badge>
+                ) : (
+                  <Tabs
+                    value={statusFilter}
+                    onValueChange={(value) => {
+                      setStatusFilter(value as StatusFilter);
+                      setProductDetailFilter(null);
+                    }}
+                    className="max-w-full"
+                  >
+                    <TabsList className="h-auto flex-wrap justify-start gap-1">
+                      <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
+                      <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
+                      <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                )}
                 <div className="relative w-full xl:max-w-sm">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -2194,7 +2457,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : groups.length === 0 ? (
+          ) : !isStockWorkflow && groups.length === 0 ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
@@ -2207,10 +2470,11 @@ export default function PurchaseRegistration() {
                   productFilter={productDetailFilter}
                   onProductFilter={setProductDetailFilter}
                   onClearProductFilter={() => setProductDetailFilter(null)}
+                  onPrintLabels={handlePrintLabels}
                 />
               </TabsContent>
               <TabsContent value="labels">
-                <LabelPrintPanel labels={selectedLabels} />
+                <LabelPrintPanel labels={selectedLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
                 <ScanPanel labels={selectedLabels} />
