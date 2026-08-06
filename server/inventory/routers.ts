@@ -4319,9 +4319,14 @@ export const inventoryRouter = router({
                 : null);
 
             if (item.csvProductName !== undefined) {
-              if (suggestionName) addByProductName(suggestionName, effectiveQuantity);
-              else if (storedCsvProductName) addByProductName(storedCsvProductName, effectiveQuantity);
-              continue;
+              if (suggestionName) {
+                addByProductName(suggestionName, effectiveQuantity);
+                continue;
+              }
+              if (storedCsvProductName) {
+                addByProductName(storedCsvProductName, effectiveQuantity);
+                continue;
+              }
             }
 
             if (suggestionName) {
