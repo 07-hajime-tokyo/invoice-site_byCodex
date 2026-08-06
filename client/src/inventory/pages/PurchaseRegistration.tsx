@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
@@ -672,13 +673,30 @@ function formatLabelPrintTitleLegacy(value: string): string {
     [/アクア\s*[・･]?\s*ブルー/g, "Aqua Blue"],
     [/サファイア\s*[・･]?\s*ブルー/g, "Sapphire Blue"],
     [/クリスタル\s*[・･]?\s*ブラック/g, "Crystal Black"],
+    [/クリスタル\s*[・･]?\s*ホワイト/g, "Crystal White"],
     [/ピアノ\s*[・･]?\s*ブラック/g, "Piano Black"],
     [/セラミック\s*[・･]?\s*ホワイト/g, "Ceramic White"],
     [/ミスティ\s*ピンク/g, "Misty Pink"],
+    [/コズミック\s*[・･]?\s*ブラック/g, "Cosmic Black"],
+    [/コズミック\s*[・･]?\s*レッド/g, "Cosmic Red"],
+    [/ライム\s*[・･]?\s*グリーン/g, "Lime Green"],
+    [/グレイシャー\s*[・･]?\s*ホワイト/g, "Glacier White"],
+    [/バイブラント\s*[・･]?\s*ブルー/g, "Vibrant Blue"],
+    [/ラディアント\s*[・･]?\s*レッド/g, "Radiant Red"],
+    [/コバルト\s*[・･]?\s*ブルー/g, "Cobalt Blue"],
+    [/ライト\s*[・･]?\s*ブルー/g, "Light Blue"],
     [/レッド\s*[・･]\s*ブルー\s*[・･]\s*ホワイト/g, "Red, Blue, White"],
     [/ブルー\s*[・･]\s*ホワイト/g, "Blue, White"],
     [/レッド\s*[・･]\s*ホワイト/g, "Red, White"],
     [/レッド\s*[・･]\s*ブルー/g, "Red, Blue"],
+    [/コズミック/g, "Cosmic"],
+    [/クリスタル/g, "Crystal"],
+    [/ライム/g, "Lime"],
+    [/グレイシャー/g, "Glacier"],
+    [/バイブラント/g, "Vibrant"],
+    [/ラディアント/g, "Radiant"],
+    [/コバルト/g, "Cobalt"],
+    [/ライト\s*ブルー/g, "Light Blue"],
     [/ブラック/g, "Black"],
     [/ホワイト/g, "White"],
     [/ブルー/g, "Blue"],
@@ -701,6 +719,11 @@ function formatLabelPrintTitleLegacy(value: string): string {
 }
 
 const LABEL_TITLE_OVERRIDE_STORAGE_KEY = "purchase-registration-label-title-overrides";
+
+type LabelTitleOverrideState = {
+  byLabelId: Record<string, string>;
+  byTitleKey: Record<string, string>;
+};
 
 function replaceAllText(value: string, search: string, replacement: string): string {
   return value.split(search).join(replacement);
@@ -728,14 +751,30 @@ function formatLabelPrintTitle(value: string): string {
     [/\u30a2\u30af\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Aqua Blue"],
     [/\u30b5\u30d5\u30a1\u30a4\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Sapphire Blue"],
     [/\u30af\u30ea\u30b9\u30bf\u30eb\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Crystal Black"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Crystal White"],
     [/\u30d4\u30a2\u30ce\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Piano Black"],
     [/\u30bb\u30e9\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Ceramic White"],
     [/\u30df\u30b9\u30c6\u30a3\s*\u30d4\u30f3\u30af/g, "Misty Pink"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Cosmic Black"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30ec\u30c3\u30c9/g, "Cosmic Red"],
+    [/\u30e9\u30a4\u30e0\s*[\u30fb\u00b7]?\s*\u30b0\u30ea\u30fc\u30f3/g, "Lime Green"],
+    [/\u30b0\u30ec\u30a4\u30b7\u30e3\u30fc\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Glacier White"],
+    [/\u30d0\u30a4\u30d6\u30e9\u30f3\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Vibrant Blue"],
     [/\u30e9\u30c7\u30a3\u30a2\u30f3\u30c8\s*\u30ec\u30c3\u30c9/g, "Radiant Red"],
+    [/\u30b3\u30d0\u30eb\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Cobalt Blue"],
+    [/\u30e9\u30a4\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Light Blue"],
     [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, Blue, White"],
     [/\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Blue, White"],
     [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, White"],
     [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc/g, "Red, Blue"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af/g, "Cosmic"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb/g, "Crystal"],
+    [/\u30e9\u30a4\u30e0/g, "Lime"],
+    [/\u30b0\u30ec\u30a4\u30b7\u30e3\u30fc/g, "Glacier"],
+    [/\u30d0\u30a4\u30d6\u30e9\u30f3\u30c8/g, "Vibrant"],
+    [/\u30e9\u30c7\u30a3\u30a2\u30f3\u30c8/g, "Radiant"],
+    [/\u30b3\u30d0\u30eb\u30c8/g, "Cobalt"],
+    [/\u30e9\u30a4\u30c8\s*\u30d6\u30eb\u30fc/g, "Light Blue"],
     [/\u30d6\u30e9\u30c3\u30af/g, "Black"],
     [/\u30db\u30ef\u30a4\u30c8/g, "White"],
     [/\u30d6\u30eb\u30fc/g, "Blue"],
@@ -764,19 +803,43 @@ function formatLabelPrintTitle(value: string): string {
   return formatted || legacyFormatted;
 }
 
-function loadLabelTitleOverrides(): Record<string, string> {
-  if (typeof window === "undefined") return {};
+function emptyLabelTitleOverrides(): LabelTitleOverrideState {
+  return { byLabelId: {}, byTitleKey: {} };
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, text]) => [key, text]),
+  );
+}
+
+function normalizeLabelTitleKey(value: string): string {
+  return compactProductText(value).replace(/\s+/g, "");
+}
+
+function loadLabelTitleOverrides(): LabelTitleOverrideState {
+  if (typeof window === "undefined") return emptyLabelTitleOverrides();
   try {
     const raw = window.localStorage.getItem(LABEL_TITLE_OVERRIDE_STORAGE_KEY);
-    if (!raw) return {};
+    if (!raw) return emptyLabelTitleOverrides();
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyLabelTitleOverrides();
+    if ("byLabelId" in parsed || "byTitleKey" in parsed) {
+      return {
+        byLabelId: sanitizeStringRecord((parsed as Partial<LabelTitleOverrideState>).byLabelId),
+        byTitleKey: sanitizeStringRecord((parsed as Partial<LabelTitleOverrideState>).byTitleKey),
+      };
+    }
+    return { byLabelId: sanitizeStringRecord(parsed), byTitleKey: {} };
   } catch {
-    return {};
+    return emptyLabelTitleOverrides();
   }
 }
 
-function saveLabelTitleOverrides(overrides: Record<string, string>) {
+function saveLabelTitleOverrides(overrides: LabelTitleOverrideState) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(LABEL_TITLE_OVERRIDE_STORAGE_KEY, JSON.stringify(overrides));
@@ -785,9 +848,11 @@ function saveLabelTitleOverrides(overrides: Record<string, string>) {
   }
 }
 
-function applyLabelTitleOverride(label: LabelView, overrides: Record<string, string>): LabelView {
-  const override = overrides[label.labelId]?.trim();
-  const autoTitle = formatLabelPrintTitle(label.title || label.printTitle);
+function applyLabelTitleOverride(label: LabelView, overrides: LabelTitleOverrideState): LabelView {
+  const rawTitle = label.title || label.printTitle;
+  const titleKey = normalizeLabelTitleKey(rawTitle);
+  const override = overrides.byLabelId[label.labelId]?.trim() || overrides.byTitleKey[titleKey]?.trim();
+  const autoTitle = formatLabelPrintTitle(rawTitle);
   return {
     ...label,
     printTitle: override ? formatLabelPrintTitle(override) : autoTitle,
@@ -1899,7 +1964,7 @@ function LabelPrintPanel({
   onPrintLabels: LabelPrintRequest;
 }) {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [labelTitleOverrides, setLabelTitleOverrides] = useState<Record<string, string>>(() =>
+  const [labelTitleOverrides, setLabelTitleOverrides] = useState<LabelTitleOverrideState>(() =>
     loadLabelTitleOverrides(),
   );
   const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
@@ -1934,11 +1999,20 @@ function LabelPrintPanel({
     });
   };
 
-  const updateLabelTitle = (labelId: string, value: string) => {
+  const updateLabelTitle = (label: LabelView, value: string) => {
+    const titleKey = normalizeLabelTitleKey(label.title || label.printTitle);
     setLabelTitleOverrides((current) => {
-      const next = { ...current };
-      if (value.trim()) next[labelId] = value;
-      else delete next[labelId];
+      const next: LabelTitleOverrideState = {
+        byLabelId: { ...current.byLabelId },
+        byTitleKey: { ...current.byTitleKey },
+      };
+      if (value.trim()) {
+        next.byLabelId[label.labelId] = value;
+        if (titleKey) next.byTitleKey[titleKey] = value;
+      } else {
+        delete next.byLabelId[label.labelId];
+        if (titleKey) delete next.byTitleKey[titleKey];
+      }
       return next;
     });
   };
@@ -2035,7 +2109,7 @@ function LabelPrintPanel({
                   id={`label-title-${label.key}`}
                   className="mt-1"
                   value={label.printTitle}
-                  onChange={(event) => updateLabelTitle(label.labelId, event.target.value)}
+                  onChange={(event) => updateLabelTitle(label, event.target.value)}
                 />
               </div>
             );
@@ -2068,40 +2142,44 @@ function LabelPrintStyles() {
           background: #fff !important;
         }
 
-        body * {
-          visibility: hidden !important;
+        body {
+          overflow: visible !important;
         }
 
-        .label-print-root,
-        .label-print-root * {
-          visibility: visible !important;
+        body > *:not(.label-print-root) {
+          display: none !important;
         }
 
         .label-print-root {
           display: block !important;
-          position: absolute;
-          left: 0;
-          top: 0;
+          position: static !important;
           box-sizing: border-box;
-          width: 210mm;
+          width: 210mm !important;
           min-height: 0;
-          padding: 0;
-          background: #fff;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          color: #0f172a !important;
         }
 
         .label-print-sheet {
           box-sizing: border-box;
-          display: grid;
+          display: grid !important;
           grid-template-columns: repeat(3, 66mm);
           grid-template-rows: repeat(8, 33.9mm);
           column-gap: 3mm;
           row-gap: 0;
-          width: 210mm;
-          height: 297mm;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          margin: 0 !important;
           padding: 12.9mm 3mm;
           align-content: start;
           justify-content: start;
           overflow: hidden;
+        }
+
+        .label-print-sheet:not(:last-child) {
           break-after: page;
           page-break-after: always;
         }
@@ -2113,7 +2191,7 @@ function LabelPrintStyles() {
 
         .label-print-item {
           box-sizing: border-box;
-          display: grid;
+          display: grid !important;
           grid-template-columns: minmax(0, 1fr) 20mm;
           column-gap: 2mm;
           align-items: center;
@@ -2161,9 +2239,9 @@ function LabelPrintStyles() {
         }
 
         .label-print-qr svg {
-          display: block;
-          width: 100%;
-          height: 100%;
+          display: block !important;
+          width: 100% !important;
+          height: 100% !important;
         }
       }
     `}</style>
@@ -2171,9 +2249,11 @@ function LabelPrintStyles() {
 }
 
 function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
-  const labelPages = chunkArray(labels, 24);
+  const printableLabels = labels.filter((label) => label.labelId.trim());
+  if (printableLabels.length === 0) return null;
 
-  return (
+  const labelPages = chunkArray(printableLabels, 24);
+  const sheet = (
     <div className="label-print-root" aria-hidden="true">
       {labelPages.map((pageLabels, pageIndex) => (
         <div key={`label-page-${pageIndex}`} className="label-print-sheet">
@@ -2193,6 +2273,8 @@ function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
       ))}
     </div>
   );
+
+  return typeof document === "undefined" ? sheet : createPortal(sheet, document.body);
 }
 
 type BarcodeDetectorResult = { rawValue?: string };
@@ -2658,9 +2740,10 @@ export default function PurchaseRegistration() {
   );
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
-    if (targetLabels.length === 0) return;
+    const printableLabels = targetLabels.filter((label) => label.labelId.trim());
+    if (printableLabels.length === 0) return;
     setLabelsToPrint(
-      targetLabels.map((label) => ({
+      printableLabels.map((label) => ({
         ...label,
         printTitle: formatLabelPrintTitle(label.printTitle || label.title),
       })),

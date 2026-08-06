@@ -212,6 +212,7 @@ function ItemLabelsBlock({ item }: { item: PurchaseItem }) {
   const { managementNo } = parseEtc(item.etc);
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-muted-foreground">商品ID:</span>
       {labelIds.map((labelId) => (
         <span
           key={labelId}

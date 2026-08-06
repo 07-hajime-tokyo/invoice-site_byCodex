@@ -180,6 +180,7 @@ function InventoryLabelIds({ inv, managementNo }: { inv: InventoryItem; manageme
   if (labelIds.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">商品ID:</span>
       {labelIds.map((labelId) => (
         <span
           key={labelId}
