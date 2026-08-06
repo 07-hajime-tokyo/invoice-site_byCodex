@@ -1558,9 +1558,9 @@ function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; on
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-md border bg-background p-4">
+    <div className="min-w-0 rounded-md border bg-background p-3 md:p-4">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 text-xl font-semibold tracking-tight">{value}</div>
+      <div className="mt-2 break-words text-lg font-semibold tracking-tight md:text-xl">{value}</div>
       {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
     </div>
   );
@@ -2328,17 +2328,23 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-md border bg-background p-4">
+    <div className="space-y-3 md:space-y-4">
+      <section className="rounded-md border bg-background p-3 md:p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h2 className="text-lg font-semibold">入庫スキャン</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="gap-2" onClick={startCamera} disabled={cameraActive}>
+          <div className={cn("grid gap-2 md:flex md:flex-wrap", cameraActive ? "grid-cols-2" : "grid-cols-1")}>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 gap-2 md:h-9"
+              onClick={startCamera}
+              disabled={cameraActive}
+            >
               <ScanLine className="h-4 w-4" />
               カメラ読取
             </Button>
             {cameraActive ? (
-              <Button type="button" variant="outline" onClick={stopCamera}>
+              <Button type="button" variant="outline" className="h-11 md:h-9" onClick={stopCamera}>
                 停止
               </Button>
             ) : null}
@@ -2346,19 +2352,29 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
         </div>
 
         <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", cameraActive ? "block" : "hidden")}>
-          <video ref={videoRef} className="h-64 w-full object-cover" muted playsInline />
+          <video
+            ref={videoRef}
+            className="h-[58vh] min-h-[260px] max-h-[520px] w-full object-cover md:h-80 md:min-h-0"
+            muted
+            playsInline
+          />
         </div>
         {cameraError ? <p className="mt-2 text-sm text-destructive">{cameraError}</p> : null}
 
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+        <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
           <Input
             value={scanValue}
             onChange={(event) => setScanValue(event.target.value)}
             placeholder="商品ID または旧管理番号をスキャン/入力"
             autoComplete="off"
-            className="font-mono"
+            className="h-12 font-mono text-base sm:h-9 sm:text-sm"
           />
-          <Button type="button" className="gap-2" disabled={!receiveLabelId || receiveMutation.isPending} onClick={receiveMatchedLabel}>
+          <Button
+            type="button"
+            className="h-12 gap-2 sm:h-9"
+            disabled={!receiveLabelId || receiveMutation.isPending}
+            onClick={receiveMatchedLabel}
+          >
             {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             入庫確定
           </Button>
@@ -2366,7 +2382,7 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
       </section>
 
       {matched ? (
-        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-3 md:p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
             <CheckCircle2 className="h-4 w-4" />
             対象IDを確認しました
@@ -2543,7 +2559,10 @@ function EmptyState({
 export default function PurchaseRegistration() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [workflowTab, setWorkflowTab] = useState<WorkflowTab>("order");
+  const [workflowTab, setWorkflowTab] = useState<WorkflowTab>(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return "scan";
+    return "order";
+  });
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
@@ -2655,6 +2674,7 @@ export default function PurchaseRegistration() {
     return () => window.clearTimeout(timer);
   }, [labelsToPrint, printJobId]);
 
+  const isScanWorkflow = workflowTab === "scan";
   const isStockWorkflow = workflowTab === "stock";
 
   return (
@@ -2662,11 +2682,11 @@ export default function PurchaseRegistration() {
       <LabelPrintStyles />
       <PrintableLabelSheet labels={labelsToPrint} />
       <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_188px]">
-        <main className="space-y-5 p-4 md:p-6">
+        <main className="space-y-4 p-3 pb-24 md:space-y-5 md:p-6 lg:pb-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">発注登録</h1>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <h1 className="text-xl font-semibold tracking-tight md:text-2xl">発注登録</h1>
+              <div className="mt-2 flex flex-wrap gap-2 md:mt-3">
                 <Badge variant="outline" className="gap-1">
                   <PackagePlus className="h-3 w-3" />
                   仕入れ {counts.all.toLocaleString()}件
@@ -2681,14 +2701,14 @@ export default function PurchaseRegistration() {
                 </Badge>
               </div>
             </div>
-            <Button type="button" variant="outline" onClick={() => refetch()} disabled={isFetching} className="w-fit gap-2">
+            <Button type="button" variant="outline" onClick={() => refetch()} disabled={isFetching} className="h-10 w-full gap-2 md:w-fit">
               {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               更新
             </Button>
           </div>
 
-          <section className="rounded-md border bg-background">
-            <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
+          <section className={cn("rounded-md border bg-background", isScanWorkflow && "hidden md:block")}>
+            <div className="grid gap-4 p-3 md:p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
               {isStockWorkflow ? (
                 <div className="rounded-md border bg-slate-50 px-4 py-3">
                   <div className="flex items-center gap-2 text-sm font-semibold">
@@ -2766,7 +2786,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : !isStockWorkflow && groups.length === 0 ? (
+          ) : !isStockWorkflow && !isScanWorkflow && groups.length === 0 ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
@@ -2802,8 +2822,8 @@ export default function PurchaseRegistration() {
 
         </main>
 
-        <aside className="border-t bg-background p-2 lg:min-h-[calc(100vh-4rem)] lg:border-l lg:border-t-0">
-          <nav className="grid gap-1">
+        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:static lg:min-h-[calc(100vh-4rem)] lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
+          <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
             {workflowTabs.map((tab) => {
               const Icon = tab.icon;
               const active = workflowTab === tab.value;
@@ -2813,17 +2833,17 @@ export default function PurchaseRegistration() {
                   type="button"
                   onClick={() => setWorkflowTab(tab.value)}
                   className={cn(
-                    "flex h-11 items-center justify-between rounded-md px-3 text-left text-sm transition-colors",
+                    "flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 text-center text-[11px] leading-tight transition-colors lg:h-11 lg:flex-row lg:justify-between lg:px-3 lg:text-left lg:text-sm",
                     active
                       ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
                       : "text-slate-700 hover:bg-slate-100",
                   )}
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
+                  <span className="inline-flex min-w-0 flex-col items-center gap-0.5 lg:flex-row lg:gap-2">
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="max-w-full truncate">{tab.label}</span>
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="hidden text-xs text-muted-foreground lg:inline">
                     {workflowCounts[tab.value as keyof typeof workflowCounts]}
                   </span>
                 </button>
