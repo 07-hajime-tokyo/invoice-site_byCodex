@@ -653,13 +653,13 @@ function formatLabelOrderTitle(value: string): string {
     .trim();
 }
 
-function formatLabelPrintTitle(value: string): string {
+function formatLabelPrintTitleLegacy(value: string): string {
   const replacements: Array<[RegExp, string]> = [
     [/ランダムカラー/g, "Random color"],
     [/ホワイトベース/g, "White base"],
     [/限定版/g, "Limited edition"],
-    [/ミント\s*[×xX]\s*ホワイト/g, "Mint x White"],
-    [/ホワイト\s*[×xX]\s*ミント/g, "White x Mint"],
+    [/ミント\s*[×xXＸｘ]\s*ホワイト/g, "Mint x White"],
+    [/ホワイト\s*[×xXＸｘ]\s*ミント/g, "White x Mint"],
     [/パール\s*ホワイト/g, "Pearl White"],
     [/クリア\s*ブラック/g, "Clear Black"],
     [/クリア\s*ブルー/g, "Clear Blue"],
@@ -697,6 +697,108 @@ function formatLabelPrintTitle(value: string): string {
     .replace(/[＿_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const LABEL_TITLE_OVERRIDE_STORAGE_KEY = "purchase-registration-label-title-overrides";
+
+function replaceAllText(value: string, search: string, replacement: string): string {
+  return value.split(search).join(replacement);
+}
+
+function formatLabelPrintTitle(value: string): string {
+  const legacyFormatted = formatLabelPrintTitleLegacy(value);
+  const replacements: Array<[RegExp, string]> = [
+    [/\u30e9\u30f3\u30c0\u30e0\u30ab\u30e9\u30fc/g, "Random color"],
+    [/\u30db\u30ef\u30a4\u30c8\u30d9\u30fc\u30b9/g, "White base"],
+    [/\u9650\u5b9a\u7248/g, "Limited edition"],
+    [/\u3069\u3046\u3076\u3064\u306e\u68ee/g, "Animal Crossing"],
+    [/\u30df\u30f3\u30c8\s*[\u00d7xX\uFF38\uFF58]\s*\u30db\u30ef\u30a4\u30c8/g, "Mint x White"],
+    [/\u30db\u30ef\u30a4\u30c8\s*[\u00d7xX\uFF38\uFF58]\s*\u30df\u30f3\u30c8/g, "White x Mint"],
+    [/\u30df\u30f3\u30c8\s*\u30db\u30ef\u30a4\u30c8/g, "Mint x White"],
+    [/\u30db\u30ef\u30a4\u30c8\s*\u30df\u30f3\u30c8/g, "White x Mint"],
+    [/\u30d1\u30fc\u30eb\s*\u30db\u30ef\u30a4\u30c8/g, "Pearl White"],
+    [/\u30af\u30ea\u30a2\s*\u30d6\u30e9\u30c3\u30af/g, "Clear Black"],
+    [/\u30af\u30ea\u30a2\s*\u30d6\u30eb\u30fc/g, "Clear Blue"],
+    [/\u30af\u30ea\u30a2\s*\u30ec\u30c3\u30c9/g, "Clear Red"],
+    [/\u30b3\u30b9\u30e2\s*\u30d6\u30e9\u30c3\u30af/g, "Cosmo Black"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30d6\u30e9\u30c3\u30af/g, "Metallic Black"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30d6\u30eb\u30fc/g, "Metallic Blue"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30ec\u30c3\u30c9/g, "Metallic Red"],
+    [/\u30a2\u30af\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Aqua Blue"],
+    [/\u30b5\u30d5\u30a1\u30a4\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Sapphire Blue"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Crystal Black"],
+    [/\u30d4\u30a2\u30ce\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Piano Black"],
+    [/\u30bb\u30e9\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Ceramic White"],
+    [/\u30df\u30b9\u30c6\u30a3\s*\u30d4\u30f3\u30af/g, "Misty Pink"],
+    [/\u30e9\u30c7\u30a3\u30a2\u30f3\u30c8\s*\u30ec\u30c3\u30c9/g, "Radiant Red"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, Blue, White"],
+    [/\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Blue, White"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, White"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc/g, "Red, Blue"],
+    [/\u30d6\u30e9\u30c3\u30af/g, "Black"],
+    [/\u30db\u30ef\u30a4\u30c8/g, "White"],
+    [/\u30d6\u30eb\u30fc/g, "Blue"],
+    [/\u30ec\u30c3\u30c9/g, "Red"],
+    [/\u30b0\u30ea\u30fc\u30f3/g, "Green"],
+    [/\u30a4\u30a8\u30ed\u30fc/g, "Yellow"],
+    [/\u30aa\u30ec\u30f3\u30b8/g, "Orange"],
+    [/\u30b7\u30eb\u30d0\u30fc/g, "Silver"],
+    [/\u30b4\u30fc\u30eb\u30c9/g, "Gold"],
+    [/\u30e9\u30d9\u30f3\u30c0\u30fc/g, "Lavender"],
+    [/\u30df\u30f3\u30c8/g, "Mint"],
+  ];
+
+  let formatted = replacements.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    legacyFormatted || value.trim(),
+  );
+  formatted = replaceAllText(formatted, "\u00d7", " x ");
+  formatted = replaceAllText(formatted, "\uFF38", " x ");
+  formatted = replaceAllText(formatted, "\uFF58", " x ");
+  formatted = formatted
+    .replace(/[・･_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return formatted || legacyFormatted;
+}
+
+function loadLabelTitleOverrides(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(LABEL_TITLE_OVERRIDE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLabelTitleOverrides(overrides: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LABEL_TITLE_OVERRIDE_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Local storage can be unavailable in private modes; printing still works with generated titles.
+  }
+}
+
+function applyLabelTitleOverride(label: LabelView, overrides: Record<string, string>): LabelView {
+  const override = overrides[label.labelId]?.trim();
+  const autoTitle = formatLabelPrintTitle(label.title || label.printTitle);
+  return {
+    ...label,
+    printTitle: override ? formatLabelPrintTitle(override) : autoTitle,
+  };
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
@@ -1796,12 +1898,23 @@ function LabelPrintPanel({
   onPrintLabels: LabelPrintRequest;
 }) {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
-  const selectedLabels = useMemo(
-    () => labels.filter((label) => selectedKeySet.has(label.key)),
-    [labels, selectedKeySet],
+  const [labelTitleOverrides, setLabelTitleOverrides] = useState<Record<string, string>>(() =>
+    loadLabelTitleOverrides(),
   );
-  const currentPrintLabels = selectedLabels.length > 0 ? selectedLabels : labels;
+  const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
+  const editableLabels = useMemo(
+    () => labels.map((label) => applyLabelTitleOverride(label, labelTitleOverrides)),
+    [labelTitleOverrides, labels],
+  );
+  const editableAllLabels = useMemo(
+    () => allLabels.map((label) => applyLabelTitleOverride(label, labelTitleOverrides)),
+    [allLabels, labelTitleOverrides],
+  );
+  const selectedLabels = useMemo(
+    () => editableLabels.filter((label) => selectedKeySet.has(label.key)),
+    [editableLabels, selectedKeySet],
+  );
+  const currentPrintLabels = selectedLabels.length > 0 ? selectedLabels : editableLabels;
   const selectedCount = selectedLabels.length;
 
   useEffect(() => {
@@ -1809,10 +1922,23 @@ function LabelPrintPanel({
     setSelectedKeys((current) => current.filter((key) => visibleKeys.has(key)));
   }, [labels]);
 
+  useEffect(() => {
+    saveLabelTitleOverrides(labelTitleOverrides);
+  }, [labelTitleOverrides]);
+
   const toggleLabel = (key: string, checked: boolean) => {
     setSelectedKeys((current) => {
       if (checked) return current.includes(key) ? current : [...current, key];
       return current.filter((item) => item !== key);
+    });
+  };
+
+  const updateLabelTitle = (labelId: string, value: string) => {
+    setLabelTitleOverrides((current) => {
+      const next = { ...current };
+      if (value.trim()) next[labelId] = value;
+      else delete next[labelId];
+      return next;
     });
   };
 
@@ -1831,8 +1957,8 @@ function LabelPrintPanel({
               type="button"
               variant="outline"
               className="w-fit"
-              disabled={labels.length === 0}
-              onClick={() => setSelectedKeys(labels.map((label) => label.key))}
+              disabled={editableLabels.length === 0}
+              onClick={() => setSelectedKeys(editableLabels.map((label) => label.key))}
             >
               全選択
             </Button>
@@ -1859,8 +1985,8 @@ function LabelPrintPanel({
               type="button"
               variant="outline"
               className="w-fit gap-2"
-              disabled={allLabels.length === 0}
-              onClick={() => onPrintLabels(allLabels)}
+              disabled={editableAllLabels.length === 0}
+              onClick={() => onPrintLabels(editableAllLabels)}
             >
               <Printer className="h-4 w-4" />
               全インボイスを印刷
@@ -1869,11 +1995,11 @@ function LabelPrintPanel({
         </div>
       </section>
 
-      {labels.length === 0 ? (
+      {editableLabels.length === 0 ? (
         <EmptyState icon={Tag} title="印刷できる商品IDがありません" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {labels.map((label) => {
+          {editableLabels.map((label) => {
             const checked = selectedKeySet.has(label.key);
             return (
               <div
@@ -1901,7 +2027,15 @@ function LabelPrintPanel({
                     <ProductQrCode value={label.labelId} />
                   </div>
                 </div>
-                <div className="mt-3 line-clamp-2 text-sm font-medium">{label.printTitle}</div>
+                <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor={`label-title-${label.key}`}>
+                  ラベル商品名
+                </label>
+                <Input
+                  id={`label-title-${label.key}`}
+                  className="mt-1"
+                  value={label.printTitle}
+                  onChange={(event) => updateLabelTitle(label.labelId, event.target.value)}
+                />
               </div>
             );
           })}
@@ -1921,7 +2055,7 @@ function LabelPrintStyles() {
       @media print {
         @page {
           size: A4 portrait;
-          margin: 0;
+          margin: 12.9mm 3mm;
         }
 
         html,
@@ -1945,31 +2079,40 @@ function LabelPrintStyles() {
           position: absolute;
           left: 0;
           top: 0;
-          width: 210mm;
-          min-height: 297mm;
+          width: 204mm;
+          min-height: 271.2mm;
           background: #fff;
         }
 
         .label-print-sheet {
           display: grid;
-          grid-template-columns: repeat(4, 52.5mm);
-          grid-auto-rows: 29.7mm;
-          width: 210mm;
-          min-height: 297mm;
+          grid-template-columns: repeat(3, 66mm);
+          grid-auto-rows: 33.9mm;
+          column-gap: 3mm;
+          row-gap: 0;
+          width: 204mm;
+          height: 271.2mm;
           align-content: start;
           justify-content: start;
+          break-after: page;
+          page-break-after: always;
+        }
+
+        .label-print-sheet:last-child {
+          break-after: auto;
+          page-break-after: auto;
         }
 
         .label-print-item {
           box-sizing: border-box;
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 15mm;
-          column-gap: 1.5mm;
-          align-items: center;
-          width: 52.5mm;
-          height: 29.7mm;
+          grid-template-columns: minmax(0, 1fr) 20mm;
+          column-gap: 2mm;
+          align-items: start;
+          width: 66mm;
+          height: 33.9mm;
           overflow: hidden;
-          padding: 2mm 2.2mm;
+          padding: 2.4mm 2.8mm;
           break-inside: avoid;
           page-break-inside: avoid;
           color: #0f172a;
@@ -1980,35 +2123,37 @@ function LabelPrintStyles() {
         .label-print-id {
           margin-bottom: 1.2mm;
           font-family: Consolas, "Courier New", monospace;
-          font-size: 12pt;
+          font-size: 13pt;
           font-weight: 700;
-          line-height: 1.1;
-          letter-spacing: 0;
+          line-height: 1.05;
+          letter-spacing: 0.08em;
         }
 
         .label-print-ref {
           margin-bottom: 1mm;
           overflow: hidden;
-          font-size: 6.8pt;
-          line-height: 1.2;
+          font-size: 6.6pt;
+          line-height: 1.15;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
         .label-print-title {
-          max-height: 8.6mm;
+          max-height: 11mm;
           overflow: hidden;
-          font-size: 7.2pt;
+          font-size: 7.3pt;
           font-weight: 700;
-          line-height: 1.2;
+          line-height: 1.18;
         }
 
         .label-print-qr {
-          width: 15mm;
-          height: 15mm;
+          width: 20mm;
+          height: 20mm;
+          justify-self: end;
         }
 
         .label-print-qr svg {
+          display: block;
           width: 100%;
           height: 100%;
         }
@@ -2018,22 +2163,26 @@ function LabelPrintStyles() {
 }
 
 function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
+  const labelPages = chunkArray(labels, 24);
+
   return (
     <div className="label-print-root" aria-hidden="true">
-      <div className="label-print-sheet">
-        {labels.map((label) => (
-          <div key={label.key} className="label-print-item">
-            <div>
-              <div className="label-print-id">{label.labelId}</div>
-              <div className="label-print-ref">{label.allocationLabel}</div>
-              <div className="label-print-title">{label.printTitle}</div>
+      {labelPages.map((pageLabels, pageIndex) => (
+        <div key={`label-page-${pageIndex}`} className="label-print-sheet">
+          {pageLabels.map((label) => (
+            <div key={label.key} className="label-print-item">
+              <div>
+                <div className="label-print-id">{label.labelId}</div>
+                <div className="label-print-ref">{label.allocationLabel}</div>
+                <div className="label-print-title">{label.printTitle}</div>
+              </div>
+              <div className="label-print-qr">
+                <ProductQrCode value={label.labelId} />
+              </div>
             </div>
-            <div className="label-print-qr">
-              <ProductQrCode value={label.labelId} />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -2336,7 +2485,12 @@ export default function PurchaseRegistration() {
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
     if (targetLabels.length === 0) return;
-    setLabelsToPrint(targetLabels);
+    setLabelsToPrint(
+      targetLabels.map((label) => ({
+        ...label,
+        printTitle: formatLabelPrintTitle(label.printTitle || label.title),
+      })),
+    );
     setPrintJobId((current) => current + 1);
   };
 
