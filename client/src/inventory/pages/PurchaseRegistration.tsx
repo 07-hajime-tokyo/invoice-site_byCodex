@@ -2055,7 +2055,7 @@ function LabelPrintStyles() {
       @media print {
         @page {
           size: A4 portrait;
-          margin: 12.9mm 3mm;
+          margin: 0;
         }
 
         html,
@@ -2079,15 +2079,17 @@ function LabelPrintStyles() {
           position: absolute;
           left: 0;
           top: 0;
-          width: 204mm;
-          min-height: 271.2mm;
+          box-sizing: border-box;
+          width: 210mm;
+          min-height: 297mm;
+          padding: 12.9mm 3mm;
           background: #fff;
         }
 
         .label-print-sheet {
           display: grid;
           grid-template-columns: repeat(3, 66mm);
-          grid-auto-rows: 33.9mm;
+          grid-template-rows: repeat(8, 33.9mm);
           column-gap: 3mm;
           row-gap: 0;
           width: 204mm;
@@ -2108,7 +2110,7 @@ function LabelPrintStyles() {
           display: grid;
           grid-template-columns: minmax(0, 1fr) 20mm;
           column-gap: 2mm;
-          align-items: start;
+          align-items: center;
           width: 66mm;
           height: 33.9mm;
           overflow: hidden;
