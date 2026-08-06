@@ -73,6 +73,7 @@ interface LabelView {
   rawStatus: string;
   status: string;
   title: string;
+  printTitle: string;
   legacyManagementNo: string;
   allocationLabel: string;
   unitPrice: number;
@@ -650,11 +651,58 @@ function formatLabelOrderTitle(value: string): string {
     .trim();
 }
 
+function formatLabelPrintTitle(value: string): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/ランダムカラー/g, "Random color"],
+    [/ホワイトベース/g, "White base"],
+    [/限定版/g, "Limited edition"],
+    [/ミント\s*[×xX]\s*ホワイト/g, "Mint x White"],
+    [/ホワイト\s*[×xX]\s*ミント/g, "White x Mint"],
+    [/パール\s*ホワイト/g, "Pearl White"],
+    [/クリア\s*ブラック/g, "Clear Black"],
+    [/クリア\s*ブルー/g, "Clear Blue"],
+    [/クリア\s*レッド/g, "Clear Red"],
+    [/コスモ\s*ブラック/g, "Cosmo Black"],
+    [/メタリック\s*ブラック/g, "Metallic Black"],
+    [/メタリック\s*ブルー/g, "Metallic Blue"],
+    [/メタリック\s*レッド/g, "Metallic Red"],
+    [/アクア\s*[・･]?\s*ブルー/g, "Aqua Blue"],
+    [/サファイア\s*[・･]?\s*ブルー/g, "Sapphire Blue"],
+    [/クリスタル\s*[・･]?\s*ブラック/g, "Crystal Black"],
+    [/ピアノ\s*[・･]?\s*ブラック/g, "Piano Black"],
+    [/セラミック\s*[・･]?\s*ホワイト/g, "Ceramic White"],
+    [/ミスティ\s*ピンク/g, "Misty Pink"],
+    [/レッド\s*[・･]\s*ブルー\s*[・･]\s*ホワイト/g, "Red, Blue, White"],
+    [/ブルー\s*[・･]\s*ホワイト/g, "Blue, White"],
+    [/レッド\s*[・･]\s*ホワイト/g, "Red, White"],
+    [/レッド\s*[・･]\s*ブルー/g, "Red, Blue"],
+    [/ブラック/g, "Black"],
+    [/ホワイト/g, "White"],
+    [/ブルー/g, "Blue"],
+    [/レッド/g, "Red"],
+    [/グリーン/g, "Green"],
+    [/イエロー/g, "Yellow"],
+    [/オレンジ/g, "Orange"],
+    [/シルバー/g, "Silver"],
+    [/ゴールド/g, "Gold"],
+    [/ラベンダー/g, "Lavender"],
+    [/ミント/g, "Mint"],
+  ];
+
+  return replacements
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value.trim())
+    .replace(/\s*×\s*/g, " x ")
+    .replace(/[＿_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
   return rows.flatMap((row) => {
     const supplier = getSupplier(row);
     return row.purchase_items.flatMap((item) => {
       const managementNo = parseEtc(item.etc).managementNo;
+      const title = actualProductTitle(item);
       return (item.itemLabels ?? []).map((label) => {
         const legacyManagementNo = label.legacyManagementNo || managementNo || "-";
         return {
@@ -662,7 +710,8 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           labelId: label.labelId,
           rawStatus: label.status ?? "",
           status: labelStatusLabel(label.status),
-          title: actualProductTitle(item),
+          title,
+          printTitle: formatLabelPrintTitle(title),
           legacyManagementNo,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice: toNumber(item.unit_price),
@@ -913,7 +962,7 @@ function buildStockItemViews(rows: PurchaseRow[]): StockItemView[] {
   return rows.flatMap((row) => {
     const supplier = getSupplier(row);
     return row.purchase_items.flatMap((item) => {
-      const title = displayProductTitle(item);
+      const title = actualProductTitle(item);
       const managementNo = parseEtc(item.etc).managementNo;
       const purchaseDate = row.purchase_date ?? item.estimated_purchase_date ?? "";
       const labels = (item.itemLabels ?? [])
@@ -1618,7 +1667,7 @@ function ProductFulfillmentTableV2({
                     </td>
                     {!stockOnly ? (
                       <>
-                        <td className={cn("px-4 py-3 text-right font-medium", shortage < 0 ? "text-rose-600" : "text-foreground")}>
+                        <td className={cn("px-4 py-3 text-right font-medium", shortage > 0 ? "text-rose-600" : "text-foreground")}>
                           {shortage.toLocaleString()}
                         </td>
                         <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
@@ -1755,7 +1804,7 @@ function LabelPrintPanel({ labels }: { labels: LabelView[] }) {
                   <ProductQrCode value={label.labelId} />
                 </div>
               </div>
-              <div className="mt-3 line-clamp-2 text-sm font-medium">{label.title}</div>
+              <div className="mt-3 line-clamp-2 text-sm font-medium">{label.printTitle}</div>
             </div>
           ))}
         </div>
