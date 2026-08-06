@@ -4374,6 +4374,104 @@ export const inventoryRouter = router({
         };
       }),
 
+    receivePurchaseLabel: publicProcedure
+      .input(
+        z.object({
+          labelId: z.string().min(1).max(80),
+          operatorName: z.string().max(200).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const labelId = input.labelId.trim().toUpperCase();
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+        const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+        const [label] = await db.select().from(labelTbl).where(eq(labelTbl.labelId, labelId)).limit(1);
+        if (!label) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `商品ID ${labelId} が見つかりません` });
+        }
+
+        const currentStatus = String(label.status ?? "").trim().toLowerCase();
+        const alreadyReceived = ["received", "stocked", "shipped"].includes(currentStatus);
+        const localInventoryId = label.localInventoryId ?? null;
+        const purchase = label.purchaseId ? await getLocalPurchaseById(label.purchaseId) : null;
+        const inventory = localInventoryId ? await getLocalInventoryByZaicoIdOrId(localInventoryId) : null;
+        const today = new Date().toISOString().slice(0, 10);
+        const operatorName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
+
+        if (!alreadyReceived) {
+          const now = new Date();
+          await db
+            .update(labelTbl)
+            .set({ status: "received", receivedAt: label.receivedAt ?? now })
+            .where(eq(labelTbl.id, label.id));
+
+          if (inventory) {
+            await updateLocalInventory(inventory.id, { quantity: Number(inventory.quantity ?? 0) + 1 });
+          }
+
+          if (purchase) {
+            const labelsForPurchase = await db
+              .select()
+              .from(labelTbl)
+              .where(eq(labelTbl.purchaseId, purchase.id));
+            const allReceived = labelsForPurchase.every((row) => {
+              if (row.id === label.id) return true;
+              return ["received", "stocked", "shipped"].includes(String(row.status ?? "").trim().toLowerCase());
+            });
+            if (allReceived) {
+              await updateLocalPurchaseStatus(purchase.id, "purchased", today);
+            }
+
+            await createPurchaseHistory({
+              zaicoId: purchase.zaicoId ?? purchase.id,
+              kanriNo: label.legacyManagementNo ?? purchase.managementNo ?? null,
+              title: label.title || purchase.title || "",
+              category: purchase.category ?? null,
+              supplier: purchase.supplierName ?? null,
+              quantity: "1",
+              unitPrice: purchase.unitPrice == null ? null : String(purchase.unitPrice),
+              purchaseDate: today,
+              inventoryId: inventory?.id ?? localInventoryId,
+              cancelled: 0,
+              operatorName,
+            });
+
+            await recordWorkLog({
+              workerName: operatorName,
+              category: "入庫登録",
+              status: "done",
+              startedAt: now,
+              endedAt: now,
+              quantity: 1,
+              memo: `商品ID: ${labelId}`,
+              createdBy: operatorName,
+              sourceType: "purchase-label",
+              sourceId: labelId,
+              detailsJson: JSON.stringify({
+                labelId,
+                purchaseId: purchase.id,
+                inventoryId: inventory?.id ?? localInventoryId,
+                managementNo: label.legacyManagementNo ?? purchase.managementNo ?? null,
+              }),
+            });
+          }
+        }
+
+        const [updatedLabel] = await db.select().from(labelTbl).where(eq(labelTbl.id, label.id)).limit(1);
+        return {
+          labelId,
+          alreadyReceived,
+          status: updatedLabel?.status ?? (alreadyReceived ? label.status : "received"),
+          title: updatedLabel?.title ?? label.title,
+          legacyManagementNo: updatedLabel?.legacyManagementNo ?? label.legacyManagementNo,
+          purchaseId: updatedLabel?.purchaseId ?? label.purchaseId,
+          localInventoryId: updatedLabel?.localInventoryId ?? label.localInventoryId,
+          inventoryQuantity: inventory ? Number(inventory.quantity ?? 0) + (alreadyReceived ? 0 : 1) : null,
+        };
+      }),
+
     /**
      * 管理番号の先頭数字をキーに、発注済み数・出庫済み数・在庫数を集計する
      * 出庫 No の先頭数字（_ より前）と管理番号の先頭数字を照合

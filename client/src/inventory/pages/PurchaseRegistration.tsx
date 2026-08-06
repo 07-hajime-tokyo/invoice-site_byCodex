@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2189,28 +2190,171 @@ function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
   );
 }
 
+type BarcodeDetectorResult = { rawValue?: string };
+type BarcodeDetectorLike = { detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]> };
+type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
+
+function getBarcodeDetectorConstructor(): BarcodeDetectorConstructor | null {
+  if (typeof window === "undefined") return null;
+  return (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector ?? null;
+}
+
+function extractScannedLabelId(value: string): string {
+  const normalized = value.normalize("NFKC").toUpperCase();
+  const exact = normalized.trim().match(/^[A-Z]{7}$/)?.[0];
+  if (exact) return exact;
+  const tokens = normalized
+    .split(/[^A-Z]+/)
+    .flatMap((token) => token.match(/[A-Z]{7}/g) ?? []);
+  return tokens.at(-1) ?? "";
+}
+
 function ScanPanel({ labels }: { labels: LabelView[] }) {
+  const utils = trpc.useUtils();
   const [scanValue, setScanValue] = useState("");
-  const normalized = scanValue.trim().toLowerCase();
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanAnimationRef = useRef<number | null>(null);
+  const scannerRunningRef = useRef(false);
+  const normalized = scanValue.trim().normalize("NFKC").toLowerCase();
+  const scannedLabelId = extractScannedLabelId(scanValue);
   const matched = normalized
     ? labels.find(
         (label) =>
-          label.labelId.toLowerCase() === normalized || label.legacyManagementNo.toLowerCase().includes(normalized),
+          label.labelId.toLowerCase() === normalized ||
+          (scannedLabelId && label.labelId.toLowerCase() === scannedLabelId.toLowerCase()) ||
+          label.legacyManagementNo.toLowerCase().includes(normalized),
       )
     : null;
+  const receiveLabelId = matched?.labelId ?? scannedLabelId;
+  const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
+
+  function stopCamera() {
+    scannerRunningRef.current = false;
+    if (scanAnimationRef.current != null) {
+      window.cancelAnimationFrame(scanAnimationRef.current);
+      scanAnimationRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraActive(false);
+  }
+
+  async function startCamera() {
+    if (cameraActive) return;
+    setCameraError("");
+    const Detector = getBarcodeDetectorConstructor();
+    if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError("このブラウザではカメラQR読み取りが使えません。商品IDを入力してください。");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      const video = videoRef.current;
+      if (!video) throw new Error("Camera preview is not ready");
+
+      streamRef.current = stream;
+      video.srcObject = stream;
+      setCameraActive(true);
+      await video.play();
+
+      const detector = new Detector({ formats: ["qr_code"] });
+      scannerRunningRef.current = true;
+      const scanFrame = async () => {
+        if (!scannerRunningRef.current) return;
+        const currentVideo = videoRef.current;
+        if (currentVideo && currentVideo.readyState >= 2) {
+          try {
+            const codes = await detector.detect(currentVideo);
+            const rawValue = codes.find((code) => code.rawValue?.trim())?.rawValue?.trim();
+            if (rawValue) {
+              setScanValue(rawValue);
+              toast.success(`QRを読み取りました: ${rawValue}`);
+              stopCamera();
+              return;
+            }
+          } catch (error) {
+            setCameraError(error instanceof Error ? error.message : "QR読み取りに失敗しました");
+            stopCamera();
+            return;
+          }
+        }
+        scanAnimationRef.current = window.requestAnimationFrame(scanFrame);
+      };
+      scanAnimationRef.current = window.requestAnimationFrame(scanFrame);
+    } catch (error) {
+      setCameraError(error instanceof Error ? error.message : "カメラを起動できませんでした");
+      stopCamera();
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      scannerRunningRef.current = false;
+      if (scanAnimationRef.current != null) window.cancelAnimationFrame(scanAnimationRef.current);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  async function receiveMatchedLabel() {
+    if (!receiveLabelId || receiveMutation.isPending) return;
+    try {
+      const result = await receiveMutation.mutateAsync({ labelId: receiveLabelId });
+      if (result.alreadyReceived) {
+        toast.info(`${result.labelId} はすでに入庫済みです`);
+      } else {
+        toast.success(`${result.labelId} を入庫登録しました`);
+      }
+      setScanValue("");
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+      ]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "入庫登録に失敗しました");
+    }
+  }
 
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
-        <h2 className="text-lg font-semibold">入庫スキャン</h2>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <h2 className="text-lg font-semibold">入庫スキャン</h2>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="gap-2" onClick={startCamera} disabled={cameraActive}>
+              <ScanLine className="h-4 w-4" />
+              カメラ読取
+            </Button>
+            {cameraActive ? (
+              <Button type="button" variant="outline" onClick={stopCamera}>
+                停止
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", cameraActive ? "block" : "hidden")}>
+          <video ref={videoRef} className="h-64 w-full object-cover" muted playsInline />
+        </div>
+        {cameraError ? <p className="mt-2 text-sm text-destructive">{cameraError}</p> : null}
+
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
           <Input
             value={scanValue}
             onChange={(event) => setScanValue(event.target.value)}
-            placeholder="商品IDまたは旧管理番号をスキャン"
+            placeholder="商品ID または旧管理番号をスキャン/入力"
+            autoComplete="off"
+            className="font-mono"
           />
-          <Button type="button" className="gap-2" disabled={!matched}>
-            <CheckCircle2 className="h-4 w-4" />
+          <Button type="button" className="gap-2" disabled={!receiveLabelId || receiveMutation.isPending} onClick={receiveMatchedLabel}>
+            {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             入庫確定
           </Button>
         </div>
@@ -2227,6 +2371,10 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
             <StatCard label="商品" value={matched.title} />
             <StatCard label="状態" value={matched.status} sub={matched.supplier.name} />
           </div>
+        </section>
+      ) : scanValue.trim() ? (
+        <section className="rounded-md border bg-amber-50 p-4 text-sm text-amber-900">
+          画面上では一致候補が見つかっていません。7文字の商品IDとして読めている場合は、サーバー側で確認して入庫登録します。
         </section>
       ) : (
         <EmptyState icon={ScanLine} title="スキャン待ちです" />
@@ -2477,12 +2625,12 @@ export default function PurchaseRegistration() {
     () => ({
       order: filteredRows.length,
       labels: allLabels.length,
-      scan: selectedLabels.length,
+      scan: allLabels.length,
       stock: allStockItems.reduce((total, item) => total + item.quantity, 0),
       shipping: selectedOpenProducts.length,
       returns: 0,
     }),
-    [allLabels.length, allStockItems, filteredRows.length, selectedLabels.length, selectedOpenProducts.length],
+    [allLabels.length, allStockItems, filteredRows.length, selectedOpenProducts.length],
   );
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
@@ -2633,7 +2781,7 @@ export default function PurchaseRegistration() {
                 <LabelPrintPanel labels={selectedLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
-                <ScanPanel labels={selectedLabels} />
+                <ScanPanel labels={allLabels} />
               </TabsContent>
               <TabsContent value="stock">
                 <StockPanel rows={rows} />
