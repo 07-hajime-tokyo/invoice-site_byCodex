@@ -208,6 +208,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
   const [invoiceApplyPreview, setInvoiceApplyPreview] = useState<InvoiceApplyPreview | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>("");
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
@@ -226,6 +227,51 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     undefined,
     { enabled: confirmOpen }
   );
+
+  const { data: invoiceCandidates = [], isLoading: invoiceCandidatesLoading } = trpc.invoices.list.useQuery(
+    undefined,
+    { enabled: confirmOpen }
+  );
+
+  useEffect(() => {
+    if (!confirmOpen) {
+      setSelectedInvoiceId("");
+      return;
+    }
+
+    if (!selectedInvoiceId && latestInvoice?.id) {
+      setSelectedInvoiceId(String(latestInvoice.id));
+      return;
+    }
+
+    if (!selectedInvoiceId && !latestLoading && invoiceCandidates[0]?.id) {
+      setSelectedInvoiceId(String(invoiceCandidates[0].id));
+    }
+  }, [confirmOpen, invoiceCandidates, latestInvoice?.id, latestLoading, selectedInvoiceId]);
+
+  const selectedInvoiceNumericId = selectedInvoiceId ? Number(selectedInvoiceId) : null;
+  const isLatestInvoiceSelected = Boolean(
+    latestInvoice?.id &&
+    selectedInvoiceNumericId !== null &&
+    selectedInvoiceNumericId === latestInvoice.id
+  );
+  const shouldFetchSelectedInvoice = Boolean(
+    confirmOpen &&
+    selectedInvoiceNumericId !== null &&
+    Number.isFinite(selectedInvoiceNumericId) &&
+    !isLatestInvoiceSelected
+  );
+
+  const { data: selectedInvoice, isLoading: selectedInvoiceDetailLoading } = trpc.invoices.get.useQuery(
+    { id: selectedInvoiceNumericId ?? 0 },
+    { enabled: shouldFetchSelectedInvoice }
+  );
+
+  const invoiceForApply = shouldFetchSelectedInvoice ? selectedInvoice : latestInvoice;
+  const invoiceChoiceLoading =
+    latestLoading ||
+    invoiceCandidatesLoading ||
+    (shouldFetchSelectedInvoice && selectedInvoiceDetailLoading);
 
   // tRPC経由でEURレートを取得
   const { data: eurRateData, isLoading: eurLoading } = trpc.trade.getRateByDate.useQuery(
@@ -405,18 +451,19 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     });
   };
 
-  // 最新インボイスの全明細を確認画面へ渡す
+  // 選択されたインボイスの全明細を確認画面へ渡す
   const handleApplyInvoice = async () => {
-    if (!latestInvoice) return;
+    const targetInvoice = invoiceForApply;
+    if (!targetInvoice) return;
     setSubmitError(null);
 
-    const numMatch = latestInvoice.invoiceNumber.match(/(\d+)$/);
-    const invoiceNo = numMatch ? numMatch[1] : latestInvoice.invoiceNumber;
+    const numMatch = targetInvoice.invoiceNumber.match(/(\d+)$/);
+    const invoiceNo = numMatch ? numMatch[1] : targetInvoice.invoiceNumber;
 
-    const snapshot = latestInvoice.clientSnapshot as { name?: string } | null;
+    const snapshot = targetInvoice.clientSnapshot as { name?: string } | null;
     const partner = toJapanesePartner(snapshot?.name ?? "");
 
-    const currencyRaw = latestInvoice.currency ?? "EUR";
+    const currencyRaw = targetInvoice.currency ?? "EUR";
     const currency: "ユーロ" | "ドル" = partner ? getCurrencyForPartner(partner) : currencyRaw === "USD" ? "ドル" : "ユーロ";
     if (!partner) {
       setSubmitError("取引相手を判定できませんでした。手動入力で登録してください。");
@@ -424,7 +471,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     }
 
     const baseForm = createInitialForm();
-    const paymentDate = normalizeDate(String(latestInvoice.invoiceDate ?? "")) ?? baseForm.paymentDate;
+    const paymentDate = normalizeDate(String(targetInvoice.invoiceDate ?? "")) ?? baseForm.paymentDate;
     const month = Number(paymentDate.slice(5, 7));
     const rates = await fetchFrankfurterRate(paymentDate) ?? await fetchFrankfurterRate();
     if (!rates) {
@@ -432,7 +479,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       return;
     }
 
-    const rows = (latestInvoice.items ?? [])
+    const rows = (targetInvoice.items ?? [])
       .map((item) => {
         const rawProductName = [item.description, item.variant].filter(Boolean).join(" ");
         const productName = toJapaneseProductName(rawProductName).trim();
@@ -510,12 +557,13 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   };
 
   const invoiceSummary = (() => {
-    if (!latestInvoice) return null;
-    const numMatch = latestInvoice.invoiceNumber.match(/(\d+)$/);
-    const no = numMatch ? numMatch[1] : latestInvoice.invoiceNumber;
-    const snapshot = latestInvoice.clientSnapshot as { name?: string } | null;
+    const targetInvoice = invoiceForApply;
+    if (!targetInvoice) return null;
+    const numMatch = targetInvoice.invoiceNumber.match(/(\d+)$/);
+    const no = numMatch ? numMatch[1] : targetInvoice.invoiceNumber;
+    const snapshot = targetInvoice.clientSnapshot as { name?: string } | null;
     const partner = snapshot?.name ?? "（取引相手不明）";
-    const items = latestInvoice.items ?? [];
+    const items = targetInvoice.items ?? [];
     const itemSummary = items.length > 0
       ? items.map(it => {
           const name = [it.description, it.variant].filter(Boolean).join(" ");
@@ -533,13 +581,13 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
           <DialogHeader>
             <DialogTitle className="text-base flex items-center gap-2">
               <FileText size={16} className="text-primary" />
-              最新インボイスから登録しますか？
+              インボイスから登録しますか？
             </DialogTitle>
             <DialogDescription className="text-sm pt-1">
-              {latestLoading ? (
+              {invoiceChoiceLoading ? (
                 <span className="flex items-center gap-2 text-muted-foreground">
                   <RefreshCw size={12} className="animate-spin" />
-                  最新インボイスを取得中...
+                  インボイスを取得中...
                 </span>
               ) : invoiceSummary ? (
                 <span>
@@ -552,6 +600,31 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               )}
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">登録するインボイス</Label>
+            <Select
+              value={selectedInvoiceId}
+              onValueChange={setSelectedInvoiceId}
+              disabled={invoiceCandidatesLoading || invoiceAddMutation.isPending || invoiceCandidates.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="インボイスを選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {invoiceCandidates.map((invoice) => {
+                  const numMatch = invoice.invoiceNumber.match(/(\d+)$/);
+                  const no = numMatch ? numMatch[1] : invoice.invoiceNumber;
+                  const snapshot = invoice.clientSnapshot as { name?: string } | null;
+                  const partner = snapshot?.name ? `（${snapshot.name}）` : "";
+                  return (
+                    <SelectItem key={invoice.id} value={String(invoice.id)}>
+                      No.{no} {partner}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
           {submitError && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3">
               <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-destructive" />
@@ -570,7 +643,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
             <Button
               size="sm"
               onClick={handleApplyInvoice}
-              disabled={latestLoading || !latestInvoice || invoiceAddMutation.isPending}
+              disabled={invoiceChoiceLoading || !invoiceForApply || invoiceAddMutation.isPending}
               className="w-full sm:w-auto"
             >
               {invoiceAddMutation.isPending ? (
