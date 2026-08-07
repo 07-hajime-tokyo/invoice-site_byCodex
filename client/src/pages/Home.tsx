@@ -424,9 +424,9 @@ export default function Home() {
       {/* Sticky Header */}
       <header className="sticky top-0 z-30 bg-[#1a2332] border-b border-[#2d3f55] shadow-md">
         <div className="container">
-          <div className="flex items-center h-14 gap-3">
+          <div className="flex min-h-14 flex-wrap items-center gap-2 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:py-0">
             {/* Logo */}
-            <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="order-1 flex items-center gap-2.5 flex-shrink-0 sm:order-none">
               <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center shadow-sm">
                 <Package size={15} className="text-primary-foreground" />
               </div>
@@ -437,11 +437,11 @@ export default function Home() {
             </div>
 
             {/* Tab navigation */}
-            <nav className="flex items-center gap-1 flex-shrink-0">
+            <nav className="order-3 flex w-full items-center gap-1 overflow-x-auto sm:order-none sm:w-auto sm:flex-shrink-0">
               <div className="h-5 w-px bg-[#2d3f55] mx-1" />
               <button
                 onClick={() => setActiveTab("trade")}
-                className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold transition-all ${
+                className={`flex shrink-0 items-center gap-1.5 px-2 h-8 rounded-md text-[11px] font-semibold transition-all sm:px-3 sm:text-xs ${
                   activeTab === "trade"
                     ? "text-white bg-primary shadow-sm"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/10"
@@ -452,7 +452,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setActiveTab("inventory")}
-                className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold transition-all ${
+                className={`flex shrink-0 items-center gap-1.5 px-2 h-8 rounded-md text-[11px] font-semibold transition-all sm:px-3 sm:text-xs ${
                   activeTab === "inventory"
                     ? "text-white bg-emerald-600 shadow-sm"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/10"
@@ -463,7 +463,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setActiveTab("invoice")}
-                className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold transition-all ${
+                className={`flex shrink-0 items-center gap-1.5 px-2 h-8 rounded-md text-[11px] font-semibold transition-all sm:px-3 sm:text-xs ${
                   activeTab === "invoice"
                     ? "text-white bg-violet-600 shadow-sm"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/10"
@@ -476,7 +476,7 @@ export default function Home() {
 
             {/* Search bar — 取引データタブのみ表示 */}
             {activeTab === "trade" && (
-              <div className="flex-1 relative">
+              <div className="relative order-4 w-full sm:order-none sm:flex-1">
                 <Search
                   size={13}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
@@ -516,7 +516,7 @@ export default function Home() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="md:hidden h-9 px-3 relative flex-shrink-0"
+                    className="order-4 h-9 px-3 relative flex-shrink-0 md:hidden"
                   >
                     <SlidersHorizontal size={14} />
                     {activeFilterCount > 0 && (
@@ -562,7 +562,7 @@ export default function Home() {
 
             {/* 新規登録ボタン — 取引データタブのみ表示 */}
             {activeTab === "trade" && (
-              <div className="flex items-center gap-2">
+              <div className="order-5 flex w-full items-center gap-2 overflow-x-auto sm:order-none sm:w-auto">
                 {shouldLoadTradeActions ? (
                   <Suspense fallback={<div className="h-9 w-28" />}>
                     <ShipmentListDialog onUpdated={() => refetch()} />
@@ -576,7 +576,7 @@ export default function Home() {
             )}
 
             {/* ログアウトボタン — 常時表示 */}
-            <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <div className="order-2 ml-auto flex items-center gap-2 flex-shrink-0 sm:order-none">
               {user && (
                 <span className="hidden md:block text-xs text-slate-400 max-w-[120px] truncate">
                   {user.name}

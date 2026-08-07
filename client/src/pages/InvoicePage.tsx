@@ -2987,8 +2987,8 @@ function InvoiceList({  onNew,
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
           <Button size="sm" onClick={onNew} className="h-8 gap-1">
             <Plus size={13} /> 新規請求書
           </Button>
@@ -3013,7 +3013,7 @@ function InvoiceList({  onNew,
             ステータス自動検知
           </Button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
           <p className="text-xs text-muted-foreground">{invoiceList.length}件</p>
           <Button
             size="sm"
@@ -3053,10 +3053,10 @@ function InvoiceList({  onNew,
             return (
               <div
                 key={inv.id}
-                className="flex items-center justify-between p-4 bg-background border border-border rounded-lg hover:bg-muted/20 transition-colors"
+                className="flex flex-col gap-3 p-4 bg-background border border-border rounded-lg hover:bg-muted/20 transition-colors sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="text-sm font-semibold text-foreground truncate">{inv.invoiceNumber}</span>
                     <StatusBadge status={inv.status} />
                     {jpyAmount != null && (
@@ -3068,7 +3068,7 @@ function InvoiceList({  onNew,
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     {client && <span>{client.name}</span>}
                     {inv.invoiceDate && <span>{inv.invoiceDate}</span>}
                     <span>{itemCount}件の明細</span>
@@ -3078,12 +3078,12 @@ function InvoiceList({  onNew,
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+                <div className="flex w-full flex-wrap items-center gap-1 sm:ml-3 sm:w-auto sm:flex-shrink-0">
                   <Select
                     value={inv.status}
                     onValueChange={v => updateStatusMutation.mutate({ id: inv.id, status: v as "draft" | "sent" | "paid" })}
                   >
-                    <SelectTrigger className="h-7 text-xs w-24 border-border">
+                    <SelectTrigger className="h-8 w-full text-xs border-border sm:h-7 sm:w-24">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

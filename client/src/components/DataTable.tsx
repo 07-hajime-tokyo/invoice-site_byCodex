@@ -51,6 +51,16 @@ const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
 ];
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const MOBILE_META_COLUMNS: (keyof TradeRecord)[] = [
+  "quantity",
+  "unitPrice",
+  "currency",
+  "totalSales",
+  "procurementTotal",
+  "shippingCost",
+  "customsDuty",
+  "profitWithRefund",
+];
 
 export function DataTable({
   records,
@@ -232,8 +242,84 @@ export function DataTable({
         </div>
       </div>
 
+      {/* Mobile cards */}
+      <div className="divide-y divide-border md:hidden">
+        {pageRecords.length === 0 ? (
+          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+            データが見つかりませんでした
+          </div>
+        ) : (
+          pageRecords.map((row, i) => {
+            const rowKey = row.id ? `trade-${row.id}` : `${row.no}-${i}`;
+            const isExpanded = expandedShipment === rowKey;
+            return (
+              <div key={rowKey} className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {Number.isFinite(Number(row.no)) && onInvoiceNoClick ? (
+                        <button
+                          type="button"
+                          className="text-sm font-semibold text-primary hover:underline"
+                          onClick={() => onInvoiceNoClick(Number(row.no))}
+                        >
+                          No.{row.no}
+                        </button>
+                      ) : (
+                        <span className="text-sm font-semibold text-foreground">No.{row.no}</span>
+                      )}
+                      {formatCell("status", row.status)}
+                    </div>
+                    <div className="mt-1 break-words text-sm font-medium">{formatCell("productName", row.productName)}</div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>{formatCell("partner", row.partner)}</span>
+                      <span>{formatCell("paymentDate", row.paymentDate)}</span>
+                      <span>{formatCell("month", row.month)}</span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <EditTradeDialog record={row} onSuccess={onRecordUpdated} />
+                    <button
+                      onClick={() => setExpandedShipment(isExpanded ? null : rowKey)}
+                      title="発送履歴"
+                      className={`flex h-8 w-8 items-center justify-center rounded border transition-colors ${
+                        isExpanded
+                          ? "border-orange-200 bg-orange-50 text-orange-600"
+                          : "border-border text-muted-foreground hover:text-orange-600 hover:bg-orange-50"
+                      }`}
+                    >
+                      <Truck size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {MOBILE_META_COLUMNS.map((col) => (
+                    <div key={col} className="rounded-md bg-muted/40 px-2 py-1.5">
+                      <div className="text-[10px] font-medium text-muted-foreground">{COLUMN_LABELS[col]}</div>
+                      <div className="mt-0.5 text-sm font-semibold">{formatCell(col, row[col])}</div>
+                    </div>
+                  ))}
+                </div>
+                {isExpanded && (
+                  <div className="mt-3 rounded-md border bg-muted/20 p-3">
+                    <div className="mb-2 text-xs font-semibold text-muted-foreground">
+                      No.{row.no} 発送履歴
+                    </div>
+                    <ShipmentHistory
+                      invoiceNo={row.no}
+                      orderedQty={invoiceTotalQtyMap.get(row.no) ?? row.quantity}
+                      onDeleted={onRecordUpdated}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* Scrollable table */}
-      <div className="overflow-x-auto">
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
