@@ -3573,7 +3573,7 @@ export default function PurchaseRegistration() {
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
       <LabelPrintStyles />
       <PrintableLabelSheet labels={labelsToPrint} />
-      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_188px]">
+      <div className="grid gap-0 lg:block lg:pr-[204px]">
         <main className="space-y-4 p-3 pb-24 md:space-y-5 md:p-6 lg:pb-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
@@ -3719,7 +3719,7 @@ export default function PurchaseRegistration() {
 
         </main>
 
-        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:inset-auto lg:top-20 lg:h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
+        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-20 lg:z-30 lg:h-auto lg:w-[188px] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
             {workflowTabs.map((tab) => {
               const Icon = tab.icon;
