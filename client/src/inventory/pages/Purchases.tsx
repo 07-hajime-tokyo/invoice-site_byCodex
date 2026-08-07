@@ -224,15 +224,6 @@ function ItemLabelsBlock({ item }: { item: PurchaseItem }) {
       {managementNo && (
         <span className="text-xs text-muted-foreground">旧管理番号: {managementNo}</span>
       )}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs"
-        onClick={() => toast.success("ラベル印刷は次の段階で接続します")}
-      >
-        ラベル印刷
-      </Button>
     </div>
   );
 }

@@ -1088,11 +1088,6 @@ function ProductQrCode({ value }: { value: string }) {
   );
 }
 
-function isStockLabel(label: LabelView): boolean {
-  const status = label.rawStatus.trim().toLowerCase();
-  return status === "stocked" || status === "received";
-}
-
 function stockModelName(title: string): string {
   const compact = compactProductText(title);
   if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New 3DS LL";
@@ -2277,6 +2272,26 @@ function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
   return typeof document === "undefined" ? sheet : createPortal(sheet, document.body);
 }
 
+function ScannedLabelPreview({ label }: { label: LabelView }) {
+  return (
+    <div className="mt-3 flex flex-col gap-4 rounded-md border border-emerald-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0">
+        <div className="font-mono text-3xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
+        <div className="mt-2 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+        <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+        <div className="mt-3 text-base font-semibold text-slate-950">{label.title}</div>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{label.status}</Badge>
+          <Badge variant="outline">{label.supplier.name}</Badge>
+        </div>
+      </div>
+      <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
+        <ProductQrCode value={label.labelId} />
+      </div>
+    </div>
+  );
+}
+
 type BarcodeDetectorResult = { rawValue?: string };
 type BarcodeDetectorLike = { detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]> };
 type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
@@ -2469,11 +2484,7 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
             <CheckCircle2 className="h-4 w-4" />
             対象IDを確認しました
           </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <StatCard label="商品ID" value={matched.labelId} sub={`旧管理番号: ${matched.legacyManagementNo}`} />
-            <StatCard label="商品" value={matched.title} />
-            <StatCard label="状態" value={matched.status} sub={matched.supplier.name} />
-          </div>
+          <ScannedLabelPreview label={matched} />
         </section>
       ) : scanValue.trim() ? (
         <section className="rounded-md border bg-amber-50 p-4 text-sm text-amber-900">
@@ -2489,10 +2500,15 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
 function StockPanel({ rows }: { rows: PurchaseRow[] }) {
   const stockItems = buildStockItemViews(rows);
   const stockGroups = buildStockItemGroups(stockItems);
+  const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
-        <h2 className="text-lg font-semibold">在庫一覧</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">在庫一覧</h2>
+          <Badge variant="outline">{stockItems.length.toLocaleString()}件</Badge>
+          <Badge variant="secondary">{stockQuantityTotal.toLocaleString()}点</Badge>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           商品IDが未発行の在庫も含めて、機種ごとに表示します。
         </p>
@@ -2705,7 +2721,6 @@ export default function PurchaseRegistration() {
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
-  const stockLabels = useMemo(() => allLabels.filter(isStockLabel), [allLabels]);
   const allStockItems = useMemo(() => buildStockItemViews(rows), [rows]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
@@ -2732,7 +2747,7 @@ export default function PurchaseRegistration() {
       order: filteredRows.length,
       labels: allLabels.length,
       scan: allLabels.length,
-      stock: allStockItems.reduce((total, item) => total + item.quantity, 0),
+      stock: allStockItems.length,
       shipping: selectedOpenProducts.length,
       returns: 0,
     }),
@@ -2833,7 +2848,7 @@ export default function PurchaseRegistration() {
                 {isStockWorkflow ? (
                   <Badge variant="outline" className="w-fit gap-1 px-3 py-1.5">
                     <Boxes className="h-3.5 w-3.5" />
-                    現在庫 {workflowCounts.stock.toLocaleString()}点
+                    現在庫 {workflowCounts.stock.toLocaleString()}件
                   </Badge>
                 ) : (
                   <Tabs
