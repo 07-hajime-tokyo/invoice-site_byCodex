@@ -2425,8 +2425,13 @@ function OrderDashboard({
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
 }) {
+  const [showShippedRows, setShowShippedRows] = useState(false);
   const groupRows = getAllRowsFromGroup(group, rows);
   const displayRows = detailRows ?? groupRows;
+  const shippedRows = displayRows.filter((row) => purchaseRowStatusKind(row) === "shipped");
+  const visibleRows = showShippedRows
+    ? displayRows
+    : displayRows.filter((row) => purchaseRowStatusKind(row) !== "shipped");
   const products = productsOverride ?? group?.products ?? buildProductSummaries(groupRows);
   const required = products.reduce((total, item) => total + item.required, 0);
   const secured = products.reduce((total, item) => total + item.secured, 0);
@@ -2439,6 +2444,10 @@ function OrderDashboard({
       0,
     );
   const forecast = buildForecastSummary(products, purchaseTotal);
+
+  useEffect(() => {
+    setShowShippedRows(false);
+  }, [group?.key, productFilter?.productKey, productFilter?.productTitle, productFilter?.mode]);
 
   return (
     <div className="space-y-5">
@@ -2463,7 +2472,21 @@ function OrderDashboard({
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <PackagePlus className="h-4 w-4 text-emerald-700" />
           仕入れ登録
-          <Badge variant="outline">{displayRows.length}件</Badge>
+          <Badge variant="outline">{visibleRows.length}件</Badge>
+          {shippedRows.length > 0 ? (
+            <Button
+              type="button"
+              variant={showShippedRows ? "secondary" : "outline"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => setShowShippedRows((current) => !current)}
+            >
+              {showShippedRows ? "出庫済みを非表示" : "出庫済みを表示"}
+              <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+                {shippedRows.length}
+              </Badge>
+            </Button>
+          ) : null}
           {productFilter ? (
             <>
               <Badge variant="secondary">{productDetailFilterLabel(productFilter)}</Badge>
@@ -2474,14 +2497,18 @@ function OrderDashboard({
           ) : null}
         </div>
         <div className="space-y-3">
-          {displayRows.length === 0 ? (
+          {visibleRows.length === 0 ? (
             <EmptyState
               icon={PackageCheck}
               title="該当する仕入れ登録がありません"
-              description="充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。"
+              description={
+                shippedRows.length > 0 && !showShippedRows
+                  ? "出庫済みを表示すると確認できます。"
+                  : "充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。"
+              }
             />
           ) : (
-            displayRows.map((row) => (
+            visibleRows.map((row) => (
               <PurchaseRegistrationCard
                 key={row.id}
                 row={row}
@@ -3326,6 +3353,12 @@ function ShippingPanel({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
+  const [deleteHistoryConfirm, setDeleteHistoryConfirm] = useState<{
+    historyId: number;
+    deliveryNo: string;
+    inventoryIds: number[];
+    titles: string[];
+  } | null>(null);
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
   const [manualLabelValue, setManualLabelValue] = useState("");
   const [manualShippingLabels, setManualShippingLabels] = useState<LabelView[]>([]);
@@ -3393,6 +3426,26 @@ function ShippingPanel({
     },
     onError: (error) => {
       toast.error(`FedEx一括登録に失敗しました: ${error.message}`);
+    },
+  });
+  const deleteHistoryMutation = trpc.inventory.deliveryHistory.deleteGroup.useMutation({
+    onSuccess: (data) => {
+      void refetchHistories();
+      void refetchFedex();
+      void utils.inventory.deliveryHistory.list.invalidate();
+      void utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate();
+      void utils.inventory.zaico.getInventories.invalidate();
+      void utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate();
+      void utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate();
+      if (data.failCount > 0) {
+        toast.warning(`出庫履歴を削除しました（在庫削除: ${data.successCount}件成功, ${data.failCount}件失敗）`);
+      } else {
+        toast.success("出庫履歴とサイト内在庫を削除しました");
+      }
+      setDeleteHistoryConfirm(null);
+    },
+    onError: (error) => {
+      toast.error(`出庫履歴の削除に失敗しました: ${error.message}`);
     },
   });
 
@@ -3826,6 +3879,21 @@ function ShippingPanel({
                     <Send className="h-3.5 w-3.5" />
                     FedEx登録
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                    onClick={() => setDeleteHistoryConfirm({
+                      historyId: history.historyId,
+                      deliveryNo: history.deliveryNo,
+                      inventoryIds: Array.from(new Set(history.items.map((item) => item.inventoryId).filter((id) => Number.isFinite(id)))),
+                      titles: history.items.map((item) => item.title).filter(Boolean),
+                    })}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    削除
+                  </Button>
                 </div>
               );
               })}
@@ -3959,6 +4027,65 @@ function ShippingPanel({
             <Button type="button" className="gap-2 bg-orange-600 text-white hover:bg-orange-700" onClick={submitDelivery} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageMinus className="h-4 w-4" />}
               出庫する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteHistoryConfirm)}
+        onOpenChange={(open) => {
+          if (!open && !deleteHistoryMutation.isPending) setDeleteHistoryConfirm(null);
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              出庫履歴を削除
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <strong>{deleteHistoryConfirm?.deliveryNo}</strong> の出庫履歴とサイト内在庫の商品を削除します。この操作は元に戻せません。
+            </p>
+            {deleteHistoryConfirm?.titles.length ? (
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-3">
+                {deleteHistoryConfirm.titles.map((title, index) => (
+                  <p key={`${title}-${index}`} className="text-sm">{title}</p>
+                ))}
+              </div>
+            ) : null}
+            <p className="rounded bg-amber-50 p-2 text-xs text-amber-700">
+              ※ 出庫履歴のDBレコードとサイト内在庫が両方削除されます。
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteHistoryConfirm(null)}
+              disabled={deleteHistoryMutation.isPending}
+            >
+              キャンセル
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="gap-1.5"
+              disabled={deleteHistoryMutation.isPending || !deleteHistoryConfirm}
+              onClick={() => {
+                if (!deleteHistoryConfirm) return;
+                deleteHistoryMutation.mutate({
+                  historyId: deleteHistoryConfirm.historyId,
+                  inventoryIds: deleteHistoryConfirm.inventoryIds,
+                });
+              }}
+            >
+              {deleteHistoryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              削除する
             </Button>
           </DialogFooter>
         </DialogContent>
