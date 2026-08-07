@@ -1769,16 +1769,6 @@ function hasOpenInvoiceQuantity(product: ProductSummary): boolean {
   return Math.max(0, product.invoiceOrdered - (product.invoiceShipped ?? 0)) > 0;
 }
 
-function filterRowsByProducts(rows: PurchaseRow[], products: ProductSummary[]): PurchaseRow[] {
-  if (products.length === 0) return [];
-  return rows.flatMap((row) => {
-    const purchaseItems = row.purchase_items.filter((item) =>
-      products.some((product) => purchaseItemMatchesProduct(item, product.key, product.title)),
-    );
-    return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
-  });
-}
-
 function buildAllocationGroups(
   rows: PurchaseRow[],
   invoiceSummaries?: PurchaseRegistrationInvoice[],
@@ -4479,8 +4469,7 @@ export default function PurchaseRegistration() {
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
-  const selectedOpenRows = filterRowsByProducts(selectedRows, selectedOpenProducts);
-  const selectedDetailRows = filterRowsByProductDetail(selectedOpenRows, productDetailFilter);
+  const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
 
   const counts = useMemo(() => {
     return countableRows.reduce(
@@ -4753,7 +4742,7 @@ export default function PurchaseRegistration() {
                 <OrderDashboard
                   group={selectedGroup}
                   rows={filteredRows}
-                  products={selectedOpenProducts}
+                  products={selectedProducts}
                   detailRows={selectedDetailRows}
                   productFilter={productDetailFilter}
                   onProductFilter={setProductDetailFilter}
