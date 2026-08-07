@@ -1171,6 +1171,40 @@ function getRecoveredPurchaseOverrides(managementNo: string) {
   return {};
 }
 
+function hasRecoveredPurchaseOverrides(overrides: Record<string, unknown>): boolean {
+  return Object.keys(overrides).length > 0;
+}
+
+async function cleanupUnexpectedRepairedLocalPurchases(
+  localPurchaseRows: LocalPurchaseRow[],
+): Promise<LocalPurchaseRow[]> {
+  const unexpectedRows = localPurchaseRows.filter((purchase) => {
+    if (purchase.stageUpdatedBy !== "system-repair") return false;
+    const managementNo = String(purchase.managementNo ?? "").trim();
+    return !hasRecoveredPurchaseOverrides(getRecoveredPurchaseOverrides(managementNo));
+  });
+  if (unexpectedRows.length === 0) return localPurchaseRows;
+
+  const unexpectedIds = unexpectedRows.map((purchase) => purchase.id).filter((id) => Number.isFinite(id));
+  const unexpectedIdSet = new Set(unexpectedIds);
+  const db = await getDb();
+  if (db && unexpectedIds.length > 0) {
+    const { inventoryItemLabels: labelTbl, localPurchases: purchaseTbl } = await import("../../drizzle/schema");
+    const { inArray } = await import("drizzle-orm");
+    await db
+      .update(labelTbl)
+      .set({ purchaseId: null, status: "stocked" })
+      .where(and(inArray(labelTbl.purchaseId, unexpectedIds), eq(labelTbl.status, "ordered")));
+    await db
+      .update(labelTbl)
+      .set({ purchaseId: null })
+      .where(inArray(labelTbl.purchaseId, unexpectedIds));
+    await db.delete(purchaseTbl).where(inArray(purchaseTbl.id, unexpectedIds));
+  }
+
+  return localPurchaseRows.filter((purchase) => !unexpectedIdSet.has(purchase.id));
+}
+
 function localPurchaseStatusFromLabelStatus(status: unknown): string {
   const normalized = String(status ?? "").trim().toLowerCase();
   return ["received", "stocked", "shipped"].includes(normalized) ? "purchased" : "ordered";
@@ -1181,6 +1215,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
 ): Promise<LocalPurchaseRow[]> {
   const db = await getDb();
   if (!db) return localPurchaseRows;
+  localPurchaseRows = await cleanupUnexpectedRepairedLocalPurchases(localPurchaseRows);
 
   const existingIds = new Set(localPurchaseRows.map((purchase) => purchase.id));
   const existingManagementNos = new Set<string>();
@@ -1203,7 +1238,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     if (Number(inventory.isDeleted ?? 0) !== 0) continue;
     for (const label of inventory.itemLabels ?? []) {
       const labelPurchaseId = Number(label.purchaseId);
-      if (!Number.isFinite(labelPurchaseId) || existingIds.has(labelPurchaseId)) continue;
+      if (!Number.isFinite(labelPurchaseId) || labelPurchaseId <= 0 || existingIds.has(labelPurchaseId)) continue;
       const managementNo = String(label.legacyManagementNo ?? getInventoryManagementNo(inventory.etc)).trim();
       if (!managementNo || existingManagementNos.has(managementNo)) continue;
       const current = candidates.get(managementNo);
@@ -1221,6 +1256,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     const firstLabel = labels[0];
     if (!firstLabel) continue;
     const overrides = getRecoveredPurchaseOverrides(managementNo);
+    if (!hasRecoveredPurchaseOverrides(overrides)) continue;
     const quantity = Math.max(1, labels.length);
     const title = overrides.title ?? firstLabel.title ?? inventory.title;
     const category = overrides.category ?? inventory.category ?? null;
