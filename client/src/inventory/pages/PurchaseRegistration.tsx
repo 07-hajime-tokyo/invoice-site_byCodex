@@ -2153,7 +2153,7 @@ function LabelPrintPanel({
               onClick={() => onPrintLabels(editableAllLabels)}
             >
               <Printer className="h-4 w-4" />
-              全ラベルを印刷
+              全インボイスを印刷
             </Button>
           </div>
         </div>
@@ -3040,7 +3040,7 @@ export default function PurchaseRegistration() {
                 />
               </TabsContent>
               <TabsContent value="labels">
-                <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allPrintableLabels} onPrintLabels={handlePrintLabels} />
+                <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
                 <ScanPanel labels={allLabels} />
