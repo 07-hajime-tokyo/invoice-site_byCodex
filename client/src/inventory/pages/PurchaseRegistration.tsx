@@ -2914,26 +2914,7 @@ function getBarcodeDetectorConstructor(): BarcodeDetectorConstructor | null {
   return (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector ?? null;
 }
 
-function extractScannedLabelId(value: string): string {
-  const normalized = value.normalize("NFKC").toUpperCase();
-  const exact = normalized.trim().match(/^[A-Z]{7}$/)?.[0];
-  if (exact) return exact;
-  const tokens = normalized
-    .split(/[^A-Z]+/)
-    .flatMap((token) => token.match(/[A-Z]{7}/g) ?? []);
-  return tokens.at(-1) ?? "";
-}
-
-function ScanPanel({
-  labels,
-  onReceivedLabel,
-}: {
-  labels: LabelView[];
-  onReceivedLabel?: (label: LabelView) => void;
-}) {
-  const utils = trpc.useUtils();
-  const [scanValue, setScanValue] = useState("");
-  const [confirmValue, setConfirmValue] = useState("");
+function useQrCameraScanner(onDetected: (rawValue: string) => void) {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -2941,52 +2922,11 @@ function ScanPanel({
   const scanAnimationRef = useRef<number | null>(null);
   const scannerRunningRef = useRef(false);
   const lastDetectedRef = useRef<{ value: string; time: number } | null>(null);
-  const confirmationActiveRef = useRef(false);
-  const ignoredDetectedValueRef = useRef<string | null>(null);
-  const resumeCameraAfterConfirmRef = useRef(false);
-  const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
+  const onDetectedRef = useRef(onDetected);
 
-  function getScanTarget(value: string) {
-    const normalizedValue = value.trim().normalize("NFKC").toLowerCase();
-    const scannedId = extractScannedLabelId(value);
-    const label = normalizedValue
-      ? labels.find(
-          (candidate) =>
-            candidate.labelId.toLowerCase() === normalizedValue ||
-            (scannedId && candidate.labelId.toLowerCase() === scannedId.toLowerCase()) ||
-            candidate.legacyManagementNo.toLowerCase().includes(normalizedValue),
-        )
-      : null;
-    return {
-      matched: label ?? null,
-      receiveLabelId: label?.labelId ?? scannedId,
-    };
-  }
-
-  const scanTarget = getScanTarget(scanValue);
-  const confirmTarget = getScanTarget(confirmValue);
-  const matched = scanTarget.matched;
-  const receiveLabelId = scanTarget.receiveLabelId;
-
-  function openReceiveConfirm(value: string, options?: { resumeCameraAfterSuccess?: boolean }) {
-    const nextValue = value.trim();
-    if (!nextValue) return;
-    setScanValue(nextValue);
-    const target = getScanTarget(nextValue);
-    if (!target.receiveLabelId) return;
-    confirmationActiveRef.current = true;
-    ignoredDetectedValueRef.current = null;
-    resumeCameraAfterConfirmRef.current = Boolean(options?.resumeCameraAfterSuccess);
-    setConfirmValue(nextValue);
-  }
-
-  function closeReceiveConfirm(ignoreValue?: string | null) {
-    const valueToIgnore = ignoreValue?.trim();
-    if (valueToIgnore) ignoredDetectedValueRef.current = valueToIgnore;
-    confirmationActiveRef.current = false;
-    resumeCameraAfterConfirmRef.current = false;
-    setConfirmValue("");
-  }
+  useEffect(() => {
+    onDetectedRef.current = onDetected;
+  }, [onDetected]);
 
   function stopCamera() {
     scannerRunningRef.current = false;
@@ -3032,18 +2972,12 @@ function ScanPanel({
             const codes = await detector.detect(currentVideo);
             const rawValue = codes.find((code) => code.rawValue?.trim())?.rawValue?.trim();
             if (rawValue) {
-              const ignoredValue = ignoredDetectedValueRef.current;
-              if (ignoredValue && rawValue !== ignoredValue) ignoredDetectedValueRef.current = null;
               const now = Date.now();
               const previous = lastDetectedRef.current;
-              if (
-                !confirmationActiveRef.current &&
-                rawValue !== ignoredValue &&
-                (!previous || previous.value !== rawValue || now - previous.time > 1600)
-              ) {
+              if (!previous || previous.value !== rawValue || now - previous.time > 1600) {
                 lastDetectedRef.current = { value: rawValue, time: now };
                 stopCamera();
-                openReceiveConfirm(rawValue, { resumeCameraAfterSuccess: true });
+                onDetectedRef.current(rawValue);
                 return;
               }
             }
@@ -3070,6 +3004,121 @@ function ScanPanel({
     };
   }, []);
 
+  return { cameraActive, cameraError, videoRef, startCamera, stopCamera };
+}
+
+function extractScannedLabelId(value: string): string {
+  const normalized = value.normalize("NFKC").toUpperCase();
+  const exact = normalized.trim().match(/^[A-Z]{7}$/)?.[0];
+  if (exact) return exact;
+  const tokens = normalized
+    .split(/[^A-Z]+/)
+    .flatMap((token) => token.match(/[A-Z]{7}/g) ?? []);
+  return tokens.at(-1) ?? "";
+}
+
+function normalizeProductLabelInput(value: string): string {
+  return (extractScannedLabelId(value) || value).trim().normalize("NFKC").toUpperCase();
+}
+
+function ScanPanel({
+  labels,
+  onReceivedLabel,
+}: {
+  labels: LabelView[];
+  onReceivedLabel?: (label: LabelView) => void;
+}) {
+  const utils = trpc.useUtils();
+  const [scanValue, setScanValue] = useState("");
+  const [confirmValue, setConfirmValue] = useState("");
+  const resumeCameraAfterConfirmRef = useRef(false);
+  const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
+  const qrScanner = useQrCameraScanner((rawValue) => {
+    openReceiveConfirm(rawValue, { resumeCameraAfterSuccess: true });
+  });
+  const scanSearchValue = scanValue.trim();
+  const { data: serverScanData } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(
+    {
+      page: 1,
+      pageSize: 100,
+      category: null,
+      status: null,
+      search: scanSearchValue || null,
+      inboundClass: null,
+    },
+    {
+      enabled: scanSearchValue.length >= 4,
+      staleTime: 10_000,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const serverScanLabels = useMemo(
+    () => buildLabelViews((serverScanData?.items ?? []) as PurchaseRow[]),
+    [serverScanData?.items],
+  );
+  const scanLabels = useMemo(() => mergeLabelViewsById(labels, serverScanLabels), [labels, serverScanLabels]);
+
+  function getScanTarget(value: string) {
+    const normalizedValue = value.trim().normalize("NFKC").toLowerCase();
+    const scannedId = extractScannedLabelId(value);
+    const normalizedTrackingValue = normalizedTrackingNumber(value).toLowerCase();
+    const exactLabel = normalizedValue
+      ? scanLabels.find(
+          (candidate) =>
+            candidate.labelId.toLowerCase() === normalizedValue ||
+            (scannedId && candidate.labelId.toLowerCase() === scannedId.toLowerCase()),
+        )
+      : null;
+    const candidates = normalizedValue
+      ? mergeLabelViewsById(
+          scanLabels.filter((candidate) => {
+            const labelId = candidate.labelId.trim().toLowerCase();
+            const managementNo = candidate.legacyManagementNo.toLowerCase();
+            const trackingNumber = normalizedTrackingNumber(candidate.trackingNumber ?? "").toLowerCase();
+            return (
+              labelId === normalizedValue ||
+              (scannedId && labelId === scannedId.toLowerCase()) ||
+              managementNo.includes(normalizedValue) ||
+              (normalizedTrackingValue.length >= 4 &&
+                trackingNumber.length > 0 &&
+                (trackingNumber.includes(normalizedTrackingValue) || normalizedTrackingValue.includes(trackingNumber)))
+            );
+          }),
+        )
+      : null;
+    return {
+      matched: exactLabel ?? null,
+      candidates: (candidates ?? []).sort((a, b) => {
+        const aReceived = isShippableLabelStatus(a.rawStatus) ? 1 : 0;
+        const bReceived = isShippableLabelStatus(b.rawStatus) ? 1 : 0;
+        if (aReceived !== bReceived) return aReceived - bReceived;
+        return a.labelId.localeCompare(b.labelId, "ja", { numeric: true });
+      }),
+      receiveLabelId: exactLabel?.labelId ?? scannedId,
+    };
+  }
+
+  const scanTarget = getScanTarget(scanValue);
+  const confirmTarget = getScanTarget(confirmValue);
+  const matched = scanTarget.matched;
+  const candidateLabels = scanTarget.candidates;
+  const receiveLabelId = scanTarget.receiveLabelId;
+
+  function openReceiveConfirm(value: string, options?: { resumeCameraAfterSuccess?: boolean }) {
+    const nextValue = value.trim();
+    if (!nextValue) return;
+    setScanValue(nextValue);
+    const target = getScanTarget(nextValue);
+    if (!target.receiveLabelId) return;
+    resumeCameraAfterConfirmRef.current = Boolean(options?.resumeCameraAfterSuccess);
+    setConfirmValue(nextValue);
+  }
+
+  function closeReceiveConfirm() {
+    resumeCameraAfterConfirmRef.current = false;
+    setConfirmValue("");
+  }
+
   async function receiveMatchedLabel(targetValue = scanValue) {
     const target = getScanTarget(targetValue);
     if (!target.receiveLabelId || receiveMutation.isPending) return;
@@ -3092,7 +3141,7 @@ function ScanPanel({
         });
       }
       setScanValue("");
-      closeReceiveConfirm(targetValue);
+      closeReceiveConfirm();
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
@@ -3100,7 +3149,7 @@ function ScanPanel({
       ]);
       if (shouldResumeCamera) {
         window.setTimeout(() => {
-          void startCamera();
+          void qrScanner.startCamera();
         }, 250);
       }
     } catch (error) {
@@ -3113,46 +3162,45 @@ function ScanPanel({
       <section className="rounded-md border bg-background p-3 md:p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h2 className="text-lg font-semibold">入庫スキャン</h2>
-          <div className={cn("grid gap-2 md:flex md:flex-wrap", cameraActive ? "grid-cols-2" : "grid-cols-1")}>
+          <div className={cn("grid gap-2 md:flex md:flex-wrap", qrScanner.cameraActive ? "grid-cols-2" : "grid-cols-1")}>
             <Button
               type="button"
               variant="outline"
               className="h-11 gap-2 md:h-9"
-              onClick={startCamera}
-              disabled={cameraActive}
+              onClick={qrScanner.startCamera}
+              disabled={qrScanner.cameraActive}
             >
               <ScanLine className="h-4 w-4" />
               カメラ読取
             </Button>
-            {cameraActive ? (
-              <Button type="button" variant="outline" className="h-11 md:h-9" onClick={stopCamera}>
+            {qrScanner.cameraActive ? (
+              <Button type="button" variant="outline" className="h-11 md:h-9" onClick={qrScanner.stopCamera}>
                 停止
               </Button>
             ) : null}
           </div>
         </div>
 
-        <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", cameraActive ? "block" : "hidden")}>
+        <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", qrScanner.cameraActive ? "block" : "hidden")}>
           <video
-            ref={videoRef}
+            ref={qrScanner.videoRef}
             className="h-[58vh] min-h-[260px] max-h-[520px] w-full object-cover md:h-80 md:min-h-0"
             muted
             playsInline
           />
         </div>
-        {cameraError ? <p className="mt-2 text-sm text-destructive">{cameraError}</p> : null}
+        {qrScanner.cameraError ? <p className="mt-2 text-sm text-destructive">{qrScanner.cameraError}</p> : null}
 
         <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
           <Input
             value={scanValue}
             onChange={(event) => {
-              ignoredDetectedValueRef.current = null;
               setScanValue(event.target.value);
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter") openReceiveConfirm(scanValue);
             }}
-            placeholder="商品ID または旧管理番号をスキャン/入力"
+            placeholder="商品ID・旧管理番号・追跡番号をスキャン/入力"
             autoComplete="off"
             className="h-12 font-mono text-base sm:h-9 sm:text-sm"
           />
@@ -3171,7 +3219,7 @@ function ScanPanel({
       <Dialog
         open={Boolean(confirmValue)}
         onOpenChange={(open) => {
-          if (!open && !receiveMutation.isPending) closeReceiveConfirm(confirmValue);
+          if (!open && !receiveMutation.isPending) closeReceiveConfirm();
         }}
       >
         <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-lg">
@@ -3199,7 +3247,7 @@ function ScanPanel({
               type="button"
               variant="outline"
               disabled={receiveMutation.isPending}
-              onClick={() => closeReceiveConfirm(confirmValue)}
+              onClick={() => closeReceiveConfirm()}
             >
               キャンセル
             </Button>
@@ -3223,6 +3271,47 @@ function ScanPanel({
             対象IDを確認しました
           </div>
           <ScannedLabelPreview label={matched} />
+        </section>
+      ) : candidateLabels.length > 0 ? (
+        <section className="rounded-md border border-blue-200 bg-blue-50 p-3 md:p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+            <Search className="h-4 w-4" />
+            追跡番号の候補 {candidateLabels.length.toLocaleString()}件
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {candidateLabels.map((label) => {
+              const status = normalizedLabelStatus(label.rawStatus);
+              const disabled = status === "shipped" || status === "returned" || status === "cancelled";
+              return (
+                <div key={label.labelId} className="rounded-md border bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xl font-bold text-slate-950">{label.labelId}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-950">{label.title}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <Badge className={labelBadgeClass(label.rawStatus)}>{label.status}</Badge>
+                        {label.trackingNumber ? <Badge variant="outline" className="font-mono">{label.trackingNumber}</Badge> : null}
+                      </div>
+                    </div>
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded border bg-white p-1.5">
+                      <ProductQrCode value={label.labelId} />
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-3 w-full gap-2"
+                    disabled={disabled || receiveMutation.isPending}
+                    onClick={() => openReceiveConfirm(label.labelId)}
+                  >
+                    <PackageCheck className="h-4 w-4" />
+                    この商品を入庫
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
         </section>
       ) : scanValue.trim() ? (
         <section className="rounded-md border bg-amber-50 p-4 text-sm text-amber-900">
@@ -3362,7 +3451,12 @@ function ShippingPanel({
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
   const [manualLabelValue, setManualLabelValue] = useState("");
   const [manualShippingLabels, setManualShippingLabels] = useState<LabelView[]>([]);
-  const manualLabelId = (extractScannedLabelId(manualLabelValue) || manualLabelValue).trim().normalize("NFKC").toUpperCase();
+  const [manualLookupPending, setManualLookupPending] = useState(false);
+  const shippingQrScanner = useQrCameraScanner((rawValue) => {
+    setManualLabelValue(rawValue);
+    void addLabelForShipping(rawValue, { openConfirmAfterAdd: true });
+  });
+  const manualLabelId = normalizeProductLabelInput(manualLabelValue);
   const availableLabels = useMemo(() => mergeLabelViewsById(labels, manualShippingLabels), [labels, manualShippingLabels]);
   const searchableLabels = useMemo(() => mergeLabelViewsById(availableLabels, allLabels), [allLabels, availableLabels]);
   const manualMatchedLabel = useMemo(
@@ -3538,32 +3632,71 @@ function ShippingPanel({
     setQuantities((current) => ({ ...current, [item.key]: nextQuantity }));
   }
 
-  function addManualLabelForShipping() {
-    if (!manualLabelId) {
+  async function lookupShippingLabel(targetLabelId: string): Promise<LabelView | null> {
+    const localLabel = searchableLabels.find((label) => label.labelId.trim().toUpperCase() === targetLabelId) ?? null;
+    if (localLabel && isShippableLabel(localLabel) && localLabel.inventoryId) return localLabel;
+    if (targetLabelId.length < 4) return localLabel;
+    const result = await utils.inventory.zaico.getPurchasesWithCategoryPage.fetch({
+      page: 1,
+      pageSize: 100,
+      category: null,
+      status: null,
+      search: targetLabelId,
+      inboundClass: null,
+    });
+    const fetchedLabel = buildLabelViews((result?.items ?? []) as PurchaseRow[])
+      .find((label) => label.labelId.trim().toUpperCase() === targetLabelId) ?? null;
+    return fetchedLabel ?? localLabel;
+  }
+
+  async function addLabelForShipping(rawValue: string, options?: { openConfirmAfterAdd?: boolean }) {
+    const targetLabelId = normalizeProductLabelInput(rawValue);
+    if (!targetLabelId) {
       toast.error("商品IDを入力してください");
-      return;
+      return false;
     }
-    if (!manualMatchedLabel) {
-      toast.error(`商品ID ${manualLabelId} が見つかりません`);
-      return;
+    if (manualLookupPending) return false;
+    setManualLookupPending(true);
+    let targetLabel: LabelView | null = null;
+    try {
+      targetLabel = await lookupShippingLabel(targetLabelId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "商品IDの確認に失敗しました");
+      setManualLookupPending(false);
+      return false;
     }
-    if (!isShippableLabel(manualMatchedLabel)) {
-      toast.error(`${manualLabelId} は未入庫のため出庫できません`);
-      return;
+    setManualLookupPending(false);
+    if (!targetLabel) {
+      toast.error(`商品ID ${targetLabelId} が見つかりません`);
+      return false;
     }
-    const [item] = buildShippingItemsFromLabels([manualMatchedLabel]);
+    if (!isShippableLabel(targetLabel)) {
+      toast.error(`${targetLabelId} は未入庫のため出庫できません`);
+      return false;
+    }
+    const [item] = buildShippingItemsFromLabels([targetLabel]);
     if (!item) {
-      toast.error(`${manualLabelId} は在庫IDの反映待ちです。更新後に出庫してください`);
-      return;
+      toast.error(`${targetLabelId} は在庫IDの反映待ちです。更新後に出庫してください`);
+      return false;
     }
-    setManualShippingLabels((current) => mergeLabelViewsById(current, [manualMatchedLabel]));
+    setManualShippingLabels((current) => mergeLabelViewsById(current, [targetLabel]));
     setSelectedKeys((current) => {
       const next = new Set(current);
       next.add(item.key);
       return next;
     });
     setManualLabelValue("");
-    toast.success(`${manualLabelId} を出庫対象に追加しました`);
+    if (options?.openConfirmAfterAdd) {
+      setConfirmKeys(new Set([item.key]));
+      setDeliveryNo((current) => current.trim() || autoDeliveryNo);
+      setShowConfirm(true);
+    }
+    toast.success(`${targetLabelId} を出庫対象に追加しました`);
+    return true;
+  }
+
+  function addManualLabelForShipping() {
+    void addLabelForShipping(manualLabelValue);
   }
 
   function openConfirm(keys: Set<string>) {
@@ -3667,6 +3800,21 @@ function ShippingPanel({
             </p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2 sm:w-auto"
+              onClick={shippingQrScanner.startCamera}
+              disabled={shippingQrScanner.cameraActive}
+            >
+              <ScanLine className="h-4 w-4" />
+              QR読取
+            </Button>
+            {shippingQrScanner.cameraActive ? (
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={shippingQrScanner.stopCamera}>
+                停止
+              </Button>
+            ) : null}
             <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={toggleAllSelected} disabled={shippingItems.length === 0}>
               {allSelected ? "全解除" : "全選択"}
             </Button>
@@ -3694,6 +3842,15 @@ function ShippingPanel({
         </div>
 
         <div className="mt-3 rounded-md border bg-slate-50 p-3">
+          <div className={cn("mb-3 overflow-hidden rounded-md border bg-black", shippingQrScanner.cameraActive ? "block" : "hidden")}>
+            <video
+              ref={shippingQrScanner.videoRef}
+              className="h-[58vh] min-h-[260px] max-h-[520px] w-full object-cover md:h-80 md:min-h-0"
+              muted
+              playsInline
+            />
+          </div>
+          {shippingQrScanner.cameraError ? <p className="mb-3 text-sm text-destructive">{shippingQrScanner.cameraError}</p> : null}
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <Input
               value={manualLabelValue}
@@ -3709,9 +3866,9 @@ function ShippingPanel({
               type="button"
               className="h-11 w-full gap-2 bg-orange-600 text-white hover:bg-orange-700 sm:h-9 sm:w-auto"
               onClick={addManualLabelForShipping}
-              disabled={!manualLabelId}
+              disabled={!manualLabelId || manualLookupPending}
             >
-              <Truck className="h-4 w-4" />
+              {manualLookupPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
               追加
             </Button>
           </div>
@@ -4288,6 +4445,7 @@ export default function PurchaseRegistration() {
     return mergeLabelViewsById(receivedForGroup, selectedShippingGroup?.labels ?? []);
   }, [receivedShippingLabels, selectedShippingGroup]);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
+  const allScannableLabels = useMemo(() => mergeLabelViewsById(allLabels, inventoryLabels), [allLabels, inventoryLabels]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
@@ -4582,7 +4740,7 @@ export default function PurchaseRegistration() {
                 <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
-                <ScanPanel labels={allPrintableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
+                <ScanPanel labels={allScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
               </TabsContent>
               <TabsContent value="stock">
                 <StockPanel inventories={inventoryItems} searchText={searchText} />
@@ -4591,7 +4749,7 @@ export default function PurchaseRegistration() {
                 <ShippingPanel
                   group={selectedShippingGroup}
                   labels={selectedShippingLabels}
-                  allLabels={allPrintableLabels}
+                  allLabels={allScannableLabels}
                   products={selectedOpenProducts}
                   onDeliverySuccess={handleDeliverySuccess}
                 />
