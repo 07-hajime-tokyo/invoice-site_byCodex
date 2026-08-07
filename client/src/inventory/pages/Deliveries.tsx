@@ -412,6 +412,13 @@ export default function Deliveries() {
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
       });
       toast.success(`「${orderedTargetInv.title}」を発注済みとして登録しました`);
+      await Promise.all([
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+      ]);
+      refetch();
       setShowOrderedDialog(false);
       setOrderedTargetInv(null);
     } catch (err: unknown) {
@@ -1237,7 +1244,12 @@ export default function Deliveries() {
       toast.success(`「${createForm.title}」を登録しました`);
       setShowCreateDialog(false);
       setCreateForm(emptyForm);
-      await utils.inventory.zaico.getInventories.invalidate();
+      await Promise.all([
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+      ]);
       refetch();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "登録に失敗しました";

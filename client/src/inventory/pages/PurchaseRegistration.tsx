@@ -2515,6 +2515,7 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
       setScanValue("");
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
       ]);
     } catch (error) {
@@ -2783,6 +2784,7 @@ export default function PurchaseRegistration() {
 
   const { data, isLoading, isFetching, refetch } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(queryInput, {
     staleTime: 30_000,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
   const {
@@ -2792,6 +2794,7 @@ export default function PurchaseRegistration() {
     refetch: refetchInventories,
   } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
     staleTime: 30_000,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 
@@ -2800,6 +2803,7 @@ export default function PurchaseRegistration() {
   const { data: purchaseRegistrationInvoices } =
     trpc.inventory.orderManagement.getPurchaseRegistrationInvoices.useQuery(undefined, {
       staleTime: 30_000,
+      refetchOnMount: "always",
       refetchOnWindowFocus: false,
     });
 

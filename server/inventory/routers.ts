@@ -3214,6 +3214,7 @@ export const inventoryRouter = router({
         if (!zaicoEnabled) {
           // Zaico連携OFF: ローカルDBに発注データを作成
           // 最大の発注Noを取得して+1する
+          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
           const allPurchases = await getLocalPurchases();
           const maxNum = allPurchases.reduce((max, p) => {
             const n = parseInt(p.purchaseNum ?? "0", 10);
@@ -3233,14 +3234,16 @@ export const inventoryRouter = router({
               status: "ordered",
               inventory_id: input.inventoryId,
             }]),
-            localInventoryId: null,
+            localInventoryId: localInv?.id ?? input.inventoryId,
             title: input.title,
-            category: null,
+            category: localInv?.category ?? null,
             quantity: input.quantity,
             unitPrice: input.unitPrice != null ? String(input.unitPrice) : null,
             managementNo: input.managementNo ?? null,
             purchaseDate: input.estimatedPurchaseDate ?? null,
             receivedDate: null,
+            supplierUrl: localInv?.supplierUrl ?? null,
+            supplierName: localInv?.supplierName ?? null,
           });
           return { code: 200, status: "ok", message: "発注データを登録しました（ローカルDB）", data_id: 0 };
         }
