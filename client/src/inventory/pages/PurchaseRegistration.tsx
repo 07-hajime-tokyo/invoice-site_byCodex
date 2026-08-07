@@ -110,6 +110,8 @@ interface LabelView {
   rowId: number;
   itemId: number;
   inventoryId?: number | null;
+  trackingNumber?: string | null;
+  carrier?: string | null;
 }
 
 type LabelPrintRequest = (labels: LabelView[]) => void;
@@ -1052,6 +1054,8 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           rowId: row.id,
           itemId: item.id,
           inventoryId: label.localInventoryId ?? item.inventory_id ?? null,
+          trackingNumber: row.extra?.trackingNumber ?? null,
+          carrier: row.extra?.carrier ?? null,
         };
       });
     });
@@ -1094,6 +1098,8 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           rowId: -inventory.id,
           itemId: -inventory.id,
           inventoryId: inventory.id,
+          trackingNumber: null,
+          carrier: null,
         };
       });
   });
@@ -2732,6 +2738,9 @@ function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
 }
 
 function ScannedLabelPreview({ label }: { label: LabelView }) {
+  const trackingNumber = label.trackingNumber?.trim();
+  const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, label.carrier) : null;
+
   return (
     <div className="mt-3 flex flex-col gap-4 rounded-md border border-emerald-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
       <div className="min-w-0">
@@ -2745,6 +2754,35 @@ function ScannedLabelPreview({ label }: { label: LabelView }) {
           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{label.status}</Badge>
           <Badge variant="outline">{label.supplier.name}</Badge>
         </div>
+        {trackingNumber && trackingInfo ? (
+          <div className="mt-3 inline-flex max-w-full flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-sm font-semibold text-blue-900">
+            <span className={`rounded px-1.5 py-0.5 text-xs ${getCarrierColor(trackingInfo.carrier)}`}>
+              {TRACKING_CARRIER_LABELS[trackingInfo.carrier]}
+            </span>
+            <span className="text-xs text-blue-700">追跡番号</span>
+            <span className="font-mono text-base font-bold text-slate-950">{trackingNumber}</span>
+            {trackingInfo.isEcohai ? (
+              <button
+                type="button"
+                onClick={() => openEcohaiTracking(trackingNumber)}
+                className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                <ExternalLink className="h-3 w-3" />
+                追跡
+              </button>
+            ) : trackingInfo.trackingUrl ? (
+              <a
+                href={trackingInfo.trackingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                <ExternalLink className="h-3 w-3" />
+                追跡
+              </a>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
         <ProductQrCode value={label.labelId} />
