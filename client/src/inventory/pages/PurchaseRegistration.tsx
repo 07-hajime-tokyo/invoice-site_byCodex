@@ -954,7 +954,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           title,
           printTitle: formatLabelPrintTitle(title),
           legacyManagementNo,
-          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          allocationLabel: "",
           unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
           supplier,
           purchaseDate: inventory.last_purchase_date ?? inventory.updated_at ?? "",
@@ -2185,7 +2185,9 @@ function LabelPrintPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+                    {label.allocationLabel ? (
+                      <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+                    ) : null}
                   </div>
                   <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
                     <ProductQrCode value={label.labelId} />
@@ -2350,7 +2352,7 @@ function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
             <div key={label.key} className="label-print-item">
               <div>
                 <div className="label-print-id">{label.labelId}</div>
-                <div className="label-print-ref">{label.allocationLabel}</div>
+                {label.allocationLabel ? <div className="label-print-ref">{label.allocationLabel}</div> : null}
                 <div className="label-print-title">{label.printTitle}</div>
               </div>
               <div className="label-print-qr">
@@ -2371,7 +2373,9 @@ function ScannedLabelPreview({ label }: { label: LabelView }) {
     <div className="mt-3 flex flex-col gap-4 rounded-md border border-emerald-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
       <div className="min-w-0">
         <div className="font-mono text-3xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
-        <div className="mt-2 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+        {label.allocationLabel ? (
+          <div className="mt-2 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+        ) : null}
         <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
         <div className="mt-3 text-base font-semibold text-slate-950">{label.title}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
