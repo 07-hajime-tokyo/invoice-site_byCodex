@@ -172,6 +172,7 @@ import {
   getTrackingNumbersByInventoryIds,
   getInventoryExtraByZaicoId,
   getDb,
+  type InventoryItemLabelStatus,
 } from "./db";
 
 const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"]);
@@ -866,6 +867,7 @@ type PurchasePageRow = {
 };
 
 type LocalInventoryRow = Awaited<ReturnType<typeof getLocalInventories>>[number];
+type LocalInventoryItemLabelRow = NonNullable<LocalInventoryRow["itemLabels"]>[number];
 type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
 type PurchaseHistoryRow = Awaited<ReturnType<typeof getPurchaseHistories>>[number];
 type InventoryItemLabelView = {
@@ -1119,6 +1121,167 @@ function localPurchaseMatchesInventoryLabel(
     const itemManagementNo = getPurchaseItemManagementNo(row, item);
     return !managementNo || !itemManagementNo || itemManagementNo === managementNo;
   });
+}
+
+function localPurchaseMatchesInventoryForLinkedDelete(
+  row: LocalPurchaseRow,
+  localInventoryId: number | null,
+  managementNo: string,
+): boolean {
+  const normalizedManagementNo = managementNo.trim();
+  const inventoryId = Number(localInventoryId);
+  const rowManagementNo = String(row.managementNo ?? "").trim();
+  const items = localPurchaseItems(row);
+
+  if (!normalizedManagementNo) {
+    return localPurchaseMatchesInventoryLabel(row, localInventoryId, "");
+  }
+
+  if (rowManagementNo === normalizedManagementNo) return true;
+  if (rowManagementNo && rowManagementNo !== normalizedManagementNo) return false;
+
+  let hasInventoryMatch = Number.isFinite(inventoryId) && Number(row.localInventoryId) === inventoryId;
+  for (const item of items) {
+    const itemManagementNo = getPurchaseItemManagementNo(row, item);
+    if (itemManagementNo === normalizedManagementNo) return true;
+    if (itemManagementNo && itemManagementNo !== normalizedManagementNo) return false;
+
+    const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
+    if (Number.isFinite(inventoryId) && itemInventoryId === inventoryId) {
+      hasInventoryMatch = true;
+    }
+  }
+
+  return hasInventoryMatch;
+}
+
+function getRecoveredPurchaseOverrides(managementNo: string) {
+  if (managementNo === "402_マキシム_1/2") {
+    return {
+      purchaseNum: "1641259420",
+      title: "PSP 3000 ミスティック・シルバー",
+      category: "PSP",
+      unitPrice: "13720",
+      purchaseDate: "2026-08-06",
+      trackingNumber: "490731074886",
+      carrier: "yamato",
+      supplierName: "駿河屋 岐阜マーサ21店",
+    };
+  }
+  return {};
+}
+
+function localPurchaseStatusFromLabelStatus(status: unknown): string {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return ["received", "stocked", "shipped"].includes(normalized) ? "purchased" : "ordered";
+}
+
+async function restoreMissingLocalPurchasesFromOrphanLabels(
+  localPurchaseRows: LocalPurchaseRow[],
+): Promise<LocalPurchaseRow[]> {
+  const db = await getDb();
+  if (!db) return localPurchaseRows;
+
+  const existingIds = new Set(localPurchaseRows.map((purchase) => purchase.id));
+  const existingManagementNos = new Set<string>();
+  for (const purchase of localPurchaseRows) {
+    const rowManagementNo = String(purchase.managementNo ?? "").trim();
+    if (rowManagementNo) existingManagementNos.add(rowManagementNo);
+    for (const item of localPurchaseItems(purchase)) {
+      const itemManagementNo = getPurchaseItemManagementNo(purchase, item);
+      if (itemManagementNo) existingManagementNos.add(itemManagementNo);
+    }
+  }
+
+  const inventories = await getLocalInventories(true);
+  const candidates = new Map<string, {
+    inventory: LocalInventoryRow;
+    labels: LocalInventoryItemLabelRow[];
+  }>();
+
+  for (const inventory of inventories) {
+    if (Number(inventory.isDeleted ?? 0) !== 0) continue;
+    for (const label of inventory.itemLabels ?? []) {
+      const labelPurchaseId = Number(label.purchaseId);
+      if (!Number.isFinite(labelPurchaseId) || existingIds.has(labelPurchaseId)) continue;
+      const managementNo = String(label.legacyManagementNo ?? getInventoryManagementNo(inventory.etc)).trim();
+      if (!managementNo || existingManagementNos.has(managementNo)) continue;
+      const current = candidates.get(managementNo);
+      if (current) {
+        current.labels.push(label);
+      } else {
+        candidates.set(managementNo, { inventory, labels: [label] });
+      }
+    }
+  }
+
+  let repaired = false;
+  for (const [managementNo, candidate] of candidates) {
+    const { inventory, labels } = candidate;
+    const firstLabel = labels[0];
+    if (!firstLabel) continue;
+    const overrides = getRecoveredPurchaseOverrides(managementNo);
+    const quantity = Math.max(1, labels.length);
+    const title = overrides.title ?? firstLabel.title ?? inventory.title;
+    const category = overrides.category ?? inventory.category ?? null;
+    const unitPrice = overrides.unitPrice ?? (inventory.unitPrice == null ? null : String(inventory.unitPrice));
+    const purchaseDate = overrides.purchaseDate ?? historyDateFrom(firstLabel.createdAt ?? inventory.createdAt);
+    const status = localPurchaseStatusFromLabelStatus(firstLabel.status);
+    const receivedDate = status === "purchased"
+      ? historyDateFrom(firstLabel.receivedAt ?? inventory.updatedAt)
+      : null;
+    const newPurchaseId = await insertLocalPurchase({
+      zaicoId: null,
+      purchaseNum: overrides.purchaseNum ?? managementNo,
+      status,
+      itemsJson: JSON.stringify([{
+        id: 1,
+        inventory_id: inventory.id,
+        inventoryId: inventory.id,
+        title,
+        quantity: String(quantity),
+        unit_price: unitPrice,
+        unitPrice,
+        etc: managementNo,
+        category,
+      }]),
+      localInventoryId: inventory.id,
+      title,
+      category,
+      quantity,
+      unitPrice,
+      managementNo,
+      purchaseDate,
+      receivedDate,
+      shipDate: null,
+      trackingNumber: overrides.trackingNumber ?? null,
+      carrier: overrides.carrier ?? null,
+      note: null,
+      supplierUrl: inventory.supplierUrl ?? null,
+      supplierName: overrides.supplierName ?? inventory.supplierName ?? null,
+      inboundClass: null,
+      classSource: "auto",
+      stage: status === "purchased" ? "received" : "ordered",
+      stageUpdatedBy: "system-repair",
+      stageUpdatedAt: new Date(),
+      shaftParentPurchaseId: null,
+    });
+    if (newPurchaseId > 0) {
+      await ensureInventoryItemLabels({
+        purchaseId: newPurchaseId,
+        localInventoryId: inventory.id,
+        legacyManagementNo: managementNo,
+        title,
+        quantity,
+        status: String(firstLabel.status ?? "ordered") as InventoryItemLabelStatus,
+        sourceKey: `repair:${managementNo}`,
+      });
+      existingManagementNos.add(managementNo);
+      repaired = true;
+    }
+  }
+
+  return repaired ? getLocalPurchases() : localPurchaseRows;
 }
 
 async function ensureShaftPurchases(
@@ -1508,7 +1671,7 @@ export const inventoryRouter = router({
      * 入庫予定一覧取得（ordered / not_ordered）
      */
     getPurchases: publicProcedure.query(async () => {
-      const localPurchaseRows = await getLocalPurchases();
+      const localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
       return localPurchaseRows.map((p) => {
         const items = (() => {
           try {
@@ -1819,6 +1982,7 @@ export const inventoryRouter = router({
             getLocalPurchases(),
             getLocalInventories(),
           ]);
+          localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
           localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
           // T22: 分類を解決（auto行は自動判定＋バックフィル、manual行は保存値尊重）
           const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
@@ -1978,6 +2142,7 @@ export const inventoryRouter = router({
           getPurchaseHistories(2000),
           getLocalInventories(),
         ]);
+        localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
         localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
@@ -2213,13 +2378,9 @@ export const inventoryRouter = router({
           if (!srnFromEtc) return [];
           // SRN番号のプレフィックス（例: "383_ヴィン_" → "383_ヴィン"）を抽出
           // 形式: "プレフィックス_連番/合計" なので最後の "_数字/数字" を除いたもの
-          const srnPrefix = srnFromEtc.replace(/_\d+\/\d+$/, "");
-          const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-          const { like } = await import("drizzle-orm");
-          const db = await getDb();
-          const rows = db
-            ? await db.select().from(lpTbl).where(like(lpTbl.managementNo, `${srnPrefix}%`))
-            : (await getLocalPurchases()).filter((p) => String(p.managementNo ?? "").startsWith(srnPrefix));
+          const rows = (await getLocalPurchases()).filter((p) =>
+            localPurchaseMatchesInventoryForLinkedDelete(p, localInv.id, srnFromEtc)
+          );
           // フロントエンドが期待する形式に変換
           return rows.map((p) => ({
             id: p.id,
@@ -2513,7 +2674,17 @@ export const inventoryRouter = router({
             const { inArray } = await import("drizzle-orm");
             const db = await getDb();
             if (db) {
-              await db.delete(lpTbl).where(inArray(lpTbl.id, input.alsoDeletePurchaseIds));
+              const requestedIds = new Set(input.alsoDeletePurchaseIds);
+              const inventoryManagementNo = getInventoryManagementNo(localInv?.etc);
+              const safePurchaseIds = (await getLocalPurchases())
+                .filter((purchase) =>
+                  requestedIds.has(purchase.id) &&
+                  localPurchaseMatchesInventoryForLinkedDelete(purchase, localInv?.id ?? null, inventoryManagementNo)
+                )
+                .map((purchase) => purchase.id);
+              if (safePurchaseIds.length > 0) {
+                await db.delete(lpTbl).where(inArray(lpTbl.id, safePurchaseIds));
+              }
             }
           }
           return { code: 200, status: "ok", message: "在庫を削除しました（ローカルDB）" };
