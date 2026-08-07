@@ -1095,6 +1095,94 @@ async function attachInventoryItemLabelsToInventories(
   return rows.map((row) => ({ ...row, itemLabels: byInventory.get(row.id) ?? [] }));
 }
 
+export async function getInventoryItemLabelsByInventoryIds(inventoryIds: number[]): Promise<Map<number, InventoryItemLabel[]>> {
+  const ids = Array.from(new Set(inventoryIds.filter((id) => Number.isFinite(id) && id > 0)));
+  if (ids.length === 0) return new Map();
+  const db = await getDb();
+  if (!db) {
+    const labels = await getDumpRows<InventoryItemLabel>("inventory_item_labels");
+    return groupLabelsByNumber(labels.filter((label) => {
+      const id = Number(label.localInventoryId);
+      return Number.isFinite(id) && ids.includes(id);
+    }), "localInventoryId");
+  }
+  const labels = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(inArray(inventoryItemLabels.localInventoryId, ids))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+  return groupLabelsByNumber(labels, "localInventoryId");
+}
+
+function isStockInventoryLabel(label: InventoryItemLabel): boolean {
+  const status = String(label.status ?? "").trim().toLowerCase();
+  return !status || status === "stocked" || status === "received";
+}
+
+export async function ensureInventoryItemLabelsForInventory(input: {
+  localInventoryId: number;
+  legacyManagementNo?: string | null;
+  title: string;
+  quantity: number;
+  status?: InventoryItemLabelStatus;
+  sourceKey?: string | null;
+}): Promise<InventoryItemLabel[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const localInventoryId = Number(input.localInventoryId);
+  if (!Number.isFinite(localInventoryId) || localInventoryId <= 0) return [];
+
+  const desiredQuantity = normalizeLabelQuantity(input.quantity);
+  const status = input.status ?? "stocked";
+  const now = new Date();
+  const sourceKey = input.sourceKey?.trim() || `inventory:${localInventoryId}`;
+  const legacyManagementNo = input.legacyManagementNo?.trim() || null;
+
+  const existing = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+
+  for (const label of existing) {
+    const stockLabel = isStockInventoryLabel(label);
+    const nextStatus = stockLabel ? (String(label.status ?? "").trim() ? label.status : status) : label.status;
+    await db
+      .update(inventoryItemLabels)
+      .set({
+        localInventoryId,
+        legacyManagementNo,
+        title: input.title,
+        status: nextStatus,
+        sourceKey: label.sourceKey ?? sourceKey,
+        receivedAt: stockLabel && !label.receivedAt ? now : label.receivedAt,
+      })
+      .where(eq(inventoryItemLabels.id, label.id));
+  }
+
+  const stockLabelCount = existing.filter(isStockInventoryLabel).length;
+  const missingCount = Math.max(0, desiredQuantity - stockLabelCount);
+  for (let i = 0; i < missingCount; i++) {
+    await insertInventoryLabelWithRetry(db, {
+      purchaseId: null,
+      localInventoryId,
+      legacyManagementNo,
+      title: input.title,
+      status,
+      sourceKey,
+      receivedAt: status === "received" || status === "stocked" ? now : null,
+      shippedAt: null,
+    });
+  }
+
+  return db
+    .select()
+    .from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
+    .orderBy(desc(inventoryItemLabels.createdAt));
+}
+
 export async function ensureInventoryItemLabels(input: {
   purchaseId: number;
   localInventoryId?: number | null;

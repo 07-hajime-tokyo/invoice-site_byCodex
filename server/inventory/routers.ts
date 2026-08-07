@@ -89,6 +89,8 @@ import {
   getLocalPurchases,
   updateLocalPurchaseStatus,
   ensureInventoryItemLabels,
+  ensureInventoryItemLabelsForInventory,
+  getInventoryItemLabelsByInventoryIds,
   countLocalPurchases,
   setLocalPurchaseInboundClass,
   updateLocalPurchaseStage,
@@ -851,6 +853,56 @@ function getInventoryManagementNo(etc: string | null | undefined) {
   return String(etc ?? "").split(",")[0]?.trim() ?? "";
 }
 
+function inventoryStockQuantity(quantity: unknown): number {
+  const value = Math.floor(Number(quantity ?? 0));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function isStockLabelView(label: InventoryItemLabelView): boolean {
+  const status = String(label.status ?? "").trim().toLowerCase();
+  return !status || status === "stocked" || status === "received";
+}
+
+function toInventoryItemLabelView(label: InventoryItemLabelView): InventoryItemLabelView {
+  return {
+    id: label.id,
+    labelId: label.labelId,
+    status: label.status,
+    legacyManagementNo: label.legacyManagementNo,
+    localInventoryId: label.localInventoryId,
+  };
+}
+
+async function ensureStockLabelsForInventories<T extends {
+  id: number;
+  title: string;
+  quantity?: string | number | null;
+  etc?: string | null;
+}>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
+  if (inventories.length === 0) return [];
+  const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
+  return Promise.all(inventories.map(async (inventory) => {
+    const inventoryId = Number(inventory.id);
+    const existingLabels = labelMap.get(inventoryId) ?? [];
+    const quantity = inventoryStockQuantity(inventory.quantity);
+    const activeLabelCount = existingLabels.filter(isStockLabelView).length;
+    const labels = quantity > activeLabelCount
+      ? await ensureInventoryItemLabelsForInventory({
+          localInventoryId: inventoryId,
+          legacyManagementNo: getInventoryManagementNo(inventory.etc),
+          title: inventory.title,
+          quantity,
+          status: "stocked",
+          sourceKey: `inventory:${inventoryId}`,
+        })
+      : existingLabels;
+    return {
+      ...inventory,
+      itemLabels: labels.map(toInventoryItemLabelView),
+    };
+  }));
+}
+
 function getInventoryEtcPart(etc: string | null | undefined, index: number) {
   return String(etc ?? "").split(",")[index]?.trim() ?? "";
 }
@@ -1445,7 +1497,8 @@ export const inventoryRouter = router({
           return !hidden;
         });
         await Promise.all(hiddenInvs.map((inv) => deleteLocalInventory(inv.id).catch(() => {})));
-        return visibleInvs.map((inv) => ({
+        const visibleInvsWithLabels = await ensureStockLabelsForInventories(visibleInvs);
+        return visibleInvsWithLabels.map((inv) => ({
           id: inv.zaicoId ?? inv.id,
           title: inv.title,
           quantity: String(inv.quantity ?? 0),
@@ -1478,12 +1531,13 @@ export const inventoryRouter = router({
         getLatestIncreaseMemosMap(),
       ]);
       const extrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
+      const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
       // 追跡番号マップを取得
-      const inventoryIds = inventories.map((inv) => inv.id);
+      const inventoryIds = inventoriesWithLabels.map((inv) => inv.id);
       const trackingMap = await getTrackingNumbersByInventoryIds(inventoryIds);
       // 各在庫に最新入庫日と補足情報を付与
       // 優先順位: DB入庫日 / Zaico API入庫日 / Zaico直接返す日付 / etcフィールド日付 / 手動増加日 のうち最新を使用
-      return inventories.map((inv) => {
+      return inventoriesWithLabels.map((inv) => {
         const dbDate = dbDateMap[inv.id] ?? null;
         const zaicoDate = zaicoDateMap[inv.id] ?? null;
         // Zaico API が直接返す last_purchase_dateも候補に加える
@@ -1504,6 +1558,7 @@ export const inventoryRouter = router({
           supplierName: extra?.supplierName ?? null,
           trackingNumber: trackingMap.get(inv.id) ?? null,
           purchase_unit_price: inv.purchase_unit_price ?? null,
+          itemLabels: inv.itemLabels.map(toInventoryItemLabelView),
         };
       });
     }),
@@ -2380,6 +2435,16 @@ export const inventoryRouter = router({
               payload.etc ? `管理番号・備考: ${payload.etc}` : null,
             ].filter(Boolean).join(" / ") || null,
           });
+          if (createdId > 0) {
+            await ensureInventoryItemLabelsForInventory({
+              localInventoryId: createdId,
+              legacyManagementNo: getInventoryManagementNo(payload.etc),
+              title: payload.title,
+              quantity: createdQuantity,
+              status: "stocked",
+              sourceKey: `inventory:${createdId}`,
+            });
+          }
           return { code: 200, status: "ok", message: "商品を登録しました（ローカルDB）", data_id: createdId };
         }
 
@@ -2392,6 +2457,16 @@ export const inventoryRouter = router({
             supplierUrl: supplierUrl || null,
             supplierName: supplierName || null,
           }).catch(() => {});
+        }
+        if (result.data_id) {
+          await ensureInventoryItemLabelsForInventory({
+            localInventoryId: result.data_id,
+            legacyManagementNo: getInventoryManagementNo(payload.etc),
+            title: payload.title,
+            quantity: inventoryStockQuantity(payload.quantity),
+            status: "stocked",
+            sourceKey: `inventory:${result.data_id}`,
+          });
         }
         return result;
       }),

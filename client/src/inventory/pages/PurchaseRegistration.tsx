@@ -188,6 +188,7 @@ const fieldClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
 const OTHER_INVOICE_KEY = "invoice-other";
+const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
 const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
   yamato: "ヤマト運輸",
   sagawa: "佐川急便",
@@ -921,6 +922,46 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
         };
       });
     });
+  });
+}
+
+function isInventoryPrintableLabel(label: InventoryItemLabel): boolean {
+  if (!label.labelId?.trim()) return false;
+  const status = (label.status ?? "").trim().toLowerCase();
+  return !status || status === "stocked" || status === "received";
+}
+
+function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
+  return inventories.flatMap((inventory) => {
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity <= 0) return [];
+    const title = inventory.title;
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const supplier = {
+      name: inventory.supplierName?.trim() || "-",
+      url: inventory.supplierUrl?.trim() || "",
+    };
+    return (inventory.itemLabels ?? [])
+      .filter(isInventoryPrintableLabel)
+      .slice(0, stockQuantity)
+      .map((label) => {
+        const legacyManagementNo = label.legacyManagementNo || managementNo;
+        return {
+          key: `inventory-${inventory.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          rawStatus: label.status ?? "",
+          status: labelStatusLabel(label.status || "stocked"),
+          title,
+          printTitle: formatLabelPrintTitle(title),
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
+          supplier,
+          purchaseDate: inventory.last_purchase_date ?? inventory.updated_at ?? "",
+          rowId: -inventory.id,
+          itemId: -inventory.id,
+        };
+      });
   });
 }
 
@@ -2112,7 +2153,7 @@ function LabelPrintPanel({
               onClick={() => onPrintLabels(editableAllLabels)}
             >
               <Printer className="h-4 w-4" />
-              全インボイスを印刷
+              全ラベルを印刷
             </Button>
           </div>
         </div>
@@ -2772,7 +2813,32 @@ export default function PurchaseRegistration() {
     [filteredRows, purchaseRegistrationInvoices],
   );
   const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
+  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
+  const inventoryLabels = useMemo(() => buildInventoryLabelViews(inventoryItems), [inventoryItems]);
+  const inventoryLabelGroup = useMemo<AllocationGroup | null>(() => {
+    if (inventoryItems.length === 0 && inventoryLabels.length === 0) return null;
+    return {
+      key: INVENTORY_LABEL_GROUP_KEY,
+      label: "在庫一覧",
+      partner: "在庫",
+      rows: [],
+      products: [],
+      labels: inventoryLabels,
+      required: inventoryLabels.length,
+      secured: inventoryLabels.length,
+      waiting: 0,
+      purchaseTotal: inventoryLabels.reduce((total, label) => total + label.unitPrice, 0),
+      invoiceOrderQty: inventoryLabels.length,
+      invoiceDeliveredQty: 0,
+      invoiceRemainingQty: inventoryLabels.length,
+    };
+  }, [inventoryItems.length, inventoryLabels]);
+  const labelPrintGroups = useMemo(
+    () => (inventoryLabelGroup ? [...invoiceGroups, inventoryLabelGroup] : invoiceGroups),
+    [inventoryLabelGroup, invoiceGroups],
+  );
   const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
+  const selectedLabelPrintGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
   const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
@@ -2784,9 +2850,10 @@ export default function PurchaseRegistration() {
     },
   );
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
+  const selectedLabelPrintLabels = selectedLabelPrintGroup?.labels ?? [];
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
-  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
+  const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
@@ -2811,13 +2878,13 @@ export default function PurchaseRegistration() {
   const workflowCounts = useMemo(
     () => ({
       order: filteredRows.length,
-      labels: allLabels.length,
+      labels: allPrintableLabels.length,
       scan: allLabels.length,
       stock: allStockItems.length,
       shipping: selectedOpenProducts.length,
       returns: 0,
     }),
-    [allLabels.length, allStockItems, filteredRows.length, selectedOpenProducts.length],
+    [allLabels.length, allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedOpenProducts.length],
   );
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
@@ -2840,6 +2907,9 @@ export default function PurchaseRegistration() {
 
   const isScanWorkflow = workflowTab === "scan";
   const isStockWorkflow = workflowTab === "stock";
+  const isLabelWorkflow = workflowTab === "labels";
+  const groupSelectOptions = isLabelWorkflow ? labelPrintGroups : invoiceGroups;
+  const selectedGroupOption = groupSelectOptions.find((group) => group.key === selectedGroupKey) ?? groupSelectOptions[0] ?? null;
   const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
   const isRefreshing = isFetching || isInventoryFetching;
   const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
@@ -2890,20 +2960,20 @@ export default function PurchaseRegistration() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                     <FileText className="h-4 w-4" />
-                    インボイス
+                    {isLabelWorkflow ? "インボイス / 在庫" : "インボイス"}
                   </div>
                   <select
                     className={fieldClass}
-                    value={selectedGroup?.key ?? ""}
+                    value={selectedGroupOption?.key ?? ""}
                     onChange={(event) => {
                       setSelectedGroupKey(event.target.value);
                       setProductDetailFilter(null);
                     }}
                   >
-                    {invoiceGroups.length === 0 ? (
+                    {groupSelectOptions.length === 0 ? (
                       <option value="">対象なし</option>
                     ) : (
-                      invoiceGroups.map((group) => (
+                      groupSelectOptions.map((group) => (
                         <option key={group.key} value={group.key}>
                           {group.label}（{(group.invoiceRemainingQty ?? group.required).toLocaleString()}点）
                         </option>
@@ -2970,7 +3040,7 @@ export default function PurchaseRegistration() {
                 />
               </TabsContent>
               <TabsContent value="labels">
-                <LabelPrintPanel labels={selectedLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
+                <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allPrintableLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
                 <ScanPanel labels={allLabels} />
