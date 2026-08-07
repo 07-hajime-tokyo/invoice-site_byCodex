@@ -3171,7 +3171,7 @@ function ScanPanel({
               disabled={qrScanner.cameraActive}
             >
               <ScanLine className="h-4 w-4" />
-              カメラ読取
+              QR読取
             </Button>
             {qrScanner.cameraActive ? (
               <Button type="button" variant="outline" className="h-11 md:h-9" onClick={qrScanner.stopCamera}>
@@ -4295,7 +4295,33 @@ function ReturnPanel({ labels }: { labels: LabelView[] }) {
       {labels.length === 0 ? (
         <EmptyState icon={RotateCcw} title="返品対象の商品IDがありません" />
       ) : (
-        <div className="rounded-md border bg-background p-4 text-sm text-muted-foreground">返品対象 {labels.length}件</div>
+        <section className="rounded-md border bg-background p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-semibold">返品対象</h3>
+            <Badge variant="outline">{labels.length.toLocaleString()}件</Badge>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {labels.map((label) => (
+              <div key={label.labelId} className="rounded-md border bg-card p-3 shadow-sm">
+                <div className="flex gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-lg font-bold tracking-wide text-slate-950">{label.labelId}</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-950">{label.title}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      {label.allocationLabel ? <Badge variant="secondary" className="font-mono">{label.allocationLabel}</Badge> : null}
+                      <Badge className={labelBadgeClass(label.rawStatus)}>{label.status}</Badge>
+                      <Badge variant="outline">{label.supplier.name}</Badge>
+                    </div>
+                  </div>
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded border bg-white p-1.5 sm:h-20 sm:w-20">
+                    <ProductQrCode value={label.labelId} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
@@ -4425,6 +4451,7 @@ export default function PurchaseRegistration() {
   const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
   const selectedLabelPrintGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedShippingGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
+  const selectedReturnGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
   const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
@@ -4435,8 +4462,8 @@ export default function PurchaseRegistration() {
       refetchOnWindowFocus: false,
     },
   );
-  const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const selectedLabelPrintLabels = selectedLabelPrintGroup?.labels ?? [];
+  const selectedReturnLabels = selectedReturnGroup?.labels ?? [];
   const selectedShippingLabels = useMemo(() => {
     const selectedKey = selectedShippingGroup?.key;
     const receivedForGroup = selectedKey
@@ -4481,7 +4508,7 @@ export default function PurchaseRegistration() {
       scan: allPrintableLabels.length,
       stock: allStockItems.length,
       shipping: buildShippingItemsFromLabels(selectedShippingLabels).length,
-      returns: 0,
+      returns: allPrintableLabels.length,
     }),
     [allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
   );
@@ -4603,9 +4630,11 @@ export default function PurchaseRegistration() {
   const isStockWorkflow = workflowTab === "stock";
   const isLabelWorkflow = workflowTab === "labels";
   const isShippingWorkflow = workflowTab === "shipping";
-  const groupSelectOptions = isLabelWorkflow || isShippingWorkflow ? labelPrintGroups : invoiceGroups;
+  const isReturnWorkflow = workflowTab === "returns";
+  const groupedWorkflowUsesInventory = isLabelWorkflow || isShippingWorkflow || isReturnWorkflow;
+  const groupSelectOptions = groupedWorkflowUsesInventory ? labelPrintGroups : invoiceGroups;
   const selectedGroupOption = groupSelectOptions.find((group) => group.key === selectedGroupKey) ?? groupSelectOptions[0] ?? null;
-  const hasWorkflowTargets = isLabelWorkflow || isShippingWorkflow ? labelPrintGroups.length > 0 : groups.length > 0;
+  const hasWorkflowTargets = groupedWorkflowUsesInventory ? labelPrintGroups.length > 0 : groups.length > 0;
   const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
   const isRefreshing = isFetching || isInventoryFetching;
   const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
@@ -4652,7 +4681,7 @@ export default function PurchaseRegistration() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                     <FileText className="h-4 w-4" />
-                    {isLabelWorkflow || isShippingWorkflow ? "インボイス / 在庫" : "インボイス"}
+                    {groupedWorkflowUsesInventory ? "インボイス / 在庫" : "インボイス"}
                   </div>
                   <select
                     className={fieldClass}
@@ -4755,7 +4784,7 @@ export default function PurchaseRegistration() {
                 />
               </TabsContent>
               <TabsContent value="returns">
-                <ReturnPanel labels={selectedLabels} />
+                <ReturnPanel labels={selectedReturnLabels} />
               </TabsContent>
             </Tabs>
           )}
