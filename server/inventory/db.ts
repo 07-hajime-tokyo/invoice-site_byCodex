@@ -1147,7 +1147,14 @@ export async function ensureInventoryItemLabelsForInventory(input: {
 
   for (const label of existing) {
     const stockLabel = isStockInventoryLabel(label);
-    const nextStatus = stockLabel ? (String(label.status ?? "").trim() ? label.status : status) : label.status;
+    const currentStatus = String(label.status ?? "").trim().toLowerCase();
+    const promotesToStock = (status === "stocked" || status === "received") && currentStatus === "ordered";
+    const nextStatus = promotesToStock
+      ? status
+      : stockLabel
+        ? (currentStatus ? label.status : status)
+        : label.status;
+    const nextStatusText = String(nextStatus ?? "").trim().toLowerCase();
     await db
       .update(inventoryItemLabels)
       .set({
@@ -1156,13 +1163,16 @@ export async function ensureInventoryItemLabelsForInventory(input: {
         title: input.title,
         status: nextStatus,
         sourceKey: label.sourceKey ?? sourceKey,
-        receivedAt: stockLabel && !label.receivedAt ? now : label.receivedAt,
+        receivedAt: (nextStatusText === "stocked" || nextStatusText === "received") && !label.receivedAt ? now : label.receivedAt,
       })
       .where(eq(inventoryItemLabels.id, label.id));
   }
 
-  const stockLabelCount = existing.filter(isStockInventoryLabel).length;
-  const missingCount = Math.max(0, desiredQuantity - stockLabelCount);
+  const shouldCreateStockLabels = status === "stocked" || status === "received";
+  const countableLabelCount = shouldCreateStockLabels
+    ? existing.filter((label) => isStockInventoryLabel(label) || String(label.status ?? "").trim().toLowerCase() === "ordered").length
+    : existing.length;
+  const missingCount = Math.max(0, desiredQuantity - countableLabelCount);
   for (let i = 0; i < missingCount; i++) {
     await insertInventoryLabelWithRetry(db, {
       purchaseId: null,

@@ -948,6 +948,14 @@ function inventoryStockQuantity(quantity: unknown): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function inventoryLabelQuantity(quantity: unknown): number {
+  return Math.max(1, inventoryStockQuantity(quantity));
+}
+
+function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
+  return inventoryStockQuantity(quantity) > 0 ? "stocked" : "ordered";
+}
+
 function isStockLabelView(label: InventoryItemLabelView): boolean {
   const status = String(label.status ?? "").trim().toLowerCase();
   return !status || status === "stocked" || status === "received";
@@ -975,14 +983,18 @@ async function ensureStockLabelsForInventories<T extends {
     const inventoryId = Number(inventory.id);
     const existingLabels = labelMap.get(inventoryId) ?? [];
     const quantity = inventoryStockQuantity(inventory.quantity);
-    const activeLabelCount = existingLabels.filter(isStockLabelView).length;
-    const labels = quantity > activeLabelCount
+    const labelQuantity = inventoryLabelQuantity(quantity);
+    const labelStatus = inventoryInitialLabelStatus(quantity);
+    const countableLabelCount = labelStatus === "ordered"
+      ? existingLabels.length
+      : existingLabels.filter(isStockLabelView).length;
+    const labels = labelQuantity > countableLabelCount
       ? await ensureInventoryItemLabelsForInventory({
           localInventoryId: inventoryId,
           legacyManagementNo: getInventoryManagementNo(inventory.etc),
           title: inventory.title,
-          quantity,
-          status: "stocked",
+          quantity: labelQuantity,
+          status: labelStatus,
           sourceKey: `inventory:${inventoryId}`,
         })
       : existingLabels;
@@ -2551,8 +2563,8 @@ export const inventoryRouter = router({
               localInventoryId: createdId,
               legacyManagementNo: getInventoryManagementNo(payload.etc),
               title: payload.title,
-              quantity: createdQuantity,
-              status: "stocked",
+              quantity: inventoryLabelQuantity(createdQuantity),
+              status: inventoryInitialLabelStatus(createdQuantity),
               sourceKey: `inventory:${createdId}`,
             });
           }
@@ -2574,8 +2586,8 @@ export const inventoryRouter = router({
             localInventoryId: result.data_id,
             legacyManagementNo: getInventoryManagementNo(payload.etc),
             title: payload.title,
-            quantity: inventoryStockQuantity(payload.quantity),
-            status: "stocked",
+            quantity: inventoryLabelQuantity(payload.quantity),
+            status: inventoryInitialLabelStatus(payload.quantity),
             sourceKey: `inventory:${result.data_id}`,
           });
         }
