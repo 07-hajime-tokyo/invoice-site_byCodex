@@ -1612,7 +1612,7 @@ export default function Purchases() {
     none: "なし",
     not_ordered: "発注前",
     ordered: "発注済み",
-    shipped: "発送済み",
+    shipped: "発送済み / 入庫待ち",
     purchased: "入庫済み",
     quotation_requested: "見積依頼済み",
   };
@@ -1623,9 +1623,9 @@ export default function Purchases() {
   if (selectedStatusFilter) {
     activeEmptyFilterChips.push(
       selectedStatusFilter === "ordered"
-        ? "未発送（発注済み）"
+        ? "発注済み"
         : selectedStatusFilter === "shipped"
-          ? "入庫待ち（発送済み）"
+          ? "発送済み / 入庫待ち"
           : (statusLabel[selectedStatusFilter] ?? selectedStatusFilter),
     );
   }
@@ -1656,7 +1656,7 @@ export default function Purchases() {
   }
 
   /** ステータスに対応するBadgeのCSSクラスを返す
-   * 追跡番号があれば「発送済み」として扮う */
+   * 追跡番号があれば「発送済み / 入庫待ち」として扱う */
   function getStatusClass(purchase: Purchase): string {
     const effectiveStatus = (purchase.status !== "purchased" && purchase.extra?.trackingNumber)
       ? "shipped"
@@ -1849,7 +1849,7 @@ export default function Purchases() {
                   : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
               }`}
             >
-              未発送（発注済み）
+              発注済み
               {selectedStatusFilter === 'ordered' && (
                 <span className="ml-1 opacity-70">×</span>
               )}
@@ -1862,7 +1862,7 @@ export default function Purchases() {
                   : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800'
               }`}
             >
-              入庫待ち（発送済み）
+              発送済み / 入庫待ち
               {selectedStatusFilter === 'shipped' && (
                 <span className="ml-1 opacity-70">×</span>
               )}

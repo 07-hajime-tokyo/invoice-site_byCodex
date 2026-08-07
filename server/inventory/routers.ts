@@ -1699,17 +1699,30 @@ function isPurchasePageInboundCutoffVisible(row: PurchasePageRow): boolean {
 }
 
 async function markLocalPurchaseShippedFromTracking(zaicoId: number, trackingNumber: string | null | undefined) {
-  if (!String(trackingNumber ?? "").trim()) return;
   const db = await getDb();
   if (!db) return;
   const { localPurchases: lpTbl } = await import("../../drizzle/schema");
   const { or, eq } = await import("drizzle-orm");
+  const hasTrackingNumber = String(trackingNumber ?? "").trim().length > 0;
   const [purchase] = await db
     .select({ id: lpTbl.id, status: lpTbl.status })
     .from(lpTbl)
     .where(or(eq(lpTbl.id, zaicoId), eq(lpTbl.zaicoId, zaicoId)))
     .limit(1);
   if (!purchase || purchase.status === "purchased") return;
+  if (!hasTrackingNumber) {
+    if (purchase.status !== "shipped") return;
+    await db
+      .update(lpTbl)
+      .set({
+        status: "ordered",
+        stage: "ordered",
+        stageUpdatedBy: "tracking-registration",
+        stageUpdatedAt: new Date(),
+      })
+      .where(eq(lpTbl.id, purchase.id));
+    return;
+  }
   await db
     .update(lpTbl)
     .set({

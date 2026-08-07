@@ -22,6 +22,7 @@ import {
   PackageCheck,
   PackageMinus,
   PackagePlus,
+  Pencil,
   Printer,
   RefreshCw,
   RotateCcw,
@@ -89,6 +90,32 @@ interface InventoryItem {
 type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
 type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
+
+type PurchaseEditFormState = {
+  title: string;
+  managementNo: string;
+  category: string;
+  quantity: string;
+  unitPrice: string;
+  estimatedDate: string;
+  supplierName: string;
+  supplierUrl: string;
+  shipDate: string;
+  trackingNumber: string;
+  carrier: "auto" | Carrier;
+};
+
+type StockEditFormState = {
+  title: string;
+  managementNo: string;
+  category: string;
+  quantity: string;
+  unit: string;
+  place: string;
+  unitPrice: string;
+  supplierName: string;
+  supplierUrl: string;
+};
 
 interface SupplierView {
   name: string;
@@ -337,6 +364,20 @@ function hasPurchaseTracking(row: PurchaseRow): boolean {
 function cleanLegacyManagementNo(value?: string | null): string {
   const firstPart = (value ?? "").split(",")[0]?.trim() ?? "";
   return firstPart.split(/\s+\/\s+/)[0]?.trim() ?? firstPart;
+}
+
+function buildEtcWithManagementNo(
+  managementNo: string,
+  currentEtc?: string | null,
+  supplierName?: string | null,
+): string {
+  const parts = (currentEtc ?? "").split(",").map((part) => part.trim());
+  const nextManagementNo = cleanLegacyManagementNo(managementNo);
+  const datePart = parts[1] ?? "";
+  const supplierPart = supplierName === undefined ? parts[2] ?? "" : (supplierName ?? "").trim();
+  if (!nextManagementNo && !datePart && !supplierPart) return "";
+  if (datePart || supplierPart) return [nextManagementNo, datePart, supplierPart].join(", ");
+  return nextManagementNo;
 }
 
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
@@ -728,7 +769,7 @@ function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
 function statusLabel(row: PurchaseRow): string {
   switch (purchaseRowStatusKind(row)) {
     case "inbound_shipped":
-      return "発送済み";
+      return "発送済み / 入庫待ち";
     case "shipped":
       return "出庫済み";
     case "partial_shipped":
@@ -737,7 +778,7 @@ function statusLabel(row: PurchaseRow): string {
       return "入庫済み";
     case "ordered":
     default:
-      return "発注済み / 未入庫";
+      return "発注済み";
   }
 }
 
@@ -1899,6 +1940,7 @@ function purchaseRowInventoryId(row: PurchaseRow): number | null {
 function PurchaseRegistrationCard({
   row,
   onPrintLabels,
+  onOpenEdit,
   onOpenTrackingDialog,
   onOpenShippingHistory,
   onDeleteRow,
@@ -1906,6 +1948,7 @@ function PurchaseRegistrationCard({
 }: {
   row: PurchaseRow;
   onPrintLabels: LabelPrintRequest;
+  onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
@@ -1987,6 +2030,16 @@ function PurchaseRegistrationCard({
           </div>
         </div>
         <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit"
+            onClick={() => onOpenEdit(row)}
+          >
+            <Pencil className="h-4 w-4" />
+            編集
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -2419,6 +2472,7 @@ function OrderDashboard({
   onProductFilter,
   onClearProductFilter,
   onPrintLabels,
+  onOpenEdit,
   onOpenTrackingDialog,
   onOpenShippingHistory,
   onDeleteRow,
@@ -2432,6 +2486,7 @@ function OrderDashboard({
   onProductFilter?: (filter: ProductDetailFilter) => void;
   onClearProductFilter?: () => void;
   onPrintLabels: LabelPrintRequest;
+  onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
@@ -2525,6 +2580,7 @@ function OrderDashboard({
                 key={row.id}
                 row={row}
                 onPrintLabels={onPrintLabels}
+                onOpenEdit={onOpenEdit}
                 onOpenTrackingDialog={onOpenTrackingDialog}
                 onOpenShippingHistory={onOpenShippingHistory}
                 onDeleteRow={onDeleteRow}
@@ -3336,7 +3392,15 @@ function ScanPanel({
   );
 }
 
-function StockPanel({ inventories, searchText }: { inventories: InventoryItem[]; searchText: string }) {
+function StockPanel({
+  inventories,
+  searchText,
+  onOpenEdit,
+}: {
+  inventories: InventoryItem[];
+  searchText: string;
+  onOpenEdit: (inventoryId: number) => void;
+}) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
   const stockItems = searchText
     ? allStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
@@ -3369,13 +3433,14 @@ function StockPanel({ inventories, searchText }: { inventories: InventoryItem[];
                   <th className="px-4 py-3 text-left font-medium">仕入先</th>
                   <th className="px-4 py-3 text-left font-medium">仕入単価</th>
                   <th className="px-4 py-3 text-left font-medium">状態</th>
+                  <th className="px-4 py-3 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {stockGroups.map((group) => (
                   <Fragment key={group.name}>
                     <tr key={`${group.name}-header`} className="border-b bg-slate-50">
-                      <td colSpan={6} className="px-4 py-2 text-xs font-medium text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-2 text-xs font-medium text-muted-foreground">
                         棚 {group.name} - {group.quantity.toLocaleString()}点
                       </td>
                     </tr>
@@ -3418,6 +3483,18 @@ function StockPanel({ inventories, searchText }: { inventories: InventoryItem[];
                         </td>
                         <td className="px-4 py-3">
                           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{item.status}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                            onClick={() => onOpenEdit(item.inventoryId)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            編集
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -4377,12 +4454,41 @@ export default function PurchaseRegistration() {
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
   const [trackingDialogRow, setTrackingDialogRow] = useState<PurchaseRow | null>(null);
+  const [editingPurchaseRow, setEditingPurchaseRow] = useState<PurchaseRow | null>(null);
+  const [purchaseEditForm, setPurchaseEditForm] = useState<PurchaseEditFormState>({
+    title: "",
+    managementNo: "",
+    category: "",
+    quantity: "1",
+    unitPrice: "",
+    estimatedDate: "",
+    supplierName: "",
+    supplierUrl: "",
+    shipDate: todayInputDate(),
+    trackingNumber: "",
+    carrier: "auto",
+  });
+  const [editingStockItem, setEditingStockItem] = useState<InventoryItem | null>(null);
+  const [stockEditForm, setStockEditForm] = useState<StockEditFormState>({
+    title: "",
+    managementNo: "",
+    category: "",
+    quantity: "0",
+    unit: "個",
+    place: "",
+    unitPrice: "",
+    supplierName: "",
+    supplierUrl: "",
+  });
   const [trackingForm, setTrackingForm] = useState<TrackingFormState>({
     shipDate: todayInputDate(),
     trackingNumber: "",
     carrier: "auto",
   });
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
+  const updatePurchaseDataMutation = trpc.inventory.zaico.updatePurchaseData.useMutation();
+  const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
+  const updateSupplierNameOnlyMutation = trpc.inventory.zaico.updateSupplierNameOnly.useMutation();
   const upsertPurchaseExtraMutation = trpc.inventory.purchaseExtra.upsert.useMutation();
 
   const normalizedSearch = search.trim();
@@ -4580,6 +4686,179 @@ export default function PurchaseRegistration() {
     setTrackingDialogRow(row);
   };
 
+  const handleOpenPurchaseEditDialog = (row: PurchaseRow) => {
+    const firstItem = row.purchase_items[0];
+    const parsed = parseEtc(firstItem?.etc);
+    const supplier = getSupplier(row);
+    const savedCarrier = row.extra?.carrier?.trim().toLowerCase();
+    setPurchaseEditForm({
+      title: firstItem ? firstItem.title?.trim() || actualProductTitle(firstItem) : "",
+      managementNo: parsed.managementNo,
+      category: firstItem?.category ?? "",
+      quantity: String(firstItem?.quantity ?? "1"),
+      unitPrice: firstItem?.unit_price != null ? String(firstItem.unit_price) : "",
+      estimatedDate: firstItem?.estimated_purchase_date?.slice(0, 10) ?? "",
+      supplierName: supplier.name === "-" ? "" : supplier.name,
+      supplierUrl: supplier.url,
+      shipDate: row.extra?.shipDate?.slice(0, 10) || todayInputDate(),
+      trackingNumber: row.extra?.trackingNumber ?? "",
+      carrier:
+        savedCarrier && savedCarrier !== "auto" && TRACKING_CARRIER_KEYS.has(savedCarrier as Carrier)
+          ? (savedCarrier as Carrier)
+          : "auto",
+    });
+    setEditingPurchaseRow(row);
+  };
+
+  const handleSubmitPurchaseEdit = async () => {
+    if (!editingPurchaseRow || updatePurchaseDataMutation.isPending || updateSupplierNameOnlyMutation.isPending || upsertPurchaseExtraMutation.isPending) return;
+    const firstItem = editingPurchaseRow.purchase_items[0];
+    if (!firstItem) {
+      toast.error("編集できる商品明細がありません");
+      return;
+    }
+    const inventoryId = Number(firstItem.inventory_id ?? purchaseRowInventoryId(editingPurchaseRow));
+    if (!Number.isFinite(inventoryId) || inventoryId <= 0) {
+      toast.error("在庫IDが見つからないため編集できません");
+      return;
+    }
+    const title = purchaseEditForm.title.trim();
+    if (!title) {
+      toast.error("商品名を入力してください");
+      return;
+    }
+    const quantity = Math.max(1, Number.parseInt(purchaseEditForm.quantity, 10) || 1);
+    const unitPrice =
+      purchaseEditForm.unitPrice.trim() === "" ? undefined : Number.parseFloat(purchaseEditForm.unitPrice);
+    if (unitPrice !== undefined && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+      toast.error("仕入単価は0以上の数字で入力してください");
+      return;
+    }
+
+    const nextEtc = buildEtcWithManagementNo(
+      purchaseEditForm.managementNo,
+      firstItem.etc,
+      purchaseEditForm.supplierName,
+    );
+    const trackingNumber = purchaseEditForm.trackingNumber.trim();
+    const currentCarrier = editingPurchaseRow.extra?.carrier?.trim() || "auto";
+    const nextCarrier = purchaseEditForm.carrier === "auto" ? undefined : purchaseEditForm.carrier;
+    const shouldUpdateTracking =
+      trackingNumber !== (editingPurchaseRow.extra?.trackingNumber ?? "") ||
+      purchaseEditForm.shipDate !== (editingPurchaseRow.extra?.shipDate?.slice(0, 10) || "") ||
+      (nextCarrier ?? "auto") !== currentCarrier;
+    const purchaseItemPayload = {
+      ...(firstItem.id > 0 && { id: firstItem.id }),
+      inventoryId,
+      title,
+      quantity,
+      estimatedPurchaseDate: purchaseEditForm.estimatedDate || undefined,
+      etc: nextEtc || undefined,
+      category: purchaseEditForm.category.trim() || null,
+      ...(unitPrice !== undefined && { unitPrice }),
+    };
+
+    try {
+      await updatePurchaseDataMutation.mutateAsync({
+        purchaseId: editingPurchaseRow.id,
+        purchaseItems: [purchaseItemPayload],
+      });
+      await updateSupplierNameOnlyMutation.mutateAsync({
+        purchaseId: editingPurchaseRow.id,
+        inventoryId,
+        supplierName: purchaseEditForm.supplierName.trim() || null,
+        supplierUrl: purchaseEditForm.supplierUrl.trim() || null,
+      });
+      if (shouldUpdateTracking) {
+        await upsertPurchaseExtraMutation.mutateAsync({
+          zaicoId: editingPurchaseRow.id,
+          shipDate: purchaseEditForm.shipDate || undefined,
+          trackingNumber: trackingNumber || undefined,
+          carrier: nextCarrier,
+          note: editingPurchaseRow.extra?.note ?? undefined,
+        });
+      }
+      toast.success("商品情報を更新しました");
+      setEditingPurchaseRow(null);
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.purchaseHistory.list.invalidate(),
+      ]);
+      void refetch();
+      void refetchInventories();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "商品情報の更新に失敗しました");
+    }
+  };
+
+  const handleOpenStockEditDialog = (inventoryId: number) => {
+    const inventory = inventoryItems.find((item) => item.id === inventoryId);
+    if (!inventory) {
+      toast.error("在庫情報が見つかりません");
+      return;
+    }
+    const parsed = parseEtc(inventory.etc);
+    setStockEditForm({
+      title: inventory.title ?? "",
+      managementNo: parsed.managementNo,
+      category: getInventoryCategory(inventory),
+      quantity: String(inventory.quantity ?? "0"),
+      unit: inventory.unit ?? "個",
+      place: inventory.place ?? "",
+      unitPrice:
+        inventory.purchase_unit_price != null
+          ? String(inventory.purchase_unit_price)
+          : inventory.unit_price != null
+            ? String(inventory.unit_price)
+            : "",
+      supplierName: inventory.supplierName ?? parsed.supplierSite ?? "",
+      supplierUrl: inventory.supplierUrl ?? "",
+    });
+    setEditingStockItem(inventory);
+  };
+
+  const handleSubmitStockEdit = async () => {
+    if (!editingStockItem || updateInventoryMutation.isPending) return;
+    const title = stockEditForm.title.trim();
+    if (!title) {
+      toast.error("商品名を入力してください");
+      return;
+    }
+    const quantity = Math.max(0, Number.parseInt(stockEditForm.quantity, 10) || 0);
+    const unitPrice = stockEditForm.unitPrice.trim() === "" ? undefined : Number.parseFloat(stockEditForm.unitPrice);
+    if (unitPrice !== undefined && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+      toast.error("仕入単価は0以上の数字で入力してください");
+      return;
+    }
+    try {
+      await updateInventoryMutation.mutateAsync({
+        inventoryId: editingStockItem.id,
+        title,
+        quantity: String(quantity),
+        unit: stockEditForm.unit || undefined,
+        category: stockEditForm.category.trim() || undefined,
+        place: stockEditForm.place.trim() || undefined,
+        etc: buildEtcWithManagementNo(stockEditForm.managementNo, editingStockItem.etc, stockEditForm.supplierName) || undefined,
+        purchase_unit_price: unitPrice,
+        supplierName: stockEditForm.supplierName.trim() || undefined,
+        supplierUrl: stockEditForm.supplierUrl.trim() || undefined,
+      });
+      toast.success("在庫情報を更新しました");
+      setEditingStockItem(null);
+      await Promise.all([
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+      ]);
+      void refetchInventories();
+      void refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "在庫情報の更新に失敗しました");
+    }
+  };
+
   const handleSubmitTracking = async () => {
     if (!trackingDialogRow || upsertPurchaseExtraMutation.isPending) return;
     const trackingNumber = trackingForm.trackingNumber.trim();
@@ -4655,6 +4934,11 @@ export default function PurchaseRegistration() {
   const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
   const isRefreshing = isFetching || isInventoryFetching;
   const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
+  const isPurchaseEditSaving =
+    updatePurchaseDataMutation.isPending ||
+    updateSupplierNameOnlyMutation.isPending ||
+    upsertPurchaseExtraMutation.isPending;
+  const isStockEditSaving = updateInventoryMutation.isPending;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
@@ -4776,6 +5060,7 @@ export default function PurchaseRegistration() {
                   onProductFilter={setProductDetailFilter}
                   onClearProductFilter={() => setProductDetailFilter(null)}
                   onPrintLabels={handlePrintLabels}
+                  onOpenEdit={handleOpenPurchaseEditDialog}
                   onOpenTrackingDialog={handleOpenTrackingDialog}
                   onOpenShippingHistory={handleOpenShippingHistory}
                   onDeleteRow={handleDeletePurchaseRow}
@@ -4789,7 +5074,7 @@ export default function PurchaseRegistration() {
                 <ScanPanel labels={allScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
               </TabsContent>
               <TabsContent value="stock">
-                <StockPanel inventories={inventoryItems} searchText={searchText} />
+                <StockPanel inventories={inventoryItems} searchText={searchText} onOpenEdit={handleOpenStockEditDialog} />
               </TabsContent>
               <TabsContent value="shipping">
                 <ShippingPanel
@@ -4807,6 +5092,223 @@ export default function PurchaseRegistration() {
           )}
 
         </main>
+
+        <Dialog
+          open={Boolean(editingPurchaseRow)}
+          onOpenChange={(open) => {
+            if (!open && !isPurchaseEditSaving) setEditingPurchaseRow(null);
+          }}
+        >
+          <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                商品詳細を編集
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-xs font-medium text-muted-foreground">商品名</span>
+                <Input
+                  value={purchaseEditForm.title}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, title: event.target.value }))}
+                  autoFocus
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">旧管理番号</span>
+                <Input
+                  value={purchaseEditForm.managementNo}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, managementNo: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">カテゴリ</span>
+                <Input
+                  value={purchaseEditForm.category}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, category: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">発注数</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={purchaseEditForm.quantity}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, quantity: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入単価</span>
+                <Input
+                  type="number"
+                  min={0}
+                  value={purchaseEditForm.unitPrice}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, unitPrice: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">入庫予定日</span>
+                <Input
+                  type="date"
+                  value={purchaseEditForm.estimatedDate}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, estimatedDate: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">発送日</span>
+                <Input
+                  type="date"
+                  value={purchaseEditForm.shipDate}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, shipDate: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">追跡番号</span>
+                <Input
+                  value={purchaseEditForm.trackingNumber}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, trackingNumber: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">発送業者</span>
+                <select
+                  className={fieldClass}
+                  value={purchaseEditForm.carrier}
+                  onChange={(event) =>
+                    setPurchaseEditForm((current) => ({ ...current, carrier: event.target.value as PurchaseEditFormState["carrier"] }))
+                  }
+                >
+                  {TRACKING_CARRIER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入先名</span>
+                <Input
+                  value={purchaseEditForm.supplierName}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, supplierName: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入先URL</span>
+                <Input
+                  value={purchaseEditForm.supplierUrl}
+                  onChange={(event) => setPurchaseEditForm((current) => ({ ...current, supplierUrl: event.target.value }))}
+                  type="url"
+                />
+              </label>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingPurchaseRow(null)} disabled={isPurchaseEditSaving}>
+                キャンセル
+              </Button>
+              <Button type="button" onClick={handleSubmitPurchaseEdit} disabled={isPurchaseEditSaving || !purchaseEditForm.title.trim()}>
+                {isPurchaseEditSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pencil className="mr-2 h-4 w-4" />}
+                保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(editingStockItem)}
+          onOpenChange={(open) => {
+            if (!open && !isStockEditSaving) setEditingStockItem(null);
+          }}
+        >
+          <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                在庫商品を編集
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="text-xs font-medium text-muted-foreground">商品名</span>
+                <Input
+                  value={stockEditForm.title}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, title: event.target.value }))}
+                  autoFocus
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">旧管理番号</span>
+                <Input
+                  value={stockEditForm.managementNo}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, managementNo: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">カテゴリ</span>
+                <Input
+                  value={stockEditForm.category}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, category: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">在庫数</span>
+                <Input
+                  type="number"
+                  min={0}
+                  value={stockEditForm.quantity}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, quantity: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">単位</span>
+                <Input
+                  value={stockEditForm.unit}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, unit: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入単価</span>
+                <Input
+                  type="number"
+                  min={0}
+                  value={stockEditForm.unitPrice}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, unitPrice: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">保管場所</span>
+                <Input
+                  value={stockEditForm.place}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, place: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入先名</span>
+                <Input
+                  value={stockEditForm.supplierName}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, supplierName: event.target.value }))}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">仕入先URL</span>
+                <Input
+                  value={stockEditForm.supplierUrl}
+                  onChange={(event) => setStockEditForm((current) => ({ ...current, supplierUrl: event.target.value }))}
+                  type="url"
+                />
+              </label>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingStockItem(null)} disabled={isStockEditSaving}>
+                キャンセル
+              </Button>
+              <Button type="button" onClick={handleSubmitStockEdit} disabled={isStockEditSaving || !stockEditForm.title.trim()}>
+                {isStockEditSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pencil className="mr-2 h-4 w-4" />}
+                保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={Boolean(trackingDialogRow)}
