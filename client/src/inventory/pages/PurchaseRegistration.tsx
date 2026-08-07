@@ -135,6 +135,9 @@ interface ShippingItemView {
   key: string;
   inventoryId: number;
   labelId: string | null;
+  rawStatus: string;
+  status: string;
+  canShip: boolean;
   title: string;
   legacyManagementNo: string;
   allocationLabel: string;
@@ -1598,7 +1601,9 @@ function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
   return labels.flatMap((label) => {
     const inventoryId = Number(label.inventoryId);
     const labelId = label.labelId.trim().toUpperCase();
-    if (!labelId || !Number.isFinite(inventoryId) || inventoryId <= 0 || !isShippableLabelStatus(label.rawStatus)) {
+    const canShip = isShippableLabelStatus(label.rawStatus);
+    const isShipped = normalizedLabelStatus(label.rawStatus) === "shipped";
+    if (!labelId || !Number.isFinite(inventoryId) || inventoryId <= 0 || (!canShip && !isShipped)) {
       return [];
     }
     const key = `${inventoryId}-${labelId}`;
@@ -1608,6 +1613,9 @@ function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
       key,
       inventoryId,
       labelId,
+      rawStatus: label.rawStatus,
+      status: label.status,
+      canShip,
       title: label.title,
       legacyManagementNo: label.legacyManagementNo,
       allocationLabel: label.allocationLabel,
@@ -1625,7 +1633,7 @@ function selectedShippingItems(
   quantities: Record<string, number>,
 ): ShippingItemView[] {
   return items
-    .filter((item) => keys.has(item.key))
+    .filter((item) => item.canShip && keys.has(item.key))
     .map((item) => {
       const quantity = Math.min(item.maxQuantity, Math.max(1, Math.floor(quantities[item.key] ?? item.quantity)));
       return { ...item, quantity };
@@ -3454,6 +3462,7 @@ function ShippingPanel({
     [manualLabelId, searchableLabels],
   );
   const shippingItems = useMemo(() => buildShippingItemsFromLabels(availableLabels), [availableLabels]);
+  const shippableItems = useMemo(() => shippingItems.filter((item) => item.canShip), [shippingItems]);
   const pendingInventoryLabels = availableLabels.filter((label) => label.labelId.trim() && !label.inventoryId && isShippableLabel(label));
   const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
   const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
@@ -3469,7 +3478,7 @@ function ShippingPanel({
     () => selectedShippingItems(shippingItems, selectedKeys, quantities),
     [quantities, selectedKeys, shippingItems],
   );
-  const allSelected = shippingItems.length > 0 && shippingItems.every((item) => selectedKeys.has(item.key));
+  const allSelected = shippableItems.length > 0 && shippableItems.every((item) => selectedKeys.has(item.key));
   const isSubmitting = createDeliveryMutation.isPending;
 
   const { data: histories, isLoading: historiesLoading, refetch: refetchHistories } =
@@ -3593,18 +3602,19 @@ function ShippingPanel({
 
   useEffect(() => {
     setSelectedKeys((current) => {
-      const validKeys = new Set(shippingItems.map((item) => item.key));
+      const validKeys = new Set(shippableItems.map((item) => item.key));
       const next = new Set(Array.from(current).filter((key) => validKeys.has(key)));
       return next.size === current.size ? current : next;
     });
     setConfirmKeys((current) => {
-      const validKeys = new Set(shippingItems.map((item) => item.key));
+      const validKeys = new Set(shippableItems.map((item) => item.key));
       const next = new Set(Array.from(current).filter((key) => validKeys.has(key)));
       return next.size === current.size ? current : next;
     });
-  }, [shippingItems]);
+  }, [shippableItems]);
 
   function toggleSelected(key: string) {
+    if (!shippableItems.some((item) => item.key === key)) return;
     setSelectedKeys((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -3614,7 +3624,7 @@ function ShippingPanel({
   }
 
   function toggleAllSelected() {
-    setSelectedKeys(allSelected ? new Set() : new Set(shippingItems.map((item) => item.key)));
+    setSelectedKeys(allSelected ? new Set() : new Set(shippableItems.map((item) => item.key)));
   }
 
   function setItemQuantity(item: ShippingItemView, quantity: number) {
@@ -3805,15 +3815,15 @@ function ShippingPanel({
                 停止
               </Button>
             ) : null}
-            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={toggleAllSelected} disabled={shippingItems.length === 0}>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={toggleAllSelected} disabled={shippableItems.length === 0}>
               {allSelected ? "全解除" : "全選択"}
             </Button>
             <Button
               type="button"
               variant="outline"
               className="w-full gap-2 sm:w-auto"
-              onClick={() => openConfirm(new Set(shippingItems.map((item) => item.key)))}
-              disabled={shippingItems.length === 0}
+              onClick={() => openConfirm(new Set(shippableItems.map((item) => item.key)))}
+              disabled={shippableItems.length === 0}
             >
               <PackageMinus className="h-4 w-4" />
               すべて出庫
@@ -3888,6 +3898,7 @@ function ShippingPanel({
                   className={cn(
                     "rounded-md border bg-card p-3 shadow-sm transition-colors",
                     checked && "border-orange-300 bg-orange-50",
+                    !item.canShip && "bg-slate-50 opacity-80",
                   )}
                 >
                   <div className="flex gap-3">
@@ -3895,6 +3906,7 @@ function ShippingPanel({
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleSelected(item.key)}
+                      disabled={!item.canShip}
                       className="mt-1 h-4 w-4 shrink-0 accent-orange-600"
                       aria-label={`${item.labelId ?? item.title} を出庫選択`}
                     />
@@ -3904,6 +3916,7 @@ function ShippingPanel({
                       <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         {item.allocationLabel ? <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge> : null}
+                        <Badge className={labelBadgeClass(item.rawStatus)}>{item.status}</Badge>
                         <Badge variant="outline">{formatCurrency(item.unitPrice)}</Badge>
                       </div>
                     </div>
@@ -3940,7 +3953,7 @@ function ShippingPanel({
                         +
                       </button>
                     </div>
-                    <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => openConfirm(new Set([item.key]))}>
+                    <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => openConfirm(new Set([item.key]))} disabled={!item.canShip}>
                       この商品を出庫
                     </Button>
                   </div>
