@@ -1155,6 +1155,19 @@ function localPurchaseMatchesInventoryForLinkedDelete(
   return hasInventoryMatch;
 }
 
+const RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS = new Set([
+  "402_マキシム_1/2",
+  "402_マキシム_2/2",
+  "在庫0807_1&2&3",
+  "在庫0807_4",
+  "在庫0807_5&6",
+  "在庫0807_7",
+]);
+
+function canRecoverOrphanLabelPurchase(managementNo: string): boolean {
+  return RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS.has(managementNo.trim());
+}
+
 function getRecoveredPurchaseOverrides(managementNo: string) {
   if (managementNo === "402_マキシム_1/2") {
     return {
@@ -1171,17 +1184,13 @@ function getRecoveredPurchaseOverrides(managementNo: string) {
   return {};
 }
 
-function hasRecoveredPurchaseOverrides(overrides: Record<string, unknown>): boolean {
-  return Object.keys(overrides).length > 0;
-}
-
 async function cleanupUnexpectedRepairedLocalPurchases(
   localPurchaseRows: LocalPurchaseRow[],
 ): Promise<LocalPurchaseRow[]> {
   const unexpectedRows = localPurchaseRows.filter((purchase) => {
     if (purchase.stageUpdatedBy !== "system-repair") return false;
     const managementNo = String(purchase.managementNo ?? "").trim();
-    return !hasRecoveredPurchaseOverrides(getRecoveredPurchaseOverrides(managementNo));
+    return !canRecoverOrphanLabelPurchase(managementNo);
   });
   if (unexpectedRows.length === 0) return localPurchaseRows;
 
@@ -1205,6 +1214,67 @@ async function cleanupUnexpectedRepairedLocalPurchases(
   return localPurchaseRows.filter((purchase) => !unexpectedIdSet.has(purchase.id));
 }
 
+async function cleanupAllowedRecoveredPurchaseIssues(
+  localPurchaseRows: LocalPurchaseRow[],
+): Promise<LocalPurchaseRow[]> {
+  const db = await getDb();
+  if (!db) return localPurchaseRows;
+
+  const { inventoryItemLabels: labelTbl, localPurchases: purchaseTbl } = await import("../../drizzle/schema");
+  const { inArray } = await import("drizzle-orm");
+  let changed = false;
+  let nextRows = localPurchaseRows;
+
+  const duplicateRows = nextRows
+    .filter((purchase) => String(purchase.managementNo ?? "").trim() === "402_マキシム_1/2")
+    .sort((a, b) => a.id - b.id);
+  const keepDuplicateRow = duplicateRows[0];
+  const duplicateDeleteIds = duplicateRows.slice(1).map((purchase) => purchase.id);
+  if (keepDuplicateRow && duplicateDeleteIds.length > 0) {
+    await db
+      .update(labelTbl)
+      .set({ purchaseId: keepDuplicateRow.id })
+      .where(inArray(labelTbl.purchaseId, duplicateDeleteIds));
+    await db.delete(purchaseTbl).where(inArray(purchaseTbl.id, duplicateDeleteIds));
+    const deleteIdSet = new Set(duplicateDeleteIds);
+    nextRows = nextRows.filter((purchase) => !deleteIdSet.has(purchase.id));
+    changed = true;
+  }
+
+  const maximSecondRows = nextRows
+    .filter((purchase) => String(purchase.managementNo ?? "").trim() === "402_マキシム_2/2")
+    .sort((a, b) => a.id - b.id);
+  const maximSecondRow = maximSecondRows[0] ?? null;
+  const maximSecondLabels = await db
+    .select()
+    .from(labelTbl)
+    .where(eq(labelTbl.legacyManagementNo, "402_マキシム_2/2"));
+  const sortedMaximSecondLabels = [...maximSecondLabels].sort((a, b) => {
+    const timeA = new Date(a.createdAt ?? 0).getTime();
+    const timeB = new Date(b.createdAt ?? 0).getTime();
+    if (timeA !== timeB) return timeB - timeA;
+    return Number(b.id) - Number(a.id);
+  });
+  const keepLabel = sortedMaximSecondLabels[0];
+  const deleteLabelIds = sortedMaximSecondLabels.slice(1).map((label) => Number(label.id)).filter((id) => Number.isFinite(id));
+  if (deleteLabelIds.length > 0) {
+    await db.delete(labelTbl).where(inArray(labelTbl.id, deleteLabelIds));
+    changed = true;
+  }
+  if (maximSecondRow && keepLabel && Number(keepLabel.purchaseId) !== maximSecondRow.id) {
+    await db
+      .update(labelTbl)
+      .set({
+        purchaseId: maximSecondRow.id,
+        localInventoryId: maximSecondRow.localInventoryId ?? keepLabel.localInventoryId,
+      })
+      .where(eq(labelTbl.id, keepLabel.id));
+    changed = true;
+  }
+
+  return changed ? getLocalPurchases() : nextRows;
+}
+
 function localPurchaseStatusFromLabelStatus(status: unknown): string {
   const normalized = String(status ?? "").trim().toLowerCase();
   return ["received", "stocked", "shipped"].includes(normalized) ? "purchased" : "ordered";
@@ -1216,6 +1286,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
   const db = await getDb();
   if (!db) return localPurchaseRows;
   localPurchaseRows = await cleanupUnexpectedRepairedLocalPurchases(localPurchaseRows);
+  localPurchaseRows = await cleanupAllowedRecoveredPurchaseIssues(localPurchaseRows);
 
   const existingIds = new Set(localPurchaseRows.map((purchase) => purchase.id));
   const existingManagementNos = new Set<string>();
@@ -1238,8 +1309,10 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     if (Number(inventory.isDeleted ?? 0) !== 0) continue;
     for (const label of inventory.itemLabels ?? []) {
       const labelPurchaseId = Number(label.purchaseId);
-      if (!Number.isFinite(labelPurchaseId) || labelPurchaseId <= 0 || existingIds.has(labelPurchaseId)) continue;
       const managementNo = String(label.legacyManagementNo ?? getInventoryManagementNo(inventory.etc)).trim();
+      const canRecover = canRecoverOrphanLabelPurchase(managementNo);
+      if (!canRecover && (!Number.isFinite(labelPurchaseId) || labelPurchaseId <= 0)) continue;
+      if (Number.isFinite(labelPurchaseId) && labelPurchaseId > 0 && existingIds.has(labelPurchaseId)) continue;
       if (!managementNo || existingManagementNos.has(managementNo)) continue;
       const current = candidates.get(managementNo);
       if (current) {
@@ -1256,7 +1329,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     const firstLabel = labels[0];
     if (!firstLabel) continue;
     const overrides = getRecoveredPurchaseOverrides(managementNo);
-    if (!hasRecoveredPurchaseOverrides(overrides)) continue;
+    if (!canRecoverOrphanLabelPurchase(managementNo)) continue;
     const quantity = Math.max(1, labels.length);
     const title = overrides.title ?? firstLabel.title ?? inventory.title;
     const category = overrides.category ?? inventory.category ?? null;
@@ -1317,7 +1390,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  return repaired ? getLocalPurchases() : localPurchaseRows;
+  return cleanupAllowedRecoveredPurchaseIssues(repaired ? await getLocalPurchases() : localPurchaseRows);
 }
 
 async function ensureShaftPurchases(
