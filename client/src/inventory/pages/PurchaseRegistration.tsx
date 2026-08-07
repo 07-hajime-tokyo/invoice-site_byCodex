@@ -1376,11 +1376,17 @@ function todayCompact(): string {
   ].join("");
 }
 
+function todayShortCompact(): string {
+  const compact = todayCompact();
+  return `${compact.slice(2, 4)}${compact.slice(4)}`;
+}
+
 function deliveryPartnerCode(group: AllocationGroup | null): string {
   const text = `${group?.partner ?? ""} ${group?.label ?? ""}`.normalize("NFKC").toLowerCase();
-  if (text.includes("maxim") || text.includes("マキシム")) return "maxim";
+  if (text.includes("maxim") || text.includes("マキシム")) return "Maxim";
   if (text.includes("samee") || text.includes("sami") || text.includes("sammy") || text.includes("サミー")) return "samee";
-  if (text.includes("simon") || text.includes("サイモン")) return "simon";
+  if (text.includes("simon") || text.includes("サイモン")) return "Simon";
+  if (text.includes("nele") || text.includes("ネレ")) return "Nele";
   if (text.includes("devon") || text.includes("デボン")) return "devon";
   if (text.includes("luca") || text.includes("ルカ")) return "luca";
   const ascii = text.match(/[a-z0-9]+/g)?.join("") ?? "";
@@ -1390,6 +1396,7 @@ function deliveryPartnerCode(group: AllocationGroup | null): string {
 function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null): string {
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
   const code = deliveryPartnerCode(group);
+  if (["Maxim", "Simon", "Nele"].includes(code)) return `${code}${todayShortCompact()}`;
   return invoiceNo ? `${invoiceNo}_${code}${todayCompact()}` : `stock_${code}${todayCompact()}`;
 }
 

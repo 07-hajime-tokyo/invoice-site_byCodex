@@ -104,6 +104,7 @@ function getShortPartnerDeliveryCode(customerCode: string): string | null {
   const normalized = customerCode.normalize("NFKC").trim().toLowerCase();
   if (normalized.includes("maxim") || normalized.includes("マキシム")) return "Maxim";
   if (normalized.includes("simon") || normalized.includes("サイモン")) return "Simon";
+  if (normalized.includes("nele") || normalized.includes("ネレ")) return "Nele";
   return null;
 }
 
@@ -172,6 +173,8 @@ export function InvoiceStockSection({
 
   // パートナー名からデフォルトcustomerCodeを判別
   const defaultCustomerCode = useMemo(() => {
+    const knownPartnerCode = getShortPartnerDeliveryCode(partner);
+    if (knownPartnerCode) return knownPartnerCode;
     if (!customers) return "";
     const partnerLower = partner.toLowerCase();
     for (const c of customers) {
@@ -183,12 +186,14 @@ export function InvoiceStockSection({
 
   // 管理番号から取引先コードを自動判別
   function detectCustomerCodeFromManagementNo(etc: string | null | undefined): string | null {
-    if (!etc || !customers) return null;
+    if (!etc) return null;
     const managementNo = getManagementNo(etc);
     if (!managementNo) return null;
     const parts = managementNo.split("_");
     const partToMatch = parts.length >= 2 ? parts[1] : parts[0];
-    for (const customer of customers) {
+    const knownPartnerCode = getShortPartnerDeliveryCode(partToMatch);
+    if (knownPartnerCode) return knownPartnerCode;
+    for (const customer of customers ?? []) {
       const keywords = customer.keywords.split(",").map((k: string) => k.trim().toLowerCase());
       if (keywords.some((kw: string) => kw === partToMatch.toLowerCase())) return customer.code;
     }
@@ -211,20 +216,20 @@ export function InvoiceStockSection({
 
   // チェック商品が変わったら取引先を自動判別（手動設定済みなら上書きしない）
   useEffect(() => {
-    if (!customers || checkedItems.length === 0) return;
-    if (customerCode) return;
+    if (checkedItems.length === 0) return;
+    if (customerCode && deliveryNo.trim()) return;
     const detectedCodes = checkedItems
       .map((item) => detectCustomerCodeFromManagementNo(item.etc))
       .filter(Boolean);
     const uniqueCodes = Array.from(new Set(detectedCodes));
     if (uniqueCodes.length === 1 && uniqueCodes[0]) {
-      setCustomerCode(uniqueCodes[0]);
-      setDeliveryNo(generateDeliveryNo(uniqueCodes[0], invoiceNo));
+      if (!customerCode) setCustomerCode(uniqueCodes[0]);
+      if (!deliveryNo.trim()) setDeliveryNo(generateDeliveryNo(uniqueCodes[0], invoiceNo));
     } else if (defaultCustomerCode) {
-      setCustomerCode(defaultCustomerCode);
-      setDeliveryNo(generateDeliveryNo(defaultCustomerCode, invoiceNo));
+      if (!customerCode) setCustomerCode(defaultCustomerCode);
+      if (!deliveryNo.trim()) setDeliveryNo(generateDeliveryNo(defaultCustomerCode, invoiceNo));
     }
-  }, [checkedItems, customers]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [checkedItems, customers, defaultCustomerCode, customerCode, deliveryNo, invoiceNo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 販売価格サマリー
   const sellingPriceSummary = useMemo(() => {
@@ -255,7 +260,8 @@ export function InvoiceStockSection({
   const isSamee = partnerLookupLower.includes("samee") || partnerLookupLower.includes("sami") || partnerLookupLower.includes("sammy") || partnerLookupText.includes("サミー");
   const isSimon = partnerLookupLower.includes("simon") || partnerLookupText.includes("サイモン");
   const isMaxim = partnerLookupLower.includes("maxim") || partnerLookupText.includes("マキシム");
-  const isEuroPartner = isLuca || isSimon || isMaxim;
+  const isNele = partnerLookupLower.includes("nele") || partnerLookupText.includes("ネレ");
+  const isEuroPartner = isLuca || isSimon || isMaxim || isNele;
   const currencySymbol = isEuroPartner ? "€" : "$";
   const defaultCurrency = isEuroPartner ? "EUR" : "USD";
   const sheetName = isSimon
@@ -266,9 +272,9 @@ export function InvoiceStockSection({
 
   // 出庫No自動生成（表示用プレースホルダー）
   const autoDeliveryNo = useMemo(() => {
-    const code = customerCode || (isSimon ? "simon" : isSamee ? "samee" : isMaxim ? "maxim" : "luca");
+    const code = customerCode || (isSimon ? "Simon" : isNele ? "Nele" : isSamee ? "samee" : isMaxim ? "Maxim" : "luca");
     return generateDeliveryNo(code, invoiceNo);
-  }, [customerCode, invoiceNo, isMaxim, isSamee, isSimon]);
+  }, [customerCode, invoiceNo, isMaxim, isNele, isSamee, isSimon]);
 
   // 全選択/全解除
   const allChecked = matchedInventories.length > 0 &&
@@ -593,6 +599,9 @@ export function InvoiceStockSection({
                 <SelectValue placeholder="取引相手" />
               </SelectTrigger>
               <SelectContent>
+                {customerCode && !selectedCustomer ? (
+                  <SelectItem value={customerCode}>{getShortPartnerDeliveryCode(customerCode) ?? customerCode}</SelectItem>
+                ) : null}
                 {customers?.map((c) => (
                   <SelectItem key={c.code} value={c.code}>
                     {c.displayName}

@@ -250,13 +250,15 @@ export default function Deliveries() {
 
   /** 管理番号の2番目の部分（_区切り）から取引先を判別する */
   function detectCustomerFromManagementNo(etc: string | undefined): { code: string; displayName: string } | null {
-    if (!etc || !customers) return null;
+    if (!etc) return null;
     const managementNo = getManagementNo(etc);
     if (!managementNo) return null;
     // 管理番号の_区切り2番目の部分を取引先名として判別
     const parts = managementNo.split("_");
     const partToMatch = parts.length >= 2 ? parts[1] : parts[0];
-    for (const customer of customers) {
+    const knownPartnerCode = getShortPartnerDeliveryCode(partToMatch);
+    if (knownPartnerCode) return { code: knownPartnerCode, displayName: knownPartnerCode };
+    for (const customer of customers ?? []) {
       const keywords = customer.keywords.split(",").map((k: string) => k.trim().toLowerCase());
       if (keywords.some((kw: string) => kw === partToMatch.toLowerCase())) {
         return { code: customer.code, displayName: customer.displayName };
@@ -270,6 +272,7 @@ export default function Deliveries() {
     const normalized = customerCode.normalize("NFKC").trim().toLowerCase();
     if (normalized.includes("maxim") || normalized.includes("マキシム")) return "Maxim";
     if (normalized.includes("simon") || normalized.includes("サイモン")) return "Simon";
+    if (normalized.includes("nele") || normalized.includes("ネレ")) return "Nele";
     return null;
   }
 
@@ -767,7 +770,7 @@ export default function Deliveries() {
 
   // まとめて出庫: checkedItemsが変わったときに共通取引先を自動判別
   useEffect(() => {
-    if (!customers || checkedItems.length === 0) {
+    if (checkedItems.length === 0) {
       if (checkedItems.length === 0) {
         setBulkInvoiceNo(""); // チェック解除時にリセット
         setBulkCustomerCode("");
@@ -781,7 +784,9 @@ export default function Deliveries() {
         const parts = getManagementNo(item.etc).split("_");
         const partToMatch = parts.length >= 2 ? parts[1] : parts[0];
         if (!partToMatch) return null;
-        for (const customer of customers) {
+        const knownPartnerCode = getShortPartnerDeliveryCode(partToMatch);
+        if (knownPartnerCode) return knownPartnerCode;
+        for (const customer of customers ?? []) {
           const keywords = customer.keywords.split(",").map((k: string) => k.trim().toLowerCase());
           if (keywords.some((kw: string) => kw === partToMatch.toLowerCase())) return customer.code;
         }
@@ -1909,6 +1914,9 @@ export default function Deliveries() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">未指定</SelectItem>
+                    {bulkCustomerCode && bulkCustomerCode !== "__none__" && !customers?.some((c) => c.code === bulkCustomerCode) ? (
+                      <SelectItem value={bulkCustomerCode}>{getShortPartnerDeliveryCode(bulkCustomerCode) ?? bulkCustomerCode}</SelectItem>
+                    ) : null}
                     {customers?.map((c) => (
                       <SelectItem key={c.id} value={c.code}>{c.displayName}</SelectItem>
                     ))}
@@ -2270,6 +2278,9 @@ export default function Deliveries() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">未指定</SelectItem>
+                    {singleCustomerCode && singleCustomerCode !== "__none__" && !customers?.some((c) => c.code === singleCustomerCode) ? (
+                      <SelectItem value={singleCustomerCode}>{getShortPartnerDeliveryCode(singleCustomerCode) ?? singleCustomerCode}</SelectItem>
+                    ) : null}
                     {customers?.map((c) => (
                       <SelectItem key={c.id} value={c.code}>{c.displayName}</SelectItem>
                     ))}
