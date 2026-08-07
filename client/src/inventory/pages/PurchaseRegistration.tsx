@@ -110,6 +110,7 @@ interface StockItemView {
   labelId: string | null;
   status: string;
   title: string;
+  category: string;
   legacyManagementNo: string;
   allocationLabel: string;
   unitPrice: number;
@@ -266,6 +267,10 @@ function getInventoryManagementNo(etc?: string | null): string {
   if (!etc) return "";
   const firstPart = etc.split(",")[0]?.trim() ?? "";
   return firstPart.split(/\s+/)[0]?.trim() ?? "";
+}
+
+function getInventoryCategory(inventory: InventoryItem): string {
+  return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
 }
 
 function toNumber(value: unknown): number {
@@ -1153,6 +1158,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const category = getInventoryCategory(inventory);
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -1173,6 +1179,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
           labelId: label.labelId,
           status: labelStatusLabel(label.status || "stocked"),
           title: inventory.title,
+          category,
           legacyManagementNo,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice,
@@ -1192,6 +1199,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
         labelId: null,
         status: "\u5728\u5eab",
         title: inventory.title,
+        category,
         legacyManagementNo: managementNo,
         allocationLabel: labelAllocationLabel(managementNo),
         unitPrice,
@@ -1206,7 +1214,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
 function buildStockItemGroups(items: StockItemView[]): { name: string; items: StockItemView[]; quantity: number }[] {
   const map = new Map<string, StockItemView[]>();
   for (const item of items) {
-    const name = stockModelName(item.title);
+    const name = item.category || stockModelName(item.title);
     const current = map.get(name) ?? [];
     current.push(item);
     map.set(name, current);
@@ -1235,6 +1243,7 @@ function buildStockSearchText(item: StockItemView): string {
   return [
     item.labelId ?? "",
     item.title,
+    item.category,
     item.legacyManagementNo,
     item.allocationLabel,
     item.supplier.name,
@@ -2980,7 +2989,7 @@ export default function PurchaseRegistration() {
 
         </main>
 
-        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:static lg:min-h-[calc(100vh-4rem)] lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
+        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:inset-auto lg:top-16 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
             {workflowTabs.map((tab) => {
               const Icon = tab.icon;
