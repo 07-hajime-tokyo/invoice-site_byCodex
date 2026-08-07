@@ -2906,6 +2906,7 @@ function ScanPanel({
 }) {
   const utils = trpc.useUtils();
   const [scanValue, setScanValue] = useState("");
+  const [confirmValue, setConfirmValue] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -2913,18 +2914,49 @@ function ScanPanel({
   const scanAnimationRef = useRef<number | null>(null);
   const scannerRunningRef = useRef(false);
   const lastDetectedRef = useRef<{ value: string; time: number } | null>(null);
-  const normalized = scanValue.trim().normalize("NFKC").toLowerCase();
-  const scannedLabelId = extractScannedLabelId(scanValue);
-  const matched = normalized
-    ? labels.find(
-        (label) =>
-          label.labelId.toLowerCase() === normalized ||
-          (scannedLabelId && label.labelId.toLowerCase() === scannedLabelId.toLowerCase()) ||
-          label.legacyManagementNo.toLowerCase().includes(normalized),
-      )
-    : null;
-  const receiveLabelId = matched?.labelId ?? scannedLabelId;
+  const confirmationActiveRef = useRef(false);
+  const ignoredDetectedValueRef = useRef<string | null>(null);
   const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
+
+  function getScanTarget(value: string) {
+    const normalizedValue = value.trim().normalize("NFKC").toLowerCase();
+    const scannedId = extractScannedLabelId(value);
+    const label = normalizedValue
+      ? labels.find(
+          (candidate) =>
+            candidate.labelId.toLowerCase() === normalizedValue ||
+            (scannedId && candidate.labelId.toLowerCase() === scannedId.toLowerCase()) ||
+            candidate.legacyManagementNo.toLowerCase().includes(normalizedValue),
+        )
+      : null;
+    return {
+      matched: label ?? null,
+      receiveLabelId: label?.labelId ?? scannedId,
+    };
+  }
+
+  const scanTarget = getScanTarget(scanValue);
+  const confirmTarget = getScanTarget(confirmValue);
+  const matched = scanTarget.matched;
+  const receiveLabelId = scanTarget.receiveLabelId;
+
+  function openReceiveConfirm(value: string) {
+    const nextValue = value.trim();
+    if (!nextValue) return;
+    setScanValue(nextValue);
+    const target = getScanTarget(nextValue);
+    if (!target.receiveLabelId) return;
+    confirmationActiveRef.current = true;
+    ignoredDetectedValueRef.current = null;
+    setConfirmValue(nextValue);
+  }
+
+  function closeReceiveConfirm(ignoreValue?: string | null) {
+    const valueToIgnore = ignoreValue?.trim();
+    if (valueToIgnore) ignoredDetectedValueRef.current = valueToIgnore;
+    confirmationActiveRef.current = false;
+    setConfirmValue("");
+  }
 
   function stopCamera() {
     scannerRunningRef.current = false;
@@ -2970,12 +3002,17 @@ function ScanPanel({
             const codes = await detector.detect(currentVideo);
             const rawValue = codes.find((code) => code.rawValue?.trim())?.rawValue?.trim();
             if (rawValue) {
+              const ignoredValue = ignoredDetectedValueRef.current;
+              if (ignoredValue && rawValue !== ignoredValue) ignoredDetectedValueRef.current = null;
               const now = Date.now();
               const previous = lastDetectedRef.current;
-              if (!previous || previous.value !== rawValue || now - previous.time > 1600) {
+              if (
+                !confirmationActiveRef.current &&
+                rawValue !== ignoredValue &&
+                (!previous || previous.value !== rawValue || now - previous.time > 1600)
+              ) {
                 lastDetectedRef.current = { value: rawValue, time: now };
-                setScanValue(rawValue);
-                toast.success(`QRを読み取りました: ${rawValue}`);
+                openReceiveConfirm(rawValue);
               }
             }
           } catch (error) {
@@ -3001,26 +3038,28 @@ function ScanPanel({
     };
   }, []);
 
-  async function receiveMatchedLabel() {
-    if (!receiveLabelId || receiveMutation.isPending) return;
+  async function receiveMatchedLabel(targetValue = scanValue) {
+    const target = getScanTarget(targetValue);
+    if (!target.receiveLabelId || receiveMutation.isPending) return;
     try {
-      const result = await receiveMutation.mutateAsync({ labelId: receiveLabelId });
+      const result = await receiveMutation.mutateAsync({ labelId: target.receiveLabelId });
       if (result.alreadyReceived) {
         toast.info(`${result.labelId} はすでに入庫済みです`);
       } else {
-        toast.success(`${result.labelId} を入庫登録しました`);
+        toast.success("登録しました。");
       }
-      if (matched) {
+      if (target.matched) {
         onReceivedLabel?.({
-          ...matched,
+          ...target.matched,
           rawStatus: "received",
           status: labelStatusLabel("received"),
-          title: result.title ?? matched.title,
-          legacyManagementNo: result.legacyManagementNo ?? matched.legacyManagementNo,
-          inventoryId: result.localInventoryId ?? matched.inventoryId ?? null,
+          title: result.title ?? target.matched.title,
+          legacyManagementNo: result.legacyManagementNo ?? target.matched.legacyManagementNo,
+          inventoryId: result.localInventoryId ?? target.matched.inventoryId ?? null,
         });
       }
       setScanValue("");
+      closeReceiveConfirm(targetValue);
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
@@ -3068,7 +3107,13 @@ function ScanPanel({
         <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
           <Input
             value={scanValue}
-            onChange={(event) => setScanValue(event.target.value)}
+            onChange={(event) => {
+              ignoredDetectedValueRef.current = null;
+              setScanValue(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") openReceiveConfirm(scanValue);
+            }}
             placeholder="商品ID または旧管理番号をスキャン/入力"
             autoComplete="off"
             className="h-12 font-mono text-base sm:h-9 sm:text-sm"
@@ -3077,13 +3122,61 @@ function ScanPanel({
             type="button"
             className="h-12 gap-2 sm:h-9"
             disabled={!receiveLabelId || receiveMutation.isPending}
-            onClick={receiveMatchedLabel}
+            onClick={() => openReceiveConfirm(scanValue)}
           >
             {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            入庫確定
+            入庫確認
           </Button>
         </div>
       </section>
+
+      <Dialog
+        open={Boolean(confirmValue)}
+        onOpenChange={(open) => {
+          if (!open && !receiveMutation.isPending) closeReceiveConfirm(confirmValue);
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-emerald-700" />
+              入庫しますか？
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+              <div className="text-xs text-muted-foreground">読み取りID</div>
+              <div className="font-mono text-lg font-bold">{confirmTarget.receiveLabelId || confirmValue}</div>
+            </div>
+            {confirmTarget.matched ? (
+              <ScannedLabelPreview label={confirmTarget.matched} />
+            ) : (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                画面上の候補には一致していません。商品IDとしてサーバーで確認して入庫します。
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={receiveMutation.isPending}
+              onClick={() => closeReceiveConfirm(confirmValue)}
+            >
+              キャンセル
+            </Button>
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={!confirmTarget.receiveLabelId || receiveMutation.isPending}
+              onClick={() => receiveMatchedLabel(confirmValue)}
+            >
+              {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+              入庫する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {matched ? (
         <section className="rounded-md border border-emerald-200 bg-emerald-50 p-3 md:p-4">
