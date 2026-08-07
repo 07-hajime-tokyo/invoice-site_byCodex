@@ -1026,6 +1026,25 @@ function uniqueInventoryItemLabelViews(labels: InventoryItemLabelView[]): Invent
   return Array.from(map.values());
 }
 
+function getPurchaseItemManagementNo(row: LocalPurchaseRow, item: Record<string, unknown>): string {
+  const direct = item.managementNo ?? item.management_no ?? item.legacyManagementNo;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const etc = String(item.etc ?? row.managementNo ?? "").trim();
+  return etc.split(",")[0]?.trim() ?? "";
+}
+
+function filterLabelsByManagementNo<T extends { legacyManagementNo?: string | null }>(
+  labels: T[],
+  managementNo: string,
+): T[] {
+  const normalized = managementNo.trim();
+  if (!normalized) return labels;
+  return labels.filter((label) => {
+    const labelManagementNo = String(label.legacyManagementNo ?? "").trim();
+    return !labelManagementNo || labelManagementNo === normalized;
+  });
+}
+
 function labelsForPurchaseItem(
   row: LocalPurchaseRow,
   item: Record<string, unknown>,
@@ -1034,13 +1053,72 @@ function labelsForPurchaseItem(
   const labels = getPurchaseItemLabels(row);
   const rawInventoryId = item.inventory_id ?? item.inventoryId ?? row.localInventoryId;
   const inventoryId = Number(rawInventoryId);
-  const inventoryLabels = Number.isFinite(inventoryId) ? inventoryLabelMap?.get(inventoryId) ?? [] : [];
-  if (labels.length === 0) return uniqueInventoryItemLabelViews(inventoryLabels);
+  const managementNo = getPurchaseItemManagementNo(row, item);
+  const inventoryLabels = Number.isFinite(inventoryId)
+    ? filterLabelsByManagementNo(inventoryLabelMap?.get(inventoryId) ?? [], managementNo)
+    : [];
+  const scopedLabels = filterLabelsByManagementNo(labels, managementNo);
+  if (scopedLabels.length === 0) return uniqueInventoryItemLabelViews(inventoryLabels);
   if (Number.isFinite(inventoryId)) {
-    const labelsByInventory = labels.filter((label) => Number(label.localInventoryId) === inventoryId);
+    const labelsByInventory = scopedLabels.filter((label) => Number(label.localInventoryId) === inventoryId);
     if (labelsByInventory.length > 0) return uniqueInventoryItemLabelViews([...labelsByInventory, ...inventoryLabels]);
   }
-  return uniqueInventoryItemLabelViews([...labels, ...inventoryLabels]);
+  return uniqueInventoryItemLabelViews([...scopedLabels, ...inventoryLabels]);
+}
+
+function isReceivedLabelStatus(status: unknown): boolean {
+  return ["received", "stocked", "shipped"].includes(String(status ?? "").trim().toLowerCase());
+}
+
+function localPurchaseItems(row: LocalPurchaseRow): Record<string, unknown>[] {
+  try {
+    const parsed = JSON.parse(row.itemsJson ?? "[]");
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed as Record<string, unknown>[];
+  } catch {
+    // Malformed legacy JSON falls back to the purchase row fields below.
+  }
+  return [{
+    inventory_id: row.localInventoryId,
+    inventoryId: row.localInventoryId,
+    etc: row.managementNo,
+    quantity: row.quantity,
+  }];
+}
+
+function localPurchaseLabelViews(
+  row: LocalPurchaseRow,
+  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
+): InventoryItemLabelView[] {
+  return uniqueInventoryItemLabelViews(
+    localPurchaseItems(row).flatMap((item) => labelsForPurchaseItem(row, item, inventoryLabelMap)),
+  );
+}
+
+function isLocalPurchaseReceivedFromLabels(
+  row: LocalPurchaseRow,
+  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
+): boolean {
+  if (row.status === "purchased") return true;
+  const labels = localPurchaseLabelViews(row, inventoryLabelMap);
+  if (labels.length === 0) return false;
+  const requiredQuantity = Math.max(1, Math.floor(Number(row.quantity ?? 1)) || 1);
+  const receivedCount = labels.filter((label) => isReceivedLabelStatus(label.status)).length;
+  return receivedCount >= Math.min(requiredQuantity, labels.length);
+}
+
+function localPurchaseMatchesInventoryLabel(
+  row: LocalPurchaseRow,
+  localInventoryId: number | null,
+  managementNo: string,
+): boolean {
+  const inventoryId = Number(localInventoryId);
+  if (!Number.isFinite(inventoryId)) return false;
+  return localPurchaseItems(row).some((item) => {
+    const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
+    if (!Number.isFinite(itemInventoryId) || itemInventoryId !== inventoryId) return false;
+    const itemManagementNo = getPurchaseItemManagementNo(row, item);
+    return !managementNo || !itemManagementNo || itemManagementNo === managementNo;
+  });
 }
 
 async function ensureShaftPurchases(
@@ -1784,11 +1862,12 @@ export const inventoryRouter = router({
           const rows = localPurchaseRows.map((p) => {
             const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
             const inbound = inboundInfoMap.get(p.id);
+            const displayStatus = isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap) ? "purchased" : p.status;
             return {
               id: p.zaicoId ?? p.id,
               num: p.purchaseNum ?? "",
               purchase_date: p.purchaseDate ?? null,
-              status: p.status,
+              status: displayStatus,
               csvSupplierName: p.supplierName ?? inv?.supplierName ?? null,
               csvSupplierUrl: p.supplierUrl ?? inv?.supplierUrl ?? null,
               inboundClass: inbound?.inboundClass ?? null,
@@ -1811,6 +1890,7 @@ export const inventoryRouter = router({
                     const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
                     return {
                       ...item,
+                      status: displayStatus === "purchased" ? "purchased" : item.status,
                       inventory_id: inventoryId,
                       category: p.category ?? "未分類",
                       currentInventoryQuantity: invInfo?.quantity ?? null,
@@ -1825,7 +1905,7 @@ export const inventoryRouter = router({
                     quantity: String(p.quantity ?? 1),
                     unit_price: p.unitPrice ?? null,
                     etc: p.managementNo ?? null,
-                    status: p.status,
+                    status: displayStatus,
                     inventory_id: p.localInventoryId ?? null,
                     category: p.category ?? "未分類",
                     currentInventoryQuantity: invInfo?.quantity ?? null,
@@ -1942,7 +2022,10 @@ export const inventoryRouter = router({
           const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
           // local_purchasesのstatusがpurchased、またはpurchase_historiesに有効な入庫履歴があればpurchased
           const localId = p.zaicoId ?? p.id;
-          const isPurchased = p.status === "purchased" || purchasedZaicoIds.has(localId);
+          const isPurchased =
+            p.status === "purchased" ||
+            purchasedZaicoIds.has(localId) ||
+            isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap);
           return {
             id: localId,
             num: p.purchaseNum ?? "",
@@ -1962,6 +2045,7 @@ export const inventoryRouter = router({
                 const items = JSON.parse(p.itemsJson ?? "[]");
                 return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
                   ...item,
+                  status: isPurchased ? "purchased" : item.status,
                   category: p.category ?? "未分類",
                   itemLabels: labelsForPurchaseItem(p, item, inventoryLabelMap),
                 })) : [];
@@ -1972,7 +2056,7 @@ export const inventoryRouter = router({
                   quantity: String(p.quantity ?? 1),
                   unit_price: p.unitPrice ?? null,
                   etc: p.managementNo ?? null,
-                  status: p.status,
+                  status: isPurchased ? "purchased" : p.status,
                   inventory_id: p.localInventoryId ?? null,
                   category: p.category ?? "未分類",
                   itemLabels: labelsForPurchaseItem(p, { inventory_id: p.localInventoryId }, inventoryLabelMap),
@@ -4643,12 +4727,57 @@ export const inventoryRouter = router({
         }
 
         const currentStatus = String(label.status ?? "").trim().toLowerCase();
-        const alreadyReceived = ["received", "stocked", "shipped"].includes(currentStatus);
+        const alreadyReceived = isReceivedLabelStatus(currentStatus);
         const localInventoryId = label.localInventoryId ?? null;
-        const purchase = label.purchaseId ? await getLocalPurchaseById(label.purchaseId) : null;
         const inventory = localInventoryId ? await getLocalInventoryByZaicoIdOrId(localInventoryId) : null;
+        const labelManagementNo = String(
+          label.legacyManagementNo ?? getInventoryManagementNo(inventory?.etc) ?? "",
+        ).trim();
+        let purchase: LocalPurchaseRow | null = label.purchaseId ? await getLocalPurchaseById(label.purchaseId) : null;
+        if (!purchase && localInventoryId) {
+          const candidatePurchases = (await getLocalPurchases()).filter((row) =>
+            localPurchaseMatchesInventoryLabel(row, localInventoryId, labelManagementNo),
+          );
+          purchase =
+            candidatePurchases.find((row) => row.status !== "purchased") ??
+            candidatePurchases[0] ??
+            null;
+        }
         const today = new Date().toISOString().slice(0, 10);
         const operatorName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
+
+        const markPurchaseReceivedIfReady = async () => {
+          if (!purchase || purchase.status === "purchased") return;
+          let labelsForPurchase = await db
+            .select()
+            .from(labelTbl)
+            .where(eq(labelTbl.purchaseId, purchase.id));
+          if (labelsForPurchase.length === 0 && purchase.localInventoryId) {
+            const inventoryLabels = await db
+              .select()
+              .from(labelTbl)
+              .where(eq(labelTbl.localInventoryId, purchase.localInventoryId));
+            labelsForPurchase = filterLabelsByManagementNo(
+              inventoryLabels,
+              String(purchase.managementNo ?? labelManagementNo ?? "").trim(),
+            );
+          } else {
+            labelsForPurchase = filterLabelsByManagementNo(
+              labelsForPurchase,
+              String(purchase.managementNo ?? labelManagementNo ?? "").trim(),
+            );
+          }
+
+          const relevantLabels = labelsForPurchase.length > 0 ? labelsForPurchase : [label];
+          const requiredQuantity = Math.max(1, Math.floor(Number(purchase.quantity ?? 1)) || 1);
+          const receivedCount = relevantLabels.filter((row) => (
+            row.id === label.id || isReceivedLabelStatus(row.status)
+          )).length;
+          if (receivedCount >= Math.min(requiredQuantity, relevantLabels.length)) {
+            await updateLocalPurchaseStatus(purchase.id, "purchased", today);
+            purchase = { ...purchase, status: "purchased", receivedDate: today };
+          }
+        };
 
         if (!alreadyReceived) {
           const now = new Date();
@@ -4659,20 +4788,6 @@ export const inventoryRouter = router({
 
           if (inventory) {
             await updateLocalInventory(inventory.id, { quantity: Number(inventory.quantity ?? 0) + 1 });
-          }
-
-          if (purchase) {
-            const labelsForPurchase = await db
-              .select()
-              .from(labelTbl)
-              .where(eq(labelTbl.purchaseId, purchase.id));
-            const allReceived = labelsForPurchase.every((row) => {
-              if (row.id === label.id) return true;
-              return ["received", "stocked", "shipped"].includes(String(row.status ?? "").trim().toLowerCase());
-            });
-            if (allReceived) {
-              await updateLocalPurchaseStatus(purchase.id, "purchased", today);
-            }
           }
 
           const historyZaicoId =
@@ -4800,6 +4915,8 @@ export const inventoryRouter = router({
           }
         }
 
+        await markPurchaseReceivedIfReady();
+
         const [updatedLabel] = await db.select().from(labelTbl).where(eq(labelTbl.id, label.id)).limit(1);
         return {
           labelId,
@@ -4807,7 +4924,7 @@ export const inventoryRouter = router({
           status: updatedLabel?.status ?? (alreadyReceived ? label.status : "received"),
           title: updatedLabel?.title ?? label.title,
           legacyManagementNo: updatedLabel?.legacyManagementNo ?? label.legacyManagementNo,
-          purchaseId: updatedLabel?.purchaseId ?? label.purchaseId,
+          purchaseId: updatedLabel?.purchaseId ?? label.purchaseId ?? purchase?.id ?? null,
           localInventoryId: updatedLabel?.localInventoryId ?? label.localInventoryId,
           inventoryQuantity: inventory ? Number(inventory.quantity ?? 0) + (alreadyReceived ? 0 : 1) : null,
         };
