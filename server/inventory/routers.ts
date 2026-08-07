@@ -938,16 +938,33 @@ function getPurchaseItemLabels(row: LocalPurchaseRow): InventoryItemLabelView[] 
   return Array.isArray(labels) ? labels : [];
 }
 
-function labelsForPurchaseItem(row: LocalPurchaseRow, item: Record<string, unknown>): InventoryItemLabelView[] {
+function uniqueInventoryItemLabelViews(labels: InventoryItemLabelView[]): InventoryItemLabelView[] {
+  const map = new Map<string, InventoryItemLabelView>();
+  for (const label of labels) {
+    const key = label.labelId?.trim().toUpperCase();
+    if (!key) continue;
+    const existing = map.get(key);
+    if (existing?.localInventoryId && !label.localInventoryId) continue;
+    map.set(key, toInventoryItemLabelView(label));
+  }
+  return Array.from(map.values());
+}
+
+function labelsForPurchaseItem(
+  row: LocalPurchaseRow,
+  item: Record<string, unknown>,
+  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
+): InventoryItemLabelView[] {
   const labels = getPurchaseItemLabels(row);
-  if (labels.length === 0) return [];
   const rawInventoryId = item.inventory_id ?? item.inventoryId ?? row.localInventoryId;
   const inventoryId = Number(rawInventoryId);
+  const inventoryLabels = Number.isFinite(inventoryId) ? inventoryLabelMap?.get(inventoryId) ?? [] : [];
+  if (labels.length === 0) return uniqueInventoryItemLabelViews(inventoryLabels);
   if (Number.isFinite(inventoryId)) {
     const labelsByInventory = labels.filter((label) => Number(label.localInventoryId) === inventoryId);
-    if (labelsByInventory.length > 0) return labelsByInventory;
+    if (labelsByInventory.length > 0) return uniqueInventoryItemLabelViews([...labelsByInventory, ...inventoryLabels]);
   }
-  return labels;
+  return uniqueInventoryItemLabelViews([...labels, ...inventoryLabels]);
 }
 
 async function ensureShaftPurchases(
@@ -1654,6 +1671,7 @@ export const inventoryRouter = router({
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
+          const inventoryLabelMap = await getInventoryItemLabelsByInventoryIds(invIds);
           const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
           for (const inv of localInventoryRows) {
             invSupplierMap.set(inv.id, {
@@ -1720,7 +1738,7 @@ export const inventoryRouter = router({
                       inventory_id: inventoryId,
                       category: p.category ?? "未分類",
                       currentInventoryQuantity: invInfo?.quantity ?? null,
-                      itemLabels: labelsForPurchaseItem(p, item),
+                      itemLabels: labelsForPurchaseItem(p, item, inventoryLabelMap),
                     };
                   }) : [];
                 } catch {
@@ -1735,7 +1753,7 @@ export const inventoryRouter = router({
                     inventory_id: p.localInventoryId ?? null,
                     category: p.category ?? "未分類",
                     currentInventoryQuantity: invInfo?.quantity ?? null,
-                    itemLabels: getPurchaseItemLabels(p),
+                    itemLabels: labelsForPurchaseItem(p, { inventory_id: p.localInventoryId }, inventoryLabelMap),
                   }];
                 }
               })(),
@@ -1760,7 +1778,8 @@ export const inventoryRouter = router({
           getAllPurchaseExtras(),
           getAllInventoryExtras(),
         ]);
-        const inventoryMap = new Map(inventories.map((inv) => [inv.id, inv]));
+        const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
+        const inventoryMap = new Map(inventoriesWithLabels.map((inv) => [inv.id, inv]));
         const extrasMap = new Map(extras.map((e) => [e.zaicoId, e]));
         const inventoryExtrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
         const rows = purchases.map((p) => {
@@ -1778,6 +1797,7 @@ export const inventoryRouter = router({
                 ...item,
                 category: inv?.categories?.[0] ?? inv?.category ?? "未分類",
                 currentInventoryQuantity: inv?.quantity ?? null,
+                itemLabels: inv?.itemLabels?.map(toInventoryItemLabelView) ?? [],
                 etc: (() => {
                   const itemEtc = item.etc?.trim() ?? "";
                   const invEtc = inv?.etc?.trim() ?? "";
@@ -1813,6 +1833,7 @@ export const inventoryRouter = router({
         const invIds = localPurchaseRows
           .map((p) => p.localInventoryId)
           .filter((id): id is number => id != null);
+        const inventoryLabelMap = await getInventoryItemLabelsByInventoryIds(invIds);
         const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
         for (const inv of localInventoryRows) {
           invSupplierMap.set(inv.id, {
@@ -1866,7 +1887,7 @@ export const inventoryRouter = router({
                 return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
                   ...item,
                   category: p.category ?? "未分類",
-                  itemLabels: labelsForPurchaseItem(p, item),
+                  itemLabels: labelsForPurchaseItem(p, item, inventoryLabelMap),
                 })) : [];
               } catch {
                 return [{
@@ -1876,9 +1897,9 @@ export const inventoryRouter = router({
                   unit_price: p.unitPrice ?? null,
                   etc: p.managementNo ?? null,
                   status: p.status,
-                  inventory_id: null,
+                  inventory_id: p.localInventoryId ?? null,
                   category: p.category ?? "未分類",
-                  itemLabels: getPurchaseItemLabels(p),
+                  itemLabels: labelsForPurchaseItem(p, { inventory_id: p.localInventoryId }, inventoryLabelMap),
                 }];
               }
             })(),
