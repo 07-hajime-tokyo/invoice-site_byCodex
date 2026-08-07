@@ -973,7 +973,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
         return {
           key: `inventory-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
-          rawStatus: label.status ?? "",
+          rawStatus: label.status || "stocked",
           status: labelStatusLabel(label.status || "stocked"),
           title,
           printTitle: formatLabelPrintTitle(title),
@@ -1422,9 +1422,13 @@ function detectShipmentSheetNameForGroup(
   );
 }
 
-function isShippingReadyStatus(status?: string | null): boolean {
+function isShippableLabelStatus(status?: string | null): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
-  return !["shipped", "returned", "cancelled"].includes(normalized);
+  return normalized === "received" || normalized === "stocked";
+}
+
+function isShippableLabel(label: LabelView): boolean {
+  return Boolean(label.labelId.trim()) && isShippableLabelStatus(label.rawStatus);
 }
 
 function mergeLabelViewsById(...groups: LabelView[][]): LabelView[] {
@@ -1434,8 +1438,30 @@ function mergeLabelViewsById(...groups: LabelView[][]): LabelView[] {
       const key = label.labelId.trim().toUpperCase();
       if (!key) continue;
       const existing = map.get(key);
-      if (existing?.inventoryId && !label.inventoryId) continue;
-      map.set(key, label);
+      if (!existing) {
+        map.set(key, label);
+        continue;
+      }
+      const existingShippable = isShippableLabelStatus(existing.rawStatus);
+      const nextShippable = isShippableLabelStatus(label.rawStatus);
+      if (existing.inventoryId && !label.inventoryId) {
+        map.set(key, { ...label, ...existing });
+        continue;
+      }
+      if (existingShippable && !nextShippable) {
+        map.set(key, {
+          ...label,
+          inventoryId: label.inventoryId ?? existing.inventoryId,
+          rawStatus: existing.rawStatus,
+          status: existing.status,
+        });
+        continue;
+      }
+      map.set(key, {
+        ...existing,
+        ...label,
+        inventoryId: label.inventoryId ?? existing.inventoryId,
+      });
     }
   }
   return Array.from(map.values());
@@ -1451,7 +1477,7 @@ function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
   return labels.flatMap((label) => {
     const inventoryId = Number(label.inventoryId);
     const labelId = label.labelId.trim().toUpperCase();
-    if (!labelId || !Number.isFinite(inventoryId) || inventoryId <= 0 || !isShippingReadyStatus(label.rawStatus)) {
+    if (!labelId || !Number.isFinite(inventoryId) || inventoryId <= 0 || !isShippableLabelStatus(label.rawStatus)) {
       return [];
     }
     const key = `${inventoryId}-${labelId}`;
@@ -2856,11 +2882,13 @@ function StockPanel({ inventories, searchText }: { inventories: InventoryItem[];
 function ShippingPanel({
   group,
   labels,
+  allLabels,
   products,
   onDeliverySuccess,
 }: {
   group: AllocationGroup | null;
   labels: LabelView[];
+  allLabels: LabelView[];
   products: ProductSummary[];
   onDeliverySuccess: (labelIds: string[]) => void;
 }) {
@@ -2874,8 +2902,17 @@ function ShippingPanel({
   const [showConfirm, setShowConfirm] = useState(false);
   const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
-  const shippingItems = useMemo(() => buildShippingItemsFromLabels(labels), [labels]);
-  const pendingInventoryLabels = labels.filter((label) => label.labelId.trim() && !label.inventoryId && isShippingReadyStatus(label.rawStatus));
+  const [manualLabelValue, setManualLabelValue] = useState("");
+  const [manualShippingLabels, setManualShippingLabels] = useState<LabelView[]>([]);
+  const manualLabelId = (extractScannedLabelId(manualLabelValue) || manualLabelValue).trim().normalize("NFKC").toUpperCase();
+  const availableLabels = useMemo(() => mergeLabelViewsById(labels, manualShippingLabels), [labels, manualShippingLabels]);
+  const searchableLabels = useMemo(() => mergeLabelViewsById(availableLabels, allLabels), [allLabels, availableLabels]);
+  const manualMatchedLabel = useMemo(
+    () => (manualLabelId ? searchableLabels.find((label) => label.labelId.trim().toUpperCase() === manualLabelId) ?? null : null),
+    [manualLabelId, searchableLabels],
+  );
+  const shippingItems = useMemo(() => buildShippingItemsFromLabels(availableLabels), [availableLabels]);
+  const pendingInventoryLabels = availableLabels.filter((label) => label.labelId.trim() && !label.inventoryId && isShippableLabel(label));
   const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
   const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
   const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
@@ -2965,6 +3002,11 @@ function ShippingPanel({
   }, [autoSheetName]);
 
   useEffect(() => {
+    setManualLabelValue("");
+    setManualShippingLabels([]);
+  }, [group?.key]);
+
+  useEffect(() => {
     setSelectedKeys((current) => {
       const validKeys = new Set(shippingItems.map((item) => item.key));
       const next = new Set(Array.from(current).filter((key) => validKeys.has(key)));
@@ -2993,6 +3035,34 @@ function ShippingPanel({
   function setItemQuantity(item: ShippingItemView, quantity: number) {
     const nextQuantity = Math.min(item.maxQuantity, Math.max(1, Math.floor(quantity)));
     setQuantities((current) => ({ ...current, [item.key]: nextQuantity }));
+  }
+
+  function addManualLabelForShipping() {
+    if (!manualLabelId) {
+      toast.error("商品IDを入力してください");
+      return;
+    }
+    if (!manualMatchedLabel) {
+      toast.error(`商品ID ${manualLabelId} が見つかりません`);
+      return;
+    }
+    if (!isShippableLabel(manualMatchedLabel)) {
+      toast.error(`${manualLabelId} は未入庫のため出庫できません`);
+      return;
+    }
+    const [item] = buildShippingItemsFromLabels([manualMatchedLabel]);
+    if (!item) {
+      toast.error(`${manualLabelId} は在庫IDの反映待ちです。更新後に出庫してください`);
+      return;
+    }
+    setManualShippingLabels((current) => mergeLabelViewsById(current, [manualMatchedLabel]));
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      next.add(item.key);
+      return next;
+    });
+    setManualLabelValue("");
+    toast.success(`${manualLabelId} を出庫対象に追加しました`);
   }
 
   function openConfirm(keys: Set<string>) {
@@ -3051,7 +3121,7 @@ function ShippingPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-md border bg-background p-4">
+      <section className="rounded-md border bg-background p-3 sm:p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="text-lg font-semibold">出庫</h2>
@@ -3059,14 +3129,14 @@ function ShippingPanel({
               選択中のインボイス/在庫から、商品IDラベル単位で出庫できます。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={toggleAllSelected} disabled={shippingItems.length === 0}>
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={toggleAllSelected} disabled={shippingItems.length === 0}>
               {allSelected ? "全解除" : "全選択"}
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="gap-2"
+              className="w-full gap-2 sm:w-auto"
               onClick={() => openConfirm(new Set(shippingItems.map((item) => item.key)))}
               disabled={shippingItems.length === 0}
             >
@@ -3075,7 +3145,7 @@ function ShippingPanel({
             </Button>
             <Button
               type="button"
-              className="gap-2 bg-orange-600 text-white hover:bg-orange-700"
+              className="w-full gap-2 bg-orange-600 text-white hover:bg-orange-700 sm:w-auto"
               onClick={() => openConfirm(selectedKeys)}
               disabled={checkedItems.length === 0}
             >
@@ -3084,6 +3154,33 @@ function ShippingPanel({
               {checkedItems.length > 0 ? <Badge className="ml-1 bg-white/20 text-white">{checkedItems.length}</Badge> : null}
             </Button>
           </div>
+        </div>
+
+        <div className="mt-3 rounded-md border bg-slate-50 p-3">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <Input
+              value={manualLabelValue}
+              onChange={(event) => setManualLabelValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") addManualLabelForShipping();
+              }}
+              placeholder="商品IDを入力して出庫対象に追加"
+              autoComplete="off"
+              className="h-11 font-mono text-base sm:h-9 sm:text-sm"
+            />
+            <Button
+              type="button"
+              className="h-11 w-full gap-2 bg-orange-600 text-white hover:bg-orange-700 sm:h-9 sm:w-auto"
+              onClick={addManualLabelForShipping}
+              disabled={!manualLabelId}
+            >
+              <Truck className="h-4 w-4" />
+              追加
+            </Button>
+          </div>
+          {manualLabelId && manualMatchedLabel && !isShippableLabel(manualMatchedLabel) ? (
+            <p className="mt-2 text-sm text-amber-700">この商品IDはまだ入庫されていないため、出庫できません。</p>
+          ) : null}
         </div>
 
         {pendingInventoryLabels.length > 0 ? (
@@ -3097,7 +3194,7 @@ function ShippingPanel({
             <EmptyState icon={Truck} title="出庫できるラベルがありません" description="入庫済みの商品IDラベル、または在庫一覧を選択してください。" />
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {shippingItems.map((item) => {
               const checked = selectedKeys.has(item.key);
               const quantity = quantities[item.key] ?? item.quantity;
@@ -3118,7 +3215,7 @@ function ShippingPanel({
                       aria-label={`${item.labelId ?? item.title} を出庫選択`}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="font-mono text-xl font-bold tracking-wide text-slate-950">{item.labelId}</div>
+                      <div className="font-mono text-lg font-bold tracking-wide text-slate-950 sm:text-xl">{item.labelId}</div>
                       <div className="mt-1 text-sm font-semibold text-slate-950">{item.title}</div>
                       <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -3127,12 +3224,12 @@ function ShippingPanel({
                       </div>
                     </div>
                     {item.labelId ? (
-                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded border bg-white p-1.5">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded border bg-white p-1.5 sm:h-20 sm:w-20">
                         <ProductQrCode value={item.labelId} />
                       </div>
                     ) : null}
                   </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -3159,7 +3256,7 @@ function ShippingPanel({
                         +
                       </button>
                     </div>
-                    <Button type="button" size="sm" variant="outline" onClick={() => openConfirm(new Set([item.key]))}>
+                    <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => openConfirm(new Set([item.key]))}>
                       この商品を出庫
                     </Button>
                   </div>
@@ -3222,7 +3319,7 @@ function ShippingPanel({
       <ProductFulfillmentTableV2 products={products} />
 
       <Dialog open={showConfirm} onOpenChange={(open) => !isSubmitting && setShowConfirm(open)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PackageMinus className="h-5 w-5 text-orange-600" />
@@ -3249,47 +3346,51 @@ function ShippingPanel({
               </label>
             </div>
             <div className="overflow-hidden rounded-md border">
-              <div className="grid grid-cols-[minmax(0,1fr)_150px_120px] border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                <div>商品名</div>
-                <div>注文行</div>
-                <div className="text-right">出庫数量</div>
-              </div>
-              <div className="divide-y">
-                {confirmItems.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_150px_120px] items-center gap-3 px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{item.title}</div>
-                      <div className="mt-0.5 font-mono text-xs text-muted-foreground">{item.labelId} / {item.legacyManagementNo}</div>
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">{item.allocationLabel || "自動判定"}</div>
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
-                        onClick={() => setItemQuantity(item, item.quantity - 1)}
-                        disabled={item.quantity <= 1}
-                      >
-                        -
-                      </button>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={item.maxQuantity}
-                        value={item.quantity}
-                        onChange={(event) => setItemQuantity(item, Number(event.target.value))}
-                        className="h-7 w-14 px-1 text-center"
-                      />
-                      <button
-                        type="button"
-                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
-                        onClick={() => setItemQuantity(item, item.quantity + 1)}
-                        disabled={item.quantity >= item.maxQuantity}
-                      >
-                        +
-                      </button>
-                    </div>
+              <div className="overflow-x-auto">
+                <div className="min-w-[560px]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_150px_120px] border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                    <div>商品名</div>
+                    <div>注文行</div>
+                    <div className="text-right">出庫数量</div>
                   </div>
-                ))}
+                  <div className="divide-y">
+                    {confirmItems.map((item) => (
+                      <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_150px_120px] items-center gap-3 px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{item.title}</div>
+                          <div className="mt-0.5 font-mono text-xs text-muted-foreground">{item.labelId} / {item.legacyManagementNo}</div>
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">{item.allocationLabel || "自動判定"}</div>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                            onClick={() => setItemQuantity(item, item.quantity - 1)}
+                            disabled={item.quantity <= 1}
+                          >
+                            -
+                          </button>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={item.maxQuantity}
+                            value={item.quantity}
+                            onChange={(event) => setItemQuantity(item, Number(event.target.value))}
+                            className="h-7 w-14 px-1 text-center"
+                          />
+                          <button
+                            type="button"
+                            className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                            onClick={() => setItemQuantity(item, item.quantity + 1)}
+                            disabled={item.quantity >= item.maxQuantity}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
             <p className="text-sm text-muted-foreground">上記 {confirmItems.length} 件の商品を出庫処理します。この操作は元に戻せません。</p>
@@ -3707,6 +3808,7 @@ export default function PurchaseRegistration() {
                 <ShippingPanel
                   group={selectedShippingGroup}
                   labels={selectedShippingLabels}
+                  allLabels={allPrintableLabels}
                   products={selectedOpenProducts}
                   onDeliverySuccess={handleDeliverySuccess}
                 />
