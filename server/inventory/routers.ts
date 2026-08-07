@@ -1172,6 +1172,8 @@ const ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS = new Set([
   "402_マキシム_2/2",
 ]);
 
+const MAXIM_SECOND_LABEL_ID = "NRFZKRM";
+
 function shouldKeepRecoveredPurchaseOrdered(row: LocalPurchaseRow): boolean {
   const rowManagementNo = String(row.managementNo ?? "").trim();
   if (ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS.has(rowManagementNo)) return true;
@@ -1318,6 +1320,9 @@ async function cleanupAllowedRecoveredPurchaseIssues(
     .from(labelTbl)
     .where(eq(labelTbl.legacyManagementNo, "402_マキシム_2/2"));
   const sortedMaximSecondLabels = [...maximSecondLabels].sort((a, b) => {
+    const aIsTargetLabel = String(a.labelId ?? "").trim().toUpperCase() === MAXIM_SECOND_LABEL_ID;
+    const bIsTargetLabel = String(b.labelId ?? "").trim().toUpperCase() === MAXIM_SECOND_LABEL_ID;
+    if (aIsTargetLabel !== bIsTargetLabel) return aIsTargetLabel ? -1 : 1;
     const timeA = new Date(a.createdAt ?? 0).getTime();
     const timeB = new Date(b.createdAt ?? 0).getTime();
     if (timeA !== timeB) return timeB - timeA;
@@ -1329,16 +1334,23 @@ async function cleanupAllowedRecoveredPurchaseIssues(
     await db.delete(labelTbl).where(inArray(labelTbl.id, deleteLabelIds));
     changed = true;
   }
-  if (maximSecondRow && keepLabel && Number(keepLabel.purchaseId) !== maximSecondRow.id) {
-    await db
-      .update(labelTbl)
-      .set({
-        purchaseId: maximSecondRow.id,
-        localInventoryId: maximSecondRow.localInventoryId ?? keepLabel.localInventoryId,
-        status: "ordered",
-      })
-      .where(eq(labelTbl.id, keepLabel.id));
-    changed = true;
+  if (maximSecondRow && keepLabel) {
+    const targetLocalInventoryId = maximSecondRow.localInventoryId ?? keepLabel.localInventoryId;
+    const keepLabelNeedsUpdate =
+      Number(keepLabel.purchaseId) !== maximSecondRow.id ||
+      String(keepLabel.status ?? "").trim().toLowerCase() !== "ordered" ||
+      (targetLocalInventoryId != null && Number(keepLabel.localInventoryId) !== Number(targetLocalInventoryId));
+    if (keepLabelNeedsUpdate) {
+      await db
+        .update(labelTbl)
+        .set({
+          purchaseId: maximSecondRow.id,
+          localInventoryId: targetLocalInventoryId,
+          status: "ordered",
+        })
+        .where(eq(labelTbl.id, keepLabel.id));
+      changed = true;
+    }
   } else if (keepLabel && String(keepLabel.status ?? "").trim().toLowerCase() !== "ordered") {
     await db
       .update(labelTbl)
