@@ -292,11 +292,13 @@ export default function PurchaseHistory() {
                 </tr>
               </thead>
               <tbody>
-                {pagedHistories.map((h) => (
-                  <tr
-                    key={h.id}
-                    className={`border-b last:border-0 hover:bg-muted/10 ${h.cancelled ? "opacity-50" : ""}`}
-                  >
+                {pagedHistories.map((h) => {
+                  const canCancel = !h.cancelled && h.id > 0;
+                  return (
+                    <tr
+                      key={h.id}
+                      className={`border-b last:border-0 hover:bg-muted/10 ${h.cancelled ? "opacity-50" : ""}`}
+                    >
                     <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
                       {h.purchaseDate}
                     </td>
@@ -353,7 +355,7 @@ export default function PurchaseHistory() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {!h.cancelled && (
+                      {canCancel && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
@@ -392,8 +394,9 @@ export default function PurchaseHistory() {
                         </AlertDialog>
                       )}
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

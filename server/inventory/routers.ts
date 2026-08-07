@@ -17,7 +17,7 @@ import {
   type InboundClass,
 } from "@shared/inboundPipeline";
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -867,6 +867,7 @@ type PurchasePageRow = {
 
 type LocalInventoryRow = Awaited<ReturnType<typeof getLocalInventories>>[number];
 type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
+type PurchaseHistoryRow = Awaited<ReturnType<typeof getPurchaseHistories>>[number];
 type InventoryItemLabelView = {
   id?: number;
   labelId: string;
@@ -877,6 +878,69 @@ type InventoryItemLabelView = {
 
 function getInventoryManagementNo(etc: string | null | undefined) {
   return String(etc ?? "").split(",")[0]?.trim() ?? "";
+}
+
+function historyDateFrom(value: unknown, fallback = new Date()): string {
+  const date = value ? new Date(value as string | number | Date) : fallback;
+  return Number.isNaN(date.getTime()) ? fallback.toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function historyTimestampFrom(value: unknown, fallback = new Date()): Date {
+  const date = value ? new Date(value as string | number | Date) : fallback;
+  return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+function purchaseHistoryKey(row: Pick<PurchaseHistoryRow, "zaicoId" | "inventoryId" | "kanriNo" | "title">): string {
+  return [row.zaicoId, row.inventoryId ?? "", row.kanriNo ?? "", row.title].join("\u0001");
+}
+
+async function getRecoveredPurchaseHistoriesFromLabels(
+  histories: PurchaseHistoryRow[],
+  limit: number,
+): Promise<PurchaseHistoryRow[]> {
+  const existingKeys = new Set(histories.map(purchaseHistoryKey));
+  const recovered: PurchaseHistoryRow[] = [];
+  const inventories = await getLocalInventories();
+
+  for (const inventory of inventories) {
+    const zaicoId = Number(inventory.zaicoId ?? inventory.id);
+    if (!Number.isFinite(zaicoId) || zaicoId <= 0) continue;
+
+    for (const label of inventory.itemLabels ?? []) {
+      const status = String(label.status ?? "").trim().toLowerCase();
+      if (status !== "received" && status !== "stocked") continue;
+
+      const kanriNo = label.legacyManagementNo?.trim() || getInventoryManagementNo(inventory.etc) || null;
+      const title = label.title?.trim() || inventory.title;
+      const key = purchaseHistoryKey({ zaicoId, inventoryId: inventory.id, kanriNo, title });
+      if (existingKeys.has(key)) continue;
+
+      const createdAt = historyTimestampFrom(label.receivedAt ?? label.createdAt ?? inventory.updatedAt);
+      recovered.push({
+        id: -Math.abs(Number(label.id ?? recovered.length + 1)),
+        zaicoId,
+        kanriNo,
+        title,
+        category: inventory.category ?? null,
+        supplier: inventory.supplierName ?? null,
+        quantity: "1",
+        unitPrice: inventory.unitPrice == null ? null : String(inventory.unitPrice),
+        purchaseDate: historyDateFrom(label.receivedAt ?? label.createdAt ?? inventory.updatedAt, createdAt),
+        inventoryId: inventory.id,
+        cancelled: 0,
+        operatorName: null,
+        createdAt,
+        supplierUrl: inventory.supplierUrl ?? null,
+        supplierName: inventory.supplierName ?? null,
+        trackingNumber: null,
+        carrier: null,
+      });
+      existingKeys.add(key);
+      if (recovered.length >= limit) return recovered;
+    }
+  }
+
+  return recovered;
 }
 
 function inventoryStockQuantity(quantity: unknown): number {
@@ -3587,7 +3651,16 @@ export const inventoryRouter = router({
     list: publicProcedure
       .input(z.object({ limit: z.number().int().positive().max(500).default(200) }))
       .query(async ({ input }) => {
-        return getPurchaseHistories(input.limit);
+        const histories = await getPurchaseHistories(input.limit);
+        try {
+          const recovered = await getRecoveredPurchaseHistoriesFromLabels(histories, input.limit);
+          return [...histories, ...recovered]
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, input.limit);
+        } catch (error) {
+          console.warn("[purchaseHistory.list] failed to recover QR inbound histories:", error);
+          return histories;
+        }
       }),
 
     cancel: publicProcedure
@@ -4588,15 +4661,34 @@ export const inventoryRouter = router({
             if (allReceived) {
               await updateLocalPurchaseStatus(purchase.id, "purchased", today);
             }
+          }
 
+          const historyZaicoId =
+            purchase?.zaicoId ??
+            purchase?.id ??
+            inventory?.zaicoId ??
+            inventory?.id ??
+            localInventoryId;
+          if (historyZaicoId) {
+            const historyManagementNo =
+              label.legacyManagementNo ?? purchase?.managementNo ?? getInventoryManagementNo(inventory?.etc) ?? null;
+            const historyTitle = label.title || purchase?.title || inventory?.title || labelId;
+            const historyCategory = purchase?.category ?? inventory?.category ?? null;
+            const historySupplier = purchase?.supplierName ?? inventory?.supplierName ?? null;
+            const historyUnitPrice =
+              purchase?.unitPrice == null
+                ? inventory?.unitPrice == null
+                  ? null
+                  : String(inventory.unitPrice)
+                : String(purchase.unitPrice);
             await createPurchaseHistory({
-              zaicoId: purchase.zaicoId ?? purchase.id,
-              kanriNo: label.legacyManagementNo ?? purchase.managementNo ?? null,
-              title: label.title || purchase.title || "",
-              category: purchase.category ?? null,
-              supplier: purchase.supplierName ?? null,
+              zaicoId: historyZaicoId,
+              kanriNo: historyManagementNo,
+              title: historyTitle,
+              category: historyCategory,
+              supplier: historySupplier,
               quantity: "1",
-              unitPrice: purchase.unitPrice == null ? null : String(purchase.unitPrice),
+              unitPrice: historyUnitPrice,
               purchaseDate: today,
               inventoryId: inventory?.id ?? localInventoryId,
               cancelled: 0,
@@ -4616,11 +4708,83 @@ export const inventoryRouter = router({
               sourceId: labelId,
               detailsJson: JSON.stringify({
                 labelId,
-                purchaseId: purchase.id,
+                purchaseId: purchase?.id ?? null,
                 inventoryId: inventory?.id ?? localInventoryId,
-                managementNo: label.legacyManagementNo ?? purchase.managementNo ?? null,
+                managementNo: historyManagementNo,
               }),
             });
+          }
+        } else {
+          const historyZaicoId =
+            purchase?.zaicoId ??
+            purchase?.id ??
+            inventory?.zaicoId ??
+            inventory?.id ??
+            localInventoryId;
+          if (historyZaicoId) {
+            const { purchaseHistories: purchaseHistoriesTbl } = await import("../../drizzle/schema");
+            const historyManagementNo =
+              label.legacyManagementNo ?? purchase?.managementNo ?? getInventoryManagementNo(inventory?.etc) ?? null;
+            const historyTitle = label.title || purchase?.title || inventory?.title || labelId;
+            const existingHistory = await db
+              .select({ id: purchaseHistoriesTbl.id })
+              .from(purchaseHistoriesTbl)
+              .where(
+                and(
+                  eq(purchaseHistoriesTbl.zaicoId, historyZaicoId),
+                  eq(purchaseHistoriesTbl.title, historyTitle),
+                  eq(purchaseHistoriesTbl.cancelled, 0),
+                ),
+              )
+              .limit(1);
+
+            if (existingHistory.length === 0) {
+              const now = new Date();
+              const receivedAt = label.receivedAt ? new Date(label.receivedAt) : now;
+              const purchaseDate = Number.isNaN(receivedAt.getTime()) ? today : receivedAt.toISOString().slice(0, 10);
+              const historyCategory = purchase?.category ?? inventory?.category ?? null;
+              const historySupplier = purchase?.supplierName ?? inventory?.supplierName ?? null;
+              const historyUnitPrice =
+                purchase?.unitPrice == null
+                  ? inventory?.unitPrice == null
+                    ? null
+                    : String(inventory.unitPrice)
+                  : String(purchase.unitPrice);
+
+              await createPurchaseHistory({
+                zaicoId: historyZaicoId,
+                kanriNo: historyManagementNo,
+                title: historyTitle,
+                category: historyCategory,
+                supplier: historySupplier,
+                quantity: "1",
+                unitPrice: historyUnitPrice,
+                purchaseDate,
+                inventoryId: inventory?.id ?? localInventoryId,
+                cancelled: 0,
+                operatorName,
+              });
+
+              await recordWorkLog({
+                workerName: operatorName,
+                category: "入庫登録",
+                status: "done",
+                startedAt: now,
+                endedAt: now,
+                quantity: 1,
+                memo: `商品ID: ${labelId} / 履歴補完`,
+                createdBy: operatorName,
+                sourceType: "purchase-label",
+                sourceId: labelId,
+                detailsJson: JSON.stringify({
+                  labelId,
+                  purchaseId: purchase?.id ?? null,
+                  inventoryId: inventory?.id ?? localInventoryId,
+                  managementNo: historyManagementNo,
+                  recoveredHistory: true,
+                }),
+              });
+            }
           }
         }
 

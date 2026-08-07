@@ -64,7 +64,7 @@ interface PurchaseRow {
   status?: string | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
-  extra?: { trackingNumber?: string | null; carrier?: string | null } | null;
+  extra?: { shipDate?: string | null; trackingNumber?: string | null; carrier?: string | null; note?: string | null } | null;
   purchase_items: PurchaseItem[];
 }
 
@@ -86,8 +86,9 @@ interface InventoryItem {
   itemLabels?: InventoryItemLabel[];
 }
 
-type StatusFilter = "all" | "ordered" | "received";
+type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
+type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
 
 interface SupplierView {
   name: string;
@@ -235,6 +236,43 @@ const TRACKING_CARRIER_KEYS = new Set<Carrier>([
   "unknown",
 ]);
 
+const TRACKING_CARRIER_OPTIONS: Array<{ value: "auto" | Carrier; label: string }> = [
+  { value: "auto", label: "自動判別" },
+  { value: "japanpost", label: "日本郵便" },
+  { value: "yamato", label: "ヤマト運輸" },
+  { value: "sagawa", label: "佐川急便" },
+  { value: "amazon", label: "Amazon" },
+  { value: "seino", label: "西濃運輸" },
+  { value: "ecohai", label: "エコ配" },
+  { value: "fukuyama", label: "福山通運" },
+];
+
+function todayInputDate(): string {
+  return new Date().toLocaleDateString("sv-SE");
+}
+
+function normalizedTrackingNumber(trackingNumber: string): string {
+  return trackingNumber.trim().replace(/[\s-]/g, "");
+}
+
+function openEcohaiTracking(trackingNumber: string) {
+  if (typeof document === "undefined") return;
+  const num = normalizedTrackingNumber(trackingNumber);
+  if (!num) return;
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = "https://www.ecohai.co.jp/cargo_tracking/search";
+  form.target = "_blank";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "slip[]";
+  input.value = num;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+}
+
 function normalizeCarrierKey(value: string | null | undefined, fallback: Carrier): Carrier {
   const normalized = (value ?? "").trim().toLowerCase();
   if (!normalized || normalized === "auto") return fallback;
@@ -249,7 +287,7 @@ function normalizeCarrierKey(value: string | null | undefined, fallback: Carrier
 }
 
 function getTrackingUrlForCarrier(carrier: Carrier, trackingNumber: string, fallbackUrl: string | null): string | null {
-  const num = trackingNumber.trim().replace(/[\s-]/g, "");
+  const num = normalizedTrackingNumber(trackingNumber);
   if (!num) return null;
   switch (carrier) {
     case "yamato":
@@ -264,6 +302,8 @@ function getTrackingUrlForCarrier(carrier: Carrier, trackingNumber: string, fall
       return `https://track.seino.co.jp/cgi-bin/gnpquery.pgm?GNPNO1=${num}`;
     case "fukuyama":
       return "https://corp.fukutsu.co.jp/situation/tracking_no_input.html";
+    case "ecohai":
+      return null;
     default:
       return fallbackUrl;
   }
@@ -276,7 +316,17 @@ function getPurchaseTrackingMeta(trackingNumber: string, savedCarrier?: string |
     carrier,
     carrierName: TRACKING_CARRIER_LABELS[carrier] ?? autoInfo.carrierName,
     trackingUrl: getTrackingUrlForCarrier(carrier, trackingNumber, autoInfo.trackingUrl),
+    isEcohai: carrier === "ecohai",
+    normalizedNumber: normalizedTrackingNumber(trackingNumber),
   };
+}
+
+function purchaseTrackingNumber(row: PurchaseRow): string {
+  return row.extra?.trackingNumber?.trim() ?? "";
+}
+
+function hasPurchaseTracking(row: PurchaseRow): boolean {
+  return purchaseTrackingNumber(row).length > 0;
 }
 
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
@@ -462,6 +512,7 @@ function isReceived(row: PurchaseRow): boolean {
 
 function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   if (filter === "all") return true;
+  if (filter === "missing_tracking") return !hasPurchaseTracking(row);
   const kind = purchaseRowStatusKind(row);
   if (filter === "received") return kind !== "ordered";
   return kind === "ordered";
@@ -1830,12 +1881,14 @@ function purchaseRowInventoryId(row: PurchaseRow): number | null {
 function PurchaseRegistrationCard({
   row,
   onPrintLabels,
+  onOpenTrackingDialog,
   onOpenShippingHistory,
   onDeleteRow,
   isDeleting,
 }: {
   row: PurchaseRow;
   onPrintLabels: LabelPrintRequest;
+  onOpenTrackingDialog: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   isDeleting?: boolean;
@@ -1849,7 +1902,7 @@ function PurchaseRegistrationCard({
   const displayItems = row.purchase_items.slice(0, 4);
   const hiddenItemCount = Math.max(0, row.purchase_items.length - displayItems.length);
   const unitPrice = firstItem?.unit_price;
-  const trackingNumber = row.extra?.trackingNumber?.trim();
+  const trackingNumber = purchaseTrackingNumber(row);
   const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
   const rowLabels = buildLabelViews([row]);
   const deletableInventoryId = purchaseRowInventoryId(row);
@@ -1880,14 +1933,23 @@ function PurchaseRegistrationCard({
             <Badge variant="outline" className={statusClass(row)}>
               {statusLabel(row)}
             </Badge>
-            {!isReceived(row) && trackingNumber && trackingInfo ? (
+            {trackingNumber && trackingInfo ? (
               <span className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-sm font-semibold text-blue-900">
                 <span className={`rounded px-1.5 py-0.5 text-xs ${getCarrierColor(trackingInfo.carrier)}`}>
                   {TRACKING_CARRIER_LABELS[trackingInfo.carrier]}
                 </span>
                 <span className="text-xs text-blue-700">追跡番号</span>
                 <span className="font-mono text-base font-bold text-slate-950">{trackingNumber}</span>
-                {trackingInfo.trackingUrl ? (
+                {trackingInfo.isEcohai ? (
+                  <button
+                    type="button"
+                    onClick={() => openEcohaiTracking(trackingNumber)}
+                    className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    追跡
+                  </button>
+                ) : trackingInfo.trackingUrl ? (
                   <a
                     href={trackingInfo.trackingUrl}
                     target="_blank"
@@ -1907,6 +1969,16 @@ function PurchaseRegistrationCard({
           </div>
         </div>
         <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 sm:w-fit"
+            onClick={() => onOpenTrackingDialog(row)}
+          >
+            <Truck className="h-4 w-4" />
+            {trackingNumber ? "追跡番号を編集" : "追跡番号を登録"}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -2267,6 +2339,7 @@ function OrderDashboard({
   onProductFilter,
   onClearProductFilter,
   onPrintLabels,
+  onOpenTrackingDialog,
   onOpenShippingHistory,
   onDeleteRow,
   deletingRowId,
@@ -2279,6 +2352,7 @@ function OrderDashboard({
   onProductFilter?: (filter: ProductDetailFilter) => void;
   onClearProductFilter?: () => void;
   onPrintLabels: LabelPrintRequest;
+  onOpenTrackingDialog: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
@@ -2345,6 +2419,7 @@ function OrderDashboard({
                 key={row.id}
                 row={row}
                 onPrintLabels={onPrintLabels}
+                onOpenTrackingDialog={onOpenTrackingDialog}
                 onOpenShippingHistory={onOpenShippingHistory}
                 onDeleteRow={onDeleteRow}
                 isDeleting={deletingRowId === row.id}
@@ -3729,7 +3804,14 @@ export default function PurchaseRegistration() {
   const [printJobId, setPrintJobId] = useState(0);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+  const [trackingDialogRow, setTrackingDialogRow] = useState<PurchaseRow | null>(null);
+  const [trackingForm, setTrackingForm] = useState<TrackingFormState>({
+    shipDate: todayInputDate(),
+    trackingNumber: "",
+    carrier: "auto",
+  });
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
+  const upsertPurchaseExtraMutation = trpc.inventory.purchaseExtra.upsert.useMutation();
 
   const normalizedSearch = search.trim();
 
@@ -3846,13 +3928,19 @@ export default function PurchaseRegistration() {
         acc.all += 1;
         if (purchaseRowStatusKind(row) === "ordered") acc.ordered += 1;
         else acc.received += 1;
+        if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
         acc.labels += getItemLabels(row.purchase_items).length;
         acc.quantity += sumQuantity(row.purchase_items);
         return acc;
       },
-      { all: 0, ordered: 0, received: 0, labels: 0, quantity: 0 },
+      { all: 0, ordered: 0, received: 0, missingTracking: 0, labels: 0, quantity: 0 },
     );
   }, [rows]);
+
+  const trackingPreview = useMemo(() => {
+    const trackingNumber = trackingForm.trackingNumber.trim();
+    return trackingNumber ? getPurchaseTrackingMeta(trackingNumber, trackingForm.carrier) : null;
+  }, [trackingForm.carrier, trackingForm.trackingNumber]);
 
   const workflowCounts = useMemo(
     () => ({
@@ -3902,6 +3990,46 @@ export default function PurchaseRegistration() {
     window.setTimeout(() => {
       document.getElementById("purchase-shipping-history")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
+  };
+
+  const handleOpenTrackingDialog = (row: PurchaseRow) => {
+    const savedCarrier = row.extra?.carrier?.trim().toLowerCase();
+    setTrackingForm({
+      shipDate: row.extra?.shipDate?.slice(0, 10) || todayInputDate(),
+      trackingNumber: row.extra?.trackingNumber ?? "",
+      carrier:
+        savedCarrier && savedCarrier !== "auto" && TRACKING_CARRIER_KEYS.has(savedCarrier as Carrier)
+          ? (savedCarrier as Carrier)
+          : "auto",
+    });
+    setTrackingDialogRow(row);
+  };
+
+  const handleSubmitTracking = async () => {
+    if (!trackingDialogRow || upsertPurchaseExtraMutation.isPending) return;
+    const trackingNumber = trackingForm.trackingNumber.trim();
+    if (!trackingNumber) {
+      toast.error("追跡番号を入力してください");
+      return;
+    }
+    try {
+      await upsertPurchaseExtraMutation.mutateAsync({
+        zaicoId: trackingDialogRow.id,
+        shipDate: trackingForm.shipDate || undefined,
+        trackingNumber,
+        carrier: trackingForm.carrier === "auto" ? undefined : trackingForm.carrier,
+        note: trackingDialogRow.extra?.note ?? undefined,
+      });
+      toast.success("追跡番号を登録しました");
+      setTrackingDialogRow(null);
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.purchaseHistory.list.invalidate(),
+      ]);
+      void refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "追跡番号の登録に失敗しました");
+    }
   };
 
   const handleDeletePurchaseRow = async (row: PurchaseRow) => {
@@ -4039,6 +4167,7 @@ export default function PurchaseRegistration() {
                       <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
                       <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
                       <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
+                      <TabsTrigger value="missing_tracking">追跡番号未登録 {counts.missingTracking}</TabsTrigger>
                     </TabsList>
                   </Tabs>
                 )}
@@ -4074,6 +4203,7 @@ export default function PurchaseRegistration() {
                   onProductFilter={setProductDetailFilter}
                   onClearProductFilter={() => setProductDetailFilter(null)}
                   onPrintLabels={handlePrintLabels}
+                  onOpenTrackingDialog={handleOpenTrackingDialog}
                   onOpenShippingHistory={handleOpenShippingHistory}
                   onDeleteRow={handleDeletePurchaseRow}
                   deletingRowId={deletingRowId}
@@ -4104,6 +4234,114 @@ export default function PurchaseRegistration() {
           )}
 
         </main>
+
+        <Dialog
+          open={Boolean(trackingDialogRow)}
+          onOpenChange={(open) => {
+            if (!open && !upsertPurchaseExtraMutation.isPending) setTrackingDialogRow(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-blue-600" />
+                追跡番号を登録
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              {trackingDialogRow ? (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                  <div className="font-medium">
+                    {actualProductTitle(trackingDialogRow.purchase_items[0]) || trackingDialogRow.purchase_items[0]?.title || "商品"}
+                  </div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">
+                    {getItemLabels(trackingDialogRow.purchase_items).map((label) => label.labelId).join(" / ") || "商品ID未発行"}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    旧管理番号: {getManagementNos(trackingDialogRow.purchase_items).join(" / ") || "-"}
+                  </div>
+                </div>
+              ) : null}
+
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">発送日</span>
+                <Input
+                  type="date"
+                  value={trackingForm.shipDate}
+                  onChange={(event) => setTrackingForm((current) => ({ ...current, shipDate: event.target.value }))}
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">追跡番号</span>
+                <Input
+                  value={trackingForm.trackingNumber}
+                  onChange={(event) => setTrackingForm((current) => ({ ...current, trackingNumber: event.target.value }))}
+                  placeholder="追跡番号を入力"
+                  autoFocus
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">発送業者</span>
+                <select
+                  className={fieldClass}
+                  value={trackingForm.carrier}
+                  onChange={(event) => setTrackingForm((current) => ({ ...current, carrier: event.target.value as TrackingFormState["carrier"] }))}
+                >
+                  {TRACKING_CARRIER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {trackingPreview ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+                  <span className={`rounded px-2 py-0.5 text-xs ${getCarrierColor(trackingPreview.carrier)}`}>
+                    {TRACKING_CARRIER_LABELS[trackingPreview.carrier]}
+                  </span>
+                  <span className="font-mono font-semibold">{trackingForm.trackingNumber.trim()}</span>
+                  {trackingPreview.isEcohai ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => openEcohaiTracking(trackingForm.trackingNumber)}>
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                      追跡を開く
+                    </Button>
+                  ) : trackingPreview.trackingUrl ? (
+                    <a
+                      href={trackingPreview.trackingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded border bg-background px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      追跡を開く
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setTrackingDialogRow(null)}
+                disabled={upsertPurchaseExtraMutation.isPending}
+              >
+                キャンセル
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmitTracking}
+                disabled={upsertPurchaseExtraMutation.isPending || !trackingForm.trackingNumber.trim()}
+              >
+                {upsertPurchaseExtraMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+                追跡番号を登録
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-20 lg:z-30 lg:h-auto lg:w-[188px] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
