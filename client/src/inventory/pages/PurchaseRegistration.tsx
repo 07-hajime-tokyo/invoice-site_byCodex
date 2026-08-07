@@ -7,6 +7,7 @@ import { extractManagementHints, extractModel, extractPreferredModel, suggestCsv
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1606,6 +1607,17 @@ function isShippableLabelStatus(status?: string | null): boolean {
   return normalized === "received" || normalized === "stocked";
 }
 
+function isReceivableScanCandidate(label: LabelView): boolean {
+  const status = normalizedLabelStatus(label.rawStatus);
+  return (
+    Boolean(label.labelId.trim()) &&
+    !isShippableLabelStatus(status) &&
+    status !== "shipped" &&
+    status !== "returned" &&
+    status !== "cancelled"
+  );
+}
+
 function isShippableLabel(label: LabelView): boolean {
   return Boolean(label.labelId.trim()) && isShippableLabelStatus(label.rawStatus);
 }
@@ -3099,8 +3111,11 @@ function ScanPanel({
   const utils = trpc.useUtils();
   const [scanValue, setScanValue] = useState("");
   const [confirmValue, setConfirmValue] = useState("");
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(() => new Set());
+  const [bulkReceivePending, setBulkReceivePending] = useState(false);
   const resumeCameraAfterConfirmRef = useRef(false);
   const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
+  type ReceivePurchaseLabelResult = Awaited<ReturnType<typeof receiveMutation.mutateAsync>>;
   const qrScanner = useQrCameraScanner((rawValue) => {
     openReceiveConfirm(rawValue, { resumeCameraAfterSuccess: true });
   });
@@ -3171,11 +3186,73 @@ function ScanPanel({
   const matched = scanTarget.matched;
   const candidateLabels = scanTarget.candidates;
   const receiveLabelId = scanTarget.receiveLabelId;
+  const receivableCandidateLabels = candidateLabels.filter(isReceivableScanCandidate);
+  const selectedCandidateLabels = candidateLabels.filter(
+    (label) => selectedCandidateIds.has(label.labelId) && isReceivableScanCandidate(label),
+  );
+  const selectedCandidateCount = selectedCandidateLabels.length;
+  const allReceivableCandidatesSelected =
+    receivableCandidateLabels.length > 0 &&
+    receivableCandidateLabels.every((label) => selectedCandidateIds.has(label.labelId));
+  const isReceiving = receiveMutation.isPending || bulkReceivePending;
 
-  function openReceiveConfirm(value: string, options?: { resumeCameraAfterSuccess?: boolean }) {
+  useEffect(() => {
+    setSelectedCandidateIds((current) => (current.size === 0 ? current : new Set()));
+  }, [scanSearchValue]);
+
+  function markReceivedLabel(label: LabelView | null | undefined, result: ReceivePurchaseLabelResult) {
+    if (!label) return;
+    onReceivedLabel?.({
+      ...label,
+      rawStatus: "received",
+      status: labelStatusLabel("received"),
+      title: result.title ?? label.title,
+      legacyManagementNo: result.legacyManagementNo ?? label.legacyManagementNo,
+      inventoryId: result.localInventoryId ?? label.inventoryId ?? null,
+    });
+  }
+
+  async function refreshPurchaseRegistrationData() {
+    await Promise.all([
+      utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      utils.inventory.zaico.getInventories.invalidate(),
+      utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+    ]);
+  }
+
+  function toggleCandidateSelection(labelId: string, checked: boolean | "indeterminate") {
+    setSelectedCandidateIds((current) => {
+      const next = new Set(current);
+      if (checked === true) {
+        next.add(labelId);
+      } else {
+        next.delete(labelId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllReceivableCandidates() {
+    setSelectedCandidateIds((current) => {
+      const next = new Set(current);
+      if (allReceivableCandidatesSelected) {
+        for (const label of receivableCandidateLabels) next.delete(label.labelId);
+      } else {
+        for (const label of receivableCandidateLabels) next.add(label.labelId);
+      }
+      return next;
+    });
+  }
+
+  function openReceiveConfirm(
+    value: string,
+    options?: { resumeCameraAfterSuccess?: boolean; preserveSearchValue?: boolean },
+  ) {
     const nextValue = value.trim();
     if (!nextValue) return;
-    setScanValue(nextValue);
+    if (!options?.preserveSearchValue) {
+      setScanValue(nextValue);
+    }
     const target = getScanTarget(nextValue);
     if (!target.receiveLabelId) return;
     resumeCameraAfterConfirmRef.current = Boolean(options?.resumeCameraAfterSuccess);
@@ -3189,8 +3266,9 @@ function ScanPanel({
 
   async function receiveMatchedLabel(targetValue = scanValue) {
     const target = getScanTarget(targetValue);
-    if (!target.receiveLabelId || receiveMutation.isPending) return;
+    if (!target.receiveLabelId || isReceiving) return;
     const shouldResumeCamera = resumeCameraAfterConfirmRef.current;
+    const shouldKeepSearchValue = targetValue.trim() !== scanValue.trim();
     try {
       const result = await receiveMutation.mutateAsync({ labelId: target.receiveLabelId });
       if (result.alreadyReceived) {
@@ -3198,23 +3276,18 @@ function ScanPanel({
       } else {
         toast.success("登録しました。");
       }
-      if (target.matched) {
-        onReceivedLabel?.({
-          ...target.matched,
-          rawStatus: "received",
-          status: labelStatusLabel("received"),
-          title: result.title ?? target.matched.title,
-          legacyManagementNo: result.legacyManagementNo ?? target.matched.legacyManagementNo,
-          inventoryId: result.localInventoryId ?? target.matched.inventoryId ?? null,
-        });
+      markReceivedLabel(target.matched, result);
+      setSelectedCandidateIds((current) => {
+        if (!current.has(result.labelId)) return current;
+        const next = new Set(current);
+        next.delete(result.labelId);
+        return next;
+      });
+      if (!shouldKeepSearchValue) {
+        setScanValue("");
       }
-      setScanValue("");
       closeReceiveConfirm();
-      await Promise.all([
-        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
-        utils.inventory.zaico.getInventories.invalidate(),
-        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
-      ]);
+      await refreshPurchaseRegistrationData();
       if (shouldResumeCamera) {
         window.setTimeout(() => {
           void qrScanner.startCamera();
@@ -3222,6 +3295,59 @@ function ScanPanel({
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "入庫登録に失敗しました");
+    }
+  }
+
+  async function receiveSelectedCandidates() {
+    if (isReceiving || selectedCandidateLabels.length === 0) return;
+    const targets = selectedCandidateLabels;
+    const completedIds = new Set<string>();
+    let receivedCount = 0;
+    let alreadyReceivedCount = 0;
+    let failedCount = 0;
+    let firstErrorMessage: string | null = null;
+
+    setBulkReceivePending(true);
+    try {
+      for (const label of targets) {
+        try {
+          const result = await receiveMutation.mutateAsync({ labelId: label.labelId });
+          completedIds.add(result.labelId);
+          if (result.alreadyReceived) {
+            alreadyReceivedCount += 1;
+          } else {
+            receivedCount += 1;
+          }
+          markReceivedLabel(label, result);
+        } catch (error) {
+          failedCount += 1;
+          firstErrorMessage ??= error instanceof Error ? error.message : null;
+        }
+      }
+
+      if (receivedCount > 0) {
+        toast.success(`${receivedCount.toLocaleString()}件を入庫登録しました`);
+      }
+      if (alreadyReceivedCount > 0) {
+        toast.info(`${alreadyReceivedCount.toLocaleString()}件はすでに入庫済みです`);
+      }
+      if (failedCount > 0) {
+        toast.error(
+          firstErrorMessage
+            ? `${failedCount.toLocaleString()}件の入庫登録に失敗しました: ${firstErrorMessage}`
+            : `${failedCount.toLocaleString()}件の入庫登録に失敗しました`,
+        );
+      }
+
+      setSelectedCandidateIds((current) => {
+        if (completedIds.size === 0) return current;
+        const next = new Set(current);
+        for (const labelId of completedIds) next.delete(labelId);
+        return next;
+      });
+      await refreshPurchaseRegistrationData();
+    } finally {
+      setBulkReceivePending(false);
     }
   }
 
@@ -3275,7 +3401,7 @@ function ScanPanel({
           <Button
             type="button"
             className="h-12 gap-2 sm:h-9"
-            disabled={!receiveLabelId || receiveMutation.isPending}
+            disabled={!receiveLabelId || isReceiving}
             onClick={() => openReceiveConfirm(scanValue)}
           >
             {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -3287,7 +3413,7 @@ function ScanPanel({
       <Dialog
         open={Boolean(confirmValue)}
         onOpenChange={(open) => {
-          if (!open && !receiveMutation.isPending) closeReceiveConfirm();
+          if (!open && !isReceiving) closeReceiveConfirm();
         }}
       >
         <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-lg">
@@ -3314,7 +3440,7 @@ function ScanPanel({
             <Button
               type="button"
               variant="outline"
-              disabled={receiveMutation.isPending}
+              disabled={isReceiving}
               onClick={() => closeReceiveConfirm()}
             >
               キャンセル
@@ -3322,7 +3448,7 @@ function ScanPanel({
             <Button
               type="button"
               className="gap-2"
-              disabled={!confirmTarget.receiveLabelId || receiveMutation.isPending}
+              disabled={!confirmTarget.receiveLabelId || isReceiving}
               onClick={() => receiveMatchedLabel(confirmValue)}
             >
               {receiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
@@ -3342,19 +3468,60 @@ function ScanPanel({
         </section>
       ) : candidateLabels.length > 0 ? (
         <section className="rounded-md border border-blue-200 bg-blue-50 p-3 md:p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-            <Search className="h-4 w-4" />
-            追跡番号の候補 {candidateLabels.length.toLocaleString()}件
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+              <Search className="h-4 w-4" />
+              追跡番号の候補 {candidateLabels.length.toLocaleString()}件
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2 bg-white"
+                disabled={receivableCandidateLabels.length === 0 || isReceiving}
+                onClick={toggleAllReceivableCandidates}
+              >
+                <Checkbox checked={allReceivableCandidatesSelected} className="pointer-events-none h-4 w-4" aria-hidden />
+                {allReceivableCandidatesSelected ? "選択解除" : "全選択"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="gap-2"
+                disabled={selectedCandidateCount === 0 || isReceiving}
+                onClick={receiveSelectedCandidates}
+              >
+                {bulkReceivePending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                {selectedCandidateCount > 0
+                  ? `選択した${selectedCandidateCount.toLocaleString()}件を入庫`
+                  : "選択した商品を入庫"}
+              </Button>
+            </div>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {candidateLabels.map((label) => {
-              const status = normalizedLabelStatus(label.rawStatus);
-              const disabled = status === "shipped" || status === "returned" || status === "cancelled";
+              const disabled = !isReceivableScanCandidate(label);
+              const isSelected = selectedCandidateIds.has(label.labelId) && !disabled;
               return (
-                <div key={label.labelId} className="rounded-md border bg-white p-3 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-mono text-xl font-bold text-slate-950">{label.labelId}</div>
+                <div
+                  key={label.labelId}
+                  className={cn(
+                    "rounded-md border bg-white p-3 shadow-sm",
+                    isSelected && "border-blue-500 bg-blue-50/70 ring-1 ring-blue-200",
+                    disabled && "opacity-70",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={isSelected}
+                      disabled={disabled || isReceiving}
+                      onCheckedChange={(checked) => toggleCandidateSelection(label.labelId, checked)}
+                      aria-label={`${label.labelId}を選択`}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="break-all font-mono text-xl font-bold text-slate-950">{label.labelId}</div>
                       <div className="mt-1 text-sm font-semibold text-slate-950">{label.title}</div>
                       <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {label.legacyManagementNo}</div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -3370,8 +3537,8 @@ function ScanPanel({
                     type="button"
                     size="sm"
                     className="mt-3 w-full gap-2"
-                    disabled={disabled || receiveMutation.isPending}
-                    onClick={() => openReceiveConfirm(label.labelId)}
+                    disabled={disabled || isReceiving}
+                    onClick={() => openReceiveConfirm(label.labelId, { preserveSearchValue: true })}
                   >
                     <PackageCheck className="h-4 w-4" />
                     この商品を入庫
