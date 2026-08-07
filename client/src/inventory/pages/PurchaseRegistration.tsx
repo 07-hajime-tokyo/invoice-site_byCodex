@@ -7,8 +7,11 @@ import { extractManagementHints, extractModel, extractPreferredModel, suggestCsv
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FedexShipmentDialog, type HistoryItem } from "@/inventory/pages/DeliveryHistory";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import {
   Boxes,
   CalendarDays,
@@ -17,12 +20,14 @@ import {
   FileText,
   Loader2,
   PackageCheck,
+  PackageMinus,
   PackagePlus,
   Printer,
   RefreshCw,
   RotateCcw,
   ScanLine,
   Search,
+  Send,
   Tag,
   Truck,
 } from "lucide-react";
@@ -32,6 +37,7 @@ interface InventoryItemLabel {
   labelId: string;
   status?: string | null;
   legacyManagementNo?: string | null;
+  localInventoryId?: number | null;
 }
 
 interface PurchaseItem {
@@ -101,12 +107,14 @@ interface LabelView {
   purchaseDate: string;
   rowId: number;
   itemId: number;
+  inventoryId?: number | null;
 }
 
 type LabelPrintRequest = (labels: LabelView[]) => void;
 
 interface StockItemView {
   key: string;
+  inventoryId: number;
   labelId: string | null;
   status: string;
   title: string;
@@ -117,6 +125,19 @@ interface StockItemView {
   quantity: number;
   supplier: SupplierView;
   purchaseDate: string;
+}
+
+interface ShippingItemView {
+  key: string;
+  inventoryId: number;
+  labelId: string | null;
+  title: string;
+  legacyManagementNo: string;
+  allocationLabel: string;
+  unitPrice: number;
+  supplier: SupplierView;
+  quantity: number;
+  maxQuantity: number;
 }
 
 interface ProductSummary {
@@ -189,6 +210,8 @@ const fieldClass =
 
 const OTHER_INVOICE_KEY = "invoice-other";
 const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
+type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理";
+const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"];
 const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
   yamato: "ヤマト運輸",
   sagawa: "佐川急便",
@@ -919,6 +942,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
           rowId: row.id,
           itemId: item.id,
+          inventoryId: label.localInventoryId ?? item.inventory_id ?? null,
         };
       });
     });
@@ -960,6 +984,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           purchaseDate: inventory.last_purchase_date ?? inventory.updated_at ?? "",
           rowId: -inventory.id,
           itemId: -inventory.id,
+          inventoryId: inventory.id,
         };
       });
   });
@@ -1218,6 +1243,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
         return {
           key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
+          inventoryId: inventory.id,
           status: labelStatusLabel(label.status || "stocked"),
           title: inventory.title,
           category,
@@ -1237,6 +1263,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
       ...labels,
       {
         key: `inventory-unlabeled-${inventory.id}`,
+        inventoryId: inventory.id,
         labelId: null,
         status: "\u5728\u5eab",
         title: inventory.title,
@@ -1338,6 +1365,117 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
 function invoiceNoFromGroupKey(key?: string | null): string | null {
   const match = key?.match(/^invoice-(\d+)$/);
   return match?.[1] ?? null;
+}
+
+function todayCompact(): string {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("");
+}
+
+function deliveryPartnerCode(group: AllocationGroup | null): string {
+  const text = `${group?.partner ?? ""} ${group?.label ?? ""}`.normalize("NFKC").toLowerCase();
+  if (text.includes("maxim") || text.includes("マキシム")) return "maxim";
+  if (text.includes("samee") || text.includes("sami") || text.includes("sammy") || text.includes("サミー")) return "samee";
+  if (text.includes("simon") || text.includes("サイモン")) return "simon";
+  if (text.includes("devon") || text.includes("デボン")) return "devon";
+  if (text.includes("luca") || text.includes("ルカ")) return "luca";
+  const ascii = text.match(/[a-z0-9]+/g)?.join("") ?? "";
+  return ascii || "stock";
+}
+
+function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null): string {
+  const invoiceNo = invoiceNoFromGroupKey(group?.key);
+  const code = deliveryPartnerCode(group);
+  return invoiceNo ? `${invoiceNo}_${code}${todayCompact()}` : `stock_${code}${todayCompact()}`;
+}
+
+function detectShipmentSheetNameForText(text: string | null | undefined): ShipmentSheetName | null {
+  const haystack = text?.normalize("NFKC").toLowerCase() ?? "";
+  if (!haystack) return null;
+  if (haystack.includes("devon") || haystack.includes("デボン")) return "デボン発送管理";
+  if (haystack.includes("simon") || haystack.includes("サイモン")) return "サイモン発送管理";
+  if (haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy") || haystack.includes("サミー")) return "サミー発送管理";
+  if (haystack.includes("maxim") || haystack.includes("マキシム") || haystack.includes("luca") || haystack.includes("ルカ")) return "独発送管理";
+  return null;
+}
+
+function detectShipmentSheetNameForGroup(
+  group: AllocationGroup | null,
+  items: Array<Pick<ShippingItemView, "legacyManagementNo" | "title">>,
+): ShipmentSheetName {
+  return (
+    detectShipmentSheetNameForText(group?.partner) ??
+    detectShipmentSheetNameForText(group?.label) ??
+    items.map((item) => detectShipmentSheetNameForText(`${item.legacyManagementNo} ${item.title}`)).find(Boolean) ??
+    "独発送管理"
+  );
+}
+
+function isShippingReadyStatus(status?: string | null): boolean {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return !["shipped", "returned", "cancelled"].includes(normalized);
+}
+
+function mergeLabelViewsById(...groups: LabelView[][]): LabelView[] {
+  const map = new Map<string, LabelView>();
+  for (const labels of groups) {
+    for (const label of labels) {
+      const key = label.labelId.trim().toUpperCase();
+      if (!key) continue;
+      const existing = map.get(key);
+      if (existing?.inventoryId && !label.inventoryId) continue;
+      map.set(key, label);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function groupKeyFromLabel(label: LabelView): string {
+  const parsed = parseInvoiceFromManagementNo(label.legacyManagementNo);
+  return parsed ? `invoice-${parsed.invoiceNo}` : INVENTORY_LABEL_GROUP_KEY;
+}
+
+function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
+  const used = new Set<string>();
+  return labels.flatMap((label) => {
+    const inventoryId = Number(label.inventoryId);
+    const labelId = label.labelId.trim().toUpperCase();
+    if (!labelId || !Number.isFinite(inventoryId) || inventoryId <= 0 || !isShippingReadyStatus(label.rawStatus)) {
+      return [];
+    }
+    const key = `${inventoryId}-${labelId}`;
+    if (used.has(key)) return [];
+    used.add(key);
+    return [{
+      key,
+      inventoryId,
+      labelId,
+      title: label.title,
+      legacyManagementNo: label.legacyManagementNo,
+      allocationLabel: label.allocationLabel,
+      unitPrice: label.unitPrice,
+      supplier: label.supplier,
+      quantity: 1,
+      maxQuantity: 1,
+    }];
+  });
+}
+
+function selectedShippingItems(
+  items: ShippingItemView[],
+  keys: Set<string>,
+  quantities: Record<string, number>,
+): ShippingItemView[] {
+  return items
+    .filter((item) => keys.has(item.key))
+    .map((item) => {
+      const quantity = Math.min(item.maxQuantity, Math.max(1, Math.floor(quantities[item.key] ?? item.quantity)));
+      return { ...item, quantity };
+    });
 }
 
 function withInvoiceProductCounts(
@@ -2409,7 +2547,13 @@ function extractScannedLabelId(value: string): string {
   return tokens.at(-1) ?? "";
 }
 
-function ScanPanel({ labels }: { labels: LabelView[] }) {
+function ScanPanel({
+  labels,
+  onReceivedLabel,
+}: {
+  labels: LabelView[];
+  onReceivedLabel?: (label: LabelView) => void;
+}) {
   const utils = trpc.useUtils();
   const [scanValue, setScanValue] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
@@ -2511,6 +2655,16 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
         toast.info(`${result.labelId} はすでに入庫済みです`);
       } else {
         toast.success(`${result.labelId} を入庫登録しました`);
+      }
+      if (matched) {
+        onReceivedLabel?.({
+          ...matched,
+          rawStatus: "received",
+          status: labelStatusLabel("received"),
+          title: result.title ?? matched.title,
+          legacyManagementNo: result.legacyManagementNo ?? matched.legacyManagementNo,
+          inventoryId: result.localInventoryId ?? matched.inventoryId ?? null,
+        });
       }
       setScanValue("");
       await Promise.all([
@@ -2692,20 +2846,480 @@ function StockPanel({ inventories, searchText }: { inventories: InventoryItem[];
   );
 }
 
-function ShippingPanel({ products }: { products: ProductSummary[] }) {
+function ShippingPanel({
+  group,
+  labels,
+  products,
+  onDeliverySuccess,
+}: {
+  group: AllocationGroup | null;
+  labels: LabelView[];
+  products: ProductSummary[];
+  onDeliverySuccess: (labelIds: string[]) => void;
+}) {
+  const utils = trpc.useUtils();
+  const createDeliveryMutation = trpc.inventory.zaico.createDelivery.useMutation();
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [confirmKeys, setConfirmKeys] = useState<Set<string>>(new Set());
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [deliveryNo, setDeliveryNo] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
+  const invoiceNo = invoiceNoFromGroupKey(group?.key);
+  const shippingItems = useMemo(() => buildShippingItemsFromLabels(labels), [labels]);
+  const pendingInventoryLabels = labels.filter((label) => label.labelId.trim() && !label.inventoryId && isShippingReadyStatus(label.rawStatus));
+  const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
+  const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
+  const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
+  const confirmItems = useMemo(
+    () => selectedShippingItems(shippingItems, confirmKeys, quantities),
+    [confirmKeys, quantities, shippingItems],
+  );
+  const checkedItems = useMemo(
+    () => selectedShippingItems(shippingItems, selectedKeys, quantities),
+    [quantities, selectedKeys, shippingItems],
+  );
+  const allSelected = shippingItems.length > 0 && shippingItems.every((item) => selectedKeys.has(item.key));
+  const isSubmitting = createDeliveryMutation.isPending;
+
+  const { data: histories, isLoading: historiesLoading, refetch: refetchHistories } =
+    trpc.inventory.deliveryHistory.listByInvoicePrefix.useQuery(
+      { invoiceNo: invoiceNo ?? "0" },
+      { enabled: Boolean(invoiceNo), staleTime: 30_000 },
+    );
+  const { data: fedexShipmentsData, refetch: refetchFedex } = trpc.inventory.fedex.getAll.useQuery(undefined, {
+    staleTime: 30_000,
+  });
+  const createFedexMutation = trpc.inventory.fedex.create.useMutation({
+    onSuccess: (data) => {
+      void refetchFedex();
+      if (data.success) {
+        toast.success(data.message ?? "FedEx発送情報を登録しました");
+      } else {
+        toast.warning(data.message ?? "FedEx発送情報をDBに保存しました。スプレッドシート反映は確認してください");
+      }
+      setFedexDialog(null);
+    },
+    onError: (error) => {
+      toast.error(`FedEx発送登録に失敗しました: ${error.message}`);
+    },
+  });
+
+  const fedexShipmentsMap = useMemo(() => {
+    const map = new Map<string, Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string }>>();
+    for (const shipment of (fedexShipmentsData ?? []) as Array<{
+      id: number;
+      deliveryNo: string;
+      sheetName: string;
+      shippingDate: string;
+      trackingNumber: string;
+      spreadsheetStatus: string;
+    }>) {
+      const current = map.get(shipment.deliveryNo) ?? [];
+      current.push({
+        id: shipment.id,
+        sheetName: shipment.sheetName,
+        shippingDate: shipment.shippingDate,
+        trackingNumber: shipment.trackingNumber,
+        spreadsheetStatus: shipment.spreadsheetStatus,
+      });
+      map.set(shipment.deliveryNo, current);
+    }
+    return map;
+  }, [fedexShipmentsData]);
+
+  const historyGroups = useMemo(() => {
+    const grouped = new Map<string, { historyId: number; deliveryNo: string; createdAt: Date; items: HistoryItem[] }>();
+    for (const history of (histories ?? []) as Array<{ id: number; deliveryNo: string; createdAt: string | Date; items: HistoryItem[] }>) {
+      const existing = grouped.get(history.deliveryNo);
+      const nextItems = history.items ?? [];
+      if (existing) {
+        existing.items.push(...nextItems);
+        existing.createdAt = new Date(Math.max(existing.createdAt.getTime(), new Date(history.createdAt).getTime()));
+      } else {
+        grouped.set(history.deliveryNo, {
+          historyId: history.id,
+          deliveryNo: history.deliveryNo,
+          createdAt: new Date(history.createdAt),
+          items: [...nextItems],
+        });
+      }
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }, [histories]);
+
+  useEffect(() => {
+    setDeliveryNo(autoDeliveryNo);
+  }, [autoDeliveryNo]);
+
+  useEffect(() => {
+    setShipmentSheetName(autoSheetName);
+  }, [autoSheetName]);
+
+  useEffect(() => {
+    setSelectedKeys((current) => {
+      const validKeys = new Set(shippingItems.map((item) => item.key));
+      const next = new Set(Array.from(current).filter((key) => validKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+    setConfirmKeys((current) => {
+      const validKeys = new Set(shippingItems.map((item) => item.key));
+      const next = new Set(Array.from(current).filter((key) => validKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [shippingItems]);
+
+  function toggleSelected(key: string) {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllSelected() {
+    setSelectedKeys(allSelected ? new Set() : new Set(shippingItems.map((item) => item.key)));
+  }
+
+  function setItemQuantity(item: ShippingItemView, quantity: number) {
+    const nextQuantity = Math.min(item.maxQuantity, Math.max(1, Math.floor(quantity)));
+    setQuantities((current) => ({ ...current, [item.key]: nextQuantity }));
+  }
+
+  function openConfirm(keys: Set<string>) {
+    const targets = selectedShippingItems(shippingItems, keys, quantities);
+    if (targets.length === 0) {
+      toast.error("出庫する商品を選択してください");
+      return;
+    }
+    setConfirmKeys(new Set(keys));
+    setDeliveryNo((current) => current.trim() || autoDeliveryNo);
+    setShowConfirm(true);
+  }
+
+  async function submitDelivery() {
+    if (confirmItems.length === 0 || isSubmitting) return;
+    const nextDeliveryNo = deliveryNo.trim() || autoDeliveryNo;
+    try {
+      await createDeliveryMutation.mutateAsync({
+        deliveryNo: nextDeliveryNo,
+        deliveryDate: new Date().toISOString().slice(0, 10),
+        operatorName: getCurrentWorkWorkerName("野田"),
+        invoiceNo: invoiceNo ?? undefined,
+        sheetName: shipmentSheetName,
+        trackingNumber: trackingNumber.trim() || undefined,
+        items: confirmItems.map((item) => ({
+          inventoryId: item.inventoryId,
+          title: item.title,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          labelId: item.labelId ?? undefined,
+        })),
+      });
+      toast.success(`${nextDeliveryNo} の出庫登録が完了しました`);
+      const shippedLabelIds = confirmItems.flatMap((item) => (item.labelId ? [item.labelId] : []));
+      onDeliverySuccess(shippedLabelIds);
+      setSelectedKeys((current) => {
+        const next = new Set(current);
+        for (const item of confirmItems) next.delete(item.key);
+        return next;
+      });
+      setConfirmKeys(new Set());
+      setTrackingNumber("");
+      setShowConfirm(false);
+      void Promise.all([
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.deliveryHistory.list.invalidate(),
+        utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate(),
+      ]);
+      void refetchHistories();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "出庫登録に失敗しました");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
-        <h2 className="text-lg font-semibold">出庫</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-          <Input placeholder="出庫する商品IDをスキャン" />
-          <Button type="button" className="gap-2">
-            <Truck className="h-4 w-4" />
-            出庫確認
-          </Button>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">出庫</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              選択中のインボイス/在庫から、商品IDラベル単位で出庫できます。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={toggleAllSelected} disabled={shippingItems.length === 0}>
+              {allSelected ? "全解除" : "全選択"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => openConfirm(new Set(shippingItems.map((item) => item.key)))}
+              disabled={shippingItems.length === 0}
+            >
+              <PackageMinus className="h-4 w-4" />
+              すべて出庫
+            </Button>
+            <Button
+              type="button"
+              className="gap-2 bg-orange-600 text-white hover:bg-orange-700"
+              onClick={() => openConfirm(selectedKeys)}
+              disabled={checkedItems.length === 0}
+            >
+              <Truck className="h-4 w-4" />
+              選択を出庫
+              {checkedItems.length > 0 ? <Badge className="ml-1 bg-white/20 text-white">{checkedItems.length}</Badge> : null}
+            </Button>
+          </div>
         </div>
+
+        {pendingInventoryLabels.length > 0 ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            {pendingInventoryLabels.length}件のラベルは在庫IDの反映待ちです。更新後に出庫できます。
+          </div>
+        ) : null}
+
+        {shippingItems.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState icon={Truck} title="出庫できるラベルがありません" description="入庫済みの商品IDラベル、または在庫一覧を選択してください。" />
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {shippingItems.map((item) => {
+              const checked = selectedKeys.has(item.key);
+              const quantity = quantities[item.key] ?? item.quantity;
+              return (
+                <div
+                  key={item.key}
+                  className={cn(
+                    "rounded-md border bg-card p-3 shadow-sm transition-colors",
+                    checked && "border-orange-300 bg-orange-50",
+                  )}
+                >
+                  <div className="flex gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSelected(item.key)}
+                      className="mt-1 h-4 w-4 shrink-0 accent-orange-600"
+                      aria-label={`${item.labelId ?? item.title} を出庫選択`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-xl font-bold tracking-wide text-slate-950">{item.labelId}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-950">{item.title}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        {item.allocationLabel ? <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge> : null}
+                        <Badge variant="outline">{formatCurrency(item.unitPrice)}</Badge>
+                      </div>
+                    </div>
+                    {item.labelId ? (
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded border bg-white p-1.5">
+                        <ProductQrCode value={item.labelId} />
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                        onClick={() => setItemQuantity(item, quantity - 1)}
+                        disabled={quantity <= 1}
+                      >
+                        -
+                      </button>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={item.maxQuantity}
+                        value={quantity}
+                        onChange={(event) => setItemQuantity(item, Number(event.target.value))}
+                        className="h-7 w-14 px-1 text-center"
+                      />
+                      <button
+                        type="button"
+                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                        onClick={() => setItemQuantity(item, quantity + 1)}
+                        disabled={quantity >= item.maxQuantity}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={() => openConfirm(new Set([item.key]))}>
+                      この商品を出庫
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-md border bg-background p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold">出庫履歴 / FedEx発送登録</h3>
+            <p className="mt-1 text-sm text-muted-foreground">このインボイスの出庫履歴からFedEx登録できます。</p>
+          </div>
+          {invoiceNo ? <Badge variant="outline">No.{invoiceNo}</Badge> : <Badge variant="secondary">在庫</Badge>}
+        </div>
+        {!invoiceNo ? (
+          <p className="mt-3 text-sm text-muted-foreground">在庫一覧はインボイス番号がないため、履歴からのFedEx登録は対象外です。</p>
+        ) : historiesLoading ? (
+          <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            出庫履歴を読み込み中
+          </div>
+        ) : historyGroups.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">まだ出庫履歴がありません。</p>
+        ) : (
+          <div className="mt-3 divide-y rounded-md border">
+            {historyGroups.map((history) => {
+              const existingShipments = fedexShipmentsMap.get(history.deliveryNo) ?? [];
+              return (
+                <div key={history.deliveryNo} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold">{history.deliveryNo}</span>
+                      <Badge variant="outline">{history.items.reduce((total, item) => total + item.quantity, 0)}点</Badge>
+                      {existingShipments.length > 0 ? <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">FedEx登録済み</Badge> : null}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {history.items.map((item) => item.title).join(", ")}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                    onClick={() => setFedexDialog({ deliveryNo: history.deliveryNo, historyId: history.historyId, items: history.items })}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    FedEx登録
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
       <ProductFulfillmentTableV2 products={products} />
+
+      <Dialog open={showConfirm} onOpenChange={(open) => !isSubmitting && setShowConfirm(open)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageMinus className="h-5 w-5 text-orange-600" />
+              出庫確認
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_180px_1fr]">
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">出庫No</span>
+                <Input value={deliveryNo} onChange={(event) => setDeliveryNo(event.target.value)} placeholder={autoDeliveryNo} />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">発送管理</span>
+                <select className={fieldClass} value={shipmentSheetName} onChange={(event) => setShipmentSheetName(event.target.value as ShipmentSheetName)}>
+                  {SHIPMENT_SHEET_NAMES.map((sheetName) => (
+                    <option key={sheetName} value={sheetName}>{sheetName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">FedEx追跡番号（任意）</span>
+                <Input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="追跡番号を入力..." />
+              </label>
+            </div>
+            <div className="overflow-hidden rounded-md border">
+              <div className="grid grid-cols-[minmax(0,1fr)_150px_120px] border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>商品名</div>
+                <div>注文行</div>
+                <div className="text-right">出庫数量</div>
+              </div>
+              <div className="divide-y">
+                {confirmItems.map((item) => (
+                  <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_150px_120px] items-center gap-3 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{item.title}</div>
+                      <div className="mt-0.5 font-mono text-xs text-muted-foreground">{item.labelId} / {item.legacyManagementNo}</div>
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">{item.allocationLabel || "自動判定"}</div>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                        onClick={() => setItemQuantity(item, item.quantity - 1)}
+                        disabled={item.quantity <= 1}
+                      >
+                        -
+                      </button>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={item.maxQuantity}
+                        value={item.quantity}
+                        onChange={(event) => setItemQuantity(item, Number(event.target.value))}
+                        className="h-7 w-14 px-1 text-center"
+                      />
+                      <button
+                        type="button"
+                        className="h-7 w-7 rounded border text-orange-600 disabled:opacity-40"
+                        onClick={() => setItemQuantity(item, item.quantity + 1)}
+                        disabled={item.quantity >= item.maxQuantity}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">上記 {confirmItems.length} 件の商品を出庫処理します。この操作は元に戻せません。</p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setShowConfirm(false)} disabled={isSubmitting}>
+              キャンセル
+            </Button>
+            <Button type="button" className="gap-2 bg-orange-600 text-white hover:bg-orange-700" onClick={submitDelivery} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageMinus className="h-4 w-4" />}
+              出庫する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {fedexDialog ? (
+        <FedexShipmentDialog
+          open={Boolean(fedexDialog)}
+          onClose={() => setFedexDialog(null)}
+          groupKey={fedexDialog.deliveryNo}
+          groupItems={fedexDialog.items}
+          onSubmit={(data) =>
+            createFedexMutation.mutate({
+              deliveryNo: fedexDialog.deliveryNo,
+              sheetName: data.sheetName,
+              shippingDate: data.shippingDate,
+              trackingNumber: data.trackingNumber,
+              items: data.items,
+              historyId: fedexDialog.historyId,
+              operatorName: getCurrentWorkWorkerName("野田"),
+            })
+          }
+          isPending={createFedexMutation.isPending}
+          existingShipments={fedexShipmentsMap.get(fedexDialog.deliveryNo) ?? []}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2767,6 +3381,7 @@ export default function PurchaseRegistration() {
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
   const [printJobId, setPrintJobId] = useState(0);
+  const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
 
   const normalizedSearch = search.trim();
 
@@ -2847,6 +3462,7 @@ export default function PurchaseRegistration() {
   );
   const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
   const selectedLabelPrintGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
+  const selectedShippingGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
   const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
@@ -2859,6 +3475,13 @@ export default function PurchaseRegistration() {
   );
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const selectedLabelPrintLabels = selectedLabelPrintGroup?.labels ?? [];
+  const selectedShippingLabels = useMemo(() => {
+    const selectedKey = selectedShippingGroup?.key;
+    const receivedForGroup = selectedKey
+      ? receivedShippingLabels.filter((label) => groupKeyFromLabel(label) === selectedKey)
+      : receivedShippingLabels;
+    return mergeLabelViewsById(receivedForGroup, selectedShippingGroup?.labels ?? []);
+  }, [receivedShippingLabels, selectedShippingGroup]);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
@@ -2889,10 +3512,10 @@ export default function PurchaseRegistration() {
       labels: allPrintableLabels.length,
       scan: allLabels.length,
       stock: allStockItems.length,
-      shipping: selectedOpenProducts.length,
+      shipping: buildShippingItemsFromLabels(selectedShippingLabels).length,
       returns: 0,
     }),
-    [allLabels.length, allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedOpenProducts.length],
+    [allLabels.length, allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
   );
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
@@ -2907,6 +3530,21 @@ export default function PurchaseRegistration() {
     setPrintJobId((current) => current + 1);
   };
 
+  const handleReceivedLabelForShipping = (label: LabelView) => {
+    setReceivedShippingLabels((current) => mergeLabelViewsById(current, [label]));
+    const nextGroupKey = groupKeyFromLabel(label);
+    if (labelPrintGroups.some((group) => group.key === nextGroupKey)) {
+      setSelectedGroupKey(nextGroupKey);
+    }
+    setWorkflowTab("shipping");
+  };
+
+  const handleDeliverySuccess = (labelIds: string[]) => {
+    if (labelIds.length === 0) return;
+    const shipped = new Set(labelIds.map((labelId) => labelId.trim().toUpperCase()));
+    setReceivedShippingLabels((current) => current.filter((label) => !shipped.has(label.labelId.trim().toUpperCase())));
+  };
+
   useEffect(() => {
     if (printJobId === 0 || labelsToPrint.length === 0) return;
     const timer = window.setTimeout(() => window.print(), 100);
@@ -2916,8 +3554,10 @@ export default function PurchaseRegistration() {
   const isScanWorkflow = workflowTab === "scan";
   const isStockWorkflow = workflowTab === "stock";
   const isLabelWorkflow = workflowTab === "labels";
-  const groupSelectOptions = isLabelWorkflow ? labelPrintGroups : invoiceGroups;
+  const isShippingWorkflow = workflowTab === "shipping";
+  const groupSelectOptions = isLabelWorkflow || isShippingWorkflow ? labelPrintGroups : invoiceGroups;
   const selectedGroupOption = groupSelectOptions.find((group) => group.key === selectedGroupKey) ?? groupSelectOptions[0] ?? null;
+  const hasWorkflowTargets = isLabelWorkflow || isShippingWorkflow ? labelPrintGroups.length > 0 : groups.length > 0;
   const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
   const isRefreshing = isFetching || isInventoryFetching;
   const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
@@ -2968,7 +3608,7 @@ export default function PurchaseRegistration() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                     <FileText className="h-4 w-4" />
-                    {isLabelWorkflow ? "インボイス / 在庫" : "インボイス"}
+                    {isLabelWorkflow || isShippingWorkflow ? "インボイス / 在庫" : "インボイス"}
                   </div>
                   <select
                     className={fieldClass}
@@ -3031,7 +3671,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : !isStockWorkflow && !isScanWorkflow && groups.length === 0 ? (
+          ) : !isStockWorkflow && !isScanWorkflow && !hasWorkflowTargets ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
@@ -3051,13 +3691,18 @@ export default function PurchaseRegistration() {
                 <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
               </TabsContent>
               <TabsContent value="scan">
-                <ScanPanel labels={allLabels} />
+                <ScanPanel labels={allPrintableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
               </TabsContent>
               <TabsContent value="stock">
                 <StockPanel inventories={inventoryItems} searchText={searchText} />
               </TabsContent>
               <TabsContent value="shipping">
-                <ShippingPanel products={selectedOpenProducts} />
+                <ShippingPanel
+                  group={selectedShippingGroup}
+                  labels={selectedShippingLabels}
+                  products={selectedOpenProducts}
+                  onDeliverySuccess={handleDeliverySuccess}
+                />
               </TabsContent>
               <TabsContent value="returns">
                 <ReturnPanel labels={selectedLabels} />
@@ -3067,7 +3712,7 @@ export default function PurchaseRegistration() {
 
         </main>
 
-        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:inset-auto lg:top-16 lg:h-[calc(100vh-4rem)] lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
+        <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:inset-auto lg:top-20 lg:h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
             {workflowTabs.map((tab) => {
               const Icon = tab.icon;

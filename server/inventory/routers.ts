@@ -3283,6 +3283,7 @@ export const inventoryRouter = router({
               unitPrice: z.number().optional(),
               tradeRecordId: z.number().int().positive().nullable().optional(),
               csvProductName: z.string().nullable().optional(),
+              labelId: z.string().min(1).max(80).optional(),
             })
           ).min(1, "出庫する商品を選択してください"),
           // FedEx発送情報（任意）
@@ -3365,6 +3366,25 @@ export const inventoryRouter = router({
 
         if (historyStatus === "error") {
           throw new Error(errorMessage ?? "出庫処理に失敗しました");
+        }
+
+        const shippedLabelIds = Array.from(new Set(
+          input.items
+            .map((item) => item.labelId?.trim().toUpperCase())
+            .filter((labelId): labelId is string => Boolean(labelId)),
+        ));
+        if (shippedLabelIds.length > 0) {
+          const db = await getDb();
+          if (db) {
+            const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+            const now = new Date();
+            for (const labelId of shippedLabelIds) {
+              await db
+                .update(labelTbl)
+                .set({ status: "shipped", shippedAt: now })
+                .where(eq(labelTbl.labelId, labelId));
+            }
+          }
         }
 
         const workLogQuantity = historyItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
