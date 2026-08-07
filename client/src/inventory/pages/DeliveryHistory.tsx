@@ -1507,6 +1507,41 @@ function extractDeliveryGroup(deliveryNo: string): string {
   return match ? match[1] : deliveryNo;
 }
 
+function extractInvoiceNoFromManagementText(value: string | null | undefined): string | null {
+  const text = value?.normalize("NFKC").trim();
+  if (!text) return null;
+  const direct = text.match(/^(?:No\.?\s*)?(\d+)(?=_|[\s,、]|$)/i);
+  if (direct) return direct[1];
+  const parenthesized = text.match(/[（(]\s*(?:No\.?\s*)?(\d+)(?=_|[\s,、）)]|$)/i);
+  if (parenthesized) return parenthesized[1];
+  const embedded = text.match(/(?:^|[\s,、])(?:No\.?\s*)?(\d+)(?=_)/i);
+  return embedded?.[1] ?? null;
+}
+
+function resolveHistoryGroup(
+  history: { deliveryNo: string; items: HistoryItem[] },
+  inventoryManagementMap: Map<number, string>
+): string {
+  const deliveryGroup = extractDeliveryGroup(history.deliveryNo);
+  if (deliveryGroup !== history.deliveryNo) return deliveryGroup;
+
+  const prefixes = history.items
+    .map((item) => (
+      item.managementNo
+        ? extractInvoiceNoFromManagementText(item.managementNo)
+        : extractInvoiceNoFromManagementText(inventoryManagementMap.get(item.inventoryId))
+          ?? extractInvoiceNoFromManagementText(item.title)
+    ))
+    .filter((prefix): prefix is string => !!prefix);
+  const uniquePrefixes = Array.from(new Set(prefixes));
+  return uniquePrefixes.length === 1 ? uniquePrefixes[0] : deliveryGroup;
+}
+
+function formatDisplayDeliveryNo(deliveryNo: string, groupKey: string): string {
+  if (extractInvoiceNoFromManagementText(deliveryNo)) return deliveryNo;
+  return /^\d+$/.test(groupKey) ? `${groupKey}_${deliveryNo}` : deliveryNo;
+}
+
 export default function DeliveryHistory() {
   const utils = trpc.useUtils();
   const [loadHistoryDetails, setLoadHistoryDetails] = useState(false);
@@ -1664,7 +1699,10 @@ export default function DeliveryHistory() {
   const groupedHistories = useMemo(() => {
     const groups: Record<string, typeof filteredHistories> = {};
     for (const h of filteredHistories) {
-      const key = extractDeliveryGroup(h.deliveryNo);
+      const key = resolveHistoryGroup(
+        { deliveryNo: h.deliveryNo, items: withManagementNos(h.items as HistoryItem[]) },
+        inventoryManagementMap
+      );
       if (!groups[key]) groups[key] = [];
       groups[key].push(h);
     }
@@ -1679,7 +1717,7 @@ export default function DeliveryHistory() {
       sorted = sorted.filter(([key]) => key === urlParams.group);
     }
     return sorted;
-  }, [filteredHistories, sortOrder, urlParams.group]);
+  }, [filteredHistories, inventoryManagementMap, sortOrder, urlParams.group]);
 
   // ページネーション（グループ単位）
   const {
@@ -2417,6 +2455,7 @@ export default function DeliveryHistory() {
             );
             const hasCancelledItems = cancelledIds.size > 0;
             const isBatchMode = batchSelectMode === history.id;
+            const displayDeliveryNo = formatDisplayDeliveryNo(history.deliveryNo, groupKey);
 
             return (
               <div
@@ -2494,7 +2533,7 @@ export default function DeliveryHistory() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 group">
-                        <span className="font-semibold text-sm">出庫No: {history.deliveryNo}</span>
+                        <span className="font-semibold text-sm">出庫No: {displayDeliveryNo}</span>
                         <Button
                           size="icon"
                           variant="ghost"

@@ -114,7 +114,7 @@ function generateDeliveryNo(customerCode: string, invoiceNo: string): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   const shortPartnerCode = getShortPartnerDeliveryCode(customerCode);
-  if (shortPartnerCode) return `${shortPartnerCode}${String(y).slice(-2)}${m}${d}`;
+  if (shortPartnerCode) return `${invoiceNo}_${shortPartnerCode}${String(y).slice(-2)}${m}${d}`;
   return `${invoiceNo}_${customerCode}${y}${m}${d}`;
 }
 
