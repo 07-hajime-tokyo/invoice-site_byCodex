@@ -2916,6 +2916,7 @@ function ScanPanel({
   const lastDetectedRef = useRef<{ value: string; time: number } | null>(null);
   const confirmationActiveRef = useRef(false);
   const ignoredDetectedValueRef = useRef<string | null>(null);
+  const resumeCameraAfterConfirmRef = useRef(false);
   const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
 
   function getScanTarget(value: string) {
@@ -2940,7 +2941,7 @@ function ScanPanel({
   const matched = scanTarget.matched;
   const receiveLabelId = scanTarget.receiveLabelId;
 
-  function openReceiveConfirm(value: string) {
+  function openReceiveConfirm(value: string, options?: { resumeCameraAfterSuccess?: boolean }) {
     const nextValue = value.trim();
     if (!nextValue) return;
     setScanValue(nextValue);
@@ -2948,6 +2949,7 @@ function ScanPanel({
     if (!target.receiveLabelId) return;
     confirmationActiveRef.current = true;
     ignoredDetectedValueRef.current = null;
+    resumeCameraAfterConfirmRef.current = Boolean(options?.resumeCameraAfterSuccess);
     setConfirmValue(nextValue);
   }
 
@@ -2955,6 +2957,7 @@ function ScanPanel({
     const valueToIgnore = ignoreValue?.trim();
     if (valueToIgnore) ignoredDetectedValueRef.current = valueToIgnore;
     confirmationActiveRef.current = false;
+    resumeCameraAfterConfirmRef.current = false;
     setConfirmValue("");
   }
 
@@ -3012,7 +3015,9 @@ function ScanPanel({
                 (!previous || previous.value !== rawValue || now - previous.time > 1600)
               ) {
                 lastDetectedRef.current = { value: rawValue, time: now };
-                openReceiveConfirm(rawValue);
+                stopCamera();
+                openReceiveConfirm(rawValue, { resumeCameraAfterSuccess: true });
+                return;
               }
             }
           } catch (error) {
@@ -3041,6 +3046,7 @@ function ScanPanel({
   async function receiveMatchedLabel(targetValue = scanValue) {
     const target = getScanTarget(targetValue);
     if (!target.receiveLabelId || receiveMutation.isPending) return;
+    const shouldResumeCamera = resumeCameraAfterConfirmRef.current;
     try {
       const result = await receiveMutation.mutateAsync({ labelId: target.receiveLabelId });
       if (result.alreadyReceived) {
@@ -3065,6 +3071,11 @@ function ScanPanel({
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
       ]);
+      if (shouldResumeCamera) {
+        window.setTimeout(() => {
+          void startCamera();
+        }, 250);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "入庫登録に失敗しました");
     }
