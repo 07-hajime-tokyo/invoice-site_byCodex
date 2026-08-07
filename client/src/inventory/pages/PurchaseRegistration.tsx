@@ -2064,19 +2064,6 @@ function PurchaseRegistrationCard({
         </div>
       </div>
 
-      {labels.length > 0 ? (
-        <details className="border-t px-4 py-3 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">商品ID一覧</summary>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {labels.map((label) => (
-              <div key={`${label.id ?? label.labelId}-${label.labelId}`} className={cn("rounded-md border px-3 py-2", labelBadgeClass(label.status))}>
-                <div className="font-mono text-base font-semibold">{label.labelId}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{labelStatusLabel(label.status)}</div>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
     </section>
   );
 }
@@ -2096,7 +2083,7 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="border-b text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-3 text-left font-medium">品目</th>
@@ -2105,13 +2092,12 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
               <th className="px-4 py-3 text-right font-medium">不足</th>
               <th className="px-4 py-3 text-right font-medium">平均仕入</th>
               <th className="px-4 py-3 text-right font-medium">売価</th>
-              <th className="px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             {products.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                   充足状況を表示できる商品がありません
                 </td>
               </tr>
@@ -2132,11 +2118,6 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
                     <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
                     <td className="px-4 py-3 text-right">
                       {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button type="button" variant="outline" size="sm">
-                        仕入れを追加
-                      </Button>
                     </td>
                   </tr>
                 );
@@ -2167,7 +2148,7 @@ function ProductFulfillmentTableV2({
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
       <div className="overflow-x-auto">
-        <table className={cn("w-full text-sm", stockOnly ? "min-w-[560px]" : "min-w-[1040px]")}>
+        <table className={cn("w-full text-sm", stockOnly ? "min-w-[480px]" : "min-w-[960px]")}>
           <thead className="border-b text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-3 text-left font-medium">品目</th>
@@ -2231,13 +2212,12 @@ function ProductFulfillmentTableV2({
                   <th className="px-4 py-3 text-right font-medium">売価</th>
                 </>
               ) : null}
-              <th className="px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             {products.length === 0 ? (
               <tr>
-                <td colSpan={stockOnly ? 4 : 10} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={stockOnly ? 3 : 9} className="px-4 py-8 text-center text-muted-foreground">
                   表示できる商品がありません
                 </td>
               </tr>
@@ -2314,11 +2294,6 @@ function ProductFulfillmentTableV2({
                         </td>
                       </>
                     ) : null}
-                    <td className="px-4 py-3 text-right">
-                      <Button type="button" variant="outline" size="sm">
-                        仕入れを追加
-                      </Button>
-                    </td>
                   </tr>
                 );
               })
@@ -2360,7 +2335,6 @@ function OrderDashboard({
   const groupRows = getAllRowsFromGroup(group, rows);
   const displayRows = detailRows ?? groupRows;
   const products = productsOverride ?? group?.products ?? buildProductSummaries(groupRows);
-  const labels = group?.labels ?? buildLabelViews(displayRows);
   const required = products.reduce((total, item) => total + item.required, 0);
   const secured = products.reduce((total, item) => total + item.secured, 0);
   const purchaseTotal =
@@ -2379,7 +2353,7 @@ function OrderDashboard({
         <div className="border-b bg-muted/30 px-4 py-3 text-sm text-muted-foreground">引当先を選ぶ</div>
         <div className="grid gap-3 p-4 md:grid-cols-4">
           <StatCard label="充足" value={`${secured.toLocaleString()} / ${required.toLocaleString()} 点`} />
-          <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} sub={`商品ID ${labels.length.toLocaleString()}件`} />
+          <StatCard label="仕入合計" value={formatCurrency(purchaseTotal)} />
           <StatCard label="想定売上" value={forecast.salesValue} sub={forecast.salesSub} />
           <StatCard label="想定粗利" value={forecast.grossValue} sub={forecast.grossSub} />
         </div>
@@ -3852,14 +3826,17 @@ export default function PurchaseRegistration() {
       refetchOnWindowFocus: false,
     });
 
-  const filteredRows = useMemo(() => {
+  const countableRows = useMemo(() => {
     return rows.flatMap((row) => {
-      if (!matchesStatus(row, statusFilter)) return [];
       if (searchText && !buildSearchText(row).includes(searchText)) return [];
       const visibleRow = withVisiblePurchaseItems(row);
       return visibleRow ? [visibleRow] : [];
     });
-  }, [rows, searchText, statusFilter]);
+  }, [rows, searchText]);
+
+  const filteredRows = useMemo(() => {
+    return countableRows.filter((row) => matchesStatus(row, statusFilter));
+  }, [countableRows, statusFilter]);
 
   const groups = useMemo(
     () => buildAllocationGroups(filteredRows, purchaseRegistrationInvoices),
@@ -3923,19 +3900,18 @@ export default function PurchaseRegistration() {
   const selectedDetailRows = filterRowsByProductDetail(selectedOpenRows, productDetailFilter);
 
   const counts = useMemo(() => {
-    return rows.reduce(
+    return countableRows.reduce(
       (acc, row) => {
         acc.all += 1;
         if (purchaseRowStatusKind(row) === "ordered") acc.ordered += 1;
         else acc.received += 1;
         if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
-        acc.labels += getItemLabels(row.purchase_items).length;
         acc.quantity += sumQuantity(row.purchase_items);
         return acc;
       },
-      { all: 0, ordered: 0, received: 0, missingTracking: 0, labels: 0, quantity: 0 },
+      { all: 0, ordered: 0, received: 0, missingTracking: 0, quantity: 0 },
     );
-  }, [rows]);
+  }, [countableRows]);
 
   const trackingPreview = useMemo(() => {
     const trackingNumber = trackingForm.trackingNumber.trim();
@@ -3946,12 +3922,12 @@ export default function PurchaseRegistration() {
     () => ({
       order: filteredRows.length,
       labels: allPrintableLabels.length,
-      scan: allLabels.length,
+      scan: allPrintableLabels.length,
       stock: allStockItems.length,
       shipping: buildShippingItemsFromLabels(selectedShippingLabels).length,
       returns: 0,
     }),
-    [allLabels.length, allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
+    [allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
   );
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
@@ -4092,10 +4068,6 @@ export default function PurchaseRegistration() {
                 <Badge variant="outline" className="gap-1">
                   <PackagePlus className="h-3 w-3" />
                   仕入れ {counts.all.toLocaleString()}件
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  <Tag className="h-3 w-3" />
-                  商品ID {counts.labels.toLocaleString()}件
                 </Badge>
                 <Badge variant="outline" className="gap-1">
                   <Boxes className="h-3 w-3" />
