@@ -466,7 +466,7 @@ function getManagementNos(items: PurchaseItem[]): string[] {
     items.flatMap((item) => {
       const parsed = parseEtc(item.etc);
       const labelNos = (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
-      return [parsed.managementNo, ...labelNos];
+      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos];
     }),
   );
 }

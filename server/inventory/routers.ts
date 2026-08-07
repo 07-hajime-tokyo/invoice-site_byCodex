@@ -2052,10 +2052,15 @@ export const inventoryRouter = router({
                     const parsedInventoryId = Number(item.inventory_id ?? item.inventoryId ?? p.localInventoryId);
                     const inventoryId = Number.isFinite(parsedInventoryId) ? parsedInventoryId : null;
                     const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
+                    const itemEtc =
+                      typeof item.etc === "string" && item.etc.trim()
+                        ? item.etc
+                        : p.managementNo ?? undefined;
                     return {
                       ...item,
                       status: displayStatus === "purchased" ? "purchased" : item.status,
                       inventory_id: inventoryId,
+                      etc: itemEtc,
                       category: p.category ?? "未分類",
                       currentInventoryQuantity: invInfo?.quantity ?? null,
                       itemLabels: labelsForPurchaseItem(p, item, inventoryLabelMap),
