@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
+import { extractManagementHints, extractModel, extractPreferredModel, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -377,6 +377,32 @@ function suggestCsvProductNameFromHints(
   );
 }
 
+function productNameKey(value: string | null | undefined): string {
+  return normalizeLooseText(String(value ?? ""));
+}
+
+function deliveryProductNameMatchesOrderProduct(
+  deliveredName: string,
+  orderProductName: string,
+  candidates: CsvProductCandidate[],
+): boolean {
+  const delivered = deliveredName.trim();
+  const order = orderProductName.trim();
+  if (!delivered || !order) return false;
+  if (productNameKey(delivered) === productNameKey(order)) return true;
+
+  const suggestion =
+    suggestCsvProductNameWithFallback(delivered, "", candidates) ??
+    suggestCsvProductNameFromHints(delivered, [delivered], candidates);
+  if (suggestion && productNameKey(suggestion) === productNameKey(order)) return true;
+
+  const deliveredModel = extractModel(delivered);
+  const orderModel = extractModel(order);
+  if (!deliveredModel || deliveredModel !== orderModel) return false;
+  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === orderModel);
+  return sameModelCandidates.length === 1 && productNameKey(sameModelCandidates[0].name) === productNameKey(order);
+}
+
 async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
   const db = await getDb();
   if (!db) return [];
@@ -402,7 +428,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
       partner: row.partner?.trim() || "その他",
       invoiceNo: row.invoiceNo != null ? String(row.invoiceNo) : "",
       paymentDate: row.paymentDate ?? "",
-      productName: row.productName ?? "",
+      productName: row.productName?.trim() ?? "",
       orderQty: Number(row.orderQty ?? 0) || 0,
       sellingPrice: row.sellingPrice == null ? null : Number(row.sellingPrice) || null,
       sellingPriceJpy: row.sellingPriceJpy == null ? null : Number(row.sellingPriceJpy) || null,
@@ -4419,13 +4445,33 @@ export const inventoryRouter = router({
         }
 
         const remainingNameDelivered = new Map(deliveredByProductName);
+        const consumeDeliveredByProductName = (productName: string, quantityNeeded: number): number => {
+          let allocated = 0;
+          const consume = (key: string, quantity: number) => {
+            const remaining = Math.max(0, quantityNeeded - allocated);
+            if (remaining <= 0 || quantity <= 0) return;
+            const used = Math.min(remaining, quantity);
+            allocated += used;
+            if (used > 0) remainingNameDelivered.set(key, quantity - used);
+          };
+
+          const exactKey = productName.trim();
+          if (exactKey) {
+            consume(exactKey, remainingNameDelivered.get(exactKey) ?? 0);
+          }
+          if (allocated >= quantityNeeded) return allocated;
+
+          for (const [key, quantity] of Array.from(remainingNameDelivered.entries())) {
+            if (key === exactKey || quantity <= 0) continue;
+            if (!deliveryProductNameMatchesOrderProduct(key, productName, csvProducts)) continue;
+            consume(key, quantity);
+            if (allocated >= quantityNeeded) break;
+          }
+          return allocated;
+        };
         const products = orderRows.map((row) => {
           const byId = row.tradeRecordId ? (deliveredByTradeRecordId.get(row.tradeRecordId) ?? 0) : 0;
-          const byName = remainingNameDelivered.get(row.productName) ?? 0;
-          const allocatedByName = Math.min(Math.max(0, row.orderQty - byId), byName);
-          if (allocatedByName > 0) {
-            remainingNameDelivered.set(row.productName, byName - allocatedByName);
-          }
+          const allocatedByName = consumeDeliveredByProductName(row.productName, Math.max(0, row.orderQty - byId));
           const deliveredQty = byId + allocatedByName;
           return {
             tradeRecordId: row.tradeRecordId,
