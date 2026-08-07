@@ -1396,8 +1396,9 @@ function deliveryPartnerCode(group: AllocationGroup | null): string {
 function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null): string {
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
   const code = deliveryPartnerCode(group);
-  if (["Maxim", "Simon", "Nele"].includes(code)) return `${code}${todayShortCompact()}`;
-  return invoiceNo ? `${invoiceNo}_${code}${todayCompact()}` : `stock_${code}${todayCompact()}`;
+  const datePart = ["Maxim", "Simon", "Nele"].includes(code) ? todayShortCompact() : todayCompact();
+  const deliveryNo = `${code}${datePart}`;
+  return invoiceNo ? `${invoiceNo}_${deliveryNo}` : `stock_${deliveryNo}`;
 }
 
 function detectShipmentSheetNameForText(text: string | null | undefined): ShipmentSheetName | null {
@@ -2916,6 +2917,7 @@ function ShippingPanel({
   const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
   const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
   const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
+  const hasTrackingNumber = trackingNumber.trim().length > 0;
   const confirmItems = useMemo(
     () => selectedShippingItems(shippingItems, confirmKeys, quantities),
     [confirmKeys, quantities, shippingItems],
@@ -3079,14 +3081,15 @@ function ShippingPanel({
   async function submitDelivery() {
     if (confirmItems.length === 0 || isSubmitting) return;
     const nextDeliveryNo = deliveryNo.trim() || autoDeliveryNo;
+    const nextTrackingNumber = trackingNumber.trim();
     try {
-      await createDeliveryMutation.mutateAsync({
+      const result = await createDeliveryMutation.mutateAsync({
         deliveryNo: nextDeliveryNo,
         deliveryDate: new Date().toISOString().slice(0, 10),
         operatorName: getCurrentWorkWorkerName("野田"),
         invoiceNo: invoiceNo ?? undefined,
-        sheetName: shipmentSheetName,
-        trackingNumber: trackingNumber.trim() || undefined,
+        sheetName: nextTrackingNumber ? shipmentSheetName : undefined,
+        trackingNumber: nextTrackingNumber || undefined,
         items: confirmItems.map((item) => ({
           inventoryId: item.inventoryId,
           title: item.title,
@@ -3096,6 +3099,13 @@ function ShippingPanel({
         })),
       });
       toast.success(`${nextDeliveryNo} の出庫登録が完了しました`);
+      if (nextTrackingNumber && result.fedexResult) {
+        if (result.fedexResult.success) {
+          toast.success(result.fedexResult.message);
+        } else {
+          toast.warning(result.fedexResult.message);
+        }
+      }
       const shippedLabelIds = confirmItems.flatMap((item) => (item.labelId ? [item.labelId] : []));
       onDeliverySuccess(shippedLabelIds);
       setSelectedKeys((current) => {
@@ -3112,8 +3122,10 @@ function ShippingPanel({
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
         utils.inventory.deliveryHistory.list.invalidate(),
         utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate(),
+        utils.inventory.fedex.getAll.invalidate(),
       ]);
       void refetchHistories();
+      void refetchFedex();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "出庫登録に失敗しました");
     }
@@ -3327,23 +3339,25 @@ function ShippingPanel({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_180px_1fr]">
+            <div className={cn("grid gap-3", hasTrackingNumber ? "md:grid-cols-[1fr_1fr_180px]" : "md:grid-cols-2")}>
               <label className="space-y-1 text-sm">
                 <span className="text-xs text-muted-foreground">出庫No</span>
                 <Input value={deliveryNo} onChange={(event) => setDeliveryNo(event.target.value)} placeholder={autoDeliveryNo} />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs text-muted-foreground">発送管理</span>
-                <select className={fieldClass} value={shipmentSheetName} onChange={(event) => setShipmentSheetName(event.target.value as ShipmentSheetName)}>
-                  {SHIPMENT_SHEET_NAMES.map((sheetName) => (
-                    <option key={sheetName} value={sheetName}>{sheetName}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1 text-sm">
                 <span className="text-xs text-muted-foreground">FedEx追跡番号（任意）</span>
                 <Input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="追跡番号を入力..." />
               </label>
+              {hasTrackingNumber ? (
+                <label className="space-y-1 text-sm">
+                  <span className="text-xs text-muted-foreground">発送管理</span>
+                  <select className={fieldClass} value={shipmentSheetName} onChange={(event) => setShipmentSheetName(event.target.value as ShipmentSheetName)}>
+                    {SHIPMENT_SHEET_NAMES.map((sheetName) => (
+                      <option key={sheetName} value={sheetName}>{sheetName}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
             <div className="overflow-hidden rounded-md border">
               <div className="overflow-x-auto">
