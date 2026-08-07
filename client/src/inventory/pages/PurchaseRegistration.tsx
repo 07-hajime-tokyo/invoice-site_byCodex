@@ -29,6 +29,7 @@ import {
   Search,
   Send,
   Tag,
+  Trash2,
   Truck,
 } from "lucide-react";
 
@@ -461,12 +462,14 @@ function isReceived(row: PurchaseRow): boolean {
 
 function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "received") return isReceived(row);
-  return !isReceived(row);
+  const kind = purchaseRowStatusKind(row);
+  if (filter === "received") return kind !== "ordered";
+  return kind === "ordered";
 }
 
 function visiblePurchaseItems(row: PurchaseRow): PurchaseItem[] {
-  if (!isReceived(row)) return row.purchase_items;
+  const kind = purchaseRowStatusKind(row);
+  if (kind === "ordered" || kind === "partial_shipped" || kind === "shipped") return row.purchase_items;
   return row.purchase_items.filter((item) => itemStockQuantity(item) > 0);
 }
 
@@ -607,10 +610,11 @@ function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targe
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
   if (!filter) return rows;
   return rows.flatMap((row) => {
+    const rowStatus = purchaseRowStatusKind(row);
     const purchaseItems = row.purchase_items.filter((item) => {
       if (filter.productKey && !purchaseItemMatchesProduct(item, filter.productKey, filter.productTitle)) return false;
-      if (filter.mode === "stock") return isReceived(row) && itemStockQuantity(item) > 0;
-      return !isReceived(row);
+      if (filter.mode === "stock") return rowStatus !== "ordered" && itemStockQuantity(item) > 0;
+      return rowStatus === "ordered";
     });
     return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
   });
@@ -637,14 +641,50 @@ function buildSearchText(row: PurchaseRow): string {
     .toLowerCase();
 }
 
+type PurchaseRowStatusKind = "ordered" | "received" | "partial_shipped" | "shipped";
+
+function normalizedLabelStatus(status?: string | null): string {
+  return (status ?? "").trim().toLowerCase();
+}
+
+function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
+  const labels = getItemLabels(row.purchase_items);
+  if (labels.length > 0) {
+    const statuses = labels.map((label) => normalizedLabelStatus(label.status));
+    const shippedCount = statuses.filter((status) => status === "shipped").length;
+    if (shippedCount === labels.length) return "shipped";
+    if (shippedCount > 0) return "partial_shipped";
+    if (statuses.some((status) => status === "received" || status === "stocked")) return "received";
+  }
+  return isReceived(row) ? "received" : "ordered";
+}
+
 function statusLabel(row: PurchaseRow): string {
-  return isReceived(row) ? "入庫済み" : "発注済み / 未入庫";
+  switch (purchaseRowStatusKind(row)) {
+    case "shipped":
+      return "出庫済み";
+    case "partial_shipped":
+      return "一部出庫済み";
+    case "received":
+      return "入庫済み";
+    case "ordered":
+    default:
+      return "発注済み / 未入庫";
+  }
 }
 
 function statusClass(row: PurchaseRow): string {
-  return isReceived(row)
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : "border-amber-200 bg-amber-50 text-amber-700";
+  switch (purchaseRowStatusKind(row)) {
+    case "shipped":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "partial_shipped":
+      return "border-indigo-200 bg-indigo-50 text-indigo-700";
+    case "received":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "ordered":
+    default:
+      return "border-amber-200 bg-amber-50 text-amber-700";
+  }
 }
 
 function labelStatusLabel(status?: string | null): string {
@@ -889,6 +929,24 @@ function loadLabelTitleOverrides(): LabelTitleOverrideState {
     return { byLabelId: sanitizeStringRecord(parsed), byTitleKey: {} };
   } catch {
     return emptyLabelTitleOverrides();
+  }
+}
+
+function labelBadgeClass(status?: string | null): string {
+  switch (normalizedLabelStatus(status)) {
+    case "shipped":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "received":
+    case "stocked":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "ordered":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "returned":
+      return "border-purple-200 bg-purple-50 text-purple-800";
+    case "cancelled":
+      return "border-rose-200 bg-rose-50 text-rose-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
   }
 }
 
@@ -1381,6 +1439,11 @@ function todayShortCompact(): string {
   return `${compact.slice(2, 4)}${compact.slice(4)}`;
 }
 
+function todayShipmentDate(): string {
+  const now = new Date();
+  return `${now.getMonth() + 1}/${now.getDate()}`;
+}
+
 function deliveryPartnerCode(group: AllocationGroup | null): string {
   const text = `${group?.partner ?? ""} ${group?.label ?? ""}`.normalize("NFKC").toLowerCase();
   if (text.includes("maxim") || text.includes("マキシム")) return "Maxim";
@@ -1510,6 +1573,19 @@ function selectedShippingItems(
       const quantity = Math.min(item.maxQuantity, Math.max(1, Math.floor(quantities[item.key] ?? item.quantity)));
       return { ...item, quantity };
     });
+}
+
+function historyItemsToFedexItems(
+  items: HistoryItem[],
+): Array<{ productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null }> {
+  return items
+    .map((item) => ({
+      productNameJa: item.title,
+      productNameEn: item.title,
+      quantity: Math.max(0, Math.floor(Number(item.quantity))),
+      managementNo: item.managementNo ?? null,
+    }))
+    .filter((item) => item.quantity > 0);
 }
 
 function withInvoiceProductCounts(
@@ -1739,7 +1815,31 @@ function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: Purcha
   return group.rows;
 }
 
-function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; onPrintLabels: LabelPrintRequest }) {
+function purchaseRowInventoryId(row: PurchaseRow): number | null {
+  for (const label of getItemLabels(row.purchase_items)) {
+    const id = Number(label.localInventoryId);
+    if (Number.isFinite(id) && id > 0) return id;
+  }
+  for (const item of row.purchase_items) {
+    const id = Number(item.inventory_id);
+    if (Number.isFinite(id) && id > 0) return id;
+  }
+  return null;
+}
+
+function PurchaseRegistrationCard({
+  row,
+  onPrintLabels,
+  onOpenShippingHistory,
+  onDeleteRow,
+  isDeleting,
+}: {
+  row: PurchaseRow;
+  onPrintLabels: LabelPrintRequest;
+  onOpenShippingHistory: (row: PurchaseRow) => void;
+  onDeleteRow: (row: PurchaseRow) => void;
+  isDeleting?: boolean;
+}) {
   const labels = getItemLabels(row.purchase_items);
   const managementNos = getManagementNos(row.purchase_items);
   const supplier = getSupplier(row);
@@ -1752,6 +1852,7 @@ function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; on
   const trackingNumber = row.extra?.trackingNumber?.trim();
   const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
   const rowLabels = buildLabelViews([row]);
+  const deletableInventoryId = purchaseRowInventoryId(row);
 
   return (
     <section className="rounded-lg border bg-background shadow-sm">
@@ -1762,7 +1863,10 @@ function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; on
               labels.slice(0, 8).map((label) => (
                 <span
                   key={label.labelId}
-                  className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-lg font-semibold tracking-wide text-emerald-800"
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 font-mono text-lg font-semibold tracking-wide",
+                    labelBadgeClass(label.status),
+                  )}
                 >
                   {label.labelId}
                 </span>
@@ -1802,17 +1906,40 @@ function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; on
             <span>発注No: {row.num || "-"}</span>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-fit gap-2"
-          disabled={rowLabels.length === 0}
-          onClick={() => onPrintLabels(rowLabels)}
-        >
-          <Printer className="h-4 w-4" />
-          ラベル印刷
-        </Button>
+        <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 sm:w-fit"
+            onClick={() => onOpenShippingHistory(row)}
+          >
+            <Truck className="h-4 w-4" />
+            出庫履歴
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 sm:w-fit"
+            disabled={rowLabels.length === 0}
+            onClick={() => onPrintLabels(rowLabels)}
+          >
+            <Printer className="h-4 w-4" />
+            ラベル印刷
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit"
+            disabled={!deletableInventoryId || isDeleting}
+            onClick={() => onDeleteRow(row)}
+          >
+            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            削除
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
@@ -1870,8 +1997,8 @@ function PurchaseRegistrationCard({ row, onPrintLabels }: { row: PurchaseRow; on
           <summary className="cursor-pointer text-muted-foreground">商品ID一覧</summary>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {labels.map((label) => (
-              <div key={`${label.id ?? label.labelId}-${label.labelId}`} className="rounded-md border bg-muted/30 px-3 py-2">
-                <div className="font-mono text-base font-semibold text-emerald-800">{label.labelId}</div>
+              <div key={`${label.id ?? label.labelId}-${label.labelId}`} className={cn("rounded-md border px-3 py-2", labelBadgeClass(label.status))}>
+                <div className="font-mono text-base font-semibold">{label.labelId}</div>
                 <div className="mt-1 text-xs text-muted-foreground">{labelStatusLabel(label.status)}</div>
               </div>
             ))}
@@ -2140,6 +2267,9 @@ function OrderDashboard({
   onProductFilter,
   onClearProductFilter,
   onPrintLabels,
+  onOpenShippingHistory,
+  onDeleteRow,
+  deletingRowId,
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
@@ -2149,6 +2279,9 @@ function OrderDashboard({
   onProductFilter?: (filter: ProductDetailFilter) => void;
   onClearProductFilter?: () => void;
   onPrintLabels: LabelPrintRequest;
+  onOpenShippingHistory: (row: PurchaseRow) => void;
+  onDeleteRow: (row: PurchaseRow) => void;
+  deletingRowId?: number | null;
 }) {
   const groupRows = getAllRowsFromGroup(group, rows);
   const displayRows = detailRows ?? groupRows;
@@ -2207,7 +2340,16 @@ function OrderDashboard({
               description="充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。"
             />
           ) : (
-            displayRows.map((row) => <PurchaseRegistrationCard key={row.id} row={row} onPrintLabels={onPrintLabels} />)
+            displayRows.map((row) => (
+              <PurchaseRegistrationCard
+                key={row.id}
+                row={row}
+                onPrintLabels={onPrintLabels}
+                onOpenShippingHistory={onOpenShippingHistory}
+                onDeleteRow={onDeleteRow}
+                isDeleting={deletingRowId === row.id}
+              />
+            ))
           )}
         </div>
       </section>
@@ -2917,6 +3059,8 @@ function ShippingPanel({
   const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
   const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
   const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
+  const [invoiceFedexTrackingNumber, setInvoiceFedexTrackingNumber] = useState("");
+  const [invoiceFedexSheetName, setInvoiceFedexSheetName] = useState<ShipmentSheetName>(autoSheetName);
   const hasTrackingNumber = trackingNumber.trim().length > 0;
   const confirmItems = useMemo(
     () => selectedShippingItems(shippingItems, confirmKeys, quantities),
@@ -2949,6 +3093,24 @@ function ShippingPanel({
     },
     onError: (error) => {
       toast.error(`FedEx発送登録に失敗しました: ${error.message}`);
+    },
+  });
+  const createFedexBatchMutation = trpc.inventory.fedex.createBatch.useMutation({
+    onSuccess: (data) => {
+      void refetchFedex();
+      void refetchHistories();
+      void utils.inventory.fedex.getAll.invalidate();
+      void utils.inventory.deliveryHistory.list.invalidate();
+      void utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate();
+      if (data.success) {
+        toast.success(data.message ?? "FedEx発送登録をまとめて登録しました");
+        setInvoiceFedexTrackingNumber("");
+      } else {
+        toast.warning(data.message ?? "FedEx発送登録の一部に失敗しました");
+      }
+    },
+    onError: (error) => {
+      toast.error(`FedEx一括登録に失敗しました: ${error.message}`);
     },
   });
 
@@ -3001,11 +3163,13 @@ function ShippingPanel({
 
   useEffect(() => {
     setShipmentSheetName(autoSheetName);
+    setInvoiceFedexSheetName(autoSheetName);
   }, [autoSheetName]);
 
   useEffect(() => {
     setManualLabelValue("");
     setManualShippingLabels([]);
+    setInvoiceFedexTrackingNumber("");
   }, [group?.key]);
 
   useEffect(() => {
@@ -3129,6 +3293,32 @@ function ShippingPanel({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "出庫登録に失敗しました");
     }
+  }
+
+  function submitInvoiceFedexBatch() {
+    const tracking = invoiceFedexTrackingNumber.trim();
+    if (!tracking) {
+      toast.error("FedEx追跡番号を入力してください");
+      return;
+    }
+    const shipments = historyGroups
+      .map((history) => ({
+        deliveryNo: history.deliveryNo,
+        sheetName: invoiceFedexSheetName,
+        trackingNumber: tracking,
+        historyId: history.historyId,
+        items: historyItemsToFedexItems(history.items),
+      }))
+      .filter((shipment) => shipment.items.length > 0);
+    if (shipments.length === 0) {
+      toast.error("FedEx登録できる出庫履歴がありません");
+      return;
+    }
+    createFedexBatchMutation.mutate({
+      shippingDate: todayShipmentDate(),
+      shipments,
+      operatorName: getCurrentWorkWorkerName("驥守伐"),
+    });
   }
 
   return (
@@ -3279,7 +3469,7 @@ function ShippingPanel({
         )}
       </section>
 
-      <section className="rounded-md border bg-background p-4">
+      <section id="purchase-shipping-history" className="rounded-md border bg-background p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold">出庫履歴 / FedEx発送登録</h3>
@@ -3297,7 +3487,39 @@ function ShippingPanel({
         ) : historyGroups.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">まだ出庫履歴がありません。</p>
         ) : (
-          <div className="mt-3 divide-y rounded-md border">
+          <>
+            <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
+                <Input
+                  value={invoiceFedexTrackingNumber}
+                  onChange={(event) => setInvoiceFedexTrackingNumber(event.target.value)}
+                  placeholder="FedEx追跡番号を入力..."
+                  autoComplete="off"
+                />
+                <select
+                  className={fieldClass}
+                  value={invoiceFedexSheetName}
+                  onChange={(event) => setInvoiceFedexSheetName(event.target.value as ShipmentSheetName)}
+                >
+                  {SHIPMENT_SHEET_NAMES.map((sheetName) => (
+                    <option key={sheetName} value={sheetName}>{sheetName}</option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  className="w-full gap-2 bg-blue-600 text-white hover:bg-blue-700 lg:w-auto"
+                  onClick={submitInvoiceFedexBatch}
+                  disabled={createFedexBatchMutation.isPending || !invoiceFedexTrackingNumber.trim()}
+                >
+                  {createFedexBatchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  インボイスまとめてFedEx登録
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-blue-800">
+                このインボイスの出庫履歴 {historyGroups.length.toLocaleString()} 件をまとめてFedEx発送登録します。
+              </p>
+            </div>
+            <div className="mt-3 divide-y rounded-md border">
             {historyGroups.map((history) => {
               const existingShipments = fedexShipmentsMap.get(history.deliveryNo) ?? [];
               return (
@@ -3324,8 +3546,9 @@ function ShippingPanel({
                   </Button>
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+          </>
         )}
       </section>
       <ProductFulfillmentTableV2 products={products} />
@@ -3493,6 +3716,7 @@ function EmptyState({
 }
 
 export default function PurchaseRegistration() {
+  const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [workflowTab, setWorkflowTab] = useState<WorkflowTab>(() => {
@@ -3504,6 +3728,8 @@ export default function PurchaseRegistration() {
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
   const [printJobId, setPrintJobId] = useState(0);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
+  const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+  const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
 
   const normalizedSearch = search.trim();
 
@@ -3618,8 +3844,8 @@ export default function PurchaseRegistration() {
     return rows.reduce(
       (acc, row) => {
         acc.all += 1;
-        if (isReceived(row)) acc.received += 1;
-        else acc.ordered += 1;
+        if (purchaseRowStatusKind(row) === "ordered") acc.ordered += 1;
+        else acc.received += 1;
         acc.labels += getItemLabels(row.purchase_items).length;
         acc.quantity += sumQuantity(row.purchase_items);
         return acc;
@@ -3665,6 +3891,47 @@ export default function PurchaseRegistration() {
     if (labelIds.length === 0) return;
     const shipped = new Set(labelIds.map((labelId) => labelId.trim().toUpperCase()));
     setReceivedShippingLabels((current) => current.filter((label) => !shipped.has(label.labelId.trim().toUpperCase())));
+  };
+
+  const handleOpenShippingHistory = (row: PurchaseRow) => {
+    const nextKey = getInvoiceInfo(row).key;
+    if (labelPrintGroups.some((group) => group.key === nextKey)) {
+      setSelectedGroupKey(nextKey);
+    }
+    setWorkflowTab("shipping");
+    window.setTimeout(() => {
+      document.getElementById("purchase-shipping-history")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+
+  const handleDeletePurchaseRow = async (row: PurchaseRow) => {
+    const inventoryId = purchaseRowInventoryId(row);
+    if (!inventoryId) {
+      toast.error("削除できる在庫IDが見つかりません");
+      return;
+    }
+    const title = actualProductTitle(row.purchase_items[0]) || row.purchase_items[0]?.title || "商品";
+    if (!window.confirm(`${title} を削除しますか？\n削除済み商品に保存されます。`)) return;
+    setDeletingRowId(row.id);
+    try {
+      await deleteInventoryMutation.mutateAsync({
+        inventoryId,
+        alsoDeletePurchaseIds: [row.id],
+      });
+      toast.success(`${title} を削除済み商品に移動しました`);
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.deletedItems.list.invalidate(),
+      ]);
+      void refetch();
+      void refetchInventories();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "削除に失敗しました");
+    } finally {
+      setDeletingRowId(null);
+    }
   };
 
   useEffect(() => {
@@ -3807,6 +4074,9 @@ export default function PurchaseRegistration() {
                   onProductFilter={setProductDetailFilter}
                   onClearProductFilter={() => setProductDetailFilter(null)}
                   onPrintLabels={handlePrintLabels}
+                  onOpenShippingHistory={handleOpenShippingHistory}
+                  onDeleteRow={handleDeletePurchaseRow}
+                  deletingRowId={deletingRowId}
                 />
               </TabsContent>
               <TabsContent value="labels">
