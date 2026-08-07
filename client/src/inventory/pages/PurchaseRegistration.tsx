@@ -712,6 +712,7 @@ function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
     if (shippedCount > 0) return "partial_shipped";
     if (statuses.some((status) => status === "received" || status === "stocked")) return "received";
   }
+  if (row.status === "shipped" || hasPurchaseTracking(row)) return "shipped";
   return isReceived(row) ? "received" : "ordered";
 }
 

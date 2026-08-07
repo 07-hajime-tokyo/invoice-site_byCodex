@@ -1108,6 +1108,24 @@ function isLocalPurchaseReceivedFromLabels(
   return receivedCount >= Math.min(requiredQuantity, labels.length);
 }
 
+function getLocalPurchaseDisplayStatus(
+  row: LocalPurchaseRow,
+  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
+  purchasedZaicoIds?: Set<number>,
+): string {
+  if (shouldKeepRecoveredPurchaseOrdered(row)) return "ordered";
+  const localId = row.zaicoId ?? row.id;
+  if (
+    row.status === "purchased" ||
+    (purchasedZaicoIds?.has(localId) ?? false) ||
+    isLocalPurchaseReceivedFromLabels(row, inventoryLabelMap)
+  ) {
+    return "purchased";
+  }
+  if (String(row.trackingNumber ?? "").trim() || row.status === "shipped") return "shipped";
+  return row.status || "ordered";
+}
+
 function localPurchaseMatchesInventoryLabel(
   row: LocalPurchaseRow,
   localInventoryId: number | null,
@@ -1655,6 +1673,29 @@ function getEffectivePurchaseStatus(row: PurchasePageRow) {
   return row.status;
 }
 
+async function markLocalPurchaseShippedFromTracking(zaicoId: number, trackingNumber: string | null | undefined) {
+  if (!String(trackingNumber ?? "").trim()) return;
+  const db = await getDb();
+  if (!db) return;
+  const { localPurchases: lpTbl } = await import("../../drizzle/schema");
+  const { or, eq } = await import("drizzle-orm");
+  const [purchase] = await db
+    .select({ id: lpTbl.id, status: lpTbl.status })
+    .from(lpTbl)
+    .where(or(eq(lpTbl.id, zaicoId), eq(lpTbl.zaicoId, zaicoId)))
+    .limit(1);
+  if (!purchase || purchase.status === "purchased") return;
+  await db
+    .update(lpTbl)
+    .set({
+      status: "shipped",
+      stage: "shipped",
+      stageUpdatedBy: "tracking-registration",
+      stageUpdatedAt: new Date(),
+    })
+    .where(eq(lpTbl.id, purchase.id));
+}
+
 function purchaseRowMatchesSearch(row: PurchasePageRow, rawSearch: string) {
   const search = rawSearch.trim().toLowerCase();
   if (!search) return true;
@@ -1871,6 +1912,7 @@ export const inventoryRouter = router({
     getPurchases: publicProcedure.query(async () => {
       const localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
       return localPurchaseRows.map((p) => {
+        const displayStatus = getLocalPurchaseDisplayStatus(p);
         const items = (() => {
           try {
             const parsed = JSON.parse(p.itemsJson ?? "[]");
@@ -1883,7 +1925,7 @@ export const inventoryRouter = router({
           id: p.zaicoId ?? p.id,
           num: p.purchaseNum ?? "",
           customer_name: p.supplierName ?? "",
-          status: p.status === "purchased" ? "purchased" : "ordered",
+          status: displayStatus,
           total_amount: p.unitPrice != null ? Number(p.unitPrice) * (p.quantity ?? 1) : 0,
           purchase_date: p.purchaseDate ?? null,
           estimated_purchase_date: p.purchaseDate ?? null,
@@ -1904,7 +1946,7 @@ export const inventoryRouter = router({
             title: p.title ?? "",
             quantity: String(p.quantity ?? 1),
             unit_price: p.unitPrice ?? "0",
-            status: p.status === "purchased" ? "purchased" : "ordered",
+            status: displayStatus,
             purchase_date: p.receivedDate ?? null,
             estimated_purchase_date: p.purchaseDate ?? null,
             etc: p.managementNo ?? undefined,
@@ -1915,7 +1957,7 @@ export const inventoryRouter = router({
             quantity: String(item.quantity ?? p.quantity ?? 1),
             unit: String(item.unit ?? "個"),
             unit_price: String(item.unit_price ?? item.unitPrice ?? p.unitPrice ?? "0"),
-            status: p.status === "purchased" ? "purchased" : "ordered",
+            status: displayStatus,
             purchase_date: p.receivedDate ?? null,
             estimated_purchase_date: p.purchaseDate ?? null,
             etc: typeof item.etc === "string" ? item.etc : p.managementNo ?? undefined,
@@ -2224,9 +2266,7 @@ export const inventoryRouter = router({
           const rows = localPurchaseRows.map((p) => {
             const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
             const inbound = inboundInfoMap.get(p.id);
-            const displayStatus = shouldKeepRecoveredPurchaseOrdered(p)
-              ? "ordered"
-              : isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap) ? "purchased" : p.status;
+            const displayStatus = getLocalPurchaseDisplayStatus(p, inventoryLabelMap);
             return {
               id: p.zaicoId ?? p.id,
               num: p.purchaseNum ?? "",
@@ -2258,7 +2298,7 @@ export const inventoryRouter = router({
                         : p.managementNo ?? undefined;
                     return {
                       ...item,
-                      status: displayStatus === "purchased" ? "purchased" : item.status,
+                      status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
                       inventory_id: inventoryId,
                       etc: itemEtc,
                       category: p.category ?? "未分類",
@@ -2392,15 +2432,12 @@ export const inventoryRouter = router({
           const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
           // local_purchasesのstatusがpurchased、またはpurchase_historiesに有効な入庫履歴があればpurchased
           const localId = p.zaicoId ?? p.id;
-          const isPurchased =
-            p.status === "purchased" ||
-            purchasedZaicoIds.has(localId) ||
-            isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap);
+          const displayStatus = getLocalPurchaseDisplayStatus(p, inventoryLabelMap, purchasedZaicoIds);
           return {
             id: localId,
             num: p.purchaseNum ?? "",
             purchase_date: p.purchaseDate ?? null,
-            status: isPurchased ? "purchased" : "ordered",
+            status: displayStatus,
             // local_purchases自体のsupplierName/Urlを優先、なければlocal_inventoriesから取得
             csvSupplierName: p.supplierName ?? inv?.supplierName ?? null,
             csvSupplierUrl: p.supplierUrl ?? inv?.supplierUrl ?? null,
@@ -2415,7 +2452,7 @@ export const inventoryRouter = router({
                 const items = JSON.parse(p.itemsJson ?? "[]");
                 return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
                   ...item,
-                  status: isPurchased ? "purchased" : item.status,
+                  status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
                   category: p.category ?? "未分類",
                   itemLabels: labelsForPurchaseItem(p, item, inventoryLabelMap),
                 })) : [];
@@ -2426,7 +2463,7 @@ export const inventoryRouter = router({
                   quantity: String(p.quantity ?? 1),
                   unit_price: p.unitPrice ?? null,
                   etc: p.managementNo ?? null,
-                  status: isPurchased ? "purchased" : p.status,
+                  status: displayStatus,
                   inventory_id: p.localInventoryId ?? null,
                   category: p.category ?? "未分類",
                   itemLabels: labelsForPurchaseItem(p, { inventory_id: p.localInventoryId }, inventoryLabelMap),
@@ -2590,7 +2627,7 @@ export const inventoryRouter = router({
           return rows.map((p) => ({
             id: p.id,
             num: p.purchaseNum ?? "",
-            status: p.status === "purchased" ? "purchased" : "ordered",
+            status: getLocalPurchaseDisplayStatus(p),
             purchase_items: (() => {
               try {
                 const items = JSON.parse(p.itemsJson ?? "[]");
@@ -4238,7 +4275,7 @@ export const inventoryRouter = router({
         if (!zaicoEnabled) {
           // Zaico OFF: local_purchasesを直接更新
           const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-          const { eq } = await import("drizzle-orm");
+          const { or, eq } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
             await db.update(lpTbl).set({
@@ -4246,8 +4283,9 @@ export const inventoryRouter = router({
               trackingNumber: input.trackingNumber ?? null,
               carrier: input.carrier ?? null,
               note: input.note ?? null,
-            }).where(eq(lpTbl.id, input.zaicoId));
+            }).where(or(eq(lpTbl.id, input.zaicoId), eq(lpTbl.zaicoId, input.zaicoId)));
           }
+          await markLocalPurchaseShippedFromTracking(input.zaicoId, input.trackingNumber);
           return { success: true };
         }
         await upsertPurchaseExtra({
@@ -4257,6 +4295,7 @@ export const inventoryRouter = router({
           carrier: input.carrier ?? null,
           note: input.note ?? null,
         });
+        await markLocalPurchaseShippedFromTracking(input.zaicoId, input.trackingNumber);
         return { success: true };
       }),
     upsertBulk: publicProcedure
@@ -4274,7 +4313,7 @@ export const inventoryRouter = router({
         if (!zaicoEnabled) {
           // Zaico OFF: local_purchasesを直接一括更新
           const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-          const { inArray } = await import("drizzle-orm");
+          const { inArray, or } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
             await db.update(lpTbl).set({
@@ -4282,8 +4321,9 @@ export const inventoryRouter = router({
               trackingNumber: input.trackingNumber ?? null,
               carrier: input.carrier ?? null,
               note: input.note ?? null,
-            }).where(inArray(lpTbl.id, input.zaicoIds));
+            }).where(or(inArray(lpTbl.id, input.zaicoIds), inArray(lpTbl.zaicoId, input.zaicoIds)));
           }
+          await Promise.all(input.zaicoIds.map((zaicoId) => markLocalPurchaseShippedFromTracking(zaicoId, input.trackingNumber)));
           return { success: true, count: input.zaicoIds.length };
         }
         await Promise.all(
@@ -4297,6 +4337,7 @@ export const inventoryRouter = router({
             })
           )
         );
+        await Promise.all(input.zaicoIds.map((zaicoId) => markLocalPurchaseShippedFromTracking(zaicoId, input.trackingNumber)));
         return { success: true, count: input.zaicoIds.length };
       }),
   }),
