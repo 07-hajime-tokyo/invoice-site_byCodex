@@ -833,6 +833,7 @@ type PurchasePageInput = {
   status?: "ordered" | "shipped" | null;
   category?: string | null;
   search?: string | null;
+  showCompleted?: boolean;
   /** T22: 分類タブのフィルタ。"unclassified"=未仕訳 / null|undefined=全件 */
   inboundClass?: InboundClass | "unclassified" | null;
 };
@@ -840,6 +841,10 @@ type PurchasePageInput = {
 type PurchasePageRow = {
   status: string;
   num?: string | null;
+  purchase_date?: string | null;
+  purchaseDate?: string | null;
+  created_at?: string | null;
+  createdAt?: string | Date | null;
   csvSupplierName?: string | null;
   extra?: { trackingNumber?: string | null } | null;
   /** T22: 入庫分類（ebay/oregon/direct/domestic）。null=未仕訳 */
@@ -1673,6 +1678,26 @@ function getEffectivePurchaseStatus(row: PurchasePageRow) {
   return row.status;
 }
 
+const PURCHASE_PAGE_INBOUND_CUTOFF_DATE = "2026-06-20";
+
+function normalizePurchasePageDate(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
+function isPurchasePageInboundCutoffVisible(row: PurchasePageRow): boolean {
+  const filterDate =
+    normalizePurchasePageDate(row.purchaseDate) ??
+    normalizePurchasePageDate(row.purchase_date) ??
+    normalizePurchasePageDate(row.created_at) ??
+    normalizePurchasePageDate(row.createdAt);
+  return filterDate == null || filterDate >= PURCHASE_PAGE_INBOUND_CUTOFF_DATE;
+}
+
 async function markLocalPurchaseShippedFromTracking(zaicoId: number, trackingNumber: string | null | undefined) {
   if (!String(trackingNumber ?? "").trim()) return;
   const db = await getDb();
@@ -1787,9 +1812,15 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
   const search = input?.search?.trim() ?? "";
   const status = input?.status ?? null;
   const inboundTab = input?.inboundClass ?? null;
+  const showCompleted = input?.showCompleted ?? false;
 
   // T22: 完了行も消さずに残す（タブ内でグレー表示）。全行を基点にフィルタする。
-  let filteredRows: T[] = rows;
+  const baseRows = rows.filter((row) =>
+    row.status !== "purchased" &&
+    isPurchasePageInboundCutoffVisible(row) &&
+    (showCompleted || !isRowComplete(row)),
+  );
+  let filteredRows: T[] = baseRows;
 
   // 分類タブフィルタ（指定時のみ）
   if (inboundTab) {
@@ -1820,8 +1851,10 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
   const start = totalCount === 0 ? 0 : (page - 1) * pageSize;
   const items = ordered.slice(start, start + pageSize);
   // カテゴリ合計サマリーは従来どおり未完了(=purchased未満)ベースで算出
-  const summary = summarizePurchaseRows(rows.filter((row) => row.status !== "purchased"));
-  const tabCounts = countInboundTabs(rows);
+  const summary = summarizePurchaseRows(baseRows);
+  const tabCounts = countInboundTabs(
+    rows.filter((row) => row.status !== "purchased" && isPurchasePageInboundCutoffVisible(row)),
+  );
 
   return {
     items,
@@ -1829,7 +1862,7 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
     pageSize,
     totalCount,
     totalPages,
-    allCount: rows.length,
+    allCount: baseRows.length,
     tabCounts,
     ...summary,
   };
@@ -2212,6 +2245,7 @@ export const inventoryRouter = router({
         status: z.enum(["ordered", "shipped"]).nullable().optional(),
         category: z.string().max(200).nullable().optional(),
         search: z.string().max(200).nullable().optional(),
+        showCompleted: z.boolean().optional(),
         inboundClass: z.enum(["ebay", "oregon", "direct", "domestic", "unclassified"]).nullable().optional(),
       }).optional())
       .query(async ({ input }) => {

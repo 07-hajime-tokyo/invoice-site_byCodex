@@ -193,11 +193,16 @@ function exportPurchasesCSV(purchases: Purchase[]) {
  * purchase_items[].etc をカンマ区切りでパースして管理番号・仕入先サイトを抽出する
  * フォーマット: "管理番号, 日付, 仕入先サイト"
  */
+function cleanManagementNo(value?: string | null): string {
+  const firstPart = (value ?? "").split(",")[0]?.trim() ?? "";
+  return firstPart.split(/\s+\/\s+/)[0]?.trim() ?? firstPart;
+}
+
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
   const parts = etc.split(",").map((p) => p.trim());
   return {
-    managementNo: parts[0] ?? "",
+    managementNo: cleanManagementNo(parts[0]),
     supplierSite: parts[2] ?? "",
   };
 }
@@ -988,11 +993,12 @@ export default function Purchases() {
     category: selectedCategory === "すべて" ? null : selectedCategory,
     status: selectedStatusFilter as "ordered" | "shipped" | null,
     search: debouncedSearchQuery || null,
+    showCompleted: showCompletedPurchases,
     // T22: 分類タブ。"all"は全件のため未指定(null)にする
     inboundClass: (selectedInboundTab === "all"
       ? null
       : selectedInboundTab) as InboundClass | "unclassified" | null,
-  }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter, selectedInboundTab]);
+  }), [debouncedSearchQuery, purchasePage, selectedCategory, selectedStatusFilter, selectedInboundTab, showCompletedPurchases]);
   const { data: purchasePageData, isLoading, isFetching, refetch } = trpc.inventory.zaico.getPurchasesWithCategoryPage.useQuery(purchaseQueryInput, {
     staleTime: 5_000,
     refetchInterval: editingId === null ? 5_000 : false,
@@ -1065,7 +1071,7 @@ export default function Purchases() {
   }
 
   function handleSelectInventoryForOrder(inv: { id: number; title: string; unit: string; purchase_unit_price?: number; etc?: string }) {
-    const managementNo = inv.etc ? inv.etc.split(",")[0].trim() : "";
+    const managementNo = cleanManagementNo(inv.etc);
     setOrderedForm(f => ({
       ...f,
       inventoryId: String(inv.id),

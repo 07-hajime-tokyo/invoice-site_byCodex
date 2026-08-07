@@ -334,18 +334,23 @@ function hasPurchaseTracking(row: PurchaseRow): boolean {
   return purchaseTrackingNumber(row).length > 0;
 }
 
+function cleanLegacyManagementNo(value?: string | null): string {
+  const firstPart = (value ?? "").split(",")[0]?.trim() ?? "";
+  return firstPart.split(/\s+\/\s+/)[0]?.trim() ?? firstPart;
+}
+
 function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
   if (!etc) return { managementNo: "", supplierSite: "" };
   const parts = etc.split(",").map((part) => part.trim());
   return {
-    managementNo: parts[0] ?? "",
+    managementNo: cleanLegacyManagementNo(parts[0]),
     supplierSite: parts[2] ?? "",
   };
 }
 
 function getInventoryManagementNo(etc?: string | null): string {
   if (!etc) return "";
-  const firstPart = etc.split(",")[0]?.trim() ?? "";
+  const firstPart = cleanLegacyManagementNo(etc);
   return firstPart.split(/\s+/)[0]?.trim() ?? "";
 }
 
@@ -469,7 +474,8 @@ function getManagementNos(items: PurchaseItem[]): string[] {
     items.flatMap((item) => {
       const parsed = parseEtc(item.etc);
       const labelNos = (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
-      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos];
+      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos]
+        .map(cleanLegacyManagementNo);
     }),
   );
 }
@@ -519,13 +525,13 @@ function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "missing_tracking") return !hasPurchaseTracking(row);
   const kind = purchaseRowStatusKind(row);
-  if (filter === "received") return kind !== "ordered";
-  return kind === "ordered";
+  if (filter === "received") return kind === "received" || kind === "partial_shipped" || kind === "shipped";
+  return kind === "ordered" || kind === "inbound_shipped";
 }
 
 function visiblePurchaseItems(row: PurchaseRow): PurchaseItem[] {
   const kind = purchaseRowStatusKind(row);
-  if (kind === "ordered" || kind === "partial_shipped" || kind === "shipped") return row.purchase_items;
+  if (kind === "ordered" || kind === "inbound_shipped" || kind === "partial_shipped" || kind === "shipped") return row.purchase_items;
   return row.purchase_items.filter((item) => itemStockQuantity(item) > 0);
 }
 
@@ -669,8 +675,10 @@ function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFil
     const rowStatus = purchaseRowStatusKind(row);
     const purchaseItems = row.purchase_items.filter((item) => {
       if (filter.productKey && !purchaseItemMatchesProduct(item, filter.productKey, filter.productTitle)) return false;
-      if (filter.mode === "stock") return rowStatus !== "ordered" && itemStockQuantity(item) > 0;
-      return rowStatus === "ordered";
+      if (filter.mode === "stock") {
+        return rowStatus !== "ordered" && rowStatus !== "inbound_shipped" && itemStockQuantity(item) > 0;
+      }
+      return rowStatus === "ordered" || rowStatus === "inbound_shipped";
     });
     return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
   });
@@ -697,7 +705,7 @@ function buildSearchText(row: PurchaseRow): string {
     .toLowerCase();
 }
 
-type PurchaseRowStatusKind = "ordered" | "received" | "partial_shipped" | "shipped";
+type PurchaseRowStatusKind = "ordered" | "inbound_shipped" | "received" | "partial_shipped" | "shipped";
 
 function normalizedLabelStatus(status?: string | null): string {
   return (status ?? "").trim().toLowerCase();
@@ -712,12 +720,15 @@ function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
     if (shippedCount > 0) return "partial_shipped";
     if (statuses.some((status) => status === "received" || status === "stocked")) return "received";
   }
-  if (row.status === "shipped" || hasPurchaseTracking(row)) return "shipped";
-  return isReceived(row) ? "received" : "ordered";
+  if (isReceived(row)) return "received";
+  if (row.status === "shipped" || hasPurchaseTracking(row)) return "inbound_shipped";
+  return "ordered";
 }
 
 function statusLabel(row: PurchaseRow): string {
   switch (purchaseRowStatusKind(row)) {
+    case "inbound_shipped":
+      return "発送済み";
     case "shipped":
       return "出庫済み";
     case "partial_shipped":
@@ -732,6 +743,8 @@ function statusLabel(row: PurchaseRow): string {
 
 function statusClass(row: PurchaseRow): string {
   switch (purchaseRowStatusKind(row)) {
+    case "inbound_shipped":
+      return "border-cyan-200 bg-cyan-50 text-cyan-700";
     case "shipped":
       return "border-blue-200 bg-blue-50 text-blue-700";
     case "partial_shipped":
@@ -1042,7 +1055,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
       const managementNo = parseEtc(item.etc).managementNo;
       const title = actualProductTitle(item);
       return (item.itemLabels ?? []).map((label) => {
-        const legacyManagementNo = label.legacyManagementNo || managementNo || "-";
+        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo || "-";
         return {
           key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -1086,7 +1099,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
       .filter(isInventoryPrintableLabel)
       .slice(0, stockQuantity)
       .map((label) => {
-        const legacyManagementNo = label.legacyManagementNo || managementNo;
+        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo;
         return {
           key: `inventory-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -1358,7 +1371,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
       })
       .slice(0, stockQuantity)
       .map((label) => {
-        const legacyManagementNo = label.legacyManagementNo || managementNo;
+        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo;
         return {
           key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -4489,7 +4502,8 @@ export default function PurchaseRegistration() {
     return countableRows.reduce(
       (acc, row) => {
         acc.all += 1;
-        if (purchaseRowStatusKind(row) === "ordered") acc.ordered += 1;
+        const statusKind = purchaseRowStatusKind(row);
+        if (statusKind === "ordered" || statusKind === "inbound_shipped") acc.ordered += 1;
         else acc.received += 1;
         if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
         acc.quantity += sumQuantity(row.purchase_items);
