@@ -61,6 +61,24 @@ interface PurchaseRow {
   purchase_items: PurchaseItem[];
 }
 
+interface InventoryItem {
+  id: number;
+  title: string;
+  quantity?: string | number | null;
+  unit?: string | null;
+  category?: string | null;
+  categories?: string[] | null;
+  place?: string | null;
+  etc?: string | null;
+  unit_price?: string | number | null;
+  purchase_unit_price?: string | number | null;
+  last_purchase_date?: string | null;
+  updated_at?: string | null;
+  supplierUrl?: string | null;
+  supplierName?: string | null;
+  itemLabels?: InventoryItemLabel[];
+}
+
 type StatusFilter = "all" | "ordered" | "received";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
 
@@ -242,6 +260,12 @@ function parseEtc(etc?: string | null): { managementNo: string; supplierSite: st
     managementNo: parts[0] ?? "",
     supplierSite: parts[2] ?? "",
   };
+}
+
+function getInventoryManagementNo(etc?: string | null): string {
+  if (!etc) return "";
+  const firstPart = etc.split(",")[0]?.trim() ?? "";
+  return firstPart.split(/\s+/)[0]?.trim() ?? "";
 }
 
 function toNumber(value: unknown): number {
@@ -1123,52 +1147,59 @@ const STOCK_MODEL_ORDER = [
   "その他",
 ];
 
-function buildStockItemViews(rows: PurchaseRow[]): StockItemView[] {
-  return rows.flatMap((row) => {
-    const supplier = getSupplier(row);
-    return row.purchase_items.flatMap((item) => {
-      const title = actualProductTitle(item);
-      const managementNo = parseEtc(item.etc).managementNo;
-      const purchaseDate = row.purchase_date ?? item.estimated_purchase_date ?? "";
-      const labels = (item.itemLabels ?? [])
-        .filter((label) => {
-          const status = (label.status ?? "").trim().toLowerCase();
-          return status === "stocked" || status === "received";
-        })
-        .map((label) => {
-          const legacyManagementNo = label.legacyManagementNo || managementNo || "-";
-          return {
-            key: `label-${row.id}-${item.id}-${label.id ?? label.labelId}`,
-            labelId: label.labelId,
-            status: labelStatusLabel(label.status),
-            title,
-            legacyManagementNo,
-            allocationLabel: labelAllocationLabel(legacyManagementNo),
-            unitPrice: toNumber(item.unit_price),
-            quantity: 1,
-            supplier,
-            purchaseDate,
-          };
-        });
-      const missingLabelQuantity = Math.max(0, itemStockQuantity(item) - labels.length);
-      if (missingLabelQuantity <= 0) return labels;
-      const fallbackManagementNo = managementNo || "-";
-      return [
-        ...labels,
-        {
-          key: `unlabeled-${row.id}-${item.id}`,
-          labelId: null,
-          status: "在庫",
-          title,
-          legacyManagementNo: fallbackManagementNo,
-          allocationLabel: labelAllocationLabel(fallbackManagementNo),
-          unitPrice: toNumber(item.unit_price),
-          quantity: missingLabelQuantity,
+function buildStockItemViewsFromInventories(inventories: InventoryItem[]): StockItemView[] {
+  return inventories.flatMap((inventory) => {
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity <= 0) return [];
+
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const supplier = {
+      name: inventory.supplierName?.trim() || "-",
+      url: inventory.supplierUrl?.trim() || "",
+    };
+    const unitPrice = toNumber(inventory.purchase_unit_price ?? inventory.unit_price);
+    const purchaseDate = inventory.last_purchase_date ?? inventory.updated_at ?? "";
+    const labels = (inventory.itemLabels ?? [])
+      .filter((label) => {
+        if (!label.labelId?.trim()) return false;
+        const status = (label.status ?? "").trim().toLowerCase();
+        return !status || status === "stocked" || status === "received";
+      })
+      .slice(0, stockQuantity)
+      .map((label) => {
+        const legacyManagementNo = label.legacyManagementNo || managementNo;
+        return {
+          key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          status: labelStatusLabel(label.status || "stocked"),
+          title: inventory.title,
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice,
+          quantity: 1,
           supplier,
           purchaseDate,
-        },
-      ];
-    });
+        };
+      });
+
+    const missingLabelQuantity = Math.max(0, stockQuantity - labels.length);
+    if (missingLabelQuantity <= 0) return labels;
+
+    return [
+      ...labels,
+      {
+        key: `inventory-unlabeled-${inventory.id}`,
+        labelId: null,
+        status: "\u5728\u5eab",
+        title: inventory.title,
+        legacyManagementNo: managementNo,
+        allocationLabel: labelAllocationLabel(managementNo),
+        unitPrice,
+        quantity: missingLabelQuantity,
+        supplier,
+        purchaseDate,
+      },
+    ];
   });
 }
 
@@ -1198,6 +1229,19 @@ function buildStockItemGroups(items: StockItemView[]): { name: string; items: St
       if (normalizedA !== normalizedB) return normalizedA - normalizedB;
       return a.name.localeCompare(b.name, "ja", { numeric: true });
     });
+}
+
+function buildStockSearchText(item: StockItemView): string {
+  return [
+    item.labelId ?? "",
+    item.title,
+    item.legacyManagementNo,
+    item.allocationLabel,
+    item.supplier.name,
+    item.status,
+  ]
+    .join("\n")
+    .toLowerCase();
 }
 
 function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
@@ -2497,8 +2541,11 @@ function ScanPanel({ labels }: { labels: LabelView[] }) {
   );
 }
 
-function StockPanel({ rows }: { rows: PurchaseRow[] }) {
-  const stockItems = buildStockItemViews(rows);
+function StockPanel({ inventories, searchText }: { inventories: InventoryItem[]; searchText: string }) {
+  const allStockItems = buildStockItemViewsFromInventories(inventories);
+  const stockItems = searchText
+    ? allStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
+    : allStockItems;
   const stockGroups = buildStockItemGroups(stockItems);
   const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
   return (
@@ -2684,6 +2731,15 @@ export default function PurchaseRegistration() {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
+  const {
+    data: inventoryData,
+    isLoading: isInventoryLoading,
+    isFetching: isInventoryFetching,
+    refetch: refetchInventories,
+  } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
 
   const rows = (data?.items ?? []) as PurchaseRow[];
   const searchText = normalizedSearch.toLowerCase();
@@ -2721,7 +2777,8 @@ export default function PurchaseRegistration() {
   const selectedLabels = selectedGroup?.labels ?? buildLabelViews(selectedRows);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
-  const allStockItems = useMemo(() => buildStockItemViews(rows), [rows]);
+  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
+  const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
   const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
@@ -2774,6 +2831,9 @@ export default function PurchaseRegistration() {
 
   const isScanWorkflow = workflowTab === "scan";
   const isStockWorkflow = workflowTab === "stock";
+  const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
+  const isRefreshing = isFetching || isInventoryFetching;
+  const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
@@ -2799,8 +2859,8 @@ export default function PurchaseRegistration() {
                 </Badge>
               </div>
             </div>
-            <Button type="button" variant="outline" onClick={() => refetch()} disabled={isFetching} className="h-10 w-full gap-2 md:w-fit">
-              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <Button type="button" variant="outline" onClick={refreshCurrentData} disabled={isRefreshing} className="h-10 w-full gap-2 md:w-fit">
+              {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               更新
             </Button>
           </div>
@@ -2879,7 +2939,7 @@ export default function PurchaseRegistration() {
             </div>
           </section>
 
-          {isLoading ? (
+          {isPageLoading ? (
             <div className="flex min-h-[220px] items-center justify-center rounded-lg border bg-background text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
@@ -2907,7 +2967,7 @@ export default function PurchaseRegistration() {
                 <ScanPanel labels={allLabels} />
               </TabsContent>
               <TabsContent value="stock">
-                <StockPanel rows={rows} />
+                <StockPanel inventories={inventoryItems} searchText={searchText} />
               </TabsContent>
               <TabsContent value="shipping">
                 <ShippingPanel products={selectedOpenProducts} />
