@@ -1168,6 +1168,18 @@ function canRecoverOrphanLabelPurchase(managementNo: string): boolean {
   return RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS.has(managementNo.trim());
 }
 
+const ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS = new Set([
+  "402_マキシム_2/2",
+]);
+
+function shouldKeepRecoveredPurchaseOrdered(row: LocalPurchaseRow): boolean {
+  const rowManagementNo = String(row.managementNo ?? "").trim();
+  if (ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS.has(rowManagementNo)) return true;
+  return localPurchaseItems(row).some((item) =>
+    ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS.has(getPurchaseItemManagementNo(row, item)),
+  );
+}
+
 function getRecoveredPurchaseOverrides(managementNo: string) {
   if (managementNo === "402_マキシム_1/2") {
     return {
@@ -1179,6 +1191,21 @@ function getRecoveredPurchaseOverrides(managementNo: string) {
       trackingNumber: "490731074886",
       carrier: "yamato",
       supplierName: "駿河屋 岐阜マーサ21店",
+    };
+  }
+  if (managementNo === "402_マキシム_2/2") {
+    return {
+      purchaseNum: "1794101757",
+      title: "PSP 3000 ミスティック・シルバー",
+      category: "PSP",
+      unitPrice: "14426",
+      purchaseDate: "2026-08-07",
+      supplierName: "駿河屋 豊橋二ノ輪店",
+      status: "ordered",
+      stage: "ordered",
+      labelStatus: "ordered" as InventoryItemLabelStatus,
+      receivedDate: null,
+      quantity: 1,
     };
   }
   return {};
@@ -1245,6 +1272,47 @@ async function cleanupAllowedRecoveredPurchaseIssues(
     .filter((purchase) => String(purchase.managementNo ?? "").trim() === "402_マキシム_2/2")
     .sort((a, b) => a.id - b.id);
   const maximSecondRow = maximSecondRows[0] ?? null;
+  const maximSecondOverrides = getRecoveredPurchaseOverrides("402_マキシム_2/2");
+  if (maximSecondRow) {
+    const title = maximSecondOverrides.title ?? maximSecondRow.title ?? "";
+    const category = maximSecondOverrides.category ?? maximSecondRow.category ?? null;
+    const quantity = Math.max(1, Number(maximSecondOverrides.quantity ?? maximSecondRow.quantity ?? 1) || 1);
+    const unitPrice = maximSecondOverrides.unitPrice ?? maximSecondRow.unitPrice ?? null;
+    const itemsJson = JSON.stringify([{
+      id: 1,
+      inventory_id: maximSecondRow.localInventoryId,
+      inventoryId: maximSecondRow.localInventoryId,
+      title,
+      quantity: String(quantity),
+      unit_price: unitPrice,
+      unitPrice,
+      etc: "402_マキシム_2/2",
+      category,
+      status: "ordered",
+    }]);
+    await db
+      .update(purchaseTbl)
+      .set({
+        purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
+        status: "ordered",
+        itemsJson,
+        title,
+        category,
+        quantity,
+        unitPrice,
+        managementNo: "402_マキシム_2/2",
+        purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
+        receivedDate: null,
+        trackingNumber: null,
+        carrier: null,
+        supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
+        stage: maximSecondOverrides.stage ?? "ordered",
+        stageUpdatedBy: "system-repair",
+        stageUpdatedAt: new Date(),
+      })
+      .where(eq(purchaseTbl.id, maximSecondRow.id));
+    changed = true;
+  }
   const maximSecondLabels = await db
     .select()
     .from(labelTbl)
@@ -1267,7 +1335,14 @@ async function cleanupAllowedRecoveredPurchaseIssues(
       .set({
         purchaseId: maximSecondRow.id,
         localInventoryId: maximSecondRow.localInventoryId ?? keepLabel.localInventoryId,
+        status: "ordered",
       })
+      .where(eq(labelTbl.id, keepLabel.id));
+    changed = true;
+  } else if (keepLabel && String(keepLabel.status ?? "").trim().toLowerCase() !== "ordered") {
+    await db
+      .update(labelTbl)
+      .set({ status: "ordered" })
       .where(eq(labelTbl.id, keepLabel.id));
     changed = true;
   }
@@ -1330,15 +1405,17 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     if (!firstLabel) continue;
     const overrides = getRecoveredPurchaseOverrides(managementNo);
     if (!canRecoverOrphanLabelPurchase(managementNo)) continue;
-    const quantity = Math.max(1, labels.length);
+    const quantity = Math.max(1, Number(overrides.quantity ?? labels.length) || 1);
     const title = overrides.title ?? firstLabel.title ?? inventory.title;
     const category = overrides.category ?? inventory.category ?? null;
     const unitPrice = overrides.unitPrice ?? (inventory.unitPrice == null ? null : String(inventory.unitPrice));
     const purchaseDate = overrides.purchaseDate ?? historyDateFrom(firstLabel.createdAt ?? inventory.createdAt);
-    const status = localPurchaseStatusFromLabelStatus(firstLabel.status);
-    const receivedDate = status === "purchased"
-      ? historyDateFrom(firstLabel.receivedAt ?? inventory.updatedAt)
-      : null;
+    const status = String(overrides.status ?? localPurchaseStatusFromLabelStatus(firstLabel.status));
+    const receivedDate = "receivedDate" in overrides
+      ? overrides.receivedDate ?? null
+      : status === "purchased"
+        ? historyDateFrom(firstLabel.receivedAt ?? inventory.updatedAt)
+        : null;
     const newPurchaseId = await insertLocalPurchase({
       zaicoId: null,
       purchaseNum: overrides.purchaseNum ?? managementNo,
@@ -1370,7 +1447,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
       supplierName: overrides.supplierName ?? inventory.supplierName ?? null,
       inboundClass: null,
       classSource: "auto",
-      stage: status === "purchased" ? "received" : "ordered",
+      stage: overrides.stage ?? (status === "purchased" ? "received" : "ordered"),
       stageUpdatedBy: "system-repair",
       stageUpdatedAt: new Date(),
       shaftParentPurchaseId: null,
@@ -1382,7 +1459,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
         legacyManagementNo: managementNo,
         title,
         quantity,
-        status: String(firstLabel.status ?? "ordered") as InventoryItemLabelStatus,
+        status: (overrides.labelStatus ?? String(firstLabel.status ?? "ordered")) as InventoryItemLabelStatus,
         sourceKey: `repair:${managementNo}`,
       });
       existingManagementNos.add(managementNo);
@@ -2135,7 +2212,9 @@ export const inventoryRouter = router({
           const rows = localPurchaseRows.map((p) => {
             const inv = p.localInventoryId ? invSupplierMap.get(p.localInventoryId) : null;
             const inbound = inboundInfoMap.get(p.id);
-            const displayStatus = isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap) ? "purchased" : p.status;
+            const displayStatus = shouldKeepRecoveredPurchaseOrdered(p)
+              ? "ordered"
+              : isLocalPurchaseReceivedFromLabels(p, inventoryLabelMap) ? "purchased" : p.status;
             return {
               id: p.zaicoId ?? p.id,
               num: p.purchaseNum ?? "",
