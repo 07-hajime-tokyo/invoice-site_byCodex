@@ -1319,6 +1319,9 @@ function getLocalPurchaseDisplayStatus(
   inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
   purchasedZaicoIds?: Set<number>,
 ): string {
+  if (row.status !== "purchased" && (String(row.trackingNumber ?? "").trim() || row.status === "shipped")) {
+    return "shipped";
+  }
   if (shouldKeepRecoveredPurchaseOrdered(row)) return "ordered";
   const localId = row.zaicoId ?? row.id;
   if (
@@ -1328,7 +1331,6 @@ function getLocalPurchaseDisplayStatus(
   ) {
     return "purchased";
   }
-  if (String(row.trackingNumber ?? "").trim() || row.status === "shipped") return "shipped";
   return row.status || "ordered";
 }
 
@@ -1978,6 +1980,19 @@ function buildPurchaseTrackingUpdate(input: PurchaseTrackingSyncInput) {
   return update;
 }
 
+function requiresLocalPurchaseTrackingTarget(input: PurchaseTrackingSyncInput): boolean {
+  if (!hasOwnPurchaseTrackingField(input, "trackingNumber")) return false;
+  return normalizePurchaseTrackingValue(input.trackingNumber) != null;
+}
+
+function assertLocalPurchaseTrackingSynced(input: PurchaseTrackingSyncInput, updatedCount: number) {
+  if (!requiresLocalPurchaseTrackingTarget(input) || updatedCount > 0) return;
+  throw new TRPCError({
+    code: "NOT_FOUND",
+    message: "追跡番号を反映できる発注データが見つかりませんでした。ページを更新してから再度登録してください。",
+  });
+}
+
 function localPurchaseMatchesTrackingTarget(row: LocalPurchaseRow, input: PurchaseTrackingSyncInput): boolean {
   if (row.id === input.zaicoId || row.zaicoId === input.zaicoId) return true;
   const labelId = String(input.labelId ?? "").trim().toUpperCase();
@@ -1995,12 +2010,12 @@ function localPurchaseMatchesTrackingTarget(row: LocalPurchaseRow, input: Purcha
 
 async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInput) {
   const db = await getDb();
-  if (!db) return;
+  if (!db) return { updatedCount: 0, targetIds: [] as number[] };
   const { localPurchases: lpTbl } = await import("../../drizzle/schema");
   const { eq } = await import("drizzle-orm");
   const trackingNumberWasProvided = hasOwnPurchaseTrackingField(input, "trackingNumber");
   const trackingUpdate = buildPurchaseTrackingUpdate(input);
-  if (Object.keys(trackingUpdate).length === 0) return;
+  if (Object.keys(trackingUpdate).length === 0) return { updatedCount: 0, targetIds: [] as number[] };
   const hasTrackingNumber = String(trackingUpdate.trackingNumber ?? "").trim().length > 0;
   const localPurchases = await getLocalPurchases();
   const directMatches = localPurchases.filter((row) => row.id === input.zaicoId || row.zaicoId === input.zaicoId);
@@ -2029,6 +2044,8 @@ async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInp
       .set(updateData)
       .where(eq(lpTbl.id, purchase.id));
   }
+
+  return { updatedCount: uniqueTargets.length, targetIds: uniqueTargets.map((purchase) => purchase.id) };
 }
 
 function purchaseRowMatchesSearch(row: PurchasePageRow, rawSearch: string) {
@@ -4633,25 +4650,19 @@ export const inventoryRouter = router({
       .mutation(async ({ input }) => {
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
-          // Zaico OFF: local_purchasesを直接更新
-          const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-          const { or, eq } = await import("drizzle-orm");
-          const db = await getDb();
-          if (db) {
-            const trackingUpdate = buildPurchaseTrackingUpdate(input);
-            if (Object.keys(trackingUpdate).length > 0) {
-              await db.update(lpTbl).set(trackingUpdate).where(or(eq(lpTbl.id, input.zaicoId), eq(lpTbl.zaicoId, input.zaicoId)));
-            }
-          }
-          await syncLocalPurchaseTrackingFromExtra(input);
-          return { success: true };
+          const syncResult = await syncLocalPurchaseTrackingFromExtra(input);
+          assertLocalPurchaseTrackingSynced(input, syncResult.updatedCount);
+          return { success: true, localUpdatedCount: syncResult.updatedCount };
         }
         const trackingUpdate = buildPurchaseTrackingUpdate(input);
         if (Object.keys(trackingUpdate).length > 0) {
           await upsertPurchaseExtra({ zaicoId: input.zaicoId, ...trackingUpdate });
+          if (input.inventoryId && input.inventoryId !== input.zaicoId) {
+            await upsertPurchaseExtra({ zaicoId: input.inventoryId, ...trackingUpdate });
+          }
         }
-        await syncLocalPurchaseTrackingFromExtra(input);
-        return { success: true };
+        const syncResult = await syncLocalPurchaseTrackingFromExtra(input);
+        return { success: true, localUpdatedCount: syncResult.updatedCount };
       }),
     upsertBulk: publicProcedure
       .input(
@@ -4667,17 +4678,10 @@ export const inventoryRouter = router({
         const trackingUpdate = buildPurchaseTrackingUpdate({ zaicoId: input.zaicoIds[0], ...input });
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
-          // Zaico OFF: local_purchasesを直接一括更新
-          const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-          const { inArray, or } = await import("drizzle-orm");
-          const db = await getDb();
-          if (db) {
-            if (Object.keys(trackingUpdate).length > 0) {
-              await db.update(lpTbl).set(trackingUpdate).where(or(inArray(lpTbl.id, input.zaicoIds), inArray(lpTbl.zaicoId, input.zaicoIds)));
-            }
-          }
-          await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
-          return { success: true, count: input.zaicoIds.length };
+          const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
+          const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
+          assertLocalPurchaseTrackingSynced({ ...input, zaicoId: input.zaicoIds[0] }, localUpdatedCount);
+          return { success: true, count: input.zaicoIds.length, localUpdatedCount };
         }
         await Promise.all(
           Object.keys(trackingUpdate).length > 0
@@ -4686,8 +4690,9 @@ export const inventoryRouter = router({
               )
             : []
         );
-        await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
-        return { success: true, count: input.zaicoIds.length };
+        const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
+        const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
+        return { success: true, count: input.zaicoIds.length, localUpdatedCount };
       }),
   }),
   // ============================================================
