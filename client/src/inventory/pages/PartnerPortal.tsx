@@ -16,6 +16,8 @@ type ShipmentItem = {
   productNameJa: string;
   productNameEn: string;
   quantity: number;
+  invoiceNo?: string | null;
+  managementNo?: string | null;
 };
 
 type FedexShipment = {
@@ -36,6 +38,103 @@ type CsvInvoiceData = {
   products: Array<{ name: string; qty: number }>;
   isComplete?: boolean;
 };
+
+type ShipmentInvoiceProductMatch = { name: string; qty: number; index: number };
+type ShipmentInvoiceResolution = { invoiceNo: string; product: ShipmentInvoiceProductMatch | null };
+type ShipmentInvoiceUsage = Map<string, number>;
+
+function extractInvoiceNo(value: string | null | undefined): string | null {
+  const text = value?.normalize("NFKC").trim();
+  if (!text) return null;
+  const direct = text.match(/^(?:No\.?\s*)?(\d{1,5})(?=$|[_\s,/-])/i);
+  if (direct) return direct[1];
+  const embedded = text.match(/(?:^|[^\d])(?:No\.?\s*)?(\d{1,5})(?=_)/i);
+  return embedded?.[1] ?? null;
+}
+
+function sortInvoiceNo(a: string, b: string): number {
+  const na = Number.parseInt(a, 10);
+  const nb = Number.parseInt(b, 10);
+  const aNumeric = Number.isFinite(na);
+  const bNumeric = Number.isFinite(nb);
+  if (aNumeric && bNumeric && na !== nb) return na - nb;
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  return a.localeCompare(b, "ja", { numeric: true });
+}
+
+function shipmentProductUsageKey(invoiceNo: string, product: ShipmentInvoiceProductMatch): string {
+  return `${invoiceNo}\n${product.index}\n${product.name}`;
+}
+
+function reserveShipmentProductUsage(
+  usage: ShipmentInvoiceUsage | undefined,
+  invoiceNo: string,
+  product: ShipmentInvoiceProductMatch | null,
+  quantity: number,
+) {
+  if (!usage || !product) return;
+  const key = shipmentProductUsageKey(invoiceNo, product);
+  usage.set(key, (usage.get(key) ?? 0) + Math.max(0, Number(quantity) || 0));
+}
+
+function findCsvProductForShipmentItem(
+  products: CsvInvoiceData["products"],
+  item: ShipmentItem,
+): ShipmentInvoiceProductMatch | null {
+  const itemTitle = item.productNameJa || item.productNameEn || "";
+  const index = products.findIndex((product) =>
+    matchesCsvProductName(itemTitle, product.name) ||
+    matchesCsvProductName(item.productNameEn || "", product.name),
+  );
+  return index >= 0 ? { ...products[index], index } : null;
+}
+
+function resolveShipmentItemInvoice(
+  deliveryNo: string,
+  item: ShipmentItem,
+  csvData: Record<string, CsvInvoiceData>,
+  usage?: ShipmentInvoiceUsage,
+): ShipmentInvoiceResolution {
+  const explicitInvoiceNo = extractInvoiceNo(item.invoiceNo);
+  const managementInvoiceNo = extractInvoiceNo(item.managementNo);
+  const deliveryInvoiceNo = extractInvoiceNo(deliveryNo);
+  const preferredInvoiceNo = explicitInvoiceNo ?? managementInvoiceNo ?? deliveryInvoiceNo;
+
+  if (preferredInvoiceNo) {
+    const product = findCsvProductForShipmentItem(csvData[preferredInvoiceNo]?.products ?? [], item);
+    reserveShipmentProductUsage(usage, preferredInvoiceNo, product, item.quantity);
+    return { invoiceNo: preferredInvoiceNo, product };
+  }
+
+  const candidates = Object.entries(csvData)
+    .sort(([a], [b]) => sortInvoiceNo(a, b))
+    .flatMap(([invoiceNo, data]) => {
+      const product = findCsvProductForShipmentItem(data.products, item);
+      if (!product) return [];
+      const usedQty = usage?.get(shipmentProductUsageKey(invoiceNo, product)) ?? 0;
+      return [{
+        invoiceNo,
+        product,
+        remainingQty: Math.max(0, product.qty - usedQty),
+      }];
+    });
+
+  candidates.sort((a, b) => {
+    const aHasRemaining = a.remainingQty > 0 ? 1 : 0;
+    const bHasRemaining = b.remainingQty > 0 ? 1 : 0;
+    if (aHasRemaining !== bHasRemaining) return bHasRemaining - aHasRemaining;
+    if (a.remainingQty !== b.remainingQty) return b.remainingQty - a.remainingQty;
+    return sortInvoiceNo(a.invoiceNo, b.invoiceNo);
+  });
+
+  const best = candidates[0];
+  if (best) {
+    reserveShipmentProductUsage(usage, best.invoiceNo, best.product, item.quantity);
+    return { invoiceNo: best.invoiceNo, product: best.product };
+  }
+
+  return { invoiceNo: deliveryNo.trim() || "unknown", product: null };
+}
 
 export default function PartnerPortal() {
   const params = useParams<{ code: string }>();
@@ -175,11 +274,28 @@ export default function PartnerPortal() {
     }> = [];
     const groupMap = new Map<string, typeof groups[0]>();
 
-    for (const s of shipments) {
+    const parseDateStr = (s: string): number => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s).getTime();
+      const parts = s.split("/");
+      if (parts.length === 2) {
+        const m = parseInt(parts[0], 10);
+        const d = parseInt(parts[1], 10);
+        if (!isNaN(m) && !isNaN(d)) return new Date(2026, m - 1, d).getTime();
+      }
+      return 0;
+    };
+
+    const allocationUsage: ShipmentInvoiceUsage = new Map();
+    const sortedShipments = [...shipments].sort((a, b) =>
+      parseDateStr(a.shippingDate) - parseDateStr(b.shippingDate) ||
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+      a.deliveryNo.localeCompare(b.deliveryNo, "ja", { numeric: true })
+    );
+
+    for (const s of sortedShipments) {
       let items: ShipmentItem[] = [];
       try { items = JSON.parse(s.itemsJson); } catch { items = []; }
 
-      const invoiceNo = s.deliveryNo.match(/^(\d+)/)?.[1] ?? s.deliveryNo;
       const groupKey = `${s.trackingNumber}_${s.shippingDate}`;
 
       if (!groupMap.has(groupKey)) {
@@ -204,8 +320,11 @@ export default function PartnerPortal() {
           productNameEn: baseEn,
         };
 
-        const matchedCsvProduct = csvData[invoiceNo]?.products.find((product) =>
-          matchesCsvProductName(baseJa || baseEn, product.name)
+        const { invoiceNo, product: matchedCsvProduct } = resolveShipmentItemInvoice(
+          s.deliveryNo,
+          normalizedItem,
+          csvData,
+          allocationUsage,
         );
         const groupedItem = matchedCsvProduct
           ? {
@@ -228,20 +347,6 @@ export default function PartnerPortal() {
         }
       });
     }
-
-    // 発送日の新しい順（M/D形式とYYYY-MM-DD形式の混在に対応）
-    const parseDateStr = (s: string): number => {
-      // YYYY-MM-DD形式
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s).getTime();
-      // M/D または MM/DD 形式（2026年固定）
-      const parts = s.split("/");
-      if (parts.length === 2) {
-        const m = parseInt(parts[0], 10);
-        const d = parseInt(parts[1], 10);
-        if (!isNaN(m) && !isNaN(d)) return new Date(2026, m - 1, d).getTime();
-      }
-      return 0;
-    };
     return groups.sort((a, b) => parseDateStr(b.shippingDate) - parseDateStr(a.shippingDate));
   }, [shipments, csvData]);
 
@@ -267,32 +372,43 @@ export default function PartnerPortal() {
       summary[invoiceNo] = { orderedQty, shippedQty: 0 };
     }
     // 発送数を集計
+    const allocationUsage: ShipmentInvoiceUsage = new Map();
     for (const s of shipments) {
-      const invoiceNo = s.deliveryNo.match(/^(\d+)/)?.[1] ?? s.deliveryNo;
       let items: ShipmentItem[] = [];
       try { items = JSON.parse(s.itemsJson); } catch { items = []; }
-      const shipped = items.reduce((sum, item) => sum + item.quantity, 0);
-      if (!summary[invoiceNo]) summary[invoiceNo] = { orderedQty: 0, shippedQty: 0 };
-      summary[invoiceNo].shippedQty += shipped;
+      for (const item of items) {
+        const { invoiceNo } = resolveShipmentItemInvoice(s.deliveryNo, item, csvData, allocationUsage);
+        if (!summary[invoiceNo]) summary[invoiceNo] = { orderedQty: 0, shippedQty: 0 };
+        summary[invoiceNo].shippedQty += item.quantity;
+      }
     }
     return summary;
   }, [shipments, csvData]);
 
   const shipmentItemsByInvoice = useMemo(() => {
     const map: Record<string, ShipmentItem[]> = {};
+    const allocationUsage: ShipmentInvoiceUsage = new Map();
     for (const shipment of shipments) {
-      const invoiceNo = shipment.deliveryNo.match(/^(\d+)/)?.[1] ?? shipment.deliveryNo;
       let items: ShipmentItem[] = [];
       try { items = JSON.parse(shipment.itemsJson); } catch { items = []; }
-      if (!map[invoiceNo]) map[invoiceNo] = [];
-      map[invoiceNo].push(...items.map((item) => ({
-        ...item,
-        productNameJa: normalizeProductName(item.productNameJa ?? ""),
-        productNameEn: normalizeProductName(item.productNameEn ?? ""),
-      })));
+      for (const item of items) {
+        const normalizedItem = {
+          ...item,
+          productNameJa: normalizeProductName(item.productNameJa ?? ""),
+          productNameEn: normalizeProductName(item.productNameEn ?? ""),
+        };
+        const { invoiceNo } = resolveShipmentItemInvoice(
+          shipment.deliveryNo,
+          normalizedItem,
+          csvData,
+          allocationUsage,
+        );
+        if (!map[invoiceNo]) map[invoiceNo] = [];
+        map[invoiceNo].push(normalizedItem);
+      }
     }
     return map;
-  }, [shipments]);
+  }, [shipments, csvData]);
 
   // セッション確認中
   if (sessionLoading) {

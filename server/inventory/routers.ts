@@ -496,8 +496,17 @@ function mergeShipmentGasItems(items: ShipmentGasItem[]): ShipmentGasItem[] {
   return Array.from(grouped.values()).filter((item) => item.quantity > 0);
 }
 
+function invoiceNoPrefixFromDeliveryNo(deliveryNo: string | null | undefined): string | null {
+  const text = deliveryNo?.normalize("NFKC").trim();
+  if (!text) return null;
+  const direct = text.match(/^(?:No\.?\s*)?(\d{1,5})(?=$|[_\s,/-])/i);
+  if (direct) return direct[1];
+  const embedded = text.match(/(?:^|[^\d])(?:No\.?\s*)?(\d{1,5})(?=_)/i);
+  return embedded?.[1] ?? null;
+}
+
 function invoiceNoFromDeliveryNo(deliveryNo: string): string {
-  return deliveryNo.match(/^(\d+)/)?.[1] ?? deliveryNo;
+  return invoiceNoPrefixFromDeliveryNo(deliveryNo) ?? deliveryNo;
 }
 
 function compactShipmentName(value: string): string {
@@ -899,6 +908,198 @@ function historyTimestampFrom(value: unknown, fallback = new Date()): Date {
 
 function purchaseHistoryKey(row: Pick<PurchaseHistoryRow, "zaicoId" | "inventoryId" | "kanriNo" | "title">): string {
   return [row.zaicoId, row.inventoryId ?? "", row.kanriNo ?? "", row.title].join("\u0001");
+}
+
+function normalizePurchaseHistoryText(value: unknown): string {
+  return String(value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function nonEmptyPurchaseHistoryText(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
+}
+
+function firstPurchaseHistoryEtcPart(value: unknown): string {
+  return normalizePurchaseHistoryText(String(value ?? "").split(",")[0] ?? "");
+}
+
+function positiveHistoryNumber(value: unknown): number | null {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+function historyRowCreatedMs(row: Pick<PurchaseHistoryRow, "createdAt">): number {
+  const ms = new Date(row.createdAt).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function localPurchaseCreatedMs(row: LocalPurchaseRow): number {
+  const ms = new Date(row.updatedAt ?? row.createdAt).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function parseLocalPurchaseItems(row: LocalPurchaseRow): Array<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(row.itemsJson ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is Record<string, unknown> => item != null && typeof item === "object") : [];
+  } catch {
+    return [];
+  }
+}
+
+function preferLocalPurchaseCandidate(candidate: LocalPurchaseRow, current: LocalPurchaseRow): boolean {
+  const candidateHasTracking = normalizePurchaseHistoryText(candidate.trackingNumber).length > 0;
+  const currentHasTracking = normalizePurchaseHistoryText(current.trackingNumber).length > 0;
+  if (candidateHasTracking !== currentHasTracking) return candidateHasTracking;
+  return localPurchaseCreatedMs(candidate) > localPurchaseCreatedMs(current);
+}
+
+type LocalPurchaseHistoryLookup = {
+  byPurchaseId: Map<number, LocalPurchaseRow>;
+  byInventoryId: Map<number, LocalPurchaseRow>;
+  byManagementNo: Map<string, LocalPurchaseRow>;
+};
+
+function buildLocalPurchaseHistoryLookup(rows: LocalPurchaseRow[]): LocalPurchaseHistoryLookup {
+  const lookup: LocalPurchaseHistoryLookup = {
+    byPurchaseId: new Map(),
+    byInventoryId: new Map(),
+    byManagementNo: new Map(),
+  };
+
+  function setBest<K>(map: Map<K, LocalPurchaseRow>, key: K | null | undefined, row: LocalPurchaseRow) {
+    if (key == null || key === "") return;
+    const current = map.get(key);
+    if (!current || preferLocalPurchaseCandidate(row, current)) {
+      map.set(key, row);
+    }
+  }
+
+  for (const row of rows) {
+    setBest(lookup.byPurchaseId, positiveHistoryNumber(row.id), row);
+    setBest(lookup.byPurchaseId, positiveHistoryNumber(row.zaicoId), row);
+    setBest(lookup.byInventoryId, positiveHistoryNumber(row.localInventoryId), row);
+    setBest(lookup.byManagementNo, firstPurchaseHistoryEtcPart(row.managementNo), row);
+
+    for (const item of parseLocalPurchaseItems(row)) {
+      setBest(lookup.byInventoryId, positiveHistoryNumber(item.inventory_id ?? item.inventoryId), row);
+      setBest(lookup.byManagementNo, firstPurchaseHistoryEtcPart(item.etc), row);
+    }
+  }
+
+  return lookup;
+}
+
+function findLocalPurchaseForHistory(
+  row: PurchaseHistoryRow,
+  lookup: LocalPurchaseHistoryLookup,
+): LocalPurchaseRow | null {
+  const candidates: LocalPurchaseRow[] = [];
+  const purchaseId = positiveHistoryNumber(row.zaicoId);
+  const inventoryId = positiveHistoryNumber(row.inventoryId);
+  const managementNo = firstPurchaseHistoryEtcPart(row.kanriNo);
+
+  if (purchaseId != null) {
+    const purchase = lookup.byPurchaseId.get(purchaseId);
+    if (purchase) candidates.push(purchase);
+  }
+  if (inventoryId != null) {
+    const purchase = lookup.byInventoryId.get(inventoryId);
+    if (purchase) candidates.push(purchase);
+  }
+  if (managementNo) {
+    const purchase = lookup.byManagementNo.get(managementNo);
+    if (purchase) candidates.push(purchase);
+  }
+
+  return candidates.reduce<LocalPurchaseRow | null>((best, candidate) => {
+    if (!best || preferLocalPurchaseCandidate(candidate, best)) return candidate;
+    return best;
+  }, null);
+}
+
+function enrichPurchaseHistoryRow(
+  row: PurchaseHistoryRow,
+  lookup: LocalPurchaseHistoryLookup,
+): PurchaseHistoryRow {
+  const purchase = findLocalPurchaseForHistory(row, lookup);
+  if (!purchase) return row;
+
+  return {
+    ...row,
+    category: row.category ?? purchase.category ?? null,
+    supplier: nonEmptyPurchaseHistoryText(row.supplier) ?? nonEmptyPurchaseHistoryText(purchase.supplierName),
+    unitPrice: row.unitPrice ?? (purchase.unitPrice == null ? null : String(purchase.unitPrice)),
+    inventoryId: row.inventoryId ?? purchase.localInventoryId ?? null,
+    supplierUrl: nonEmptyPurchaseHistoryText(row.supplierUrl) ?? nonEmptyPurchaseHistoryText(purchase.supplierUrl),
+    supplierName: nonEmptyPurchaseHistoryText(row.supplierName) ?? nonEmptyPurchaseHistoryText(purchase.supplierName),
+    trackingNumber: nonEmptyPurchaseHistoryText(row.trackingNumber) ?? nonEmptyPurchaseHistoryText(purchase.trackingNumber),
+    carrier: nonEmptyPurchaseHistoryText(row.carrier) ?? nonEmptyPurchaseHistoryText(purchase.carrier),
+  };
+}
+
+function purchaseHistoryMergeKey(row: PurchaseHistoryRow): string {
+  const managementNo = firstPurchaseHistoryEtcPart(row.kanriNo);
+  if (managementNo) return `management:${managementNo}`;
+
+  const inventoryId = positiveHistoryNumber(row.inventoryId);
+  const title = normalizePurchaseHistoryText(row.title);
+  const date = normalizePurchaseHistoryText(row.purchaseDate);
+  if (inventoryId != null && title) return `inventory:${inventoryId}:${title}:${date}`;
+
+  return `row:${row.id}`;
+}
+
+function preferPurchaseHistoryRow(candidate: PurchaseHistoryRow, current: PurchaseHistoryRow): boolean {
+  const candidateIsStored = candidate.id > 0;
+  const currentIsStored = current.id > 0;
+  if (candidateIsStored !== currentIsStored) return candidateIsStored;
+
+  const candidateActive = candidate.cancelled === 0;
+  const currentActive = current.cancelled === 0;
+  if (candidateActive !== currentActive) return candidateActive;
+
+  return historyRowCreatedMs(candidate) > historyRowCreatedMs(current);
+}
+
+function maxPurchaseHistoryQuantity(a: string, b: string): string {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return String(Math.max(na, nb));
+  return a || b;
+}
+
+function mergePurchaseHistoryRows(a: PurchaseHistoryRow, b: PurchaseHistoryRow): PurchaseHistoryRow {
+  const primary = preferPurchaseHistoryRow(b, a) ? b : a;
+  const secondary = primary === a ? b : a;
+
+  return {
+    ...primary,
+    kanriNo: primary.kanriNo ?? secondary.kanriNo,
+    title: primary.title || secondary.title,
+    category: primary.category ?? secondary.category,
+    supplier: primary.supplier ?? secondary.supplier,
+    quantity: maxPurchaseHistoryQuantity(primary.quantity, secondary.quantity),
+    unitPrice: primary.unitPrice ?? secondary.unitPrice,
+    purchaseDate: primary.purchaseDate || secondary.purchaseDate,
+    inventoryId: primary.inventoryId ?? secondary.inventoryId,
+    cancelled: primary.cancelled === 0 || secondary.cancelled === 0 ? 0 : primary.cancelled,
+    operatorName: primary.operatorName ?? secondary.operatorName,
+    supplierUrl: nonEmptyPurchaseHistoryText(primary.supplierUrl) ?? nonEmptyPurchaseHistoryText(secondary.supplierUrl),
+    supplierName: nonEmptyPurchaseHistoryText(primary.supplierName) ?? nonEmptyPurchaseHistoryText(secondary.supplierName),
+    trackingNumber: nonEmptyPurchaseHistoryText(primary.trackingNumber) ?? nonEmptyPurchaseHistoryText(secondary.trackingNumber),
+    carrier: nonEmptyPurchaseHistoryText(primary.carrier) ?? nonEmptyPurchaseHistoryText(secondary.carrier),
+  };
+}
+
+function collapsePurchaseHistoryRows(rows: PurchaseHistoryRow[]): PurchaseHistoryRow[] {
+  const byKey = new Map<string, PurchaseHistoryRow>();
+  for (const row of rows) {
+    const key = purchaseHistoryMergeKey(row);
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? mergePurchaseHistoryRows(existing, row) : row);
+  }
+  return Array.from(byKey.values());
 }
 
 async function getRecoveredPurchaseHistoriesFromLabels(
@@ -4063,8 +4264,8 @@ export const inventoryRouter = router({
             const now = new Date();
             const shippingDate = `${now.getMonth() + 1}/${now.getDate()}`;
 
-            // インボイスNoを導出（deliveryNoの先頭数字、またはinvoiceNo入力値）
-            const invoiceNo = input.invoiceNo ?? (input.deliveryNo.match(/^(\d+)/)?.[1] ?? input.deliveryNo);
+            // インボイスNoを導出（入力値を優先し、出庫Noから抽出できる場合のみ補完）
+            const invoiceNo = input.invoiceNo ?? invoiceNoPrefixFromDeliveryNo(input.deliveryNo) ?? input.deliveryNo;
 
             // CSV商品データを取得して商品集計
             let csvProducts: Array<{ tradeRecordId: number | null; name: string; qty: number }> = [];
@@ -4208,14 +4409,21 @@ export const inventoryRouter = router({
       .input(z.object({ limit: z.number().int().positive().max(500).default(200) }))
       .query(async ({ input }) => {
         const histories = await getPurchaseHistories(input.limit);
+        const localPurchases = await getLocalPurchases().catch((error) => {
+          console.warn("[purchaseHistory.list] failed to load local purchases for enrichment:", error);
+          return [] as LocalPurchaseRow[];
+        });
+        const localLookup = buildLocalPurchaseHistoryLookup(localPurchases);
         try {
           const recovered = await getRecoveredPurchaseHistoriesFromLabels(histories, input.limit);
-          return [...histories, ...recovered]
+          return collapsePurchaseHistoryRows([...histories, ...recovered].map((row) => enrichPurchaseHistoryRow(row, localLookup)))
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
             .slice(0, input.limit);
         } catch (error) {
           console.warn("[purchaseHistory.list] failed to recover QR inbound histories:", error);
-          return histories;
+          return collapsePurchaseHistoryRows(histories.map((row) => enrichPurchaseHistoryRow(row, localLookup)))
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, input.limit);
         }
       }),
 
@@ -4579,7 +4787,7 @@ export const inventoryRouter = router({
                 }
               }
               const mergedGasItems = Array.from(mergedGasMap.values());
-              const invoiceNo = shipment.deliveryNo.match(/^(\d+)/)?.[1] ?? shipment.deliveryNo;
+              const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
               const writePayload = { secret, action: "writeShipmentBatch", deliveryNo: shipment.deliveryNo, invoiceNo, sheetName: shipment.sheetName, shippingDate: shipment.shippingDate, trackingNumber, items: mergedGasItems };
               const writeRes = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(writePayload), redirect: "manual" });
               let writeText: string;
@@ -5651,14 +5859,12 @@ export const inventoryRouter = router({
         // 数字始まりまたは「在庫」始まりのみ対象
         if (!/^\d/.test(raw) && !/^在庫/.test(raw)) return null;
         // 先頭の数字部分を抽出（_ または - または 空白で区切る）
-        const match = raw.match(/^(\d+)/);
-        return match ? match[1] : null;
+        return invoiceNoPrefixFromDeliveryNo(raw);
       }
 
       // 出庫 No から先頭数字を抽出する関数
       function extractKeyFromDeliveryNo(deliveryNo: string): string | null {
-        const match = deliveryNo.match(/^(\d+)/);
-        return match ? match[1] : null;
+        return invoiceNoPrefixFromDeliveryNo(deliveryNo);
       }
 
       // キー別に集計マップを構築
@@ -6703,11 +6909,11 @@ export const inventoryRouter = router({
           if (pItem.status !== "ordered") continue;
           // pItem.etcが設定されていればそこから、なければp.num（発注No）から抽出
           const itemEtcFirstPart = itemEtc.split(",")[0]?.trim() ?? "";
-          const itemEtcMatch = itemEtcFirstPart.match(/^(\d+)/);
-          const numMatch = purchaseNum.match(/^(\d+)/);
-          const invoiceNo = itemEtcMatch ? itemEtcMatch[1] : (numMatch ? numMatch[1] : null);
+          const itemEtcInvoiceNo = invoiceNoPrefixFromDeliveryNo(itemEtcFirstPart);
+          const numInvoiceNo = invoiceNoPrefixFromDeliveryNo(purchaseNum);
+          const invoiceNo = itemEtcInvoiceNo ?? numInvoiceNo;
           if (!invoiceNo) continue;
-          const managementNo = itemEtcMatch ? itemEtcFirstPart : purchaseNum;
+          const managementNo = itemEtcInvoiceNo ? itemEtcFirstPart : purchaseNum;
           let unitPrice: number | null = null;
           const upStr = pItem.unit_price != null ? String(pItem.unit_price) : "";
           if (upStr) unitPrice = parseMoneyNumber(upStr);
@@ -6734,9 +6940,8 @@ export const inventoryRouter = router({
       for (const inv of inventories) {
         const mgmtNo = inv.etc ?? "";
         const firstPart = mgmtNo.split(",")[0]?.trim() ?? "";
-        const invoiceMatch = firstPart.match(/^(\d+)/);
-        if (!invoiceMatch) continue;
-        const invoiceNo = invoiceMatch[1];
+        const invoiceNo = invoiceNoPrefixFromDeliveryNo(firstPart);
+        if (!invoiceNo) continue;
         // 対象インボイスNoに含まれる商品のみ表示
         if (!invoiceNoSet.has(invoiceNo)) continue;
         const qty = typeof inv.quantity === "number" ? inv.quantity : parseInt(String(inv.quantity), 10) || 0;
@@ -6792,14 +6997,13 @@ export const inventoryRouter = router({
           let items: Array<{ inventoryId: number; title: string; quantity: number; unitPrice?: number | null; etc?: string }> = [];
           try { items = JSON.parse(dh.itemsJson); } catch { continue; }
           // deliveryNoからもインボイスNoを抽出（例: "372_luca20260326" → "372"）
-          const deliveryNoInvoiceMatch = dh.deliveryNo?.match(/^(\d+)/);
-          const deliveryNoInvoice = deliveryNoInvoiceMatch ? deliveryNoInvoiceMatch[1] : null;
+          const deliveryNoInvoice = invoiceNoPrefixFromDeliveryNo(dh.deliveryNo);
           for (const item of items) {
             const mgmtNo = item.etc ?? "";
             const firstPart = mgmtNo.split(",")[0]?.trim() ?? "";
-            const invoiceMatch = firstPart.match(/^(\d+)/);
+            const itemInvoiceNo = invoiceNoPrefixFromDeliveryNo(firstPart);
             // item.etcからマッチしない場合はdeliveryNoから抽出したinvoiceNoを使用
-            const invoiceNo = invoiceMatch ? invoiceMatch[1] : (deliveryNoInvoice ?? null);
+            const invoiceNo = itemInvoiceNo ?? deliveryNoInvoice;
             if (!invoiceNo) continue;
             // 仕入単価補完優先順位: itemsJson保存値 > purchase_histories > local_inventories > deleted_inventories
             const unitPrice = (item.unitPrice != null)
@@ -6870,9 +7074,8 @@ export const inventoryRouter = router({
         // 管理番号からインボイスNoを抽出
         const mgmtNo = ph.kanriNo ?? "";
         const firstPart = mgmtNo.split(",")[0]?.trim() ?? "";
-        const invoiceMatch = firstPart.match(/^(\d+)/);
-        if (!invoiceMatch) continue;
-        const invoiceNo = invoiceMatch[1];
+        const invoiceNo = invoiceNoPrefixFromDeliveryNo(firstPart);
+        if (!invoiceNo) continue;
         // 仕入単価
         const unitPrice = ph.unitPrice != null ? parseFloat(ph.unitPrice) : null;
         const qty = parseInt(String(ph.quantity), 10) || 0;
@@ -7613,8 +7816,7 @@ export const inventoryRouter = router({
           if (deliveryNoForGas !== record.deliveryNo) {
             await updateFedexShipmentHistoryAndDeliveryNo(input.id, record.historyId ?? null, deliveryNoForGas);
           }
-          const invoiceNoMatch = deliveryNoForGas.match(/^(\d+)/);
-          const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1] : deliveryNoForGas;
+          const invoiceNo = invoiceNoFromDeliveryNo(deliveryNoForGas);
           const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
           // DBを更新
           await updateFedexShipment(input.id, {

@@ -23,7 +23,7 @@ import { PaginationBar } from "@/inventory/components/PaginationBar";
 /** 入庫履歴CSVエクスポート */
 function exportPurchaseHistoryCSV(items: PurchaseHistoryItem[]) {
   const rows: string[][] = [
-    ["管理番号", "商品名", "カテゴリ", "仕入先", "入庫日", "数量", "入庫単価", "入庫金額", "担当者", "ステータス"],
+    ["管理番号", "商品名", "カテゴリ", "仕入先", "入庫日", "数量", "入庫単価", "入庫金額", "追跡番号", "担当者", "ステータス"],
   ];
   for (const h of items) {
     const qty = parseFloat(h.quantity ?? "0");
@@ -38,6 +38,7 @@ function exportPurchaseHistoryCSV(items: PurchaseHistoryItem[]) {
       h.quantity,
       unitPrice != null ? String(unitPrice) : "-",
       totalValue != null ? String(totalValue) : "-",
+      h.trackingNumber ?? "",
       h.operatorName ?? "",
       h.cancelled ? "取り消し済み" : "入庫済み",
     ]);
@@ -84,7 +85,7 @@ export default function PurchaseHistory() {
   const [dateTo, setDateTo] = useState("");
   const [cancellingIds, setCancellingIds] = useState<Set<number>>(new Set());
 
-  // 検索フィルター（管理番号・商品名・カテゴリ・仕入先・日付範囲）
+  // 検索フィルター（管理番号・商品名・カテゴリ・仕入先・追跡番号・日付範囲）
   const filtered = (histories as PurchaseHistoryItem[] | undefined)?.filter((h) => {
     // テキスト検索
     if (searchQuery.trim()) {
@@ -93,7 +94,9 @@ export default function PurchaseHistory() {
         (h.kanriNo ?? "").toLowerCase().includes(q) ||
         h.title.toLowerCase().includes(q) ||
         (h.category ?? "").toLowerCase().includes(q) ||
-        (h.supplier ?? "").toLowerCase().includes(q);
+        (h.supplier ?? "").toLowerCase().includes(q) ||
+        (h.supplierName ?? "").toLowerCase().includes(q) ||
+        (h.trackingNumber ?? "").toLowerCase().includes(q);
       if (!textMatch) return false;
     }
 
@@ -211,7 +214,7 @@ export default function PurchaseHistory() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="管理番号・商品名・カテゴリ・仕入先で検索..."
+            placeholder="管理番号・商品名・カテゴリ・仕入先・追跡番号で検索..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9 text-sm"
@@ -355,7 +358,7 @@ export default function PurchaseHistory() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {canCancel && (
+                      {canCancel ? (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
@@ -392,7 +395,15 @@ export default function PurchaseHistory() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                      )}
+                      ) : !h.cancelled && h.id < 0 ? (
+                        <Badge
+                          variant="secondary"
+                          className="text-xs font-normal"
+                          title="ラベル/発注データから補完表示している行です。正式な入庫履歴IDがないため、この画面からは取り消しできません。"
+                        >
+                          履歴補完
+                        </Badge>
+                      ) : null}
                     </td>
                     </tr>
                   );
