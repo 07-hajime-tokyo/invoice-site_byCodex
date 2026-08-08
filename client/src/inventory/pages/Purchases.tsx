@@ -1282,20 +1282,9 @@ export default function Purchases() {
         return;
       }
       const firstItemForTracking = purchase.purchase_items[0];
-      const trackingManagementNo = firstItemForTracking ? parseEtc(firstItemForTracking.etc).managementNo : "";
+      const firstItemTrackingEdit = firstItemForTracking ? editState.itemEdits[firstItemForTracking.inventory_id] : undefined;
+      const trackingManagementNo = firstItemTrackingEdit?.managementNo.trim() || (firstItemForTracking ? parseEtc(firstItemForTracking.etc).managementNo : "");
       const trackingLabelId = firstItemForTracking?.itemLabels?.[0]?.labelId;
-
-      // 入庫補足情報（発送日・追跡番号・備考）を保存
-      await upsertExtraMutation.mutateAsync({
-        zaicoId: purchaseId,
-        shipDate: editState.shipDate || undefined,
-        trackingNumber: editState.trackingNumber || undefined,
-        carrier: editState.carrier === "auto" ? undefined : editState.carrier,
-        note: editState.note || undefined,
-        inventoryId: firstItemForTracking?.inventory_id || undefined,
-        managementNo: trackingManagementNo || undefined,
-        labelId: trackingLabelId || undefined,
-      });
       // 発注データ（単価・管理番号・入庫予定日）を更新
       const itemEditsEntries = Object.entries(editState.itemEdits);
       if (itemEditsEntries.length > 0) {
@@ -1359,6 +1348,17 @@ export default function Purchases() {
           });
         }
       }
+      // 入庫補足情報（発送日・追跡番号・備考）を最後に保存して、商品本体更新による上書きを防ぐ
+      await upsertExtraMutation.mutateAsync({
+        zaicoId: purchaseId,
+        shipDate: editState.shipDate.trim() || undefined,
+        trackingNumber: editState.trackingNumber.trim() || undefined,
+        carrier: editState.carrier === "auto" ? null : editState.carrier,
+        note: editState.note.trim() || undefined,
+        inventoryId: firstItemForTracking?.inventory_id || undefined,
+        managementNo: trackingManagementNo || undefined,
+        labelId: trackingLabelId || undefined,
+      });
       toast.success("保存しました");
       setEditingId(null);
       await Promise.all([

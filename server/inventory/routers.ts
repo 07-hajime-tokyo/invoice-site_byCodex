@@ -1944,6 +1944,40 @@ type PurchaseTrackingSyncInput = {
   labelId?: string | null;
 };
 
+function hasOwnPurchaseTrackingField(input: PurchaseTrackingSyncInput, key: keyof PurchaseTrackingSyncInput): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function normalizePurchaseTrackingValue(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildPurchaseTrackingUpdate(input: PurchaseTrackingSyncInput) {
+  const update: {
+    shipDate?: string | null;
+    trackingNumber?: string | null;
+    carrier?: string | null;
+    note?: string | null;
+  } = {};
+  if (hasOwnPurchaseTrackingField(input, "shipDate")) {
+    update.shipDate = normalizePurchaseTrackingValue(input.shipDate);
+  }
+  if (hasOwnPurchaseTrackingField(input, "trackingNumber")) {
+    update.trackingNumber = normalizePurchaseTrackingValue(input.trackingNumber);
+    update.carrier = hasOwnPurchaseTrackingField(input, "carrier")
+      ? normalizePurchaseTrackingValue(input.carrier)
+      : null;
+  } else if (hasOwnPurchaseTrackingField(input, "carrier")) {
+    update.carrier = normalizePurchaseTrackingValue(input.carrier);
+  }
+  if (hasOwnPurchaseTrackingField(input, "note")) {
+    update.note = normalizePurchaseTrackingValue(input.note);
+  }
+  return update;
+}
+
 function localPurchaseMatchesTrackingTarget(row: LocalPurchaseRow, input: PurchaseTrackingSyncInput): boolean {
   if (row.id === input.zaicoId || row.zaicoId === input.zaicoId) return true;
   const labelId = String(input.labelId ?? "").trim().toUpperCase();
@@ -1964,7 +1998,10 @@ async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInp
   if (!db) return;
   const { localPurchases: lpTbl } = await import("../../drizzle/schema");
   const { eq } = await import("drizzle-orm");
-  const hasTrackingNumber = String(input.trackingNumber ?? "").trim().length > 0;
+  const trackingNumberWasProvided = hasOwnPurchaseTrackingField(input, "trackingNumber");
+  const trackingUpdate = buildPurchaseTrackingUpdate(input);
+  if (Object.keys(trackingUpdate).length === 0) return;
+  const hasTrackingNumber = String(trackingUpdate.trackingNumber ?? "").trim().length > 0;
   const localPurchases = await getLocalPurchases();
   const directMatches = localPurchases.filter((row) => row.id === input.zaicoId || row.zaicoId === input.zaicoId);
   const targets = directMatches.length > 0
@@ -1974,14 +2011,11 @@ async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInp
 
   for (const purchase of uniqueTargets) {
     const updateData: Partial<typeof lpTbl.$inferInsert> = {
-      shipDate: input.shipDate ?? null,
-      trackingNumber: input.trackingNumber ?? null,
-      carrier: input.carrier ?? null,
-      note: input.note ?? null,
+      ...trackingUpdate,
       stageUpdatedBy: "tracking-registration",
       stageUpdatedAt: new Date(),
     };
-    if (purchase.status !== "purchased") {
+    if (purchase.status !== "purchased" && trackingNumberWasProvided) {
       if (hasTrackingNumber) {
         updateData.status = "shipped";
         updateData.stage = "shipped";
@@ -4587,10 +4621,10 @@ export const inventoryRouter = router({
       .input(
         z.object({
           zaicoId: z.number().int().positive(),
-          shipDate: z.string().optional(),
-          trackingNumber: z.string().max(200).optional(),
-          carrier: z.string().max(50).optional(),
-          note: z.string().optional(),
+          shipDate: z.string().nullable().optional(),
+          trackingNumber: z.string().max(200).nullable().optional(),
+          carrier: z.string().max(50).nullable().optional(),
+          note: z.string().nullable().optional(),
           inventoryId: z.number().int().positive().optional(),
           managementNo: z.string().max(200).optional(),
           labelId: z.string().max(20).optional(),
@@ -4604,23 +4638,18 @@ export const inventoryRouter = router({
           const { or, eq } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
-            await db.update(lpTbl).set({
-              shipDate: input.shipDate ?? null,
-              trackingNumber: input.trackingNumber ?? null,
-              carrier: input.carrier ?? null,
-              note: input.note ?? null,
-            }).where(or(eq(lpTbl.id, input.zaicoId), eq(lpTbl.zaicoId, input.zaicoId)));
+            const trackingUpdate = buildPurchaseTrackingUpdate(input);
+            if (Object.keys(trackingUpdate).length > 0) {
+              await db.update(lpTbl).set(trackingUpdate).where(or(eq(lpTbl.id, input.zaicoId), eq(lpTbl.zaicoId, input.zaicoId)));
+            }
           }
           await syncLocalPurchaseTrackingFromExtra(input);
           return { success: true };
         }
-        await upsertPurchaseExtra({
-          zaicoId: input.zaicoId,
-          shipDate: input.shipDate ?? null,
-          trackingNumber: input.trackingNumber ?? null,
-          carrier: input.carrier ?? null,
-          note: input.note ?? null,
-        });
+        const trackingUpdate = buildPurchaseTrackingUpdate(input);
+        if (Object.keys(trackingUpdate).length > 0) {
+          await upsertPurchaseExtra({ zaicoId: input.zaicoId, ...trackingUpdate });
+        }
         await syncLocalPurchaseTrackingFromExtra(input);
         return { success: true };
       }),
@@ -4628,13 +4657,14 @@ export const inventoryRouter = router({
       .input(
         z.object({
           zaicoIds: z.array(z.number().int().positive()).min(1).max(100),
-          shipDate: z.string().optional(),
-          trackingNumber: z.string().max(200).optional(),
-          carrier: z.string().max(50).optional(),
-          note: z.string().optional(),
+          shipDate: z.string().nullable().optional(),
+          trackingNumber: z.string().max(200).nullable().optional(),
+          carrier: z.string().max(50).nullable().optional(),
+          note: z.string().nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
+        const trackingUpdate = buildPurchaseTrackingUpdate({ zaicoId: input.zaicoIds[0], ...input });
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
           // Zaico OFF: local_purchasesを直接一括更新
@@ -4642,26 +4672,19 @@ export const inventoryRouter = router({
           const { inArray, or } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
-            await db.update(lpTbl).set({
-              shipDate: input.shipDate ?? null,
-              trackingNumber: input.trackingNumber ?? null,
-              carrier: input.carrier ?? null,
-              note: input.note ?? null,
-            }).where(or(inArray(lpTbl.id, input.zaicoIds), inArray(lpTbl.zaicoId, input.zaicoIds)));
+            if (Object.keys(trackingUpdate).length > 0) {
+              await db.update(lpTbl).set(trackingUpdate).where(or(inArray(lpTbl.id, input.zaicoIds), inArray(lpTbl.zaicoId, input.zaicoIds)));
+            }
           }
           await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
           return { success: true, count: input.zaicoIds.length };
         }
         await Promise.all(
-          input.zaicoIds.map((zaicoId) =>
-            upsertPurchaseExtra({
-              zaicoId,
-              shipDate: input.shipDate ?? null,
-              trackingNumber: input.trackingNumber ?? null,
-              carrier: input.carrier ?? null,
-              note: input.note ?? null,
-            })
-          )
+          Object.keys(trackingUpdate).length > 0
+            ? input.zaicoIds.map((zaicoId) =>
+                upsertPurchaseExtra({ zaicoId, ...trackingUpdate })
+              )
+            : []
         );
         await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
         return { success: true, count: input.zaicoIds.length };
