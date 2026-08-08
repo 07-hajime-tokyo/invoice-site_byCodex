@@ -1281,6 +1281,9 @@ export default function Purchases() {
         toast.error("発注数量は1以上で入力してください");
         return;
       }
+      const firstItemForTracking = purchase.purchase_items[0];
+      const trackingManagementNo = firstItemForTracking ? parseEtc(firstItemForTracking.etc).managementNo : "";
+      const trackingLabelId = firstItemForTracking?.itemLabels?.[0]?.labelId;
 
       // 入庫補足情報（発送日・追跡番号・備考）を保存
       await upsertExtraMutation.mutateAsync({
@@ -1289,6 +1292,9 @@ export default function Purchases() {
         trackingNumber: editState.trackingNumber || undefined,
         carrier: editState.carrier === "auto" ? undefined : editState.carrier,
         note: editState.note || undefined,
+        inventoryId: firstItemForTracking?.inventory_id || undefined,
+        managementNo: trackingManagementNo || undefined,
+        labelId: trackingLabelId || undefined,
       });
       // 発注データ（単価・管理番号・入庫予定日）を更新
       const itemEditsEntries = Object.entries(editState.itemEdits);

@@ -4951,6 +4951,9 @@ export default function PurchaseRegistration() {
           trackingNumber: trackingNumber || undefined,
           carrier: nextCarrier,
           note: editingPurchaseRow.extra?.note ?? undefined,
+          inventoryId,
+          managementNo: cleanLegacyManagementNo(purchaseEditForm.managementNo || firstItem.etc),
+          labelId: firstItem.itemLabels?.[0]?.labelId,
         });
       }
       toast.success("商品情報を更新しました");
@@ -5048,6 +5051,9 @@ export default function PurchaseRegistration() {
         trackingNumber,
         carrier: trackingForm.carrier === "auto" ? undefined : trackingForm.carrier,
         note: trackingDialogRow.extra?.note ?? undefined,
+        inventoryId: purchaseRowInventoryId(trackingDialogRow) ?? undefined,
+        managementNo: getManagementNos(trackingDialogRow.purchase_items)[0],
+        labelId: getItemLabels(trackingDialogRow.purchase_items)[0]?.labelId,
       });
       toast.success("追跡番号を登録しました");
       setTrackingDialogRow(null);
