@@ -2172,7 +2172,7 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
               <th className="px-4 py-3 text-left font-medium">品目</th>
               <th className="px-4 py-3 text-right font-medium">必要</th>
               <th className="px-4 py-3 text-right font-medium">確保</th>
-              <th className="px-4 py-3 text-right font-medium">不足</th>
+              <th className="px-4 py-3 text-right font-medium">仕入れ不足</th>
               <th className="px-4 py-3 text-right font-medium">平均仕入</th>
               <th className="px-4 py-3 text-right font-medium">売価</th>
             </tr>
@@ -2191,7 +2191,11 @@ function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
                 return (
                   <tr key={product.key} className="border-b last:border-0">
                     <td className="px-4 py-3 font-medium">{product.title}</td>
-                    <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex min-w-7 justify-center rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                        {product.required.toLocaleString()}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
                       <span className={cn("font-medium", shortage > 0 ? "text-rose-600" : "text-foreground")}>
@@ -2255,9 +2259,9 @@ function ProductFulfillmentTableV2({
                         <div className="text-xs text-muted-foreground">出庫数</div>
                         <div className="mt-1 font-semibold">{product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}</div>
                       </div>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">必要</div>
-                        <div className="mt-1 font-semibold">{product.required.toLocaleString()}</div>
+                      <div className="rounded-md bg-blue-50 p-2">
+                        <div className="text-xs text-blue-700">必要</div>
+                        <div className="mt-1 font-semibold text-blue-800">{product.required.toLocaleString()}</div>
                       </div>
                     </>
                   ) : null}
@@ -2298,7 +2302,7 @@ function ProductFulfillmentTableV2({
                   {!stockOnly ? (
                     <>
                       <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">不足</div>
+                        <div className="text-xs text-muted-foreground">仕入れ不足</div>
                         <div className={cn("mt-1 font-semibold", shortage > 0 ? "text-rose-600" : "text-foreground")}>{shortage.toLocaleString()}</div>
                       </div>
                       <div className="rounded-md bg-slate-50 p-2">
@@ -2377,7 +2381,7 @@ function ProductFulfillmentTableV2({
               </th>
               {!stockOnly ? (
                 <>
-                  <th className="px-4 py-3 text-right font-medium">不足</th>
+                  <th className="px-4 py-3 text-right font-medium">仕入れ不足</th>
                   <th className="px-4 py-3 text-right font-medium">平均仕入</th>
                   <th className="px-4 py-3 text-right font-medium">売価</th>
                 </>
@@ -2408,7 +2412,11 @@ function ProductFulfillmentTableV2({
                         <td className="px-4 py-3 text-right">
                           {product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}
                         </td>
-                        <td className="px-4 py-3 text-right">{product.required.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex min-w-7 justify-center rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                            {product.required.toLocaleString()}
+                          </span>
+                        </td>
                       </>
                     ) : null}
                     <td className="px-4 py-3 text-right">
