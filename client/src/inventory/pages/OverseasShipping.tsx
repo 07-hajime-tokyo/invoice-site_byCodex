@@ -475,6 +475,19 @@ type CsvInvoiceData = {
   products: Array<{ name: string; qty: number }>;
   isComplete?: boolean;
 };
+type OrderSummaryItem = {
+  key: string;
+  csvOrderQty: number;
+  csvStatus: string;
+  manualComplete: boolean;
+  deliveredCount: number;
+  deliveryItems: Array<{
+    title: string;
+    quantity: number;
+    managementNo: string;
+    csvProductName?: string | null;
+  }>;
+};
 type PartnerPortal = {
   id: number;
   partnerCode: string;
@@ -644,6 +657,7 @@ type InvoiceEntry = {
     itemIndex: number;
   }>;
   totalShippedQty: number;
+  deliveryItems: OrderSummaryItem["deliveryItems"];
 };
 
 type AggregatedShipmentRow = {
@@ -719,22 +733,50 @@ function aggregateShipmentRowsByOrderLine(
     .sort((a, b) => a.productOrder - b.productOrder || a.productName.localeCompare(b.productName, "ja"));
 }
 
-function sumShippedQtyByOrderProduct(
+function findCsvProductForDeliveryItem(
   products: CsvInvoiceData["products"],
-  rows: InvoiceEntry["shipments"],
-): Map<number, number> {
-  const shippedQtyByProductIndex = new Map<number, number>();
+  item: OrderSummaryItem["deliveryItems"][number],
+): ShipmentInvoiceProductMatch | null {
+  const csvProductName = item.csvProductName?.trim() ?? "";
+  if (csvProductName) {
+    const csvProductIndex = products.findIndex((product) =>
+      product.name === csvProductName || matchesCsvProductName(csvProductName, product.name),
+    );
+    if (csvProductIndex >= 0) return { ...products[csvProductIndex], index: csvProductIndex };
+  }
 
-  for (const row of rows) {
-    const linkedProduct = findShipmentCsvProduct(products, row);
+  const title = item.title ?? "";
+  const directIndex = products.findIndex((product) => matchesCsvProductName(title, product.name));
+  if (directIndex >= 0) return { ...products[directIndex], index: directIndex };
+
+  const suggestion = suggestCsvProduct(
+    title,
+    item.managementNo ?? "",
+    products.map((product) => ({ name: product.name, qty: product.qty })),
+  );
+  if (!suggestion) return null;
+
+  const suggestedIndex = products.findIndex((product) => product.name === suggestion.name);
+  if (suggestedIndex < 0) return null;
+  return { ...products[suggestedIndex], index: suggestedIndex };
+}
+
+function sumDeliveredQtyByOrderProduct(
+  products: CsvInvoiceData["products"],
+  deliveryItems: OrderSummaryItem["deliveryItems"],
+): Map<number, number> {
+  const deliveredQtyByProductIndex = new Map<number, number>();
+
+  for (const item of deliveryItems) {
+    const linkedProduct = findCsvProductForDeliveryItem(products, item);
     if (!linkedProduct) continue;
-    shippedQtyByProductIndex.set(
+    deliveredQtyByProductIndex.set(
       linkedProduct.index,
-      (shippedQtyByProductIndex.get(linkedProduct.index) ?? 0) + row.item.quantity,
+      (deliveredQtyByProductIndex.get(linkedProduct.index) ?? 0) + item.quantity,
     );
   }
 
-  return shippedQtyByProductIndex;
+  return deliveredQtyByProductIndex;
 }
 
 export default function OverseasShipping() {
@@ -748,6 +790,7 @@ export default function OverseasShipping() {
 
   // データ取得
   const { data: adminData, isLoading, refetch } = trpc.inventory.partner.getAdminShipments.useQuery();
+  const { data: orderSummary, isLoading: isOrderSummaryLoading, refetch: refetchOrderSummary } = trpc.inventory.orderManagement.getSummary.useQuery();
   const { data: portals, refetch: refetchPortals } = trpc.inventory.partner.listPortals.useQuery();
   const { data: messages, refetch: refetchMessages } = trpc.inventory.partner.listMessages.useQuery();
   // 未完了在庫タブ用データ
@@ -755,6 +798,10 @@ export default function OverseasShipping() {
   const { data: csvRows } = trpc.inventory.orderManagement.getCsvData.useQuery();
   const { data: incompleteInvoices } = trpc.inventory.orderManagement.getIncompleteInvoices.useQuery();
   const utils = trpc.useUtils();
+  const refreshOverviewData = () => {
+    void refetch();
+    void refetchOrderSummary();
+  };
   // 取引先管理
   const createPortalMutation = trpc.inventory.partner.createPortal.useMutation({
     onSuccess: () => { toast.success("取引先を追加しました"); refetchPortals(); setNewPortalOpen(false); },
@@ -819,13 +866,13 @@ export default function OverseasShipping() {
   const addManualShipmentMutation = trpc.inventory.partner.addManualShipment.useMutation({
     onSuccess: () => {
       toast.success("発送データを登録しました");
-      refetch();
+      refreshOverviewData();
       setManualForm({ invoiceNo: "", sheetName: "独発送管理", shippingDate: "", trackingNumber: "", items: [{ productNameJa: "", productNameEn: "", quantity: 1 }] });
     },
     onError: (e) => toast.error(e.message),
   });
   const deleteManualShipmentMutation = trpc.inventory.partner.deleteManualShipment.useMutation({
-    onSuccess: () => { toast.success("削除しました"); refetch(); },
+    onSuccess: () => { toast.success("削除しました"); refreshOverviewData(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -839,6 +886,13 @@ export default function OverseasShipping() {
   // 発送データの整理
   const shipments = adminData?.shipments ?? [];
   const csvData = (adminData?.csvData ?? {}) as Record<string, CsvInvoiceData>;
+  const orderSummaryByInvoice = useMemo(() => {
+    const map = new Map<string, OrderSummaryItem>();
+    for (const item of (orderSummary as OrderSummaryItem[] | undefined) ?? []) {
+      map.set(String(item.key), item);
+    }
+    return map;
+  }, [orderSummary]);
 
   // CSVインボイスを主体として、発送記録を紐づけたエントリを構築
   const invoiceEntries = useMemo((): InvoiceEntry[] => {
@@ -868,12 +922,19 @@ export default function OverseasShipping() {
     const entries: InvoiceEntry[] = [];
     for (const [invoiceNo, data] of Object.entries(csvData)) {
       const invShipments = shipmentsByInvoice.get(invoiceNo) ?? [];
-      const totalOrderQty = data.products.reduce((sum, p) => sum + p.qty, 0);
-      const totalShippedQty = invShipments.reduce((sum, r) => sum + r.item.quantity, 0);
+      const orderSummaryItem = orderSummaryByInvoice.get(invoiceNo);
+      const totalOrderQty = orderSummaryItem?.csvOrderQty ?? data.products.reduce((sum, p) => sum + p.qty, 0);
+      const fedexShippedQty = invShipments.reduce((sum, r) => sum + r.item.quantity, 0);
+      const totalShippedQty = orderSummaryItem?.deliveredCount ?? fedexShippedQty;
       const invoiceNumber = Number.parseInt(invoiceNo, 10);
       const isLegacyComplete = Number.isFinite(invoiceNumber) && invoiceNumber <= 383;
+      const isSummaryComplete = orderSummaryItem
+        ? orderSummaryItem.manualComplete ||
+          orderSummaryItem.csvStatus === "complete" ||
+          (orderSummaryItem.csvOrderQty > 0 && orderSummaryItem.deliveredCount >= orderSummaryItem.csvOrderQty)
+        : false;
       // 100%発送済みの場合は自動的に完了扱い
-      const isComplete = isLegacyComplete || (totalOrderQty > 0 && totalShippedQty >= totalOrderQty);
+      const isComplete = isLegacyComplete || isSummaryComplete || (totalOrderQty > 0 && totalShippedQty >= totalOrderQty);
       entries.push({
         invoiceNo,
         partner: data.partner,
@@ -883,13 +944,14 @@ export default function OverseasShipping() {
         totalOrderQty,
         shipments: invShipments,
         totalShippedQty,
+        deliveryItems: orderSummaryItem?.deliveryItems ?? [],
       });
     }
 
     // インボイスNo降順でソート
     entries.sort((a, b) => parseInt(b.invoiceNo) - parseInt(a.invoiceNo));
     return entries;
-  }, [shipments, csvData]);
+  }, [shipments, csvData, orderSummaryByInvoice]);
 
   // 取引先一覧
   const partners = useMemo(() => {
@@ -1035,7 +1097,7 @@ export default function OverseasShipping() {
               >
                 {!showComplete ? "未完了のみ" : "全件表示"}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <Button variant="outline" size="sm" onClick={refreshOverviewData}>
                 <RefreshCw className="h-4 w-4 mr-1.5" />
                 更新
               </Button>
@@ -1149,7 +1211,7 @@ export default function OverseasShipping() {
                 csvData={csvData}
               />
             )
-          ) : isLoading ? (
+          ) : isLoading || isOrderSummaryLoading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <RefreshCw className="h-5 w-5 animate-spin mr-2" />
               データを読み込み中...
@@ -1175,7 +1237,7 @@ export default function OverseasShipping() {
                   ? entry.products.map(p => p.name).join(", ")
                   : "";
                 const aggregatedShipmentRows = aggregateShipmentRowsByOrderLine(entry.products, entry.shipments);
-                const shippedQtyByOrderProduct = sumShippedQtyByOrderProduct(entry.products, entry.shipments);
+                const deliveredQtyByOrderProduct = sumDeliveredQtyByOrderProduct(entry.products, entry.deliveryItems);
 
                 return (
                   <div key={entry.invoiceNo} className={`rounded-lg border bg-card shadow-sm overflow-hidden ${entry.isComplete ? "opacity-60" : ""}`}>
@@ -1260,7 +1322,7 @@ export default function OverseasShipping() {
                               </thead>
                               <tbody>
                                 {entry.products.map((p, i) => {
-                                  const remainingQty = Math.max(0, p.qty - (shippedQtyByOrderProduct.get(i) ?? 0));
+                                  const remainingQty = Math.max(0, p.qty - (deliveredQtyByOrderProduct.get(i) ?? 0));
                                   return (
                                     <tr key={i} className="border-b border-border/40 last:border-0">
                                       <td className="py-1.5 text-sm">{p.name}</td>
@@ -1329,7 +1391,12 @@ export default function OverseasShipping() {
                                 sellingPrice: r.sellingPrice,
                                 currency: r.currency,
                               }))}
-                              onDeliverySuccess={() => { refetch(); utils.inventory.zaico.getInventories.invalidate(); utils.inventory.orderManagement.getIncompleteInvoices.invalidate(); }}
+                              onDeliverySuccess={() => {
+                                refreshOverviewData();
+                                utils.inventory.zaico.getInventories.invalidate();
+                                utils.inventory.orderManagement.getIncompleteInvoices.invalidate();
+                                utils.inventory.orderManagement.getSummary.invalidate();
+                              }}
                             />
                           );
                         })()}
