@@ -817,6 +817,77 @@ type SenderSettingsData = {
   senderExtraInfo?: string | null;
 } | null;
 
+type PdfLogoImage = {
+  dataUrl: string;
+  format: "PNG" | "JPEG";
+};
+
+function detectPdfLogoFormat(mimeType: string, url: string): PdfLogoImage["format"] | null {
+  const mime = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (mime === "image/png") return "PNG";
+  if (mime === "image/jpeg" || mime === "image/jpg") return "JPEG";
+
+  const path = url.split("?")[0]?.toLowerCase() ?? "";
+  if (path.endsWith(".png")) return "PNG";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "JPEG";
+  return null;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Logo image could not be read."));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Logo image could not be read."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function loadPdfLogoImage(logoUrl?: string | null): Promise<PdfLogoImage | null> {
+  if (!logoUrl?.trim()) return null;
+  try {
+    const resp = await fetch(logoUrl);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    const format = detectPdfLogoFormat(blob.type || "", logoUrl);
+    if (!format) {
+      console.warn("Skipping unsupported invoice logo format", { mimeType: blob.type, logoUrl });
+      return null;
+    }
+    return { dataUrl: await blobToDataUrl(blob), format };
+  } catch (error) {
+    console.warn("Skipping invoice logo because it could not be loaded", error);
+    return null;
+  }
+}
+
+async function createDownloadablePdfBlob(pdf: import("jspdf").jsPDF): Promise<Blob> {
+  const jsPdfBytes = pdf.output("arraybuffer");
+  try {
+    const { PDFDocument, PDFName, PDFNumber, PDFNull, PDFArray } = await import("pdf-lib");
+    const pdfDoc = await PDFDocument.load(jsPdfBytes);
+    const pages = pdfDoc.getPages();
+    if (pages.length > 0) {
+      const xyzArray = PDFArray.withContext(pdfDoc.context);
+      xyzArray.push(pages[0].ref);
+      xyzArray.push(PDFName.of("XYZ"));
+      xyzArray.push(PDFNull);
+      xyzArray.push(PDFNull);
+      xyzArray.push(PDFNumber.of(1.0));
+      pdfDoc.catalog.set(PDFName.of("OpenAction"), xyzArray);
+    }
+    const modifiedBytes = await pdfDoc.save();
+    const modifiedArrayBuffer = new ArrayBuffer(modifiedBytes.byteLength);
+    new Uint8Array(modifiedArrayBuffer).set(modifiedBytes);
+    return new Blob([modifiedArrayBuffer], { type: "application/pdf" });
+  } catch (error) {
+    console.warn("PDF post-processing failed; downloading the base PDF instead", error);
+    return new Blob([jsPdfBytes], { type: "application/pdf" });
+  }
+}
+
 async function generateInvoicePdf(
   form: InvoiceFormData,
   selectedClient: { company?: string | null; name: string; address?: string | null; city?: string | null; country?: string | null; email?: string | null; phone?: string | null; notes?: string | null; extraInfo?: string | null } | null,
@@ -852,22 +923,7 @@ async function generateInvoicePdf(
   };
   const accentRgb = hexToRgb(form.accentColor || "#db8b1a");
 
-  let logoBase64: string | null = null;
-  let logoMime = "image/png";
-  if (senderSettings?.logoUrl) {
-    try {
-      const resp = await fetch(senderSettings.logoUrl);
-      const blob = await resp.blob();
-      logoMime = blob.type || "image/png";
-      const ab = await blob.arrayBuffer();
-      const bytes = new Uint8Array(ab);
-      let binary = "";
-      bytes.forEach(b => { binary += String.fromCharCode(b); });
-      logoBase64 = btoa(binary);
-    } catch {
-      logoBase64 = null;
-    }
-  }
+  const logoImage = await loadPdfLogoImage(senderSettings?.logoUrl);
 
   pdf.setFillColor(...accentRgb);
   pdf.rect(0, 0, pageW, 6, "F");
@@ -876,10 +932,16 @@ async function generateInvoicePdf(
   const logoSize = 18;
   const logoX = margin;
   const logoTopY = y - 2;
-  if (logoBase64) {
-    pdf.addImage(logoBase64, logoMime, logoX, logoTopY, logoSize, logoSize);
+  let logoRendered = false;
+  if (logoImage) {
+    try {
+      pdf.addImage(logoImage.dataUrl, logoImage.format, logoX, logoTopY, logoSize, logoSize);
+      logoRendered = true;
+    } catch (error) {
+      console.warn("Skipping invoice logo because jsPDF could not embed it", error);
+    }
   }
-  const companyX = logoBase64 ? logoX + logoSize + 4 : margin;
+  const companyX = logoRendered ? logoX + logoSize + 4 : margin;
   const companyName = senderSettings?.senderCompany || senderSettings?.senderName || "";
   if (companyName) {
     pdf.setFont("helvetica", "bold");
@@ -1085,23 +1147,7 @@ async function generateInvoicePdf(
     creator: "Tokyo Media Koueki",
   });
 
-  const { PDFDocument, PDFName, PDFNumber, PDFNull, PDFArray } = await import("pdf-lib");
-  const jsPdfBytes = pdf.output("arraybuffer");
-  const pdfDoc = await PDFDocument.load(jsPdfBytes);
-  const pages = pdfDoc.getPages();
-  if (pages.length > 0) {
-    const xyzArray = PDFArray.withContext(pdfDoc.context);
-    xyzArray.push(pages[0].ref);
-    xyzArray.push(PDFName.of("XYZ"));
-    xyzArray.push(PDFNull);
-    xyzArray.push(PDFNull);
-    xyzArray.push(PDFNumber.of(1.0));
-    pdfDoc.catalog.set(PDFName.of("OpenAction"), xyzArray);
-  }
-  const modifiedBytes = await pdfDoc.save();
-  const modifiedArrayBuffer = new ArrayBuffer(modifiedBytes.byteLength);
-  new Uint8Array(modifiedArrayBuffer).set(modifiedBytes);
-  const modifiedBlob = new Blob([modifiedArrayBuffer], { type: "application/pdf" });
+  const modifiedBlob = await createDownloadablePdfBlob(pdf);
   const url = URL.createObjectURL(modifiedBlob);
   const a = document.createElement("a");
   a.href = url;
@@ -2919,8 +2965,8 @@ function InvoiceList({  onNew,
 
       await generateInvoicePdf(form, selectedClient, senderSettings ?? null);
     } catch (e) {
-      toast.error("PDF生成に失敗しました");
       console.error(e);
+      toast.error(`PDF生成に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setPdfLoadingId(null);
     }
