@@ -3083,9 +3083,33 @@ function useQrCameraScanner(onDetected: (rawValue: string) => void) {
     if (cameraActive) return;
     setCameraError("");
     const Detector = getBarcodeDetectorConstructor();
-    if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("このブラウザではカメラQR読み取りが使えません。商品IDを入力してください。");
       return;
+    }
+
+    // iOS Safari は BarcodeDetector を持たないので、jsQR でフレームを自前デコードする
+    let decodeFrame: (video: HTMLVideoElement) => Promise<string>;
+    if (Detector) {
+      const detector = new Detector({ formats: ["qr_code"] });
+      decodeFrame = async (video) => {
+        const codes = await detector.detect(video);
+        return codes.find((code) => code.rawValue?.trim())?.rawValue?.trim() ?? "";
+      };
+    } else {
+      const { default: jsQR } = await import("jsqr");
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      decodeFrame = async (video) => {
+        if (!ctx || !video.videoWidth) return "";
+        // 長辺640pxに落として毎フレームのデコード負荷を下げる
+        const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" })?.data?.trim() ?? "";
+      };
     }
 
     try {
@@ -3101,15 +3125,13 @@ function useQrCameraScanner(onDetected: (rawValue: string) => void) {
       setCameraActive(true);
       await video.play();
 
-      const detector = new Detector({ formats: ["qr_code"] });
       scannerRunningRef.current = true;
       const scanFrame = async () => {
         if (!scannerRunningRef.current) return;
         const currentVideo = videoRef.current;
         if (currentVideo && currentVideo.readyState >= 2) {
           try {
-            const codes = await detector.detect(currentVideo);
-            const rawValue = codes.find((code) => code.rawValue?.trim())?.rawValue?.trim();
+            const rawValue = await decodeFrame(currentVideo);
             if (rawValue) {
               const now = Date.now();
               const previous = lastDetectedRef.current;
@@ -3173,6 +3195,12 @@ function ScanPanel({
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(() => new Set());
   const [bulkReceivePending, setBulkReceivePending] = useState(false);
   const resumeCameraAfterConfirmRef = useRef(false);
+  // バーコードリーダーはキーボードとして打ち込むので、入力欄に常にフォーカスを戻す
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const focusScanInput = () => {
+    if (window.matchMedia("(hover: none)").matches) return; // スマホでキーボードが出るのを防ぐ
+    window.setTimeout(() => scanInputRef.current?.focus(), 0);
+  };
   const receiveMutation = trpc.inventory.orderManagement.receivePurchaseLabel.useMutation();
   type ReceivePurchaseLabelResult = Awaited<ReturnType<typeof receiveMutation.mutateAsync>>;
   const qrScanner = useQrCameraScanner((rawValue) => {
@@ -3321,6 +3349,7 @@ function ScanPanel({
   function closeReceiveConfirm() {
     resumeCameraAfterConfirmRef.current = false;
     setConfirmValue("");
+    focusScanInput();
   }
 
   async function receiveMatchedLabel(targetValue = scanValue) {
@@ -3446,6 +3475,7 @@ function ScanPanel({
 
         <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
           <Input
+            ref={scanInputRef}
             value={scanValue}
             onChange={(event) => {
               setScanValue(event.target.value);
