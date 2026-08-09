@@ -1131,3 +1131,55 @@ export const manualShipments = mysqlTable("manual_shipments", {
 });
 export type ManualShipment = typeof manualShipments.$inferSelect;
 export type InsertManualShipment = typeof manualShipments.$inferInsert;
+
+/**
+ * WhatsApp会話履歴 — 相手（チャット）単位。
+ * バイヤーとのやり取りを取り込んで、原文と日本語訳を並べて読み返すための保管先。
+ * 既存の whatsapp_chat_history（AI知識ベース用のアップロード置き場）とは別物。
+ */
+export const whatsappConversations = mysqlTable("whatsapp_conversations", {
+  id: int("id").autoincrement().primaryKey(),
+  /** WhatsAppの表示名（例: "ConsoleBros – Orders with Hajime"） */
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  /** グループチャットかどうか */
+  isGroup: boolean("isGroup").default(false).notNull(),
+  /** 表示順の並べ替えと「最近動いた相手」の判定に使う */
+  lastMessageAt: timestamp("lastMessageAt"),
+  /** 取り込み済みの最古メッセージ日時（どこまで遡れているかの目安） */
+  firstMessageAt: timestamp("firstMessageAt"),
+  /** 最後に取り込みを実行した日時 */
+  importedAt: timestamp("importedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type WhatsappConversation = typeof whatsappConversations.$inferSelect;
+export type InsertWhatsappConversation = typeof whatsappConversations.$inferInsert;
+
+/**
+ * WhatsApp会話履歴の1メッセージ。
+ * bodyJa は取り込み後にGeminiでまとめて訳して埋める（表示のたびに翻訳APIを叩かない）。
+ */
+export const whatsappMessages = mysqlTable("whatsapp_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  /** FK: whatsapp_conversations.id */
+  conversationId: int("conversationId").notNull(),
+  /** 送信者の表示名。自分の発言は "自分" */
+  sender: varchar("sender", { length: 255 }).notNull(),
+  /** 自分（村上さん側）の発言かどうか */
+  isOutgoing: boolean("isOutgoing").default(false).notNull(),
+  /** 送信日時 */
+  sentAt: timestamp("sentAt").notNull(),
+  /** 原文 */
+  body: mediumtext("body").notNull(),
+  /** 日本語訳。原文が日本語なら null のまま */
+  bodyJa: mediumtext("bodyJa"),
+  /** 翻訳不要と判定済みか（原文が日本語 or 記号のみ） */
+  translationSkipped: boolean("translationSkipped").default(false).notNull(),
+  /** 再取り込み時の重複防止キー: sha256(conversationId|sentAt|body) の先頭32桁 */
+  dedupeKey: varchar("dedupeKey", { length: 64 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+export type InsertWhatsappMessage = typeof whatsappMessages.$inferInsert;

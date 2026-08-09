@@ -16,7 +16,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
-import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
+import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, whatsappConversations, whatsappMessages, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
+import { isOwnerSender, looksJapanese, makeDedupeKey, parseWhatsAppExport, translateMessages } from "./whatsappConversations";
 import { eq, desc, asc, or, like, and, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
@@ -3417,6 +3418,221 @@ Return ONLY valid JSON, no markdown, no explanation.`
           return { sentInvoices, paidInvoices, items: [], detectedSender: null, invoiceNumbers: sentInvoices };
         }
         throw new Error("対応していない履歴タイプです");
+      }),
+  }),
+
+  // ─── WhatsApp会話履歴（読み返し用・和訳つき） ──────────────────────────────────
+  whatsappChats: router({
+    /** 相手一覧。最終メッセージが新しい順。 */
+    listConversations: protectedProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) throw new Error("DB connection failed");
+
+      const conversations = await db
+        .select()
+        .from(whatsappConversations)
+        .orderBy(desc(whatsappConversations.lastMessageAt));
+
+      const counts = await db
+        .select({
+          conversationId: whatsappMessages.conversationId,
+          total: sql<number>`count(*)`,
+          untranslated: sql<number>`sum(case when ${whatsappMessages.bodyJa} is null and ${whatsappMessages.translationSkipped} = false then 1 else 0 end)`,
+        })
+        .from(whatsappMessages)
+        .groupBy(whatsappMessages.conversationId);
+
+      const byId = new Map(counts.map((c) => [c.conversationId, c]));
+      return conversations.map((c) => ({
+        ...c,
+        messageCount: Number(byId.get(c.id)?.total ?? 0),
+        untranslatedCount: Number(byId.get(c.id)?.untranslated ?? 0),
+      }));
+    }),
+
+    /** 1件の会話のメッセージ。古い順。keyword は原文・訳文の両方を対象に絞り込む。 */
+    getMessages: protectedProcedure
+      .input(z.object({ conversationId: z.number(), keyword: z.string().optional() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("DB connection failed");
+
+        const filters = [eq(whatsappMessages.conversationId, input.conversationId)];
+        const keyword = input.keyword?.trim();
+        if (keyword) {
+          filters.push(
+            or(
+              like(whatsappMessages.body, `%${keyword}%`),
+              like(whatsappMessages.bodyJa, `%${keyword}%`),
+              like(whatsappMessages.sender, `%${keyword}%`),
+            )!,
+          );
+        }
+
+        return db
+          .select()
+          .from(whatsappMessages)
+          .where(and(...filters))
+          .orderBy(asc(whatsappMessages.sentAt));
+      }),
+
+    /**
+     * 会話を取り込む。同じ内容を再投入しても dedupeKey で弾かれるので、
+     * 「前回の続きから」でも「まるごと貼り直し」でも同じ結果になる。
+     */
+    importChat: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          rawText: z.string().min(1),
+          isGroup: z.boolean().optional(),
+          /** 自分の発言として扱う送信者名（WhatsApp上の自分の表示名） */
+          ownerNames: z.array(z.string()).optional(),
+          /** この日時より古いメッセージは取り込まない（ISO文字列） */
+          since: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("DB connection failed");
+
+        const parsed = parseWhatsAppExport(input.rawText);
+        if (parsed.length === 0) {
+          throw new Error("メッセージを1件も読み取れませんでした。フォーマットを確認してください。");
+        }
+
+        const since = input.since ? new Date(input.since) : null;
+        const inRange = since ? parsed.filter((m) => m.sentAt >= since) : parsed;
+        if (inRange.length === 0) {
+          throw new Error("指定期間内のメッセージがありませんでした。");
+        }
+
+        // 相手（会話）を用意する
+        const existing = await db
+          .select()
+          .from(whatsappConversations)
+          .where(eq(whatsappConversations.name, input.name))
+          .limit(1);
+
+        let conversationId: number;
+        if (existing.length > 0) {
+          conversationId = existing[0].id;
+        } else {
+          await db.insert(whatsappConversations).values({
+            name: input.name,
+            isGroup: input.isGroup ?? false,
+          });
+          const created = await db
+            .select()
+            .from(whatsappConversations)
+            .where(eq(whatsappConversations.name, input.name))
+            .limit(1);
+          if (created.length === 0) throw new Error("会話の作成に失敗しました");
+          conversationId = created[0].id;
+        }
+
+        // 既存の dedupeKey を引いて、重複を先に落とす
+        const known = await db
+          .select({ dedupeKey: whatsappMessages.dedupeKey })
+          .from(whatsappMessages)
+          .where(eq(whatsappMessages.conversationId, conversationId));
+        const knownKeys = new Set(known.map((k) => k.dedupeKey));
+
+        const rows = inRange
+          .map((m) => ({
+            conversationId,
+            sender: m.sender,
+            isOutgoing: isOwnerSender(m.sender, input.ownerNames ?? []),
+            sentAt: m.sentAt,
+            body: m.body,
+            translationSkipped: looksJapanese(m.body),
+            dedupeKey: makeDedupeKey(input.name, m.sentAt, m.body),
+          }))
+          .filter((r) => {
+            if (knownKeys.has(r.dedupeKey)) return false;
+            knownKeys.add(r.dedupeKey); // 同一取り込み内の重複も落とす
+            return true;
+          });
+
+        for (let i = 0; i < rows.length; i += 100) {
+          await db.insert(whatsappMessages).values(rows.slice(i, i + 100));
+        }
+
+        const bounds = await db
+          .select({
+            first: sql<string | null>`min(${whatsappMessages.sentAt})`,
+            last: sql<string | null>`max(${whatsappMessages.sentAt})`,
+          })
+          .from(whatsappMessages)
+          .where(eq(whatsappMessages.conversationId, conversationId));
+
+        await db
+          .update(whatsappConversations)
+          .set({
+            isGroup: input.isGroup ?? existing[0]?.isGroup ?? false,
+            firstMessageAt: bounds[0]?.first ? new Date(bounds[0].first) : null,
+            lastMessageAt: bounds[0]?.last ? new Date(bounds[0].last) : null,
+            importedAt: new Date(),
+          })
+          .where(eq(whatsappConversations.id, conversationId));
+
+        return {
+          conversationId,
+          parsed: parsed.length,
+          imported: rows.length,
+          skippedDuplicates: inRange.length - rows.length,
+          skippedOutOfRange: parsed.length - inRange.length,
+        };
+      }),
+
+    /** 未翻訳のメッセージをまとめて日本語にする。conversationId 省略で全会話が対象。 */
+    translate: protectedProcedure
+      .input(z.object({ conversationId: z.number().optional(), limit: z.number().min(1).max(2000).default(400) }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("DB connection failed");
+
+        const filters = [isNull(whatsappMessages.bodyJa), eq(whatsappMessages.translationSkipped, false)];
+        if (input.conversationId) filters.push(eq(whatsappMessages.conversationId, input.conversationId));
+
+        const pending = await db
+          .select({ id: whatsappMessages.id, body: whatsappMessages.body })
+          .from(whatsappMessages)
+          .where(and(...filters))
+          .orderBy(asc(whatsappMessages.sentAt))
+          .limit(input.limit);
+
+        if (pending.length === 0) return { translated: 0, remaining: 0, failedChunks: 0 };
+
+        const { translations, failedChunks } = await translateMessages(
+          pending.map((p) => ({ id: p.id, text: p.body })),
+        );
+
+        for (const [id, ja] of translations) {
+          await db.update(whatsappMessages).set({ bodyJa: ja }).where(eq(whatsappMessages.id, id));
+        }
+
+        const remainingRows = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(whatsappMessages)
+          .where(and(...filters));
+
+        return {
+          translated: translations.size,
+          remaining: Number(remainingRows[0]?.count ?? 0),
+          failedChunks,
+        };
+      }),
+
+    /** 会話をメッセージごと削除する */
+    deleteConversation: protectedProcedure
+      .input(z.object({ conversationId: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("DB connection failed");
+        await db.delete(whatsappMessages).where(eq(whatsappMessages.conversationId, input.conversationId));
+        await db.delete(whatsappConversations).where(eq(whatsappConversations.id, input.conversationId));
+        return { ok: true };
       }),
   }),
 
