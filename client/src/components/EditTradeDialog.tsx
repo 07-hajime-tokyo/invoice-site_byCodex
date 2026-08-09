@@ -96,7 +96,9 @@ function getCurrencyForPartner(partner: string): TradeCurrency | null {
     normalized.includes("サイモン") ||
     normalized.includes("simon") ||
     normalized.includes("マキシム") ||
-    normalized.includes("maxim")
+    normalized.includes("maxim") ||
+    normalized.includes("ネレ") ||
+    normalized.includes("nele")
   ) {
     return "ユーロ";
   }

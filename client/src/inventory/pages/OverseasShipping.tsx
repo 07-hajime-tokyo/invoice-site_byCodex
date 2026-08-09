@@ -624,15 +624,17 @@ function partnerLabel(sheetName: string): string {
   if (sheetName === "独発送管理") return "Luca/Maxim";
   if (sheetName === "サミー発送管理") return "Samee";
   if (sheetName === "サイモン発送管理") return "Simon";
+  if (sheetName === "ネレ発送管理") return "Nele";
   return sheetName;
 }
 
-type PartnerTab = "all" | "luca" | "samee" | "simon";
+type PartnerTab = "all" | "luca" | "samee" | "simon" | "nele";
 
 function partnerTabLabel(tab: PartnerTab): string {
   if (tab === "luca") return "Luca/Maxim";
   if (tab === "samee") return "Samee";
   if (tab === "simon") return "Simon";
+  if (tab === "nele") return "Nele";
   return "すべて";
 }
 
@@ -640,6 +642,7 @@ function partnerTabSheetName(tab: PartnerTab): string | null {
   if (tab === "luca") return "独発送管理";
   if (tab === "samee") return "サミー発送管理";
   if (tab === "simon") return "サイモン発送管理";
+  if (tab === "nele") return "ネレ発送管理";
   return null;
 }
 
@@ -962,7 +965,7 @@ export default function OverseasShipping() {
     return Array.from(set).sort();
   }, [invoiceEntries]);
 
-  // ルカ/マキシム/サミー/サイモン判定ヘルパー
+  // ルカ/マキシム/サミー/サイモン/ネレ判定ヘルパー
   const isLucaPartner = (partner: string) => {
     const p = partner.toLowerCase();
     return p.includes("ルカ") || p.includes("luca") || p.includes("マキシム") || p.includes("maxim");
@@ -975,6 +978,10 @@ export default function OverseasShipping() {
     const p = partner.toLowerCase();
     return p.includes("サイモン") || p.includes("simon");
   };
+  const isNelePartner = (partner: string) => {
+    const p = partner.toLowerCase();
+    return p.includes("ネレ") || p.includes("nele");
+  };
 
   // フィルタリング
   const filtered = useMemo(() => {
@@ -982,10 +989,11 @@ export default function OverseasShipping() {
     return invoiceEntries.filter(entry => {
       if (!showComplete && entry.isComplete) return false;
       if (selectedPartners.size > 0 && !selectedPartners.has(entry.partner)) return false;
-      // ルカ/マキシム/サミー/サイモンタブフィルター
+      // ルカ/マキシム/サミー/サイモン/ネレタブフィルター
       if (partnerTab === "luca" && !isLucaPartner(entry.partner)) return false;
       if (partnerTab === "samee" && !isSameePartner(entry.partner)) return false;
       if (partnerTab === "simon" && !isSimonPartner(entry.partner)) return false;
+      if (partnerTab === "nele" && !isNelePartner(entry.partner)) return false;
       if (!q) return true;
       if (entry.invoiceNo.includes(q)) return true;
       if (entry.partner.toLowerCase().includes(q)) return true;
@@ -1132,7 +1140,7 @@ export default function OverseasShipping() {
         <TabsContent value="shipments" className="mt-3 space-y-3">
           {/* 取引先サブタブ */}
           <div className="flex gap-1 bg-muted/50 rounded-lg p-1 w-fit">
-            {(["all", "luca", "samee", "simon"] as const).map(tab => (
+            {(["all", "luca", "samee", "simon", "nele"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setPartnerTab(tab)}
@@ -1788,6 +1796,7 @@ export default function OverseasShipping() {
                     <option value="独発送管理">Luca/Maxim（独発送管理）</option>
                     <option value="サミー発送管理">Samee（サミー発送管理）</option>
                     <option value="サイモン発送管理">Simon（サイモン発送管理）</option>
+                    <option value="ネレ発送管理">Nele（ネレ発送管理）</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">

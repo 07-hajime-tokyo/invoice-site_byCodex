@@ -223,6 +223,9 @@ const emptyForm: InventoryFormData = {
   ebayListingUrl: "",
 };
 
+type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "サイモン発送管理" | "ネレ発送管理";
+const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "サイモン発送管理", "ネレ発送管理"];
+
 export default function Deliveries() {
   const [location] = useLocation();
   const utils = trpc.useUtils();
@@ -274,6 +277,14 @@ export default function Deliveries() {
     if (normalized.includes("simon") || normalized.includes("サイモン")) return "Simon";
     if (normalized.includes("nele") || normalized.includes("ネレ")) return "Nele";
     return null;
+  }
+
+  function getShipmentSheetNameForCustomerCode(customerCode: string): ShipmentSheetName {
+    const normalized = customerCode.normalize("NFKC").trim().toLowerCase();
+    if (normalized.includes("simon") || normalized.includes("サイモン")) return "サイモン発送管理";
+    if (normalized.includes("nele") || normalized.includes("ネレ")) return "ネレ発送管理";
+    if (normalized.includes("samee") || normalized.includes("sami") || normalized.includes("sammy") || normalized.includes("サミー")) return "サミー発送管理";
+    return "独発送管理";
   }
 
   function generateDeliveryNo(customerCode: string, prefix?: string): string {
@@ -488,7 +499,6 @@ export default function Deliveries() {
   const [isSingleSubmitting, setIsSingleSubmitting] = useState(false);
   // FedEx発送情報（出庫登録フォーム内）
   const [singleTrackingNumber, setSingleTrackingNumber] = useState("");
-  type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "サイモン発送管理";
   const [singleSheetName, setSingleSheetName] = useState<ShipmentSheetName>("独発送管理");
   const [bulkTrackingNumber, setBulkTrackingNumber] = useState("");
   const [bulkSheetName, setBulkSheetName] = useState<ShipmentSheetName>("独発送管理");
@@ -801,6 +811,7 @@ export default function Deliveries() {
     if (uniqueCodes.length === 1 && (!bulkCustomerCode || !deliveryNo.trim())) {
       const code = uniqueCodes[0] as string;
       setBulkCustomerCode(code);
+      setBulkSheetName(getShipmentSheetNameForCustomerCode(code));
       // 先頭数字（prefix）を全チェック商品から抽出（共通の場合のみ使用）
       const prefixes = checkedItems
         .map((item) => extractPrefixFromManagementNo(item.etc))
@@ -1900,6 +1911,7 @@ export default function Deliveries() {
                   onValueChange={(val) => {
                     setBulkCustomerCode(val);
                     if (val && val !== "__none__") {
+                      setBulkSheetName(getShipmentSheetNameForCustomerCode(val));
                       // 先頭数字を优先、なければインボイスNoを使用
                       const prefixes = checkedItems
                         .map((item) => extractPrefixFromManagementNo(item.etc))
@@ -2190,9 +2202,9 @@ export default function Deliveries() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="独発送管理">独発送管理</SelectItem>
-                      <SelectItem value="サミー発送管理">サミー発送管理</SelectItem>
-                      <SelectItem value="サイモン発送管理">サイモン発送管理</SelectItem>
+                      {SHIPMENT_SHEET_NAMES.map((name) => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2267,6 +2279,7 @@ export default function Deliveries() {
                   onValueChange={(val) => {
                     setSingleCustomerCode(val);
                     if (val && val !== "__none__") {
+                      setSingleSheetName(getShipmentSheetNameForCustomerCode(val));
                       // 管理番号の先頭数字を优先、なければインボイスNoを使用
                       const prefix = extractPrefixFromManagementNo(singleDeliveryItem?.inv.etc);
                       const invoicePrefix = prefix ?? (singleInvoiceNo || undefined);
@@ -2396,9 +2409,9 @@ export default function Deliveries() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="独発送管理">独発送管理</SelectItem>
-                        <SelectItem value="サミー発送管理">サミー発送管理</SelectItem>
-                        <SelectItem value="サイモン発送管理">サイモン発送管理</SelectItem>
+                        {SHIPMENT_SHEET_NAMES.map((name) => (
+                          <SelectItem key={name} value={name}>{name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

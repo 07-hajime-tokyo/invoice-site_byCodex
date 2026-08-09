@@ -320,7 +320,9 @@ function getDefaultCurrencyForClient(client: { name?: string | null; company?: s
     text.includes("simon") ||
     text.includes("サイモン") ||
     text.includes("maxim") ||
-    text.includes("マキシム")
+    text.includes("マキシム") ||
+    text.includes("nele") ||
+    text.includes("ネレ")
     ? "EUR"
     : "USD";
 }

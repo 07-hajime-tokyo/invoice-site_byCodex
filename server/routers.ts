@@ -322,7 +322,9 @@ function inferTradeCurrencyForPartner(partner: string | null | undefined, fallba
     text.includes("サイモン") ||
     text.includes("simon") ||
     text.includes("マキシム") ||
-    text.includes("maxim")
+    text.includes("maxim") ||
+    text.includes("ネレ") ||
+    text.includes("nele")
   ) {
     return "ユーロ" as const;
   }
@@ -371,6 +373,8 @@ async function repairKnownEuroRateRows(db: TradeDb) {
           like(tradeRecords.partner, "%simon%"),
           like(tradeRecords.partner, "%マキシム%"),
           like(tradeRecords.partner, "%maxim%"),
+          like(tradeRecords.partner, "%ネレ%"),
+          like(tradeRecords.partner, "%nele%"),
         ),
       );
       const targets = rows.filter((row) => normalizeTradeCurrency(inferTradeCurrencyForPartner(row.partner, row.currency)) === "EUR");
@@ -418,6 +422,8 @@ function shouldRepairDisplayedEuroRate(row: TradeRow) {
       || partner.includes("simon")
       || partner.includes("マキシム")
       || partner.includes("maxim")
+      || partner.includes("ネレ")
+      || partner.includes("nele")
     );
 }
 

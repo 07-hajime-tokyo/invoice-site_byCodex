@@ -245,8 +245,8 @@ const fieldClass =
 
 const OTHER_INVOICE_KEY = "invoice-other";
 const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
-type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理";
-const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理"];
+type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
+const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
 const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
   yamato: "ヤマト運輸",
   sagawa: "佐川急便",
@@ -1608,6 +1608,7 @@ function detectShipmentSheetNameForText(text: string | null | undefined): Shipme
   if (!haystack) return null;
   if (haystack.includes("devon") || haystack.includes("デボン")) return "デボン発送管理";
   if (haystack.includes("simon") || haystack.includes("サイモン")) return "サイモン発送管理";
+  if (haystack.includes("nele") || haystack.includes("ネレ")) return "ネレ発送管理";
   if (haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy") || haystack.includes("サミー")) return "サミー発送管理";
   if (haystack.includes("maxim") || haystack.includes("マキシム") || haystack.includes("luca") || haystack.includes("ルカ")) return "独発送管理";
   return null;

@@ -266,6 +266,8 @@ export function InvoiceStockSection({
   const defaultCurrency = isEuroPartner ? "EUR" : "USD";
   const sheetName = isSimon
     ? "サイモン発送管理" as const
+    : isNele
+      ? "ネレ発送管理" as const
     : isSamee
       ? "サミー発送管理" as const
       : "独発送管理" as const;

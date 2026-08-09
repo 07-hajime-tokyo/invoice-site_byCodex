@@ -60,7 +60,7 @@ interface InvoiceApplyPreview {
   }>;
 }
 
-const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン", "サイモン", "マキシム"] as const;
+const DEFAULT_TRADE_PARTNERS = ["ルカ", "サミー", "デボン", "サイモン", "マキシム", "ネレ"] as const;
 
 function getTodayDateString() {
   const today = new Date();
@@ -96,7 +96,9 @@ function getCurrencyForPartner(partner: string): FormState["currency"] {
     normalized.includes("サイモン") ||
     normalized.includes("simon") ||
     normalized.includes("マキシム") ||
-    normalized.includes("maxim")
+    normalized.includes("maxim") ||
+    normalized.includes("ネレ") ||
+    normalized.includes("nele")
   ) return "ユーロ";
   return "ドル";
 }
@@ -117,6 +119,7 @@ const PARTNER_MAP: Record<string, string> = {
   "devon brako": "デボン",
   "simon": "サイモン",
   "maxim": "マキシム",
+  "nele": "ネレ",
 };
 
 // 商品名・フレーズの英語→日本語変換マッピング（部分一致・置換）
@@ -148,6 +151,7 @@ const PARTNER_PREFIX_MAP: Array<[RegExp, string]> = [
   [/^devon\b/i, "デボン"],
   [/^simon\b/i, "サイモン"],
   [/^maxim\b/i, "マキシム"],
+  [/^nele\b/i, "ネレ"],
 ];
 
 function toJapanesePartner(name: string): string {
