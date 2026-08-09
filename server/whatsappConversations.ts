@@ -28,6 +28,11 @@ const SYSTEM_LINE_PATTERNS = [
 
 type HeaderMatch = { sentAt: Date; sender: string; rest: string };
 
+/**
+ * 取り込み元にあるのは「WhatsAppの画面に出ていた時刻」＝タイムゾーンなしの壁時計。
+ * 絶対時刻に直しようがないので、**壁時計をそのままUTCとして持つ**。
+ * 画面側も UTC として読むこと（ローカル時刻で解釈すると9時間ずれる）。
+ */
 function buildDate(y: number, mo: number, d: number, h: number, mi: number, s: number): Date | null {
   if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
   const date = new Date(Date.UTC(y, mo - 1, d, h, mi, s));

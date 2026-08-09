@@ -1168,7 +1168,7 @@ export const whatsappMessages = mysqlTable("whatsapp_messages", {
   sender: varchar("sender", { length: 255 }).notNull(),
   /** 自分（村上さん側）の発言かどうか */
   isOutgoing: boolean("isOutgoing").default(false).notNull(),
-  /** 送信日時 */
+  /** 送信日時。WhatsApp画面の壁時計をそのままUTCとして格納する（表示もUTCで読む） */
   sentAt: timestamp("sentAt").notNull(),
   /** 原文 */
   body: mediumtext("body").notNull(),
