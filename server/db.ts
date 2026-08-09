@@ -26,23 +26,72 @@ function errorText(error: unknown): string {
   return parts.join(" ");
 }
 
+function isAlreadyAppliedError(message: string): boolean {
+  return (
+    message.includes("Duplicate column") ||
+    message.includes("ER_DUP_FIELDNAME") ||
+    message.includes("already exists") ||
+    message.includes("1060")
+  );
+}
+
+async function ensureShipmentItemsTradeRecordId(db: AppDatabase) {
+  const existing = await db.execute(sql`SHOW COLUMNS FROM shipment_items LIKE 'tradeRecordId'`);
+  const rows = Array.isArray(existing) ? existing : ((existing as { rows?: unknown[] }).rows ?? []);
+  if (Array.isArray(rows) && rows.length > 0) return;
+  await db.execute(sql`ALTER TABLE shipment_items ADD COLUMN tradeRecordId int`);
+}
+
+/**
+ * WhatsApp会話履歴のテーブル（drizzle/0023）。
+ * 本番は `pnpm db:push` を回さずGitHub連携デプロイだけで上がるので、
+ * 起動時に IF NOT EXISTS で作っておく。
+ */
+async function ensureWhatsappConversationTables(db: AppDatabase) {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+      id int AUTO_INCREMENT PRIMARY KEY NOT NULL,
+      name varchar(255) NOT NULL,
+      isGroup boolean NOT NULL DEFAULT false,
+      lastMessageAt timestamp NULL,
+      firstMessageAt timestamp NULL,
+      importedAt timestamp NULL,
+      createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT whatsapp_conversations_name_unique UNIQUE(name)
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id int AUTO_INCREMENT PRIMARY KEY NOT NULL,
+      conversationId int NOT NULL,
+      sender varchar(255) NOT NULL,
+      isOutgoing boolean NOT NULL DEFAULT false,
+      sentAt timestamp NOT NULL,
+      body mediumtext NOT NULL,
+      bodyJa mediumtext,
+      translationSkipped boolean NOT NULL DEFAULT false,
+      dedupeKey varchar(64) NOT NULL,
+      createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT whatsapp_messages_dedupeKey_unique UNIQUE(dedupeKey),
+      INDEX idx_whatsapp_messages_conversation (conversationId, sentAt)
+    )
+  `);
+}
+
 async function ensureRuntimeSchema(db: AppDatabase) {
-  try {
-    const existing = await db.execute(sql`SHOW COLUMNS FROM shipment_items LIKE 'tradeRecordId'`);
-    const rows = Array.isArray(existing) ? existing : ((existing as { rows?: unknown[] }).rows ?? []);
-    if (Array.isArray(rows) && rows.length > 0) return;
-    await db.execute(sql`ALTER TABLE shipment_items ADD COLUMN tradeRecordId int`);
-  } catch (error) {
-    const message = errorText(error);
-    if (
-      message.includes("Duplicate column") ||
-      message.includes("ER_DUP_FIELDNAME") ||
-      message.includes("already exists") ||
-      message.includes("1060")
-    ) {
-      return;
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["shipment_items.tradeRecordId", () => ensureShipmentItemsTradeRecordId(db)],
+    ["whatsapp conversation tables", () => ensureWhatsappConversationTables(db)],
+  ];
+  for (const [label, run] of steps) {
+    try {
+      await run();
+    } catch (error) {
+      const message = errorText(error);
+      if (isAlreadyAppliedError(message)) continue;
+      console.warn(`[Database] Runtime schema check skipped (${label}):`, message);
     }
-    console.warn("[Database] Runtime schema check skipped:", message);
   }
 }
 
