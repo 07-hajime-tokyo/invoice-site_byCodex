@@ -1082,6 +1082,29 @@ function applyLabelTitleOverride(label: LabelView, overrides: LabelTitleOverride
   };
 }
 
+const LABELS_PER_SHEET = 24;
+const LABEL_START_POSITION_STORAGE_KEY = "purchase-registration-label-start-position";
+
+function clampLabelStartPosition(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.floor(value), 1), LABELS_PER_SHEET);
+}
+
+function loadLabelStartPosition(): number {
+  if (typeof window === "undefined") return 1;
+  return clampLabelStartPosition(Number(window.localStorage.getItem(LABEL_START_POSITION_STORAGE_KEY)) || 1);
+}
+
+function saveLabelStartPosition(value: number): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LABEL_START_POSITION_STORAGE_KEY, String(clampLabelStartPosition(value)));
+}
+
+/** 開始位置から count 枚刷ったあとに、次に空いている面の番号。 */
+function nextLabelStartPosition(startPosition: number, count: number): number {
+  return ((clampLabelStartPosition(startPosition) - 1 + count) % LABELS_PER_SHEET) + 1;
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -2618,10 +2641,14 @@ function LabelPrintPanel({
   labels,
   allLabels,
   onPrintLabels,
+  startPosition,
+  onStartPositionChange,
 }: {
   labels: LabelView[];
   allLabels: LabelView[];
   onPrintLabels: LabelPrintRequest;
+  startPosition: number;
+  onStartPositionChange: (value: number) => void;
 }) {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [labelTitleOverrides, setLabelTitleOverrides] = useState<LabelTitleOverrideState>(() =>
@@ -2686,6 +2713,23 @@ function LabelPrintPanel({
             <p className="mt-1 text-sm text-muted-foreground">
               チェックした商品IDだけを印刷できます。未選択の場合は表示中のラベルを印刷します。
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label htmlFor="label-start-position" className="text-sm font-medium">
+                開始位置
+              </label>
+              <Input
+                id="label-start-position"
+                type="number"
+                min={1}
+                max={LABELS_PER_SHEET}
+                value={startPosition}
+                onChange={(event) => onStartPositionChange(Number(event.target.value))}
+                className="h-9 w-20"
+              />
+              <span className="text-xs text-muted-foreground">
+                面目から（左上が1・右へ2・3、次の段が4）。使いかけのシートの続きから刷るときに変える
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -2910,27 +2954,34 @@ function LabelPrintStyles() {
   );
 }
 
-function PrintableLabelSheet({ labels }: { labels: LabelView[] }) {
+function PrintableLabelSheet({ labels, startPosition = 1 }: { labels: LabelView[]; startPosition?: number }) {
   const printableLabels = labels.filter((label) => label.labelId.trim());
   if (printableLabels.length === 0) return null;
 
-  const labelPages = chunkArray(printableLabels, 24);
+  // 使いかけシートの手前の面は空送りする。
+  const blankCount = clampLabelStartPosition(startPosition) - 1;
+  const slots: Array<LabelView | null> = [...Array<null>(blankCount).fill(null), ...printableLabels];
+  const labelPages = chunkArray(slots, LABELS_PER_SHEET);
   const sheet = (
     <div className="label-print-root" aria-hidden="true">
-      {labelPages.map((pageLabels, pageIndex) => (
+      {labelPages.map((pageSlots, pageIndex) => (
         <div key={`label-page-${pageIndex}`} className="label-print-sheet">
-          {pageLabels.map((label) => (
-            <div key={label.key} className="label-print-item">
-              <div>
-                <div className="label-print-id">{label.labelId}</div>
-                {label.allocationLabel ? <div className="label-print-ref">{label.allocationLabel}</div> : null}
-                <div className="label-print-title">{label.printTitle}</div>
+          {pageSlots.map((label, slotIndex) =>
+            label ? (
+              <div key={label.key} className="label-print-item">
+                <div>
+                  <div className="label-print-id">{label.labelId}</div>
+                  {label.allocationLabel ? <div className="label-print-ref">{label.allocationLabel}</div> : null}
+                  <div className="label-print-title">{label.printTitle}</div>
+                </div>
+                <div className="label-print-qr">
+                  <ProductQrCode value={label.labelId} />
+                </div>
               </div>
-              <div className="label-print-qr">
-                <ProductQrCode value={label.labelId} />
-              </div>
-            </div>
-          ))}
+            ) : (
+              <div key={`label-blank-${pageIndex}-${slotIndex}`} className="label-print-item label-print-blank" />
+            ),
+          )}
         </div>
       ))}
     </div>
@@ -4626,6 +4677,8 @@ export default function PurchaseRegistration() {
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
   const [printJobId, setPrintJobId] = useState(0);
+  const [labelStartPosition, setLabelStartPosition] = useState<number>(() => loadLabelStartPosition());
+  const [printedStartPosition, setPrintedStartPosition] = useState(1);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
   const [trackingDialogRow, setTrackingDialogRow] = useState<PurchaseRow | null>(null);
@@ -4811,9 +4864,17 @@ export default function PurchaseRegistration() {
     [allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
   );
 
+  const changeLabelStartPosition = (value: number) => {
+    const next = clampLabelStartPosition(value);
+    setLabelStartPosition(next);
+    saveLabelStartPosition(next);
+  };
+
   const handlePrintLabels = (targetLabels: LabelView[]) => {
     const printableLabels = targetLabels.filter((label) => label.labelId.trim());
     if (printableLabels.length === 0) return;
+    const startPosition = clampLabelStartPosition(labelStartPosition);
+    setPrintedStartPosition(startPosition);
     setLabelsToPrint(
       printableLabels.map((label) => ({
         ...label,
@@ -4821,6 +4882,13 @@ export default function PurchaseRegistration() {
       })),
     );
     setPrintJobId((current) => current + 1);
+
+    // 次に空いている面へ送っておく。シートを最後まで使い切れるようにするため。
+    const nextStart = nextLabelStartPosition(startPosition, printableLabels.length);
+    changeLabelStartPosition(nextStart);
+    toast.success(
+      `${printableLabels.length}枚を${startPosition}面目から印刷します。次回の開始位置を${nextStart}面目にしました`,
+    );
   };
 
   const handleReceivedLabelForShipping = (label: LabelView) => {
@@ -5124,7 +5192,7 @@ export default function PurchaseRegistration() {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
       <LabelPrintStyles />
-      <PrintableLabelSheet labels={labelsToPrint} />
+      <PrintableLabelSheet labels={labelsToPrint} startPosition={printedStartPosition} />
       <div className="grid gap-0 lg:block lg:pr-[204px]">
         <main className="space-y-4 p-3 pb-24 md:space-y-5 md:p-6 lg:pb-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -5249,7 +5317,13 @@ export default function PurchaseRegistration() {
                 />
               </TabsContent>
               <TabsContent value="labels">
-                <LabelPrintPanel labels={selectedLabelPrintLabels} allLabels={allInvoiceLabels} onPrintLabels={handlePrintLabels} />
+                <LabelPrintPanel
+                  labels={selectedLabelPrintLabels}
+                  allLabels={allInvoiceLabels}
+                  onPrintLabels={handlePrintLabels}
+                  startPosition={labelStartPosition}
+                  onStartPositionChange={changeLabelStartPosition}
+                />
               </TabsContent>
               <TabsContent value="scan">
                 <ScanPanel labels={allScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
