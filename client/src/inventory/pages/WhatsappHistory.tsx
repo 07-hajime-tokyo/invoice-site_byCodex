@@ -59,6 +59,14 @@ function formatDay(value: string | Date): string {
   return date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
 }
 
+/**
+ * WhatsAppの本文には空行が3つ4つ続くことがあり、そのまま出すとバブルが間延びする。
+ * 表示のときだけ詰める。DBの原文は触らない（取り込みの重複判定キーが原文由来のため）。
+ */
+function tidy(text: string): string {
+  return text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export default function WhatsappHistory() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("both");
@@ -334,7 +342,7 @@ export default function WhatsappHistory() {
                           </span>
                         </div>
                         {viewMode !== "ja" && (
-                          <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+                          <p className="text-sm whitespace-pre-wrap break-words">{tidy(message.body)}</p>
                         )}
                         {viewMode !== "original" && message.bodyJa && (
                           <p
@@ -342,11 +350,11 @@ export default function WhatsappHistory() {
                               viewMode === "both" ? "mt-1.5 pt-1.5 border-t border-dashed" : ""
                             }`}
                           >
-                            {message.bodyJa}
+                            {tidy(message.bodyJa)}
                           </p>
                         )}
                         {viewMode === "ja" && !message.bodyJa && (
-                          <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+                          <p className="text-sm whitespace-pre-wrap break-words">{tidy(message.body)}</p>
                         )}
                       </div>
                     </div>
