@@ -1554,10 +1554,43 @@ function stockProposalModelName(title: string, category?: string | null): string
   return fromCategory !== "その他" ? fromCategory : "その他";
 }
 
+const STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES = ["403_ネレ"];
+const STOCK_PROPOSAL_ACCESSORY_KEYWORDS = [
+  "ケーブル",
+  "バッテリー",
+  "タッチペン",
+  "充電器",
+  "充電ケーブル",
+  "acアダプタ",
+  "acアダプター",
+  "アダプタ",
+  "アダプター",
+  "電源",
+  "ケース",
+  "ポーチ",
+  "カバー",
+  "メモリーカード",
+  "メモリースティック",
+  "sdカード",
+];
+
+function isExcludedStockProposalManagementNo(managementNo?: string | null): boolean {
+  const normalized = (managementNo ?? "").trim();
+  return STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function isStockProposalAccessory(title: string, category?: string | null): boolean {
+  const text = `${title} ${category ?? ""}`;
+  return hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS);
+}
+
 function isStockWaitingPurchaseRow(row: PurchaseRow): boolean {
   const kind = purchaseRowStatusKind(row);
   if (kind !== "ordered" && kind !== "inbound_shipped") return false;
-  return getManagementNos(row.purchase_items).some((managementNo) => managementNo.trim().startsWith("在庫"));
+  return getManagementNos(row.purchase_items).some((managementNo) => {
+    const normalized = managementNo.trim();
+    return normalized.startsWith("在庫") && !isExcludedStockProposalManagementNo(normalized);
+  });
 }
 
 function addStockProposalPrice(product: StockProposalProduct, unitPrice: number, quantity: number) {
@@ -1616,6 +1649,8 @@ function buildStockProposalGroups(
   const productMap = new Map<string, StockProposalProduct>();
 
   for (const item of stockItems) {
+    if (isExcludedStockProposalManagementNo(item.legacyManagementNo)) continue;
+    if (isStockProposalAccessory(item.title, item.category)) continue;
     const model = stockProposalModelName(item.title, item.category);
     const product = getOrCreateStockProposalProduct(productMap, item.title, model);
     product.stockQuantity += item.quantity;
@@ -1642,6 +1677,8 @@ function buildStockProposalGroups(
       if (quantity <= 0) continue;
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || getManagementNos(row.purchase_items)[0] || "-";
       const title = actualProductTitle(item);
+      if (isExcludedStockProposalManagementNo(managementNo)) continue;
+      if (isStockProposalAccessory(title, item.category)) continue;
       const model = stockProposalModelName(title, item.category);
       const product = getOrCreateStockProposalProduct(productMap, title, model);
       const unitPrice = toNumber(item.unit_price);
@@ -3886,8 +3923,8 @@ function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
         <EmptyState icon={Boxes} title="提案できる在庫がありません" />
       ) : (
         <div className="space-y-3">
-          {groups.map((group, index) => (
-            <StockProposalGroupCard key={group.model} group={group} defaultOpen={index === 0} />
+          {groups.map((group) => (
+            <StockProposalGroupCard key={group.model} group={group} defaultOpen={false} />
           ))}
         </div>
       )}
