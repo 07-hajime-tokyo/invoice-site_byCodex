@@ -3883,6 +3883,7 @@ function proposalAveragePrice(total: number, quantity: number): number {
 }
 
 function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
+  const [averageModelFilter, setAverageModelFilter] = useState("all");
   const productCount = groups.reduce((total, group) => total + group.products.length, 0);
   const totalQuantity = groups.reduce((total, group) => total + group.totalQuantity, 0);
   const waitingQuantity = groups.reduce((total, group) => total + group.waitingQuantity, 0);
@@ -3891,6 +3892,11 @@ function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
     groups.reduce((total, group) => total + group.unitPriceTotal, 0),
     pricedQuantity,
   );
+  const selectedAverageGroup = groups.find((group) => group.model === averageModelFilter) ?? null;
+  const selectedAveragePrice = selectedAverageGroup
+    ? proposalAveragePrice(selectedAverageGroup.unitPriceTotal, selectedAverageGroup.unitPriceQuantity)
+    : averagePrice;
+  const selectedAverageLabel = selectedAverageGroup?.model ?? "全体";
 
   return (
     <div className="space-y-4">
@@ -3913,8 +3919,25 @@ function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
             <div className="mt-1 font-semibold text-amber-800">{waitingQuantity.toLocaleString()}台</div>
           </div>
           <div className="rounded-md bg-emerald-50 px-3 py-2">
-            <div className="text-xs text-emerald-700">平均仕入相場</div>
-            <div className="mt-1 font-semibold text-emerald-800">{averagePrice > 0 ? formatCurrency(averagePrice) : "-"}</div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-emerald-700">平均仕入相場</div>
+              <select
+                className={cn(fieldClass, "h-8 min-w-0 bg-white px-2 text-xs sm:w-36")}
+                value={selectedAverageGroup ? selectedAverageGroup.model : "all"}
+                onChange={(event) => setAverageModelFilter(event.target.value)}
+              >
+                <option value="all">全体</option>
+                {groups.map((group) => (
+                  <option key={group.model} value={group.model}>
+                    {group.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-1 font-semibold text-emerald-800">
+              {selectedAveragePrice > 0 ? formatCurrency(selectedAveragePrice) : "-"}
+            </div>
+            <div className="mt-1 text-xs text-emerald-700">{selectedAverageLabel}</div>
           </div>
         </div>
       </section>
