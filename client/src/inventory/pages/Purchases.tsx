@@ -1506,16 +1506,15 @@ export default function Purchases() {
     }
   }
 
-  async function handleDeletePurchaseOnly(purchaseId: number, title: string, inventoryId?: number) {
+  async function handleDeletePurchaseOnly(purchaseId: number, title: string) {
     if (deletingIds.has(purchaseId)) return;
     setDeletingIds((prev) => new Set(prev).add(purchaseId));
     try {
       await deletePurchaseOnlyMutation.mutateAsync({
         purchaseId,
         operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
-        inventoryId,
       });
-      const msg = `「${title}」の発注データと在庫データを削除しました`;
+      const msg = `「${title}」の発注データだけ削除しました`;
       toast.success(msg);
       refetch();
     } catch (err: unknown) {
@@ -2262,14 +2261,14 @@ export default function Purchases() {
                                   <AlertDialogHeader>
                                     <AlertDialogTitle>発注データを削除しますか？</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      「{item.title}」の発注データと在庫データを同時に削除します。この操作は元に戻せません。
+                                      「{item.title}」の発注データだけ削除します。在庫データは残ります。この操作は元に戻せません。
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                     <AlertDialogCancel>キャンセル</AlertDialogCancel>
                                     <AlertDialogAction
                                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                      onClick={() => handleDeletePurchaseOnly(purchase.id, item.title, item.inventory_id)}
+                                      onClick={() => handleDeletePurchaseOnly(purchase.id, item.title)}
                                     >
                                       削除する
                                     </AlertDialogAction>

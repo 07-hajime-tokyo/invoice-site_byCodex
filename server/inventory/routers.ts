@@ -3031,20 +3031,10 @@ export const inventoryRouter = router({
         if (!zaicoEnabled) {
           // Zaico連携OFF時はローカルDBから直接削除
           // purchaseIdはzaicoIdまたはidのどちらかなので両方で検索
-          const { localPurchases: lpTbl, localInventories: liTbl } = await import("../../drizzle/schema");
+          const { localPurchases: lpTbl } = await import("../../drizzle/schema");
           const { or, eq } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
-            // まず対象のlocal_purchasesを取得してlocalInventoryIdを確認
-            const [targetPurchase] = await db.select({
-              id: lpTbl.id,
-              localInventoryId: lpTbl.localInventoryId,
-            }).from(lpTbl).where(
-              or(
-                eq(lpTbl.id, input.purchaseId),
-                eq(lpTbl.zaicoId, input.purchaseId)
-              )
-            ).limit(1);
             // local_purchasesを削除
             await db.delete(lpTbl).where(
               or(
@@ -3052,11 +3042,6 @@ export const inventoryRouter = router({
                 eq(lpTbl.zaicoId, input.purchaseId)
               )
             );
-            // localInventoryIdが存在する場合はlocal_inventoriesも削除
-            const localInventoryId = targetPurchase?.localInventoryId ?? (input.inventoryId ?? null);
-            if (localInventoryId) {
-              await db.delete(liTbl).where(eq(liTbl.id, localInventoryId));
-            }
           }
           return { success: true };
         }
@@ -3068,17 +3053,6 @@ export const inventoryRouter = router({
           // 404の場合は既に削除済として続行
           if (!msg.includes("404") && !msg.includes("Not Found")) {
             throw err;
-          }
-        }
-        // 在庫も同時削除（inventoryIdが指定された場合）
-        if (input.inventoryId) {
-          try {
-            await deleteInventory(input.inventoryId, operatorToken);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "";
-            if (!msg.includes("404") && !msg.includes("Not Found")) {
-              console.error(`[deletePurchaseOnly] deleteInventory failed:`, err);
-            }
           }
         }
         return { success: true };
