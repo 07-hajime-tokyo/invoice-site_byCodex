@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +18,7 @@ import {
   Boxes,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   FileText,
   Loader2,
@@ -90,6 +92,7 @@ interface InventoryItem {
 
 type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
+type StockViewMode = "list" | "proposal";
 type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
 
 type PurchaseEditFormState = {
@@ -157,6 +160,42 @@ interface StockItemView {
   quantity: number;
   supplier: SupplierView;
   purchaseDate: string;
+}
+
+interface StockProposalDetail {
+  source: "stock" | "waiting";
+  managementNo: string;
+  labelId?: string | null;
+  quantity: number;
+  unitPrice: number;
+  status: string;
+  supplier: SupplierView;
+  date: string;
+}
+
+interface StockProposalProduct {
+  key: string;
+  title: string;
+  model: string;
+  stockQuantity: number;
+  waitingQuantity: number;
+  totalQuantity: number;
+  unitPriceTotal: number;
+  unitPriceQuantity: number;
+  minUnitPrice: number | null;
+  maxUnitPrice: number | null;
+  details: StockProposalDetail[];
+  searchText: string;
+}
+
+interface StockProposalGroup {
+  model: string;
+  stockQuantity: number;
+  waitingQuantity: number;
+  totalQuantity: number;
+  unitPriceTotal: number;
+  unitPriceQuantity: number;
+  products: StockProposalProduct[];
 }
 
 interface ShippingItemView {
@@ -1501,6 +1540,159 @@ function buildStockItemGroups(items: StockItemView[]): { name: string; items: St
       const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
       if (normalizedA !== normalizedB) return normalizedA - normalizedB;
       return a.name.localeCompare(b.name, "ja", { numeric: true });
+    });
+}
+
+function normalizeStockProposalTitle(title: string): string {
+  return title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim() || "-";
+}
+
+function stockProposalModelName(title: string, category?: string | null): string {
+  const fromTitle = stockModelName(title);
+  if (fromTitle !== "その他") return fromTitle;
+  const fromCategory = stockModelName(category ?? "");
+  return fromCategory !== "その他" ? fromCategory : "その他";
+}
+
+function isStockWaitingPurchaseRow(row: PurchaseRow): boolean {
+  const kind = purchaseRowStatusKind(row);
+  if (kind !== "ordered" && kind !== "inbound_shipped") return false;
+  return getManagementNos(row.purchase_items).some((managementNo) => managementNo.trim().startsWith("在庫"));
+}
+
+function addStockProposalPrice(product: StockProposalProduct, unitPrice: number, quantity: number) {
+  if (unitPrice <= 0 || quantity <= 0) return;
+  product.unitPriceTotal += unitPrice * quantity;
+  product.unitPriceQuantity += quantity;
+  product.minUnitPrice = product.minUnitPrice == null ? unitPrice : Math.min(product.minUnitPrice, unitPrice);
+  product.maxUnitPrice = product.maxUnitPrice == null ? unitPrice : Math.max(product.maxUnitPrice, unitPrice);
+}
+
+function appendStockProposalDetail(product: StockProposalProduct, detail: StockProposalDetail) {
+  product.details.push(detail);
+  product.searchText = [
+    product.searchText,
+    detail.managementNo,
+    detail.labelId ?? "",
+    detail.supplier.name,
+    detail.status,
+  ]
+    .join("\n")
+    .toLowerCase();
+}
+
+function getOrCreateStockProposalProduct(
+  map: Map<string, StockProposalProduct>,
+  title: string,
+  model: string,
+): StockProposalProduct {
+  const normalizedTitle = normalizeStockProposalTitle(title);
+  const key = `${model}::${productKey(normalizedTitle)}`;
+  const current = map.get(key);
+  if (current) return current;
+  const created: StockProposalProduct = {
+    key,
+    title: normalizedTitle,
+    model,
+    stockQuantity: 0,
+    waitingQuantity: 0,
+    totalQuantity: 0,
+    unitPriceTotal: 0,
+    unitPriceQuantity: 0,
+    minUnitPrice: null,
+    maxUnitPrice: null,
+    details: [],
+    searchText: [model, normalizedTitle].join("\n").toLowerCase(),
+  };
+  map.set(key, created);
+  return created;
+}
+
+function buildStockProposalGroups(
+  stockItems: StockItemView[],
+  purchaseRows: PurchaseRow[],
+  searchText: string,
+): StockProposalGroup[] {
+  const productMap = new Map<string, StockProposalProduct>();
+
+  for (const item of stockItems) {
+    const model = stockProposalModelName(item.title, item.category);
+    const product = getOrCreateStockProposalProduct(productMap, item.title, model);
+    product.stockQuantity += item.quantity;
+    product.totalQuantity += item.quantity;
+    addStockProposalPrice(product, item.unitPrice, item.quantity);
+    appendStockProposalDetail(product, {
+      source: "stock",
+      managementNo: item.legacyManagementNo,
+      labelId: item.labelId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      status: item.status,
+      supplier: item.supplier,
+      date: item.purchaseDate,
+    });
+  }
+
+  for (const row of purchaseRows) {
+    if (!isStockWaitingPurchaseRow(row)) continue;
+    const supplier = getSupplier(row);
+    const rowStatus = statusLabel(row);
+    for (const item of row.purchase_items) {
+      const quantity = itemQuantity(item);
+      if (quantity <= 0) continue;
+      const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || getManagementNos(row.purchase_items)[0] || "-";
+      const title = actualProductTitle(item);
+      const model = stockProposalModelName(title, item.category);
+      const product = getOrCreateStockProposalProduct(productMap, title, model);
+      const unitPrice = toNumber(item.unit_price);
+      product.waitingQuantity += quantity;
+      product.totalQuantity += quantity;
+      addStockProposalPrice(product, unitPrice, quantity);
+      appendStockProposalDetail(product, {
+        source: "waiting",
+        managementNo,
+        quantity,
+        unitPrice,
+        status: rowStatus,
+        supplier,
+        date: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
+      });
+    }
+  }
+
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const products = Array.from(productMap.values())
+    .filter((product) => !normalizedSearch || product.searchText.includes(normalizedSearch))
+    .sort((a, b) => {
+      const modelCompare = a.model.localeCompare(b.model, "ja", { numeric: true });
+      if (modelCompare !== 0) return modelCompare;
+      return a.title.localeCompare(b.title, "ja", { numeric: true });
+    });
+
+  const groupMap = new Map<string, StockProposalProduct[]>();
+  for (const product of products) {
+    const current = groupMap.get(product.model) ?? [];
+    current.push(product);
+    groupMap.set(product.model, current);
+  }
+
+  return Array.from(groupMap.entries())
+    .map(([model, groupProducts]) => ({
+      model,
+      products: groupProducts,
+      stockQuantity: groupProducts.reduce((total, product) => total + product.stockQuantity, 0),
+      waitingQuantity: groupProducts.reduce((total, product) => total + product.waitingQuantity, 0),
+      totalQuantity: groupProducts.reduce((total, product) => total + product.totalQuantity, 0),
+      unitPriceTotal: groupProducts.reduce((total, product) => total + product.unitPriceTotal, 0),
+      unitPriceQuantity: groupProducts.reduce((total, product) => total + product.unitPriceQuantity, 0),
+    }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.model);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.model);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.model.localeCompare(b.model, "ja", { numeric: true });
     });
 }
 
@@ -3649,13 +3841,198 @@ function ScanPanel({
   );
 }
 
+function proposalAveragePrice(total: number, quantity: number): number {
+  return quantity > 0 ? Math.round(total / quantity) : 0;
+}
+
+function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
+  const productCount = groups.reduce((total, group) => total + group.products.length, 0);
+  const totalQuantity = groups.reduce((total, group) => total + group.totalQuantity, 0);
+  const waitingQuantity = groups.reduce((total, group) => total + group.waitingQuantity, 0);
+  const pricedQuantity = groups.reduce((total, group) => total + group.unitPriceQuantity, 0);
+  const averagePrice = proposalAveragePrice(
+    groups.reduce((total, group) => total + group.unitPriceTotal, 0),
+    pricedQuantity,
+  );
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">在庫提案サマリー</h2>
+          <Badge variant="outline">{productCount.toLocaleString()}商品</Badge>
+          <Badge variant="secondary">{totalQuantity.toLocaleString()}台</Badge>
+          {waitingQuantity > 0 ? (
+            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち {waitingQuantity.toLocaleString()}台</Badge>
+          ) : null}
+        </div>
+        <div className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <div className="text-xs text-muted-foreground">現在庫</div>
+            <div className="mt-1 font-semibold">{(totalQuantity - waitingQuantity).toLocaleString()}台</div>
+          </div>
+          <div className="rounded-md bg-amber-50 px-3 py-2">
+            <div className="text-xs text-amber-700">入庫待ち</div>
+            <div className="mt-1 font-semibold text-amber-800">{waitingQuantity.toLocaleString()}台</div>
+          </div>
+          <div className="rounded-md bg-emerald-50 px-3 py-2">
+            <div className="text-xs text-emerald-700">平均仕入相場</div>
+            <div className="mt-1 font-semibold text-emerald-800">{averagePrice > 0 ? formatCurrency(averagePrice) : "-"}</div>
+          </div>
+        </div>
+      </section>
+
+      {groups.length === 0 ? (
+        <EmptyState icon={Boxes} title="提案できる在庫がありません" />
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group, index) => (
+            <StockProposalGroupCard key={group.model} group={group} defaultOpen={index === 0} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockProposalGroupCard({ group, defaultOpen }: { group: StockProposalGroup; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const averagePrice = proposalAveragePrice(group.unitPriceTotal, group.unitPriceQuantity);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-md border bg-background">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+        >
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-base font-semibold">{group.model}</span>
+              <Badge variant="secondary">{group.totalQuantity.toLocaleString()}台</Badge>
+              {group.waitingQuantity > 0 ? (
+                <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                  内 入庫待ち {group.waitingQuantity.toLocaleString()}台
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {group.products.length.toLocaleString()}商品 / 平均仕入相場 {averagePrice > 0 ? formatCurrency(averagePrice) : "-"}
+            </div>
+          </div>
+          <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t">
+          <div className="divide-y md:hidden">
+            {group.products.map((product) => (
+              <StockProposalProductMobile key={product.key} product={product} />
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">商品</th>
+                  <th className="px-4 py-3 text-right font-medium">台数</th>
+                  <th className="px-4 py-3 text-right font-medium">現在庫</th>
+                  <th className="px-4 py-3 text-right font-medium">入庫待ち</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入相場</th>
+                  <th className="px-4 py-3 text-left font-medium">管理番号</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.products.map((product) => (
+                  <StockProposalProductRow key={product.key} product={product} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function stockProposalPriceLabel(product: StockProposalProduct): { main: string; sub: string } {
+  const average = proposalAveragePrice(product.unitPriceTotal, product.unitPriceQuantity);
+  if (average <= 0) return { main: "-", sub: "" };
+  const min = product.minUnitPrice ?? average;
+  const max = product.maxUnitPrice ?? average;
+  return {
+    main: `平均 ${formatCurrency(average)}`,
+    sub: min === max ? "" : `${formatCurrency(min)} - ${formatCurrency(max)}`,
+  };
+}
+
+function stockProposalManagementLabel(product: StockProposalProduct): string {
+  const values = unique(product.details.map((detail) => detail.managementNo).filter((value) => value && value !== "-"));
+  if (values.length === 0) return "-";
+  const visible = values.slice(0, 4).join(" / ");
+  return values.length > 4 ? `${visible} / ほか${values.length - 4}件` : visible;
+}
+
+function StockProposalProductRow({ product }: { product: StockProposalProduct }) {
+  const price = stockProposalPriceLabel(product);
+  return (
+    <tr className="border-b last:border-0">
+      <td className="px-4 py-3">
+        <div className="font-medium">{product.title}</div>
+        {product.waitingQuantity > 0 ? (
+          <div className="mt-1 text-xs text-amber-700">内 入庫待ち {product.waitingQuantity.toLocaleString()}台</div>
+        ) : null}
+      </td>
+      <td className="px-4 py-3 text-right font-semibold">{product.totalQuantity.toLocaleString()}台</td>
+      <td className="px-4 py-3 text-right">{product.stockQuantity.toLocaleString()}台</td>
+      <td className="px-4 py-3 text-right">{product.waitingQuantity > 0 ? `${product.waitingQuantity.toLocaleString()}台` : "-"}</td>
+      <td className="px-4 py-3">
+        <div className="font-medium">{price.main}</div>
+        {price.sub ? <div className="mt-1 text-xs text-muted-foreground">{price.sub}</div> : null}
+      </td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">{stockProposalManagementLabel(product)}</td>
+    </tr>
+  );
+}
+
+function StockProposalProductMobile({ product }: { product: StockProposalProduct }) {
+  const price = stockProposalPriceLabel(product);
+  return (
+    <div className="p-4">
+      <div className="font-medium">{product.title}</div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Badge variant="secondary">{product.totalQuantity.toLocaleString()}台</Badge>
+        <Badge variant="outline">現在庫 {product.stockQuantity.toLocaleString()}台</Badge>
+        {product.waitingQuantity > 0 ? (
+          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">内 入庫待ち {product.waitingQuantity.toLocaleString()}台</Badge>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2 text-sm">
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <div className="text-xs text-muted-foreground">仕入相場</div>
+          <div className="mt-1 font-semibold">{price.main}</div>
+          {price.sub ? <div className="mt-1 text-xs text-muted-foreground">{price.sub}</div> : null}
+        </div>
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <div className="text-xs text-muted-foreground">管理番号</div>
+          <div className="mt-1 text-xs">{stockProposalManagementLabel(product)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StockPanel({
   inventories,
+  purchaseRows,
   searchText,
+  viewMode,
   onOpenEdit,
 }: {
   inventories: InventoryItem[];
+  purchaseRows: PurchaseRow[];
   searchText: string;
+  viewMode: StockViewMode;
   onOpenEdit: (inventoryId: number) => void;
 }) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
@@ -3663,7 +4040,13 @@ function StockPanel({
     ? allStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
     : allStockItems;
   const stockGroups = buildStockItemGroups(stockItems);
+  const proposalGroups = buildStockProposalGroups(allStockItems, purchaseRows, searchText);
   const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
+
+  if (viewMode === "proposal") {
+    return <StockProposalPanel groups={proposalGroups} />;
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background p-4">
@@ -4704,6 +5087,7 @@ export default function PurchaseRegistration() {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return "scan";
     return "order";
   });
+  const [stockViewMode, setStockViewMode] = useState<StockViewMode>("list");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
@@ -5240,10 +5624,36 @@ export default function PurchaseRegistration() {
                 </Badge>
               </div>
             </div>
-            <Button type="button" variant="outline" onClick={refreshCurrentData} disabled={isRefreshing} className="h-10 w-full gap-2 md:w-fit">
-              {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              更新
-            </Button>
+            <div className="flex w-full flex-col gap-2 md:w-fit md:flex-row md:items-center">
+              {isStockWorkflow ? (
+                <div className="inline-flex rounded-md border bg-background p-1 shadow-xs">
+                  <Button
+                    type="button"
+                    variant={stockViewMode === "list" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={() => setStockViewMode("list")}
+                  >
+                    <Boxes className="h-4 w-4" />
+                    通常一覧
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={stockViewMode === "proposal" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={() => setStockViewMode("proposal")}
+                  >
+                    <Tag className="h-4 w-4" />
+                    提案用
+                  </Button>
+                </div>
+              ) : null}
+              <Button type="button" variant="outline" onClick={refreshCurrentData} disabled={isRefreshing} className="h-10 w-full gap-2 md:w-fit">
+                {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                更新
+              </Button>
+            </div>
           </div>
 
           <section className={cn("rounded-md border bg-background", isScanWorkflow && "hidden md:block")}>
@@ -5360,7 +5770,13 @@ export default function PurchaseRegistration() {
                 <ScanPanel labels={allScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
               </TabsContent>
               <TabsContent value="stock">
-                <StockPanel inventories={inventoryItems} searchText={searchText} onOpenEdit={handleOpenStockEditDialog} />
+                <StockPanel
+                  inventories={inventoryItems}
+                  purchaseRows={countableRows}
+                  searchText={searchText}
+                  viewMode={stockViewMode}
+                  onOpenEdit={handleOpenStockEditDialog}
+                />
               </TabsContent>
               <TabsContent value="shipping">
                 <ShippingPanel
