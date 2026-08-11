@@ -133,6 +133,7 @@ interface LabelView {
   status: string;
   title: string;
   printTitle: string;
+  category: string;
   legacyManagementNo: string;
   allocationLabel: string;
   unitPrice: number;
@@ -1167,6 +1168,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           status: labelStatusLabel(label.status),
           title,
           printTitle: formatLabelPrintTitle(title),
+          category: (item.category ?? "").trim() || stockModelName(title),
           legacyManagementNo,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice: toNumber(item.unit_price),
@@ -1211,6 +1213,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           status: labelStatusLabel(label.status || "stocked"),
           title,
           printTitle: formatLabelPrintTitle(title),
+          category: getInventoryCategory(inventory) || stockModelName(title),
           legacyManagementNo,
           allocationLabel: "",
           unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
@@ -2885,6 +2888,26 @@ function OrderDashboard({
   );
 }
 
+function buildLabelPrintGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
+  const map = new Map<string, LabelView[]>();
+  for (const label of labels) {
+    const name = label.category || stockModelName(label.title) || "その他";
+    const current = map.get(name) ?? [];
+    current.push(label);
+    map.set(name, current);
+  }
+  return Array.from(map.entries())
+    .map(([name, groupLabels]) => ({ name, labels: groupLabels }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.name.localeCompare(b.name, "ja", { numeric: true });
+    });
+}
+
 function LabelPrintPanel({
   labels,
   allLabels,
@@ -2917,6 +2940,15 @@ function LabelPrintPanel({
   );
   const currentPrintLabels = selectedLabels.length > 0 ? selectedLabels : editableLabels;
   const selectedCount = selectedLabels.length;
+  const labelPrintGroups = useMemo(() => buildLabelPrintGroups(editableLabels), [editableLabels]);
+
+  const toggleGroup = (keys: string[], checked: boolean) => {
+    setSelectedKeys((current) => {
+      if (checked) return Array.from(new Set([...current, ...keys]));
+      const removing = new Set(keys);
+      return current.filter((key) => !removing.has(key));
+    });
+  };
 
   useEffect(() => {
     const visibleKeys = new Set(labels.map((label) => label.key));
@@ -3025,47 +3057,76 @@ function LabelPrintPanel({
       {editableLabels.length === 0 ? (
         <EmptyState icon={Tag} title="印刷できる商品IDがありません" />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {editableLabels.map((label) => {
-            const checked = selectedKeySet.has(label.key);
+        <div className="space-y-4">
+          {labelPrintGroups.map((group) => {
+            const groupKeys = group.labels.map((label) => label.key);
+            const checkedCount = groupKeys.filter((key) => selectedKeySet.has(key)).length;
+            const allChecked = checkedCount === groupKeys.length;
             return (
-              <div
-                key={label.key}
-                className={cn(
-                  "rounded-md border bg-white p-4 shadow-sm",
-                  checked && "border-emerald-500 ring-1 ring-emerald-500",
-                )}
-              >
-                <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <section key={group.name} className="overflow-hidden rounded-md border bg-background">
+                <label className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-3">
                   <input
                     type="checkbox"
-                    checked={checked}
-                    onChange={(event) => toggleLabel(label.key, event.target.checked)}
+                    checked={allChecked}
+                    ref={(node) => {
+                      // 一部だけ選ばれている状態を見せる
+                      if (node) node.indeterminate = !allChecked && checkedCount > 0;
+                    }}
+                    onChange={(event) => toggleGroup(groupKeys, event.target.checked)}
                     className="h-4 w-4 accent-emerald-700"
                   />
-                  印刷対象
+                  <span className="text-sm font-semibold">{group.name}</span>
+                  <Badge variant="outline">{group.labels.length}枚</Badge>
+                  {checkedCount > 0 ? <Badge variant="secondary">選択 {checkedCount}</Badge> : null}
                 </label>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
-                    {label.allocationLabel ? (
-                      <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
-                    ) : null}
-                  </div>
-                  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
-                    <ProductQrCode value={label.labelId} />
-                  </div>
+                <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {group.labels.map((label) => {
+                    const checked = selectedKeySet.has(label.key);
+                    return (
+                      <div
+                        key={label.key}
+                        className={cn(
+                          "rounded-md border bg-white p-4 shadow-sm",
+                          checked && "border-emerald-500 ring-1 ring-emerald-500",
+                        )}
+                      >
+                        <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => toggleLabel(label.key, event.target.checked)}
+                            className="h-4 w-4 accent-emerald-700"
+                          />
+                          印刷対象
+                        </label>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-mono text-2xl font-bold tracking-wide text-slate-950">{label.labelId}</div>
+                            {label.allocationLabel ? (
+                              <div className="mt-1 text-sm font-semibold text-slate-700">{label.allocationLabel}</div>
+                            ) : null}
+                          </div>
+                          <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded border bg-white p-2">
+                            <ProductQrCode value={label.labelId} />
+                          </div>
+                        </div>
+                        <label
+                          className="mt-3 block text-xs font-medium text-muted-foreground"
+                          htmlFor={`label-title-${label.key}`}
+                        >
+                          ラベル商品名
+                        </label>
+                        <Input
+                          id={`label-title-${label.key}`}
+                          className="mt-1"
+                          value={label.printTitle}
+                          onChange={(event) => updateLabelTitle(label, event.target.value)}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-                <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor={`label-title-${label.key}`}>
-                  ラベル商品名
-                </label>
-                <Input
-                  id={`label-title-${label.key}`}
-                  className="mt-1"
-                  value={label.printTitle}
-                  onChange={(event) => updateLabelTitle(label, event.target.value)}
-                />
-              </div>
+              </section>
             );
           })}
         </div>
