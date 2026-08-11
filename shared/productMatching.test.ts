@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocateShipmentItemsToCsvProducts,
   extractManagementInvoiceKey,
   extractModel,
   isAccessory,
@@ -181,5 +182,40 @@ describe("productMatching", () => {
 
     expect(suggestCsvProduct("3DSLL ミント×ホワイト", "400_マキシム_3DSLL_1/5", products)?.name).toBe("3DS LL ホワイトベース");
     expect(suggestCsvProduct("3DSLL レッド×ブラック", "400_マキシム_3DSLL_2/5", products)?.name).toBe("3DS LL ホワイトベース");
+  });
+
+  it("shipment allocation sums color items into model-only rows without leaking 3DS LL into 3DS", () => {
+    const result = allocateShipmentItemsToCsvProducts([
+      { productNameJa: "New3DS LL メタリックブラック", productNameEn: "", quantity: 1 },
+      { productNameJa: "New3DS LL メタリックレッド", productNameEn: "", quantity: 1 },
+      { productNameJa: "New3DS LL メタリックブルー", productNameEn: "", quantity: 1 },
+      { productNameJa: "New3DS LL メタリックブルー", productNameEn: "", quantity: 2 },
+      { productNameJa: "New3DS LL メタリックブラック", productNameEn: "", quantity: 1 },
+      { productNameJa: "New3DS LL メタリックブルー", productNameEn: "", quantity: 1 },
+      { productNameJa: "3DSLL ピンク×ホワイト", productNameEn: "", quantity: 1 },
+    ], [
+      { name: "New 3DS LL", qty: 8 },
+      { name: "3DS LL", qty: 4 },
+      { name: "3DS", qty: 2 },
+    ]);
+
+    expect(result).toEqual([
+      { productNameJa: "New 3DS LL", productNameEn: "New 3DS LL", quantity: 7 },
+      { productNameJa: "3DS LL", productNameEn: "3DS LL", quantity: 1 },
+    ]);
+  });
+
+  it("shipment allocation fills specific color rows before random rows", () => {
+    const result = allocateShipmentItemsToCsvProducts([
+      { productNameJa: "New 3DS LL ブラック", productNameEn: "New 3DS LL Black", quantity: 3 },
+    ], [
+      { name: "New 3DS LL ランダムカラー", qty: 8 },
+      { name: "New 3DS LL ブラック", qty: 1 },
+    ]);
+
+    expect(result).toEqual([
+      { productNameJa: "New 3DS LL ブラック", productNameEn: "New 3DS LL ブラック", quantity: 1 },
+      { productNameJa: "New 3DS LL ランダムカラー", productNameEn: "New 3DS LL ランダムカラー", quantity: 2 },
+    ]);
   });
 });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { extractManagementHints, extractModel, extractPreferredModel, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
+import { allocateShipmentItemsToCsvProducts, extractManagementHints, extractModel, extractPreferredModel, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -606,29 +606,8 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
     .filter((row) => row.invoiceNo === invoiceNo && row.productName.trim());
   if (orderRows.length === 0) return mergeShipmentGasItems(items);
 
-  const sortedRows = [...orderRows].sort((a, b) => {
-    const aRandom = isRandomShipmentName(a.productName) ? 1 : 0;
-    const bRandom = isRandomShipmentName(b.productName) ? 1 : 0;
-    return aRandom - bRandom || shipmentColorTokens(b.productName).size - shipmentColorTokens(a.productName).size;
-  });
-
-  const grouped = new Map<string, ShipmentGasItem>();
   const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
-  for (const item of items) {
-    const shippedName = item.productNameJa || item.productNameEn;
-    const managementHints = extractManagementHints(item.managementNo, shippedName);
-    const suggestionName =
-      suggestCsvProductNameFromHints("", managementHints, csvProducts) ??
-      suggestCsvProductNameFromHints(shippedName, managementHints, csvProducts);
-    const match = suggestionName
-      ? orderRows.find((row) => row.productName === suggestionName)
-      : sortedRows.find((row) => shipmentProductMatches(row.productName, shippedName));
-    const name = match?.productName || item.productNameJa || item.productNameEn;
-    const current = grouped.get(name);
-    if (current) current.quantity += item.quantity;
-    else grouped.set(name, { productNameJa: name, productNameEn: name, quantity: item.quantity });
-  }
-  return mergeShipmentGasItems(Array.from(grouped.values()));
+  return allocateShipmentItemsToCsvProducts(items, csvProducts);
 }
 
 const CATEGORY_SETTINGS_KEY = "inventory_categories";

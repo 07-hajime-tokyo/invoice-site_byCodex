@@ -8,6 +8,19 @@ export type SuggestedCsvProduct = {
   score: number;
 };
 
+export type ShipmentAllocationItem = {
+  productNameJa?: string | null;
+  productNameEn?: string | null;
+  quantity: number;
+  managementNo?: string | null;
+};
+
+export type AllocatedShipmentItem = {
+  productNameJa: string;
+  productNameEn: string;
+  quantity: number;
+};
+
 const ACCESSORY_KEYWORDS = [
   "タッチペン",
   "バッテリー",
@@ -393,4 +406,171 @@ export function suggestCsvProduct(
     return null;
   }
   return best;
+}
+
+const MODEL_ONLY_LOOSE_ALIASES: Record<string, string[]> = {
+  New2DSLL: ["new2dsll", "new2dsxl", "n2dsll", "n2dsxl"],
+  New3DSLL: ["new3dsll", "new3dsxl", "n3dsll", "n3dsxl"],
+  New3DS: ["new3ds", "n3ds"],
+  Vita2000: ["psvita2000", "vita2000", "pch2000"],
+  Vita1000: ["psvita1000", "vita1000", "psvita1100", "vita1100", "pch1000", "pch1100", "psvita"],
+  "3DSLL": ["3dsll", "3dsxl"],
+  "2DS": ["2ds"],
+  "3DS": ["3ds"],
+  DSLite: ["dslite", "dsl"],
+  DSiLL: ["dsill", "dsixl", "dsilll"],
+  DSi: ["dsi"],
+  PSPGo: ["pspgo"],
+  PSP3000: ["psp3000"],
+  PSP2000: ["psp2000"],
+  PSP1000: ["psp1000"],
+  PSP: ["psp"],
+  SwitchLite: ["switchlite"],
+  Switch: ["switch"],
+  PS5: ["ps5"],
+  PS4: ["ps4"],
+};
+
+type ShipmentAllocationRow = CsvProductCandidate & {
+  index: number;
+  model: string;
+  used: number;
+  wildcard: boolean;
+  colorTokens: Set<string>;
+};
+
+function shipmentItemName(item: ShipmentAllocationItem): string {
+  return String(item.productNameJa || item.productNameEn || "").trim();
+}
+
+function suggestShipmentCsvProductName(
+  itemTitle: string,
+  managementText: string,
+  csvProducts: CsvProductCandidate[],
+): string | null {
+  const suggestion = suggestCsvProduct(itemTitle, managementText, csvProducts);
+  if (suggestion) return suggestion.name;
+
+  const model = extractPreferredModel(itemTitle, managementText);
+  if (!model) return null;
+
+  const sameModelCandidates = csvProducts.filter((product) => extractModel(product.name) === model);
+  return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
+}
+
+function isModelOnlyProductName(productName: string): boolean {
+  const model = extractModel(productName);
+  if (!model) return false;
+  return MODEL_ONLY_LOOSE_ALIASES[model]?.includes(normalizeLooseText(productName)) ?? false;
+}
+
+function isWildcardShipmentRow(productName: string): boolean {
+  const model = extractModel(productName);
+  if (!model) return false;
+  if (isModelOnlyProductName(productName)) return true;
+
+  const color = extractColor(productName);
+  return isRandomColor(color) || isOtherColor(color) || isColorlessRandomColor(color);
+}
+
+function hasAnySharedToken(a: Set<string>, b: Set<string>): boolean {
+  for (const token of Array.from(a)) {
+    if (b.has(token)) return true;
+  }
+  return false;
+}
+
+function addUniqueRow(target: ShipmentAllocationRow[], seen: Set<number>, row: ShipmentAllocationRow): void {
+  if (seen.has(row.index)) return;
+  seen.add(row.index);
+  target.push(row);
+}
+
+function shipmentRowCapacity(row: ShipmentAllocationRow): number {
+  if (!Number.isFinite(row.qty) || row.qty <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, row.qty - row.used);
+}
+
+function allocateQuantityToRows(
+  rows: ShipmentAllocationRow[],
+  quantity: number,
+  addAllocated: (name: string, quantity: number) => void,
+): number {
+  let remaining = quantity;
+  rows.forEach((row, index) => {
+    if (remaining <= 0) return;
+    const isLast = index === rows.length - 1;
+    const allocatable = isLast ? remaining : Math.min(remaining, shipmentRowCapacity(row));
+    if (allocatable <= 0) return;
+    row.used += allocatable;
+    addAllocated(row.name, allocatable);
+    remaining -= allocatable;
+  });
+  return remaining;
+}
+
+export function allocateShipmentItemsToCsvProducts(
+  items: ShipmentAllocationItem[],
+  csvProducts: CsvProductCandidate[],
+): AllocatedShipmentItem[] {
+  const products = csvProducts
+    .map((product) => ({ name: product.name.trim(), qty: Number(product.qty ?? 0) || 0 }))
+    .filter((product) => product.name);
+  const rows: ShipmentAllocationRow[] = products.map((product, index) => ({
+    ...product,
+    index,
+    model: extractModel(product.name),
+    used: 0,
+    wildcard: isWildcardShipmentRow(product.name),
+    colorTokens: colorTokens(product.name),
+  }));
+
+  const allocated = new Map<string, AllocatedShipmentItem>();
+  const addAllocated = (name: string, quantity: number) => {
+    if (!name || quantity <= 0) return;
+    const current = allocated.get(name);
+    if (current) current.quantity += quantity;
+    else allocated.set(name, { productNameJa: name, productNameEn: name, quantity });
+  };
+
+  for (const item of items) {
+    const itemName = shipmentItemName(item);
+    const quantity = Number(item.quantity ?? 0) || 0;
+    if (!itemName || quantity <= 0) continue;
+
+    const managementText = Array.from(new Set(extractManagementHints(item.managementNo, itemName))).join(" ");
+    const itemModel = extractPreferredModel(itemName, managementText);
+    const itemTokens = colorTokens(`${itemName} ${managementText}`);
+    const suggestionName =
+      (managementText ? suggestShipmentCsvProductName("", managementText, products) : null) ??
+      suggestShipmentCsvProductName(itemName, managementText, products);
+
+    const candidateRows: ShipmentAllocationRow[] = [];
+    const seen = new Set<number>();
+    for (const row of rows) {
+      if (suggestionName && row.name === suggestionName) addUniqueRow(candidateRows, seen, row);
+    }
+
+    if (itemModel) {
+      const specificRows = rows
+        .filter((row) =>
+          row.model === itemModel &&
+          !row.wildcard &&
+          !seen.has(row.index) &&
+          row.colorTokens.size > 0 &&
+          itemTokens.size > 0 &&
+          hasAnySharedToken(row.colorTokens, itemTokens)
+        )
+        .sort((a, b) => b.colorTokens.size - a.colorTokens.size || a.index - b.index);
+      for (const row of specificRows) addUniqueRow(candidateRows, seen, row);
+
+      const wildcardRows = rows.filter((row) => row.model === itemModel && row.wildcard && !seen.has(row.index));
+      for (const row of wildcardRows) addUniqueRow(candidateRows, seen, row);
+    }
+
+    const remaining = allocateQuantityToRows(candidateRows, quantity, addAllocated);
+    if (remaining > 0) addAllocated(itemName, remaining);
+  }
+
+  return Array.from(allocated.values()).filter((item) => item.quantity > 0);
 }
