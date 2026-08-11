@@ -19,6 +19,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ClipboardList,
   ExternalLink,
   FileText,
   Loader2,
@@ -2908,16 +2909,62 @@ function buildLabelPrintGroups(labels: LabelView[]): { name: string; labels: Lab
     });
 }
 
+function LabelChecklistView({ labels }: { labels: LabelView[] }) {
+  const groups = buildChecklistRows(labels);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        付箋の旧管理番号から商品IDを引くための一覧です。チェックした商品IDだけを載せます（未選択なら表示中のすべて）。
+      </p>
+      <div className="overflow-hidden rounded-md border bg-background">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+              <tr>
+                <th className="w-10 px-3 py-2 text-left font-medium">✓</th>
+                <th className="w-32 px-3 py-2 text-left font-medium">商品ID</th>
+                <th className="px-3 py-2 text-left font-medium">旧管理番号</th>
+                <th className="px-3 py-2 text-left font-medium">商品名</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((group) => (
+                <Fragment key={group.name}>
+                  <tr className="border-b bg-slate-50">
+                    <td colSpan={4} className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                      {group.name} - {group.labels.length}件
+                    </td>
+                  </tr>
+                  {group.labels.map((label) => (
+                    <tr key={label.key} className="border-b last:border-b-0">
+                      <td className="px-3 py-2 text-muted-foreground">□</td>
+                      <td className="px-3 py-2 font-mono font-semibold text-slate-950">{label.labelId}</td>
+                      <td className="px-3 py-2">{label.legacyManagementNo}</td>
+                      <td className="px-3 py-2">{label.title}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LabelPrintPanel({
   labels,
   allLabels,
   onPrintLabels,
+  onPrintChecklist,
   startPosition,
   onStartPositionChange,
 }: {
   labels: LabelView[];
   allLabels: LabelView[];
   onPrintLabels: LabelPrintRequest;
+  onPrintChecklist: LabelPrintRequest;
   startPosition: number;
   onStartPositionChange: (value: number) => void;
 }) {
@@ -2941,6 +2988,7 @@ function LabelPrintPanel({
   const currentPrintLabels = selectedLabels.length > 0 ? selectedLabels : editableLabels;
   const selectedCount = selectedLabels.length;
   const labelPrintGroups = useMemo(() => buildLabelPrintGroups(editableLabels), [editableLabels]);
+  const [showChecklist, setShowChecklist] = useState(false);
 
   const toggleGroup = (keys: string[], checked: boolean) => {
     setSelectedKeys((current) => {
@@ -3050,12 +3098,35 @@ function LabelPrintPanel({
               <Printer className="h-4 w-4" />
               全インボイスを印刷
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-fit gap-2"
+              onClick={() => setShowChecklist((current) => !current)}
+            >
+              <ClipboardList className="h-4 w-4" />
+              {showChecklist ? "ラベル表示に戻す" : "確認シート"}
+            </Button>
+            {showChecklist ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit gap-2"
+                disabled={currentPrintLabels.length === 0}
+                onClick={() => onPrintChecklist(currentPrintLabels)}
+              >
+                <Printer className="h-4 w-4" />
+                確認シートを印刷
+              </Button>
+            ) : null}
           </div>
         </div>
       </section>
 
       {editableLabels.length === 0 ? (
         <EmptyState icon={Tag} title="印刷できる商品IDがありません" />
+      ) : showChecklist ? (
+        <LabelChecklistView labels={currentPrintLabels} />
       ) : (
         <div className="space-y-4">
           {labelPrintGroups.map((group) => {
@@ -3142,6 +3213,10 @@ function LabelPrintStyles() {
         display: none;
       }
 
+      .checklist-print-root {
+        display: none;
+      }
+
       @media print {
         @page {
           size: 210mm 297mm;
@@ -3161,7 +3236,7 @@ function LabelPrintStyles() {
           overflow: visible !important;
         }
 
-        body > *:not(.label-print-root) {
+        body > *:not(.label-print-root):not(.checklist-print-root) {
           display: none !important;
         }
 
@@ -3258,6 +3333,60 @@ function LabelPrintStyles() {
           width: 100% !important;
           height: 100% !important;
         }
+
+        .checklist-print-root {
+          display: block !important;
+          box-sizing: border-box;
+          width: 210mm !important;
+          padding: 10mm 8mm;
+          color: #0f172a !important;
+          background: #fff !important;
+          font-family: Arial, sans-serif;
+        }
+
+        .checklist-print-head {
+          margin-bottom: 4mm;
+          font-size: 11pt;
+          font-weight: 700;
+        }
+
+        .checklist-print-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 8.6pt;
+        }
+
+        .checklist-print-table th,
+        .checklist-print-table td {
+          border: 0.2mm solid #94a3b8;
+          padding: 1.3mm 1.6mm;
+          text-align: left;
+        }
+
+        /* ページをまたいでも見出し行を繰り返す */
+        .checklist-print-table thead {
+          display: table-header-group;
+        }
+
+        .checklist-print-table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .checklist-print-group td {
+          background: #e2e8f0;
+          font-weight: 700;
+        }
+
+        .checklist-print-check {
+          width: 9mm;
+        }
+
+        .checklist-print-idcol {
+          width: 26mm;
+          font-family: Consolas, "Courier New", monospace;
+          font-weight: 700;
+        }
       }
     `}</style>
   );
@@ -3293,6 +3422,58 @@ function PrintableLabelSheet({ labels, startPosition = 1 }: { labels: LabelView[
           )}
         </div>
       ))}
+    </div>
+  );
+
+  return typeof document === "undefined" ? sheet : createPortal(sheet, document.body);
+}
+
+// 付箋の旧管理番号から商品IDを引くための一覧。棚を回る順に見られるようカテゴリごとにまとめ、
+// その中は旧管理番号の順に並べる。
+function buildChecklistRows(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
+  return buildLabelPrintGroups(labels).map((group) => ({
+    name: group.name,
+    labels: [...group.labels].sort((a, b) =>
+      a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", { numeric: true }),
+    ),
+  }));
+}
+
+function PrintableChecklistSheet({ labels }: { labels: LabelView[] }) {
+  const groups = buildChecklistRows(labels);
+  if (groups.length === 0) return null;
+  const sheet = (
+    <div className="checklist-print-root" aria-hidden="true">
+      <div className="checklist-print-head">商品IDと旧管理番号の確認シート（{labels.length}件）</div>
+      <table className="checklist-print-table">
+        <thead>
+          <tr>
+            <th className="checklist-print-check">✓</th>
+            <th className="checklist-print-idcol">商品ID</th>
+            <th>旧管理番号</th>
+            <th>商品名</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <Fragment key={group.name}>
+              <tr className="checklist-print-group">
+                <td colSpan={4}>
+                  {group.name} - {group.labels.length}件
+                </td>
+              </tr>
+              {group.labels.map((label) => (
+                <tr key={label.key}>
+                  <td className="checklist-print-check" />
+                  <td className="checklist-print-idcol">{label.labelId}</td>
+                  <td>{label.legacyManagementNo}</td>
+                  <td>{label.title}</td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 
@@ -5251,6 +5432,8 @@ export default function PurchaseRegistration() {
   const [productDetailFilter, setProductDetailFilter] = useState<ProductDetailFilter | null>(null);
   const [labelsToPrint, setLabelsToPrint] = useState<LabelView[]>([]);
   const [printJobId, setPrintJobId] = useState(0);
+  const [checklistToPrint, setChecklistToPrint] = useState<LabelView[]>([]);
+  const [checklistJobId, setChecklistJobId] = useState(0);
   const [labelStartPosition, setLabelStartPosition] = useState<number>(() => loadLabelStartPosition());
   const [printedStartPosition, setPrintedStartPosition] = useState(1);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
@@ -5446,6 +5629,8 @@ export default function PurchaseRegistration() {
 
   const handlePrintLabels = (targetLabels: LabelView[]) => {
     const printableLabels = targetLabels.filter((label) => label.labelId.trim());
+    // ラベル面付けと確認シートは同時に刷らない
+    setChecklistToPrint([]);
     if (printableLabels.length === 0) return;
     const startPosition = clampLabelStartPosition(labelStartPosition);
     setPrintedStartPosition(startPosition);
@@ -5463,6 +5648,15 @@ export default function PurchaseRegistration() {
     toast.success(
       `${printableLabels.length}枚を${startPosition}面目から印刷します。次回の開始位置を${nextStart}面目にしました`,
     );
+  };
+
+  const handlePrintChecklist = (targetLabels: LabelView[]) => {
+    const rows = targetLabels.filter((label) => label.labelId.trim());
+    if (rows.length === 0) return;
+    setLabelsToPrint([]);
+    setChecklistToPrint(rows);
+    setChecklistJobId((current) => current + 1);
+    toast.success(`確認シート${rows.length}件を印刷します`);
   };
 
   const handleReceivedLabelForShipping = (label: LabelView) => {
@@ -5745,6 +5939,12 @@ export default function PurchaseRegistration() {
     return () => window.clearTimeout(timer);
   }, [labelsToPrint, printJobId]);
 
+  useEffect(() => {
+    if (checklistJobId === 0 || checklistToPrint.length === 0) return;
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => window.clearTimeout(timer);
+  }, [checklistToPrint, checklistJobId]);
+
   const isScanWorkflow = workflowTab === "scan";
   const isStockWorkflow = workflowTab === "stock";
   const isLabelWorkflow = workflowTab === "labels";
@@ -5767,6 +5967,7 @@ export default function PurchaseRegistration() {
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/60">
       <LabelPrintStyles />
       <PrintableLabelSheet labels={labelsToPrint} startPosition={printedStartPosition} />
+      <PrintableChecklistSheet labels={checklistToPrint} />
       <div className="grid gap-0 lg:block lg:pr-[204px]">
         <main className="space-y-4 p-3 pb-24 md:space-y-5 md:p-6 lg:pb-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -5920,6 +6121,7 @@ export default function PurchaseRegistration() {
                 <LabelPrintPanel
                   labels={selectedLabelPrintLabels}
                   allLabels={allInvoiceLabels}
+                  onPrintChecklist={handlePrintChecklist}
                   onPrintLabels={handlePrintLabels}
                   startPosition={labelStartPosition}
                   onStartPositionChange={changeLabelStartPosition}
