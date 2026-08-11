@@ -3535,6 +3535,26 @@ function ScanPanel({
     setSelectedCandidateIds((current) => (current.size === 0 ? current : new Set()));
   }, [scanSearchValue]);
 
+  // リーダーによってはEnterを付けずに打ち込むので、商品ID（英字7文字）が末尾に揃った時点で
+  // 入庫確認を自動で開く。打ち込みは一瞬で終わるため、短い猶予を置いてから判定する。
+  const autoConfirmedScanRef = useRef("");
+  useEffect(() => {
+    const trimmed = scanValue.trim();
+    const scannedId = extractScannedLabelId(trimmed);
+    if (!scannedId || !trimmed.normalize("NFKC").toUpperCase().endsWith(scannedId)) {
+      autoConfirmedScanRef.current = "";
+      return;
+    }
+    if (confirmValue || isReceiving) return;
+    // 一度自動で開いたものを閉じた直後に開き直さないよう、同じ入力では二度発火させない
+    if (autoConfirmedScanRef.current === trimmed) return;
+    const timer = window.setTimeout(() => {
+      autoConfirmedScanRef.current = trimmed;
+      openReceiveConfirm(trimmed);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [scanValue, confirmValue, isReceiving]);
+
   function markReceivedLabel(label: LabelView | null | undefined, result: ReceivePurchaseLabelResult) {
     if (!label) return;
     onReceivedLabel?.({
