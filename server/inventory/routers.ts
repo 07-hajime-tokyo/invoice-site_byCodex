@@ -23,6 +23,7 @@ import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
+import { inboundDeskRouter } from "./inboundDesk";
 import { recordWorkLog, workLogsRouter } from "./workLogs";
 import { diffInventoryFields, recordInventoryChange } from "./changeLog";
 import { captureDailySnapshot, listDailySnapshots } from "./dailySnapshot";
@@ -2179,6 +2180,7 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
 export const inventoryRouter = router({
   system: systemRouter,
   actionItems: actionItemsRouter,
+  inboundDesk: inboundDeskRouter,
   aiInvestigation: aiInvestigationRouter,
   workLogs: workLogsRouter,
   auth: router({
