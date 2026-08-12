@@ -4,8 +4,9 @@
  * 左: 相手一覧（最終メッセージが新しい順）
  * 右: 会話。原文 / 和訳 / 両方 を切り替えて読む。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ChevronUp,
   Download,
   Languages,
   Loader2,
@@ -40,6 +41,10 @@ const VIEW_MODES: Array<{ value: ViewMode; label: string }> = [
 ];
 
 const SELECTED_KEY = "invoice-site-whatsapp-selected-conversation";
+
+/** サーバ側の既定の窓（server/routers.ts の WHATSAPP_* と揃える。表示文言にだけ使う） */
+const RECENT_DAYS = 14;
+const EXPAND_MONTHS = 3;
 
 /**
  * sentAt には「WhatsAppの画面に出ていた時刻」がそのままUTCとして入っている
@@ -90,6 +95,8 @@ export default function WhatsappHistory() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [keyword, setKeyword] = useState("");
+  /** 「過去の会話を確認」を押した回数。相手を変えたら 0 に戻す。 */
+  const [expandCount, setExpandCount] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [importName, setImportName] = useState("");
   const [importText, setImportText] = useState("");
@@ -110,12 +117,29 @@ export default function WhatsappHistory() {
   }, [selectedId]);
 
   const messagesQuery = trpc.whatsappChats.getMessages.useQuery(
-    { conversationId: selectedId ?? 0, keyword: keyword.trim() || undefined },
+    {
+      conversationId: selectedId ?? 0,
+      keyword: keyword.trim() || undefined,
+      expandCount,
+    },
     { enabled: selectedId !== null },
   );
-  const messages = messagesQuery.data ?? [];
+  const messages = messagesQuery.data?.messages ?? [];
+  const totalCount = messagesQuery.data?.totalCount ?? 0;
+  const hasMore = messagesQuery.data?.hasMore ?? false;
+  const searchedAll = messagesQuery.data?.searchedAll ?? false;
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+
+  // 相手を切り替えたら、前の相手で広げた窓は引きずらない
+  useEffect(() => {
+    setExpandCount(0);
+  }, [selectedId]);
+
+  // 検索を始める / やめるときも窓は既定に戻す
+  useEffect(() => {
+    setExpandCount(0);
+  }, [keyword]);
 
   const importMutation = trpc.whatsappChats.importChat.useMutation({
     onSuccess: (data) => {
@@ -169,6 +193,32 @@ export default function WhatsappHistory() {
 
   const totalUntranslated = conversations.reduce((sum, c) => sum + c.untranslatedCount, 0);
 
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<number | null>(null);
+  const heightBeforeExpand = useRef<number | null>(null);
+
+  // 開いた瞬間に最新が見えるようにする（古い順に並ぶので、最下部が最新）
+  useEffect(() => {
+    if (selectedId === null || keyword || expandCount > 0) return;
+    if (messages.length === 0 || scrolledFor.current === selectedId) return;
+    scrolledFor.current = selectedId;
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [selectedId, messages.length, keyword, expandCount]);
+
+  // 「過去の会話を確認」で上に足したぶん、読んでいた位置がずれないよう押し戻す
+  useLayoutEffect(() => {
+    const before = heightBeforeExpand.current;
+    if (before === null) return;
+    heightBeforeExpand.current = null;
+    const delta = document.documentElement.scrollHeight - before;
+    if (delta > 0) window.scrollBy(0, delta);
+  }, [messages]);
+
+  const loadOlder = () => {
+    heightBeforeExpand.current = document.documentElement.scrollHeight;
+    setExpandCount((count) => count + 1);
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -179,6 +229,7 @@ export default function WhatsappHistory() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             バイヤーとのやり取りを取り込んで、原文と日本語訳を並べて読み返せます。
+            既定では直近{RECENT_DAYS}日ぶんを表示します。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -331,6 +382,37 @@ export default function WhatsappHistory() {
                 {keyword ? "一致するメッセージがありません。" : "メッセージがありません。"}
               </div>
             )}
+
+            {/* 窓の状態と、過去を足すボタン。古い順に並ぶので上に置く。 */}
+            {selected && messages.length > 0 && (
+              <div className="flex flex-col items-center gap-1.5 mb-4">
+                <div className="text-[11px] text-muted-foreground">
+                  {searchedAll
+                    ? `全期間から検索中 ・ ${messages.length}件が一致`
+                    : `${messages.length}/${totalCount}件 ・ ${formatDay(messages[0].sentAt)} 以降`}
+                </div>
+                {!searchedAll &&
+                  (hasMore ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={messagesQuery.isFetching}
+                      onClick={loadOlder}
+                    >
+                      {messagesQuery.isFetching ? (
+                        <Loader2 size={13} className="mr-1.5 animate-spin" />
+                      ) : (
+                        <ChevronUp size={13} className="mr-1.5" />
+                      )}
+                      過去の会話を確認（さらに{EXPAND_MONTHS}ヶ月）
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">これ以上ありません</span>
+                  ))}
+              </div>
+            )}
+
             <div className="space-y-4">
               {grouped.map((group) => (
                 <div key={group.day} className="space-y-2">
@@ -377,6 +459,7 @@ export default function WhatsappHistory() {
                   ))}
                 </div>
               ))}
+              <div ref={bottomRef} />
             </div>
           </CardContent>
         </Card>

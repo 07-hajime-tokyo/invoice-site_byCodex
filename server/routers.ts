@@ -18,7 +18,14 @@ import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
 import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, whatsappConversations, whatsappMessages, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
 import { isOwnerSender, looksJapanese, makeDedupeKey, parseWhatsAppExport, translateMessages } from "./whatsappConversations";
-import { eq, desc, asc, or, like, and, sql, isNull, isNotNull, inArray } from "drizzle-orm";
+import { eq, desc, asc, or, like, and, gte, sql, isNull, isNotNull, inArray } from "drizzle-orm";
+
+/** WhatsApp会話履歴：既定で表示する期間（日） */
+const WHATSAPP_RECENT_DAYS = 14;
+/** WhatsApp会話履歴：「過去の会話を確認」1回ぶんの遡り幅（月） */
+const WHATSAPP_EXPAND_MONTHS = 3;
+/** WhatsApp会話履歴：期間内が少なくても、最低これだけは遡って出す */
+const WHATSAPP_MIN_MESSAGES = 20;
 
 const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
 const SHEET_NAME = "全体";
@@ -3456,30 +3463,86 @@ Return ONLY valid JSON, no markdown, no explanation.`
       }));
     }),
 
-    /** 1件の会話のメッセージ。古い順。keyword は原文・訳文の両方を対象に絞り込む。 */
+    /**
+     * 1件の会話のメッセージ。古い順。
+     *
+     * 既定では直近2週間ぶんだけを返す（返信を書くときに要るのはそこだけ）。
+     * expandCount は「過去の会話を確認」を押した回数で、1回につき3ヶ月ぶん遡る。
+     * 期間内が少なすぎると画面が空に見えるので、最低件数までは期間を無視して遡る。
+     *
+     * keyword を渡したときは窓を無視して全期間から探す。
+     */
     getMessages: protectedProcedure
-      .input(z.object({ conversationId: z.number(), keyword: z.string().optional() }))
+      .input(
+        z.object({
+          conversationId: z.number(),
+          keyword: z.string().optional(),
+          expandCount: z.number().int().min(0).max(40).optional(),
+        }),
+      )
       .query(async ({ input }) => {
         const db = await getDb();
         if (!db) throw new Error("DB connection failed");
 
-        const filters = [eq(whatsappMessages.conversationId, input.conversationId)];
+        const totals = await db
+          .select({ total: sql<number>`count(*)` })
+          .from(whatsappMessages)
+          .where(eq(whatsappMessages.conversationId, input.conversationId));
+        const totalCount = Number(totals[0]?.total ?? 0);
+
         const keyword = input.keyword?.trim();
         if (keyword) {
-          filters.push(
-            or(
-              like(whatsappMessages.body, `%${keyword}%`),
-              like(whatsappMessages.bodyJa, `%${keyword}%`),
-              like(whatsappMessages.sender, `%${keyword}%`),
-            )!,
-          );
+          const messages = await db
+            .select()
+            .from(whatsappMessages)
+            .where(
+              and(
+                eq(whatsappMessages.conversationId, input.conversationId),
+                or(
+                  like(whatsappMessages.body, `%${keyword}%`),
+                  like(whatsappMessages.bodyJa, `%${keyword}%`),
+                  like(whatsappMessages.sender, `%${keyword}%`),
+                )!,
+              ),
+            )
+            .orderBy(asc(whatsappMessages.sentAt));
+          return { messages, totalCount, hasMore: false, searchedAll: true };
         }
 
-        return db
+        /**
+         * sentAt は「WhatsAppの画面に出ていた壁時計」をそのままUTCとして持っている。
+         * 現在時刻との間に最大9時間のズレが出るが、2週間・3ヶ月という粒度では実害がない。
+         */
+        const cutoff = new Date(Date.now() - WHATSAPP_RECENT_DAYS * 24 * 60 * 60 * 1000);
+        cutoff.setUTCMonth(cutoff.getUTCMonth() - WHATSAPP_EXPAND_MONTHS * (input.expandCount ?? 0));
+
+        let messages = await db
           .select()
           .from(whatsappMessages)
-          .where(and(...filters))
+          .where(
+            and(
+              eq(whatsappMessages.conversationId, input.conversationId),
+              gte(whatsappMessages.sentAt, cutoff),
+            ),
+          )
           .orderBy(asc(whatsappMessages.sentAt));
+
+        /**
+         * 期間だけで切ると、やり取りの薄い相手では押しても何も増えない。
+         * 1回押すごとに下限も増やして、必ず新しく古いぶんが出るようにする。
+         */
+        const minMessages = WHATSAPP_MIN_MESSAGES * ((input.expandCount ?? 0) + 1);
+        if (messages.length < minMessages && totalCount > messages.length) {
+          const recent = await db
+            .select()
+            .from(whatsappMessages)
+            .where(eq(whatsappMessages.conversationId, input.conversationId))
+            .orderBy(desc(whatsappMessages.sentAt))
+            .limit(minMessages);
+          messages = recent.reverse();
+        }
+
+        return { messages, totalCount, hasMore: messages.length < totalCount, searchedAll: false };
       }),
 
     /**
