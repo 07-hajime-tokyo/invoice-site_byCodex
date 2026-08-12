@@ -1433,7 +1433,11 @@ function stockModelName(title: string): string {
   if (compact.includes("2ds")) return "2DS";
   if (compact.includes("3ds")) return "3DS";
   if (compact.includes("dslite") || compact.includes("dsl")) return "DSLite";
-  if (compact.includes("ゲームボーイプレーヤー") || compact.includes("gameboyplayer")) return "GC";
+  if (
+    compact.includes("ゲームボーイプレーヤー") ||
+    compact.includes("ゲームボーイプレイヤー") ||
+    compact.includes("gameboyplayer")
+  ) return "GC";
   if (compact.includes("gba") || compact.includes("gameboyadvance") || compact.includes("ゲームボーイアドバンス")) return "GBA";
   if (compact.includes("vita2000") || compact.includes("psvita2000")) return "PS Vita 2000";
   if (compact.includes("vita1000") || compact.includes("psvita1000")) return "PS Vita 1000";
