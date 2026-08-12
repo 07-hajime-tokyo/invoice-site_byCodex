@@ -508,7 +508,7 @@ export default function Deliveries() {
   }, [deliveryItems]);
   const bulkInvoiceNoForOrder = useMemo(() => {
     const deliveryNoInvoice = deliveryNo.trim().match(/^(\d+)/)?.[1] ?? "";
-    return bulkManagementInvoiceNo || deliveryNoInvoice || bulkInvoiceNo.trim();
+    return bulkInvoiceNo.trim() || bulkManagementInvoiceNo || deliveryNoInvoice;
   }, [bulkManagementInvoiceNo, deliveryNo, bulkInvoiceNo]);
   const { data: bulkInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
     { invoiceNo: bulkInvoiceNoForOrder },
@@ -517,7 +517,7 @@ export default function Deliveries() {
   const singleInvoiceNoForOrder = useMemo(() => {
     const managementInvoiceNo = extractPrefixFromManagementNo(singleDeliveryItem?.inv.etc);
     const deliveryNoInvoice = singleDeliveryNo.trim().match(/^(\d+)/)?.[1] ?? "";
-    return managementInvoiceNo || deliveryNoInvoice || singleInvoiceNo.trim();
+    return singleInvoiceNo.trim() || managementInvoiceNo || deliveryNoInvoice;
   }, [singleDeliveryItem, singleDeliveryNo, singleInvoiceNo]);
   const { data: singleInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
     { invoiceNo: singleInvoiceNoForOrder },
@@ -817,7 +817,7 @@ export default function Deliveries() {
         .map((item) => extractPrefixFromManagementNo(item.etc))
         .filter(Boolean);
       const uniquePrefixes = Array.from(new Set(prefixes));
-      const prefix = uniquePrefixes.length === 1 ? uniquePrefixes[0] : undefined;
+      const prefix = bulkInvoiceNo || (uniquePrefixes.length === 1 ? uniquePrefixes[0] : undefined);
       setDeliveryNo(generateDeliveryNo(code, prefix));
     }
   }, [checkedItems, customers]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1917,7 +1917,7 @@ export default function Deliveries() {
                         .map((item) => extractPrefixFromManagementNo(item.etc))
                         .filter(Boolean);
                       const uniquePrefixes = Array.from(new Set(prefixes));
-                      const prefix = uniquePrefixes.length === 1 ? uniquePrefixes[0] : (bulkInvoiceNo || undefined);
+                      const prefix = bulkInvoiceNo || (uniquePrefixes.length === 1 ? uniquePrefixes[0] : undefined);
                       setDeliveryNo(generateDeliveryNo(val, prefix));
                     } else {
                       setDeliveryNo("");
@@ -1937,9 +1937,8 @@ export default function Deliveries() {
                     ))}
                   </SelectContent>
                 </Select>
-                {/* 管理番号なしの商品が含まれる場合: インボイスNoプルダウン */}
-                {checkedItems.some((item) => !extractPrefixFromManagementNo(item.etc)) &&
-                  incompleteInvoices && incompleteInvoices.length > 0 && (
+                {/* インボイスNoプルダウン（選んだ場合は管理番号の先頭数字より優先） */}
+                {incompleteInvoices && incompleteInvoices.length > 0 && (
                   <Select
                     value={bulkInvoiceNo}
                     onValueChange={(invoiceNo) => {
@@ -1952,7 +1951,7 @@ export default function Deliveries() {
                         setDeliveryItems((prev) => {
                           const next = new Map(prev);
                           Array.from(next.entries()).forEach(([id, item]) => {
-                            if (item.checked && !extractPrefixFromManagementNo(item.etc)) {
+                            if (item.checked) {
                               // インボイスNoでCSVを照合
                               const invoiceRows = csvRows.filter((r) => r.invoiceNo === invoiceNo);
                               const titleLower = item.title.toLowerCase();
@@ -2060,9 +2059,82 @@ export default function Deliveries() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">出庫No</span>
-              <span className="font-semibold">{deliveryNo}</span>
+            <div className="grid gap-2 md:grid-cols-3">
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">取引先</span>
+                <Select
+                  value={bulkCustomerCode || "__none__"}
+                  onValueChange={(val) => {
+                    setBulkCustomerCode(val);
+                    if (val && val !== "__none__") {
+                      setBulkSheetName(getShipmentSheetNameForCustomerCode(val));
+                      const prefixes = checkedItems
+                        .map((item) => extractPrefixFromManagementNo(item.etc))
+                        .filter(Boolean);
+                      const uniquePrefixes = Array.from(new Set(prefixes));
+                      const prefix = bulkInvoiceNo || (uniquePrefixes.length === 1 ? uniquePrefixes[0] : undefined);
+                      setDeliveryNo(generateDeliveryNo(val, prefix));
+                    } else {
+                      setDeliveryNo("");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="取引先" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">未指定</SelectItem>
+                    {bulkCustomerCode && bulkCustomerCode !== "__none__" && !customers?.some((c) => c.code === bulkCustomerCode) ? (
+                      <SelectItem value={bulkCustomerCode}>{getShortPartnerDeliveryCode(bulkCustomerCode) ?? bulkCustomerCode}</SelectItem>
+                    ) : null}
+                    {customers?.map((c) => (
+                      <SelectItem key={c.id} value={c.code}>{c.displayName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              {incompleteInvoices && incompleteInvoices.length > 0 ? (
+                <label className="space-y-1 text-sm">
+                  <span className="text-xs text-muted-foreground">インボイスNo</span>
+                  <Select
+                    value={bulkInvoiceNo || "__auto__"}
+                    onValueChange={(invoiceNo) => {
+                      const nextInvoiceNo = invoiceNo === "__auto__" ? "" : invoiceNo;
+                      setBulkInvoiceNo(nextInvoiceNo);
+                      const code = bulkCustomerCode && bulkCustomerCode !== "__none__" ? bulkCustomerCode : null;
+                      if (code) {
+                        const prefixes = checkedItems
+                          .map((item) => extractPrefixFromManagementNo(item.etc))
+                          .filter(Boolean);
+                        const uniquePrefixes = Array.from(new Set(prefixes));
+                        const prefix = nextInvoiceNo || (uniquePrefixes.length === 1 ? uniquePrefixes[0] : undefined);
+                        setDeliveryNo(generateDeliveryNo(code, prefix));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="インボイスNo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__auto__">自動判定</SelectItem>
+                      {incompleteInvoices.map((inv) => (
+                        <SelectItem key={inv.invoiceNo} value={inv.invoiceNo}>
+                          No.{inv.invoiceNo} - {inv.partner}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+              ) : null}
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">出庫No</span>
+                <Input
+                  value={deliveryNo}
+                  onChange={(e) => setDeliveryNo(e.target.value)}
+                  className="h-9"
+                  disabled={isSubmitting}
+                />
+              </label>
             </div>
             <div className="overflow-hidden rounded-md border">
               <table className="w-full table-fixed text-sm">
@@ -2280,9 +2352,9 @@ export default function Deliveries() {
                     setSingleCustomerCode(val);
                     if (val && val !== "__none__") {
                       setSingleSheetName(getShipmentSheetNameForCustomerCode(val));
-                      // 管理番号の先頭数字を优先、なければインボイスNoを使用
+                      // インボイスNoを手で選んだ場合はそれを優先し、未選択なら管理番号の先頭数字を使う
                       const prefix = extractPrefixFromManagementNo(singleDeliveryItem?.inv.etc);
-                      const invoicePrefix = prefix ?? (singleInvoiceNo || undefined);
+                      const invoicePrefix = singleInvoiceNo || prefix;
                       setSingleDeliveryNo(generateDeliveryNo(val, invoicePrefix));
                     } else {
                       setSingleDeliveryNo("");
@@ -2305,10 +2377,10 @@ export default function Deliveries() {
                 {singleCustomerCode && detectCustomerFromManagementNo(singleDeliveryItem?.inv.etc) && (
                   <p className="text-xs text-green-600">✓ 管理番号から自動判別しました</p>
                 )}
-                {/* 管理番号なしの場合: 未完了インボイスNo選択 */}
-                {!extractPrefixFromManagementNo(singleDeliveryItem?.inv.etc) && incompleteInvoices && incompleteInvoices.length > 0 && (
+                {/* インボイスNo選択（選んだ場合は管理番号の先頭数字より優先） */}
+                {incompleteInvoices && incompleteInvoices.length > 0 && (
                   <div className="mt-2">
-                    <label className="text-xs text-muted-foreground">インボイスNoを選択（管理番号なしの場合）</label>
+                    <label className="text-xs text-muted-foreground">インボイスNoを選択</label>
                     <Select
                       value={singleInvoiceNo}
                       onValueChange={(invoiceNo) => {

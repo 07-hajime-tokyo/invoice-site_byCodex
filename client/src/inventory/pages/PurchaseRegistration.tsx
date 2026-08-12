@@ -1846,12 +1846,25 @@ function deliveryPartnerCode(group: AllocationGroup | null): string {
   return ascii || "stock";
 }
 
-function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null): string {
-  const invoiceNo = invoiceNoFromGroupKey(group?.key);
+function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null, invoiceNoOverride?: string | null): string {
+  const invoiceNo = invoiceNoOverride || invoiceNoFromGroupKey(group?.key);
   const code = deliveryPartnerCode(group);
   const datePart = ["Maxim", "Simon", "Nele"].includes(code) ? todayShortCompact() : todayCompact();
   const deliveryNo = `${code}${datePart}`;
   return invoiceNo ? `${invoiceNo}_${deliveryNo}` : `stock_${deliveryNo}`;
+}
+
+function invoiceNoFromDeliveryNo(value: string | null | undefined): string | null {
+  return value?.trim().match(/^(\d{3})_/)?.[1] ?? null;
+}
+
+function commonInvoiceNoFromShippingItems(items: Array<Pick<ShippingItemView, "legacyManagementNo">>): string | null {
+  const invoiceNos = unique(
+    items
+      .map((item) => parseInvoiceFromManagementNo(item.legacyManagementNo)?.invoiceNo ?? "")
+      .filter(Boolean),
+  );
+  return invoiceNos.length === 1 ? invoiceNos[0] : null;
 }
 
 function detectShipmentSheetNameForText(text: string | null | undefined): ShipmentSheetName | null {
@@ -4491,12 +4504,14 @@ function StockPanel({
 
 function ShippingPanel({
   group,
+  invoiceOptions,
   labels,
   allLabels,
   products,
   onDeliverySuccess,
 }: {
   group: AllocationGroup | null;
+  invoiceOptions: AllocationGroup[];
   labels: LabelView[];
   allLabels: LabelView[];
   products: ProductSummary[];
@@ -4518,6 +4533,7 @@ function ShippingPanel({
     titles: string[];
   } | null>(null);
   const invoiceNo = invoiceNoFromGroupKey(group?.key);
+  const [selectedDeliveryInvoiceKey, setSelectedDeliveryInvoiceKey] = useState("");
   const [manualLabelValue, setManualLabelValue] = useState("");
   const [manualShippingLabels, setManualShippingLabels] = useState<LabelView[]>([]);
   const [manualLookupPending, setManualLookupPending] = useState(false);
@@ -4535,12 +4551,6 @@ function ShippingPanel({
   const shippingItems = useMemo(() => buildShippingItemsFromLabels(availableLabels), [availableLabels]);
   const shippableItems = useMemo(() => shippingItems.filter((item) => item.canShip), [shippingItems]);
   const pendingInventoryLabels = availableLabels.filter((label) => label.labelId.trim() && !label.inventoryId && isShippableLabel(label));
-  const autoDeliveryNo = useMemo(() => generatePurchaseRegistrationDeliveryNo(group), [group]);
-  const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
-  const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
-  const [invoiceFedexTrackingNumber, setInvoiceFedexTrackingNumber] = useState("");
-  const [invoiceFedexSheetName, setInvoiceFedexSheetName] = useState<ShipmentSheetName>(autoSheetName);
-  const hasTrackingNumber = trackingNumber.trim().length > 0;
   const confirmItems = useMemo(
     () => selectedShippingItems(shippingItems, confirmKeys, quantities),
     [confirmKeys, quantities, shippingItems],
@@ -4549,6 +4559,37 @@ function ShippingPanel({
     () => selectedShippingItems(shippingItems, selectedKeys, quantities),
     [quantities, selectedKeys, shippingItems],
   );
+  function resolveDeliveryInvoiceNo(items: ShippingItemView[], overrideKey = selectedDeliveryInvoiceKey): string | null {
+    const selectedNo = invoiceNoFromGroupKey(overrideKey);
+    return selectedNo ?? invoiceNo ?? commonInvoiceNoFromShippingItems(items);
+  }
+
+  function resolveDeliveryGroup(items: ShippingItemView[], overrideKey = selectedDeliveryInvoiceKey): AllocationGroup | null {
+    const selectedGroup = invoiceOptions.find((option) => option.key === overrideKey) ?? null;
+    if (selectedGroup) return selectedGroup;
+    if (invoiceNo) return group;
+    const inferredInvoiceNo = commonInvoiceNoFromShippingItems(items);
+    if (inferredInvoiceNo) {
+      return invoiceOptions.find((option) => invoiceNoFromGroupKey(option.key) === inferredInvoiceNo) ?? group;
+    }
+    return group;
+  }
+
+  function resolveAutoDeliveryNo(items: ShippingItemView[], overrideKey = selectedDeliveryInvoiceKey): string {
+    const nextInvoiceNo = resolveDeliveryInvoiceNo(items, overrideKey);
+    const nextGroup = resolveDeliveryGroup(items, overrideKey);
+    return generatePurchaseRegistrationDeliveryNo(nextGroup, nextInvoiceNo);
+  }
+
+  const autoDeliveryNo = useMemo(
+    () => resolveAutoDeliveryNo(checkedItems),
+    [checkedItems, group, invoiceNo, invoiceOptions, selectedDeliveryInvoiceKey],
+  );
+  const autoSheetName = useMemo(() => detectShipmentSheetNameForGroup(group, shippingItems), [group, shippingItems]);
+  const [shipmentSheetName, setShipmentSheetName] = useState<ShipmentSheetName>(autoSheetName);
+  const [invoiceFedexTrackingNumber, setInvoiceFedexTrackingNumber] = useState("");
+  const [invoiceFedexSheetName, setInvoiceFedexSheetName] = useState<ShipmentSheetName>(autoSheetName);
+  const hasTrackingNumber = trackingNumber.trim().length > 0;
   const allSelected = shippableItems.length > 0 && shippableItems.every((item) => selectedKeys.has(item.key));
   const isSubmitting = createDeliveryMutation.isPending;
 
@@ -4661,6 +4702,10 @@ function ShippingPanel({
   }, [autoDeliveryNo]);
 
   useEffect(() => {
+    setSelectedDeliveryInvoiceKey(invoiceNo ? `invoice-${invoiceNo}` : "");
+  }, [invoiceNo]);
+
+  useEffect(() => {
     setShipmentSheetName(autoSheetName);
     setInvoiceFedexSheetName(autoSheetName);
   }, [autoSheetName]);
@@ -4759,7 +4804,7 @@ function ShippingPanel({
     setManualLabelValue("");
     if (options?.openConfirmAfterAdd) {
       setConfirmKeys(new Set([item.key]));
-      setDeliveryNo((current) => current.trim() || autoDeliveryNo);
+      setDeliveryNo(resolveAutoDeliveryNo([item]));
       setShowConfirm(true);
     }
     toast.success(`${targetLabelId} を出庫対象に追加しました`);
@@ -4777,20 +4822,21 @@ function ShippingPanel({
       return;
     }
     setConfirmKeys(new Set(keys));
-    setDeliveryNo((current) => current.trim() || autoDeliveryNo);
+    setDeliveryNo(resolveAutoDeliveryNo(targets));
     setShowConfirm(true);
   }
 
   async function submitDelivery() {
     if (confirmItems.length === 0 || isSubmitting) return;
     const nextDeliveryNo = deliveryNo.trim() || autoDeliveryNo;
+    const nextInvoiceNo = invoiceNoFromDeliveryNo(nextDeliveryNo) ?? resolveDeliveryInvoiceNo(confirmItems) ?? undefined;
     const nextTrackingNumber = trackingNumber.trim();
     try {
       const result = await createDeliveryMutation.mutateAsync({
         deliveryNo: nextDeliveryNo,
         deliveryDate: new Date().toISOString().slice(0, 10),
         operatorName: getCurrentWorkWorkerName("野田"),
-        invoiceNo: invoiceNo ?? undefined,
+        invoiceNo: nextInvoiceNo,
         sheetName: nextTrackingNumber ? shipmentSheetName : undefined,
         trackingNumber: nextTrackingNumber || undefined,
         items: confirmItems.map((item) => ({
@@ -5143,7 +5189,27 @@ function ShippingPanel({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className={cn("grid gap-3", hasTrackingNumber ? "md:grid-cols-[1fr_1fr_180px]" : "md:grid-cols-2")}>
+            <div className={cn("grid gap-3", hasTrackingNumber ? "md:grid-cols-[1fr_1fr_1fr_180px]" : "md:grid-cols-3")}>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">インボイスNo / 取引先</span>
+                <select
+                  className={fieldClass}
+                  value={selectedDeliveryInvoiceKey || "__auto__"}
+                  onChange={(event) => {
+                    const nextKey = event.target.value === "__auto__" ? "" : event.target.value;
+                    setSelectedDeliveryInvoiceKey(nextKey);
+                    const targets = confirmItems.length > 0 ? confirmItems : checkedItems;
+                    setDeliveryNo(resolveAutoDeliveryNo(targets, nextKey));
+                  }}
+                >
+                  <option value="__auto__">自動判定</option>
+                  {invoiceOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="space-y-1 text-sm">
                 <span className="text-xs text-muted-foreground">出庫No</span>
                 <Input value={deliveryNo} onChange={(event) => setDeliveryNo(event.target.value)} placeholder={autoDeliveryNo} />
@@ -6142,6 +6208,7 @@ export default function PurchaseRegistration() {
               <TabsContent value="shipping">
                 <ShippingPanel
                   group={selectedShippingGroup}
+                  invoiceOptions={invoiceGroups}
                   labels={selectedShippingLabels}
                   allLabels={allScannableLabels}
                   products={selectedOpenProducts}
