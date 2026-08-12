@@ -9,6 +9,7 @@ import {
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { getAllInvoiceMemos } from "./inventory/db";
 import { inventoryRouter } from "./inventory/routers";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
@@ -651,6 +652,17 @@ function applySheetShipmentStatuses<T extends { no: number | null; productName: 
 
 function applyClosedTradeYearStatuses<T extends { paymentDate?: string | null; status: string | null }>(rows: T[]) {
   return rows.map((row) => (isClosedTradeYear(row.paymentDate) ? { ...row, status: "complete" } : row));
+}
+
+function applyManualCompleteTradeStatuses<T extends { no: number | null; status: string | null }>(
+  rows: T[],
+  manualCompleteSet: Set<string>,
+) {
+  if (manualCompleteSet.size === 0) return rows;
+  return rows.map((row) => {
+    if (row.no == null || !manualCompleteSet.has(String(row.no))) return row;
+    return { ...row, status: "complete" };
+  });
 }
 
 async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
@@ -1703,6 +1715,14 @@ export const appRouter = router({
           console.warn("[Trade] Failed to load sheet shipment progress", error);
           return null;
         });
+        const manualCompleteSet = new Set<string>(
+          (await getAllInvoiceMemos().catch((error) => {
+            console.warn("[Trade] Failed to load manual complete invoice memos", error);
+            return [];
+          }))
+            .filter((memo) => memo.colorKey === "__manual_complete__" && memo.memo === "1")
+            .map((memo) => memo.invoiceKey),
+        );
         const baseRowsFromDb = whereClause
           ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
           : await db.select().from(tradeRecords).orderBy(orderExpr);
@@ -1716,13 +1736,14 @@ export const appRouter = router({
           shipmentRegistrationProgress,
         );
         const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithShipmentRegistrationStatus);
+        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithComputedStatus, manualCompleteSet);
         const statusFilter = input.status.trim().toLowerCase();
         const statusFilteredRows = statusFilter
-          ? rowsWithComputedStatus.filter((row) => {
+          ? rowsWithManualCompleteStatus.filter((row) => {
               const rowStatus = String(row.status ?? "").trim();
               return rowStatus === input.status || (isTradeStatusComplete(input.status) && isTradeStatusComplete(rowStatus));
             })
-          : rowsWithComputedStatus;
+          : rowsWithManualCompleteStatus;
         const matchingRows = input.incompleteOnly
           ? statusFilteredRows.filter((row) => !isTradeStatusComplete(row.status))
           : statusFilteredRows;
