@@ -1506,7 +1506,12 @@ function stockModelName(title: string): string {
   ) return "GC";
   if (compact.includes("gba") || compact.includes("gameboyadvance") || compact.includes("ゲームボーイアドバンス")) return "GBA";
   if (compact.includes("vita2000") || compact.includes("psvita2000")) return "PS Vita 2000";
-  if (compact.includes("vita1000") || compact.includes("psvita1000")) return "PS Vita 1000";
+  if (
+    compact.includes("vita1000") ||
+    compact.includes("psvita1000") ||
+    compact.includes("vita1100") ||
+    compact.includes("psvita1100")
+  ) return "PS Vita 1000";
   if (compact.includes("psp3000")) return "PSP 3000";
   if (compact.includes("psp2000")) return "PSP 2000";
   if (compact.includes("psp1000")) return "PSP 1000";
