@@ -1075,6 +1075,7 @@ async function getTradeShipmentRegistrationProgress(
 
   const fedexRowsByInvoiceNo = new Map<string, FedexShipmentRow[]>();
   for (const shipment of allFedexRows) {
+    if (String(shipment.spreadsheetStatus ?? "").trim().toLowerCase() !== "success") continue;
     const invoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
     if (!invoiceNo) continue;
     const rows = fedexRowsByInvoiceNo.get(invoiceNo) ?? [];
