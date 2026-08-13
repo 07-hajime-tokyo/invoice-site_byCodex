@@ -286,6 +286,8 @@ const fieldClass =
 
 const OTHER_INVOICE_KEY = "invoice-other";
 const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
+const EBAY_GROUP_KEY = "invoice-ebay";
+const EBAY_GROUP_LABEL = "eBay";
 type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
 const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
 const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
@@ -552,11 +554,17 @@ function getItemLabels(items: PurchaseItem[]): InventoryItemLabel[] {
   return items.flatMap((item) => item.itemLabels ?? []).filter((label) => label.labelId);
 }
 
+function preferredManagementNo(currentManagementNo?: string | null, labelManagementNo?: string | null, fallback = "-"): string {
+  return cleanLegacyManagementNo(currentManagementNo ?? "") || cleanLegacyManagementNo(labelManagementNo ?? "") || fallback;
+}
+
 function getManagementNos(items: PurchaseItem[]): string[] {
   return unique(
     items.flatMap((item) => {
       const parsed = parseEtc(item.etc);
-      const labelNos = (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
+      const labelNos = parsed.managementNo
+        ? []
+        : (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
       return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos]
         .map(cleanLegacyManagementNo);
     }),
@@ -573,8 +581,13 @@ function parseInvoiceFromManagementNo(managementNo: string): { invoiceNo: string
   };
 }
 
+function isEbayManagementNo(managementNo: string | null | undefined): boolean {
+  return /^ebay(?:[_-]|$)/i.test(cleanLegacyManagementNo(managementNo ?? ""));
+}
+
 function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; partner: string } {
-  for (const managementNo of getManagementNos(row.purchase_items)) {
+  const managementNos = getManagementNos(row.purchase_items);
+  for (const managementNo of managementNos) {
     const parsed = parseInvoiceFromManagementNo(managementNo);
     if (parsed) {
       return {
@@ -583,6 +596,13 @@ function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; par
         partner: parsed.partner,
       };
     }
+  }
+  if (managementNos.some(isEbayManagementNo)) {
+    return {
+      key: EBAY_GROUP_KEY,
+      invoiceNo: EBAY_GROUP_LABEL,
+      partner: EBAY_GROUP_LABEL,
+    };
   }
   return {
     key: OTHER_INVOICE_KEY,
@@ -1161,7 +1181,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
       const managementNo = parseEtc(item.etc).managementNo;
       const title = actualProductTitle(item);
       return (item.itemLabels ?? []).map((label) => {
-        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo || "-";
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
         return {
           key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -1206,7 +1226,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
       .filter(isInventoryPrintableLabel)
       .slice(0, stockQuantity)
       .map((label) => {
-        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo;
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
         return {
           key: `inventory-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -1227,6 +1247,52 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           carrier: null,
         };
       });
+  });
+}
+
+function buildClosedInvoiceInventoryLabelViews(
+  rows: PurchaseRow[],
+  invoiceSummaries?: PurchaseRegistrationInvoice[],
+): LabelView[] {
+  if (invoiceSummaries === undefined) return [];
+  const openInvoiceKeys = new Set(invoiceSummaries.map((summary) => `invoice-${summary.invoiceNo}`));
+  return rows.flatMap((row) => {
+    const invoiceInfo = getInvoiceInfo(row);
+    if (invoiceInfo.key === OTHER_INVOICE_KEY || invoiceInfo.key === EBAY_GROUP_KEY) return [];
+    if (openInvoiceKeys.has(invoiceInfo.key)) return [];
+
+    const supplier = getSupplier(row);
+    return row.purchase_items.flatMap((item) => {
+      const stockQuantity = Math.max(0, Math.floor(itemStockQuantity(item)));
+      if (stockQuantity <= 0) return [];
+      const title = actualProductTitle(item);
+      const managementNo = parseEtc(item.etc).managementNo;
+      return (item.itemLabels ?? [])
+        .filter(isInventoryPrintableLabel)
+        .slice(0, stockQuantity)
+        .map((label) => {
+          const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+          return {
+            key: `closed-invoice-stock-${row.id}-${item.id}-${label.id ?? label.labelId}`,
+            labelId: label.labelId,
+            rawStatus: label.status || "stocked",
+            status: labelStatusLabel(label.status || "stocked"),
+            title,
+            printTitle: formatLabelPrintTitle(title),
+            category: (item.category ?? "").trim() || stockModelName(title),
+            legacyManagementNo,
+            allocationLabel: "",
+            unitPrice: toNumber(item.unit_price),
+            supplier,
+            purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
+            rowId: row.id,
+            itemId: item.id,
+            inventoryId: label.localInventoryId ?? item.inventory_id ?? null,
+            trackingNumber: row.extra?.trackingNumber ?? null,
+            carrier: row.extra?.carrier ?? null,
+          };
+        });
+    });
   });
 }
 
@@ -1501,7 +1567,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
       })
       .slice(0, stockQuantity)
       .map((label) => {
-        const legacyManagementNo = cleanLegacyManagementNo(label.legacyManagementNo) || managementNo;
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
         return {
           key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
           labelId: label.labelId,
@@ -1846,6 +1912,7 @@ function deliveryPartnerCode(group: AllocationGroup | null): string {
   if (text.includes("nele") || text.includes("ネレ")) return "Nele";
   if (text.includes("devon") || text.includes("デボン")) return "devon";
   if (text.includes("luca") || text.includes("ルカ")) return "luca";
+  if (text.includes("ebay")) return "ebay";
   const ascii = text.match(/[a-z0-9]+/g)?.join("") ?? "";
   return ascii || "stock";
 }
@@ -1952,6 +2019,7 @@ function mergeLabelViewsById(...groups: LabelView[][]): LabelView[] {
 
 function groupKeyFromLabel(label: LabelView): string {
   const parsed = parseInvoiceFromManagementNo(label.legacyManagementNo);
+  if (!parsed && isEbayManagementNo(label.legacyManagementNo)) return EBAY_GROUP_KEY;
   return parsed ? `invoice-${parsed.invoiceNo}` : INVENTORY_LABEL_GROUP_KEY;
 }
 
@@ -2155,7 +2223,12 @@ function buildAllocationGroups(
 
   const groups = Array.from(map.entries())
     .flatMap(([key, groupRows]) => {
-      if (key !== OTHER_INVOICE_KEY && shouldFilterClosedInvoices && !invoiceSummaryByKey.has(key)) return [];
+      if (
+        key !== OTHER_INVOICE_KEY &&
+        key !== EBAY_GROUP_KEY &&
+        shouldFilterClosedInvoices &&
+        !invoiceSummaryByKey.has(key)
+      ) return [];
       const first = groupRows[0];
       const supplier = getSupplier(first);
       const products = buildProductSummaries(groupRows);
@@ -2176,10 +2249,13 @@ function buildAllocationGroups(
       const invoiceSummary = invoiceSummaryByKey.get(key);
       const partners = unique(groupRows.map((row) => getInvoiceInfo(row).partner).filter(Boolean));
       const partnerLabel = invoiceSummary?.partner || partners.join(" / ");
+      const isEbayGroup = invoiceInfo.key === EBAY_GROUP_KEY;
       const label =
         invoiceInfo.key === OTHER_INVOICE_KEY
           ? "在庫"
-          : `No.${invoiceInfo.invoiceNo}${partnerLabel ? ` ${partnerLabel}` : ""}`;
+          : isEbayGroup
+            ? EBAY_GROUP_LABEL
+            : `No.${invoiceInfo.invoiceNo}${partnerLabel ? ` ${partnerLabel}` : ""}`;
       return [{
         key,
         label,
@@ -2220,8 +2296,40 @@ function buildAllocationGroups(
   return groups.sort((a, b) => {
     if (a.key === OTHER_INVOICE_KEY) return 1;
     if (b.key === OTHER_INVOICE_KEY) return -1;
+    if (a.key === EBAY_GROUP_KEY) return 1;
+    if (b.key === EBAY_GROUP_KEY) return -1;
     return b.key.localeCompare(a.key, "ja", { numeric: true });
   });
+}
+
+function mergeAllocationGroupsByKey(groups: AllocationGroup[]): AllocationGroup[] {
+  const result: AllocationGroup[] = [];
+  const indexByKey = new Map<string, number>();
+  for (const group of groups) {
+    const index = indexByKey.get(group.key);
+    if (index === undefined) {
+      indexByKey.set(group.key, result.length);
+      result.push(group);
+      continue;
+    }
+
+    const current = result[index];
+    const labels = mergeLabelViewsById(current.labels, group.labels);
+    result[index] = {
+      ...current,
+      rows: [...current.rows, ...group.rows],
+      products: [...current.products, ...group.products],
+      labels,
+      required: labels.length > 0 ? labels.length : current.required + group.required,
+      secured: labels.length > 0 ? labels.length : current.secured + group.secured,
+      waiting: current.waiting + group.waiting,
+      purchaseTotal: current.purchaseTotal + group.purchaseTotal,
+      invoiceOrderQty: current.invoiceOrderQty ?? group.invoiceOrderQty,
+      invoiceDeliveredQty: current.invoiceDeliveredQty ?? group.invoiceDeliveredQty,
+      invoiceRemainingQty: labels.length > 0 ? labels.length : (current.invoiceRemainingQty ?? group.invoiceRemainingQty),
+    };
+  }
+  return result;
 }
 
 function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: PurchaseRow[]): PurchaseRow[] {
@@ -5604,27 +5712,70 @@ export default function PurchaseRegistration() {
   const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
   const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
   const inventoryLabels = useMemo(() => buildInventoryLabelViews(inventoryItems), [inventoryItems]);
+  const closedInvoiceInventoryLabels = useMemo(
+    () => buildClosedInvoiceInventoryLabelViews(countableRows, purchaseRegistrationInvoices),
+    [countableRows, purchaseRegistrationInvoices],
+  );
+  const ebayInventoryLabels = useMemo(
+    () => mergeLabelViewsById(inventoryLabels, closedInvoiceInventoryLabels).filter((label) => isEbayManagementNo(label.legacyManagementNo)),
+    [closedInvoiceInventoryLabels, inventoryLabels],
+  );
+  const regularInventoryLabels = useMemo(
+    () => mergeLabelViewsById(inventoryLabels, closedInvoiceInventoryLabels).filter((label) => !isEbayManagementNo(label.legacyManagementNo)),
+    [closedInvoiceInventoryLabels, inventoryLabels],
+  );
+  const ebayInventoryLabelGroup = useMemo<AllocationGroup | null>(() => {
+    if (ebayInventoryLabels.length === 0) return null;
+    return {
+      key: EBAY_GROUP_KEY,
+      label: EBAY_GROUP_LABEL,
+      partner: EBAY_GROUP_LABEL,
+      rows: [],
+      products: [],
+      labels: ebayInventoryLabels,
+      required: ebayInventoryLabels.length,
+      secured: ebayInventoryLabels.length,
+      waiting: 0,
+      purchaseTotal: ebayInventoryLabels.reduce((total, label) => total + label.unitPrice, 0),
+      invoiceOrderQty: ebayInventoryLabels.length,
+      invoiceDeliveredQty: 0,
+      invoiceRemainingQty: ebayInventoryLabels.length,
+    };
+  }, [ebayInventoryLabels]);
   const inventoryLabelGroup = useMemo<AllocationGroup | null>(() => {
-    if (inventoryItems.length === 0 && inventoryLabels.length === 0) return null;
+    if (regularInventoryLabels.length === 0) return null;
     return {
       key: INVENTORY_LABEL_GROUP_KEY,
       label: "在庫一覧",
       partner: "在庫",
       rows: [],
       products: [],
-      labels: inventoryLabels,
-      required: inventoryLabels.length,
-      secured: inventoryLabels.length,
+      labels: regularInventoryLabels,
+      required: regularInventoryLabels.length,
+      secured: regularInventoryLabels.length,
       waiting: 0,
-      purchaseTotal: inventoryLabels.reduce((total, label) => total + label.unitPrice, 0),
-      invoiceOrderQty: inventoryLabels.length,
+      purchaseTotal: regularInventoryLabels.reduce((total, label) => total + label.unitPrice, 0),
+      invoiceOrderQty: regularInventoryLabels.length,
       invoiceDeliveredQty: 0,
-      invoiceRemainingQty: inventoryLabels.length,
+      invoiceRemainingQty: regularInventoryLabels.length,
     };
-  }, [inventoryItems.length, inventoryLabels]);
+  }, [regularInventoryLabels]);
   const labelPrintGroups = useMemo(
-    () => (inventoryLabelGroup ? [...invoiceGroups, inventoryLabelGroup] : invoiceGroups),
-    [inventoryLabelGroup, invoiceGroups],
+    () =>
+      mergeAllocationGroupsByKey([
+        ...invoiceGroups,
+        ...(ebayInventoryLabelGroup ? [ebayInventoryLabelGroup] : []),
+        ...(inventoryLabelGroup ? [inventoryLabelGroup] : []),
+      ]),
+    [ebayInventoryLabelGroup, inventoryLabelGroup, invoiceGroups],
+  );
+  const deliveryInvoiceOptions = useMemo(
+    () =>
+      mergeAllocationGroupsByKey([
+        ...invoiceGroups,
+        ...(ebayInventoryLabelGroup ? [ebayInventoryLabelGroup] : []),
+      ]),
+    [ebayInventoryLabelGroup, invoiceGroups],
   );
   const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
   const selectedLabelPrintGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
@@ -6212,7 +6363,7 @@ export default function PurchaseRegistration() {
               <TabsContent value="shipping">
                 <ShippingPanel
                   group={selectedShippingGroup}
-                  invoiceOptions={invoiceGroups}
+                  invoiceOptions={deliveryInvoiceOptions}
                   labels={selectedShippingLabels}
                   allLabels={allScannableLabels}
                   products={selectedOpenProducts}

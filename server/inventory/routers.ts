@@ -3078,7 +3078,11 @@ export const inventoryRouter = router({
           if (lp) {
             // purchaseItemsの先頭要素からunitPrice・etcを取得
             const firstItem = input.purchaseItems?.[0];
+            const firstInventoryId = firstItem?.inventoryId ?? lp.localInventoryId;
             const lpUpdateData: Partial<typeof lpTbl.$inferInsert> = {};
+            if (firstInventoryId && lp.localInventoryId !== firstInventoryId) {
+              lpUpdateData.localInventoryId = firstInventoryId;
+            }
             let itemsJsonCache: Array<Record<string, unknown>> | null = null;
             const updateFirstItemJson = (changes: Record<string, unknown>) => {
               try {
@@ -3100,8 +3104,8 @@ export const inventoryRouter = router({
               (lpUpdateData as Record<string, unknown>).unitPrice = unitPrice;
               updateFirstItemJson({ unit_price: unitPrice, unitPrice });
               // local_inventoriesの単価も更新
-              if (lp.localInventoryId) {
-                await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, lp.localInventoryId));
+              if (firstInventoryId) {
+                await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, firstInventoryId));
               }
             }
             if (firstItem?.quantity !== undefined) {
@@ -3113,28 +3117,42 @@ export const inventoryRouter = router({
               const nextTitle = firstItem.title.trim();
               (lpUpdateData as Record<string, unknown>).title = nextTitle;
               updateFirstItemJson({ title: nextTitle });
-              if (lp.localInventoryId) {
-                await db.update(liTbl).set({ title: nextTitle }).where(eq(liTbl.id, lp.localInventoryId));
+              if (firstInventoryId) {
+                await db.update(liTbl).set({ title: nextTitle }).where(eq(liTbl.id, firstInventoryId));
               }
             }
             if (firstItem?.etc !== undefined) {
               const nextManagementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
               lpUpdateData.managementNo = nextManagementNo;
               updateFirstItemJson({ etc: firstItem.etc });
-              if (lp.localInventoryId) {
-                await db.update(liTbl).set({ etc: firstItem.etc || nextManagementNo || null }).where(eq(liTbl.id, lp.localInventoryId));
+              if (firstInventoryId) {
+                await db.update(liTbl).set({ etc: firstItem.etc || nextManagementNo || null }).where(eq(liTbl.id, firstInventoryId));
               }
             }
             if (firstItem?.category !== undefined) {
               const nextCategory = normalizeCategoryName(firstItem.category) || null;
               (lpUpdateData as Record<string, unknown>).category = nextCategory;
               updateFirstItemJson({ category: nextCategory });
-              if (lp.localInventoryId) {
-                await db.update(liTbl).set({ category: nextCategory }).where(eq(liTbl.id, lp.localInventoryId));
+              if (firstInventoryId) {
+                await db.update(liTbl).set({ category: nextCategory }).where(eq(liTbl.id, firstInventoryId));
               }
             }
             if (Object.keys(lpUpdateData).length > 0) {
               await db.update(lpTbl).set(lpUpdateData).where(eq(lpTbl.id, lp.id));
+            }
+            if (firstItem) {
+              const nextManagementNo = firstItem.etc !== undefined
+                ? firstItem.etc.split(",")[0]?.trim() || null
+                : lp.managementNo ?? null;
+              await ensureInventoryItemLabels({
+                purchaseId: lp.id,
+                localInventoryId: firstInventoryId ?? null,
+                legacyManagementNo: nextManagementNo,
+                title: firstItem.title?.trim() || lp.title || "",
+                quantity: Math.max(1, Math.round(Number(firstItem.quantity ?? lp.quantity ?? 1) || 1)),
+                status: lp.status === "purchased" ? "received" : "ordered",
+                sourceKey: nextManagementNo ? `management:${nextManagementNo}` : null,
+              });
             }
           }
           return { success: true };
@@ -3474,6 +3492,14 @@ export const inventoryRouter = router({
                 : "normal",
             };
             await updateLocalInventory(localInv.id, nextValues);
+            await ensureInventoryItemLabelsForInventory({
+              localInventoryId: localInv.id,
+              legacyManagementNo: nextManagementNo,
+              title: payload.title,
+              quantity: inventoryLabelQuantity(nextValues.quantity),
+              status: inventoryInitialLabelStatus(nextValues.quantity),
+              sourceKey: `inventory:${localInv.id}`,
+            });
             // 在庫変動履歴を残す。skipChangeLog=true の呼び出し元は自前でメモを書く
             if (!skipChangeLog) {
               const diffs = diffInventoryFields(
@@ -3568,6 +3594,14 @@ export const inventoryRouter = router({
 
         const token = resolveOperatorToken(operatorKey);
         const result = await updateInventory(inventoryId, payload, token);
+        await ensureInventoryItemLabelsForInventory({
+          localInventoryId: inventoryId,
+          legacyManagementNo: getInventoryManagementNo(payload.etc),
+          title: payload.title,
+          quantity: inventoryLabelQuantity(payload.quantity),
+          status: inventoryInitialLabelStatus(payload.quantity),
+          sourceKey: `inventory:${inventoryId}`,
+        }).catch(() => {});
         // supplierUrlを更新
         await upsertInventoryExtra({
           zaicoInventoryId: inventoryId,

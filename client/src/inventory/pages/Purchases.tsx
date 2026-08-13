@@ -530,7 +530,7 @@ interface PurchaseCardMobileProps {
   onComplete: () => void;
   processing: boolean;
   deleting: Set<number>;
-  onDeleteInventory: (inventoryId: number, title: string) => void;
+  onDeleteInventory: (inventoryId: number, title: string, purchaseId?: number) => void;
   statusLabel: Record<string, string>;
   CARRIER_OPTIONS: { value: string; label: string }[];
   getStatusClass: (purchase: Purchase) => string;
@@ -665,7 +665,7 @@ function PurchaseCardMobile({
                     <AlertDialogCancel>キャンセル</AlertDialogCancel>
                     <AlertDialogAction
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={() => onDeleteInventory(item.inventory_id, item.title)}
+                      onClick={() => onDeleteInventory(item.inventory_id, item.title, purchase.id)}
                     >
                       削除する
                     </AlertDialogAction>
@@ -1487,13 +1487,26 @@ export default function Purchases() {
     }
   }
 
-  async function handleDeleteInventory(inventoryId: number, title: string) {
+  async function handleDeleteInventory(inventoryId: number, title: string, purchaseId?: number) {
     if (deletingIds.has(inventoryId)) return;
-    setDeletingIds((prev) => new Set(prev).add(inventoryId));
+    setDeletingIds((prev) => {
+      const next = new Set(prev).add(inventoryId);
+      if (purchaseId) next.add(purchaseId);
+      return next;
+    });
     try {
-      await deleteInventoryMutation.mutateAsync({ inventoryId });
+      await deleteInventoryMutation.mutateAsync({
+        inventoryId,
+        operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
+        ...(purchaseId ? { alsoDeletePurchaseIds: [purchaseId] } : {}),
+      });
       toast.success(`「${title}」を削除しました`);
-      refetch();
+      await Promise.all([
+        refetch(),
+        refetchInventories(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      ]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "削除に失敗しました";
       toast.error(msg);
@@ -1501,29 +1514,55 @@ export default function Purchases() {
       setDeletingIds((prev) => {
         const next = new Set(prev);
         next.delete(inventoryId);
+        if (purchaseId) next.delete(purchaseId);
         return next;
       });
     }
   }
 
-  async function handleDeletePurchaseOnly(purchaseId: number, title: string) {
-    if (deletingIds.has(purchaseId)) return;
-    setDeletingIds((prev) => new Set(prev).add(purchaseId));
+  async function handleDeletePurchaseAndInventory(purchase: Purchase, title: string) {
+    const inventoryIds = Array.from(new Set(
+      purchase.purchase_items
+        .map((item) => Number(item.inventory_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ));
+    const lockIds = [purchase.id, ...inventoryIds];
+    if (lockIds.some((id) => deletingIds.has(id))) return;
+    setDeletingIds((prev) => {
+      const next = new Set(prev);
+      lockIds.forEach((id) => next.add(id));
+      return next;
+    });
     try {
-      await deletePurchaseOnlyMutation.mutateAsync({
-        purchaseId,
-        operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
-      });
-      const msg = `「${title}」の発注データだけ削除しました`;
-      toast.success(msg);
-      refetch();
+      if (inventoryIds.length > 0) {
+        for (let index = 0; index < inventoryIds.length; index += 1) {
+          await deleteInventoryMutation.mutateAsync({
+            inventoryId: inventoryIds[index],
+            operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
+            ...(index === 0 ? { alsoDeletePurchaseIds: [purchase.id] } : {}),
+          });
+        }
+        toast.success(`「${title}」を在庫一覧からも削除しました`);
+      } else {
+        await deletePurchaseOnlyMutation.mutateAsync({
+          purchaseId: purchase.id,
+          operatorKey: (selectedOperatorKey as "default" | "A" | "B"),
+        });
+        toast.success(`「${title}」の発注データを削除しました`);
+      }
+      await Promise.all([
+        refetch(),
+        refetchInventories(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      ]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "削除に失敗しました";
       toast.error(msg);
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        next.delete(purchaseId);
+        lockIds.forEach((id) => next.delete(id));
         return next;
       });
     }
@@ -2259,16 +2298,16 @@ export default function Purchases() {
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle>発注データを削除しますか？</AlertDialogTitle>
+                                    <AlertDialogTitle>商品を削除しますか？</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      「{item.title}」の発注データだけ削除します。在庫データは残ります。この操作は元に戻せません。
+                                      「{item.title}」の発注データと在庫データを削除し、在庫一覧からも非表示にします。この操作は元に戻せません。
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                     <AlertDialogCancel>キャンセル</AlertDialogCancel>
                                     <AlertDialogAction
                                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                      onClick={() => handleDeletePurchaseOnly(purchase.id, item.title)}
+                                      onClick={() => handleDeletePurchaseAndInventory(purchase as Purchase, item.title)}
                                     >
                                       削除する
                                     </AlertDialogAction>
