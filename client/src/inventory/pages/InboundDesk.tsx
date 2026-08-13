@@ -24,18 +24,72 @@ import {
   RefreshCw,
   RotateCcw,
   ScanLine,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Phase = "receive" | "inspect" | "review";
-type InspectionOutcome = "stocked" | "defective" | "returned";
+type InspectionOutcome = "stocked" | "defective" | "junk" | "returned";
+/** 不良と判定したときの仕分け先 */
+type DefectDestination = Exclude<InspectionOutcome, "stocked">;
 
 const PHASES: Array<{ value: Phase; number: string; label: string }> = [
   { value: "receive", number: "①", label: "受け取り" },
-  { value: "inspect", number: "②", label: "検品" },
+  { value: "inspect", number: "②", label: "動作確認" },
   { value: "review", number: "③", label: "確認" },
 ];
+
+const OUTCOME_LABELS: Record<InspectionOutcome, string> = {
+  stocked: "動作確認OK",
+  defective: "不良・代替品仕入依頼",
+  junk: "不良・ジャンク売",
+  returned: "不良・返品",
+};
+
+const DEFECT_DESTINATIONS: Array<{
+  value: DefectDestination;
+  label: string;
+  hint: string;
+}> = [
+  {
+    value: "defective",
+    label: "代替品仕入依頼",
+    hint: "不良在庫にして、野田さんへ代替品の仕入れ依頼を出します",
+  },
+  { value: "junk", label: "ジャンク売", hint: "ジャンク売り在庫に回します" },
+  { value: "returned", label: "返品", hint: "仕入先へ返品します" },
+];
+
+/** 動作確認の入力途中を端末に残しておくキー（QR印刷などへ移動しても消えないように） */
+const INSPECTION_DRAFT_STORAGE_KEY = "inbound-desk-inspection-draft-v1";
+
+type InspectionDraft = Record<string, DefectDestination | "stocked">;
+
+function loadInspectionDraft(): InspectionDraft {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(INSPECTION_DRAFT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as InspectionDraft;
+  } catch {
+    return {};
+  }
+}
+
+function saveInspectionDraft(draft: InspectionDraft) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      INSPECTION_DRAFT_STORAGE_KEY,
+      JSON.stringify(draft)
+    );
+  } catch {
+    // 保存できなくても動作確認自体は続けられるので握りつぶす
+  }
+}
 
 const CARRIER_LABELS: Record<string, string> = {
   yamato: "ヤマト運輸",
@@ -419,7 +473,7 @@ function ReceivePhase({
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">荷受け済み・未検品</h2>
+          <h2 className="text-lg font-semibold">荷受け済み・動作確認待ち</h2>
           <Badge variant="secondary">
             {boxes.length.toLocaleString()}箱 /{" "}
             {boxes
@@ -432,7 +486,7 @@ function ReceivePhase({
           boxes.map(box => <InboundBoxCard key={box.key} box={box} />)
         ) : (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-            検品待ちの箱はありません
+            動作確認待ちの箱はありません
           </div>
         )}
       </section>
@@ -441,7 +495,7 @@ function ReceivePhase({
         <div>
           <h2 className="text-lg font-semibold">インボイス別の埋まり具合</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            検品待ちがすべて合格した場合の見込みです。
+            動作確認待ちがすべて合格した場合の見込みです。
           </p>
         </div>
         <InvoiceRollupTable rollups={rollups} projected />
@@ -459,11 +513,27 @@ function InspectPhase({
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [scanValue, setScanValue] = useState("");
+  const [draft, setDraft] = useState<InspectionDraft>(() =>
+    loadInspectionDraft()
+  );
+  const [isCommitting, setIsCommitting] = useState(false);
   const inspectMutation = trpc.inventory.inboundDesk.inspect.useMutation();
   const utils = trpc.useUtils();
   const pendingLabels = useMemo(
     () => boxes.flatMap(box => box.labels),
     [boxes]
+  );
+
+  // 判定済みだが未登録のものだけを数える。登録済みは一覧から消えるので下書きからも落とす。
+  const draftEntries = useMemo(
+    () =>
+      pendingLabels
+        .map(label => ({ label, outcome: draft[label.labelId] }))
+        .filter(
+          (entry): entry is { label: InboundLabel; outcome: InspectionOutcome } =>
+            Boolean(entry.outcome)
+        ),
+    [draft, pendingLabels]
   );
 
   const focusScanInput = () => {
@@ -475,66 +545,99 @@ function InspectPhase({
     focusScanInput();
   }, []);
 
-  async function processLabel(label: InboundLabel, outcome: InspectionOutcome) {
-    if (inspectMutation.isPending) return;
-    if (
-      outcome === "defective" &&
-      !window.confirm(`${label.labelId} を不良在庫にしますか？`)
-    )
-      return;
-    if (
-      outcome === "returned" &&
-      !window.confirm(`${label.labelId} を仕入先返品に回しますか？`)
-    )
-      return;
+  function updateDraft(labelId: string, outcome: InspectionOutcome | null) {
+    setDraft(current => {
+      const next = { ...current };
+      if (outcome) next[labelId] = outcome;
+      else delete next[labelId];
+      saveInspectionDraft(next);
+      return next;
+    });
+  }
+
+  /** 一覧から消えた（＝登録済みの）商品の下書きを掃除する */
+  function pruneDraft(labelIds: string[]) {
+    setDraft(current => {
+      const next = { ...current };
+      for (const labelId of labelIds) delete next[labelId];
+      saveInspectionDraft(next);
+      return next;
+    });
+  }
+
+  /** 下書きの判定をまとめて入庫登録する */
+  async function commitDraft() {
+    if (isCommitting || draftEntries.length === 0) return;
+    const defectCount = draftEntries.filter(
+      entry => entry.outcome !== "stocked"
+    ).length;
+    const confirmMessage = defectCount
+      ? `${draftEntries.length}台を入庫登録します。うち${defectCount}台は不良として仕分けます。よろしいですか？`
+      : `${draftEntries.length}台を入庫登録します。よろしいですか？`;
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsCommitting(true);
+    const done: string[] = [];
+    const failed: string[] = [];
+    let actionItemCount = 0;
     try {
-      const result = await inspectMutation.mutateAsync({
-        labelId: label.labelId,
-        outcome,
-      });
-      if (outcome === "stocked")
-        toast.success(`${label.labelId} を在庫化しました`);
-      if (outcome === "defective") {
-        toast.success(
-          result.actionItemId
-            ? "不良在庫へ移し、野田さんへの代替品依頼を作成しました"
-            : "不良在庫へ移しました"
-        );
+      for (const entry of draftEntries) {
+        try {
+          const result = await inspectMutation.mutateAsync({
+            labelId: entry.label.labelId,
+            outcome: entry.outcome,
+          });
+          if (result.actionItemId) actionItemCount += 1;
+          done.push(entry.label.labelId);
+        } catch (error) {
+          failed.push(entry.label.labelId);
+          toast.error(
+            `${entry.label.labelId}: ${
+              error instanceof Error ? error.message : "登録できませんでした"
+            }`
+          );
+        }
       }
-      if (outcome === "returned")
-        toast.success(`${label.labelId} を仕入先返品に回しました`);
-      setScanValue("");
-      await Promise.all([
-        utils.inventory.inboundDesk.snapshot.invalidate(),
-        utils.inventory.orderManagement.getSummary.invalidate(),
-        utils.inventory.actionItems.list.invalidate(),
-        utils.inventory.zaico.getInventories.invalidate(),
-      ]);
-      await onRefresh();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "検品結果を登録できませんでした"
-      );
+      if (done.length) {
+        pruneDraft(done);
+        toast.success(
+          actionItemCount
+            ? `${done.length}台を入庫登録し、代替品の仕入れ依頼を${actionItemCount}件作成しました`
+            : `${done.length}台を入庫登録しました`
+        );
+        await Promise.all([
+          utils.inventory.inboundDesk.snapshot.invalidate(),
+          utils.inventory.orderManagement.getSummary.invalidate(),
+          utils.inventory.actionItems.list.invalidate(),
+          utils.inventory.zaico.getInventories.invalidate(),
+        ]);
+        await onRefresh();
+      }
+      if (failed.length)
+        toast.error(`${failed.length}台は登録できませんでした（下書きに残しています）`);
     } finally {
+      setIsCommitting(false);
       focusScanInput();
     }
   }
 
-  async function submitAcceptedScan() {
+  /** スキャンした商品を「動作確認OK」として下書きに入れる */
+  function submitAcceptedScan() {
     const normalized = scanValue.normalize("NFKC").trim().toUpperCase();
     if (!normalized) return;
     const label = pendingLabels.find(
       candidate => candidate.labelId.trim().toUpperCase() === normalized
     );
     if (!label) {
-      toast.error("検品待ちの商品IDに一致しません");
+      toast.error("動作確認待ちの商品IDに一致しません");
       setScanValue("");
       focusScanInput();
       return;
     }
-    await processLabel(label, "stocked");
+    updateDraft(label.labelId, "stocked");
+    toast.success(`${label.labelId} を動作確認OKにしました`);
+    setScanValue("");
+    focusScanInput();
   }
 
   return (
@@ -542,10 +645,12 @@ function InspectPhase({
       <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-emerald-950">
           <CheckCircle2 className="h-5 w-5" />
-          合格した商品だけラベルを貼る
+          一つずつ動作確認して合否を入れる
         </h2>
         <p className="mt-1 text-sm text-emerald-900">
-          合格品にラベルを貼り、商品IDをスキャンすると在庫化します。不良品にはラベルを貼りません。
+          合格品にラベルを貼って商品IDをスキャンすると「動作確認OK」に入ります。
+          不良は下のカードから仕分け先を選んでください。判定は一時保存され、
+          「入庫登録」を押すまで在庫には反映されません。
         </p>
         <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
           <Input
@@ -553,7 +658,7 @@ function InspectPhase({
             value={scanValue}
             onChange={event => setScanValue(event.target.value)}
             onKeyDown={event => {
-              if (event.key === "Enter") void submitAcceptedScan();
+              if (event.key === "Enter") submitAcceptedScan();
             }}
             placeholder="合格品に貼った7文字の商品IDをスキャン"
             autoComplete="off"
@@ -562,23 +667,75 @@ function InspectPhase({
           <Button
             type="button"
             className="h-12"
-            onClick={() => void submitAcceptedScan()}
-            disabled={!scanValue.trim() || inspectMutation.isPending}
+            onClick={() => submitAcceptedScan()}
+            disabled={!scanValue.trim() || isCommitting}
           >
-            {inspectMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <PackageCheck className="mr-2 h-4 w-4" />
-            )}
-            合格・在庫化
+            <PackageCheck className="mr-2 h-4 w-4" />
+            動作確認OK
           </Button>
         </div>
+      </section>
+
+      <section
+        className={cn(
+          "sticky top-2 z-10 rounded-xl border p-4 shadow-sm",
+          draftEntries.length
+            ? "border-blue-200 bg-blue-50"
+            : "border-dashed bg-background"
+        )}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-muted-foreground">
+              判定済み（一時保存）
+            </div>
+            <div className="text-2xl font-bold tabular-nums">
+              {draftEntries.length.toLocaleString()}
+              <span className="ml-1 text-base font-normal text-muted-foreground">
+                / {pendingLabels.length.toLocaleString()}台
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                if (!draftEntries.length) return;
+                if (!window.confirm("入力した判定をすべて取り消しますか？")) return;
+                pruneDraft(draftEntries.map(entry => entry.label.labelId));
+              }}
+              disabled={!draftEntries.length || isCommitting}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              判定を取り消す
+            </Button>
+            <Button
+              type="button"
+              className="h-11"
+              onClick={() => void commitDraft()}
+              disabled={!draftEntries.length || isCommitting}
+            >
+              {isCommitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+              )}
+              入庫登録（{draftEntries.length}台）
+            </Button>
+          </div>
+        </div>
+        {draftEntries.length ? (
+          <p className="mt-2 text-xs text-blue-900">
+            この判定は端末に保存されています。QR印刷などへ移動して戻ってきても消えません。
+          </p>
+        ) : null}
       </section>
 
       {boxes.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center">
           <ClipboardCheck className="mx-auto h-8 w-8 text-emerald-600" />
-          <div className="mt-2 font-semibold">検品待ちは0台です</div>
+          <div className="mt-2 font-semibold">動作確認待ちは0台です</div>
         </div>
       ) : (
         boxes.map(box => (
@@ -598,35 +755,89 @@ function InspectPhase({
               <Badge>{box.labels.length.toLocaleString()}台</Badge>
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {box.labels.map(label => (
-                <div
-                  key={label.labelId}
-                  className="rounded-lg border bg-background p-3"
-                >
-                  <LabelDetails label={label} />
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-amber-300 text-amber-800 hover:bg-amber-50"
-                      onClick={() => void processLabel(label, "defective")}
-                      disabled={inspectMutation.isPending}
-                    >
-                      <TriangleAlert className="mr-2 h-4 w-4" />
-                      不良（国内販売）
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void processLabel(label, "returned")}
-                      disabled={inspectMutation.isPending}
-                    >
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      仕入先へ返品
-                    </Button>
+              {box.labels.map(label => {
+                const decided = draft[label.labelId];
+                return (
+                  <div
+                    key={label.labelId}
+                    className={cn(
+                      "rounded-lg border bg-background p-3",
+                      decided === "stocked" && "border-emerald-300 bg-emerald-50/60",
+                      decided && decided !== "stocked" && "border-amber-300 bg-amber-50/60"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <LabelDetails label={label} />
+                      {decided ? (
+                        <Badge
+                          variant={decided === "stocked" ? "default" : "secondary"}
+                          className="shrink-0"
+                        >
+                          {OUTCOME_LABELS[decided]}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <Button
+                        type="button"
+                        variant={decided === "stocked" ? "default" : "outline"}
+                        className={cn(
+                          decided !== "stocked" &&
+                            "border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                        )}
+                        onClick={() => updateDraft(label.labelId, "stocked")}
+                        disabled={isCommitting}
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        動作確認OK
+                      </Button>
+                      {decided ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => updateDraft(label.labelId, null)}
+                          disabled={isCommitting}
+                        >
+                          判定をやり直す
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="mt-2">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        不良のときの仕分け先
+                      </div>
+                      <div className="mt-1 grid gap-2 sm:grid-cols-3">
+                        {DEFECT_DESTINATIONS.map(destination => (
+                          <Button
+                            key={destination.value}
+                            type="button"
+                            size="sm"
+                            variant={
+                              decided === destination.value ? "default" : "outline"
+                            }
+                            className={cn(
+                              decided !== destination.value &&
+                                "border-amber-300 text-amber-800 hover:bg-amber-50"
+                            )}
+                            title={destination.hint}
+                            onClick={() =>
+                              updateDraft(label.labelId, destination.value)
+                            }
+                            disabled={isCommitting}
+                          >
+                            {destination.value === "returned" ? (
+                              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                            ) : (
+                              <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            {destination.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </article>
         ))
@@ -661,11 +872,7 @@ function ReviewPhase({
   }>;
   rollups: InboundInvoiceRollup[];
 }) {
-  const outcomeLabel: Record<InspectionOutcome, string> = {
-    stocked: "在庫化",
-    defective: "不良在庫",
-    returned: "仕入先返品",
-  };
+  const outcomeLabel = OUTCOME_LABELS;
   return (
     <div className="space-y-6">
       <section
@@ -683,7 +890,7 @@ function ReviewPhase({
             <TriangleAlert className="h-8 w-8 text-amber-700" />
           )}
           <div>
-            <div className="text-sm font-medium">検品待ち</div>
+            <div className="text-sm font-medium">動作確認待ち</div>
             <div className="text-3xl font-bold tabular-nums">
               {pendingCount.toLocaleString()}台
             </div>
@@ -695,7 +902,7 @@ function ReviewPhase({
         <h2 className="text-lg font-semibold">直近の処理結果</h2>
         {recent.length === 0 ? (
           <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            荷受けデスクでの検品結果はまだありません
+            荷受けデスクでの動作確認の結果はまだありません
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -820,7 +1027,7 @@ export default function InboundDesk() {
         </div>
         <h1 className="mt-1 text-2xl font-bold tracking-tight">荷受け</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          段ボールを開ける前に中身と引当先を確認し、検品を通ったものだけ在庫にします。
+          段ボールを開ける前に中身と引当先を確認し、動作確認を通ったものだけ在庫にします。
         </p>
       </header>
 

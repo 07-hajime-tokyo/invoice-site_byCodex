@@ -20,7 +20,7 @@ import {
 } from "./db";
 import { recordWorkLog } from "./workLogs";
 
-type InspectionOutcome = "stocked" | "defective" | "returned";
+type InspectionOutcome = "stocked" | "defective" | "junk" | "returned";
 
 function normalizeStatus(value: unknown): string {
   return String(value ?? "")
@@ -156,17 +156,20 @@ async function insertInspectionActionItem(input: {
 async function createDefectiveInventory(input: {
   label: typeof inventoryItemLabels.$inferSelect;
   sourceInventory: typeof localInventories.$inferSelect;
+  /** 不良在庫の仕分け先。ジャンク売りは在庫一覧で見分けられるよう別カテゴリにする */
+  destination?: "defective" | "junk";
 }) {
   const db = await requireDb();
+  const isJunk = input.destination === "junk";
   const [result] = await db.insert(localInventories).values({
     zaicoId: null,
     title: input.label.title || input.sourceInventory.title,
-    category: "不良在庫",
+    category: isJunk ? "ジャンク売り" : "不良在庫",
     place: input.sourceInventory.place,
     quantity: 1,
     unit: input.sourceInventory.unit,
     unitPrice: input.sourceInventory.unitPrice,
-    etc: `在庫_不良_${input.label.labelId}`,
+    etc: `在庫_${isJunk ? "ジャンク" : "不良"}_${input.label.labelId}`,
     supplierUrl: input.sourceInventory.supplierUrl,
     supplierName: input.sourceInventory.supplierName,
     ebayListingUrl: null,
@@ -178,7 +181,9 @@ async function createDefectiveInventory(input: {
   if (!inventoryId)
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "不良在庫を作成できませんでした",
+      message: isJunk
+        ? "ジャンク在庫を作成できませんでした"
+        : "不良在庫を作成できませんでした",
     });
   return inventoryId;
 }
@@ -435,7 +440,7 @@ export const inboundDeskRouter = router({
     .input(
       z.object({
         labelId: z.string().min(1).max(80),
-        outcome: z.enum(["stocked", "defective", "returned"]),
+        outcome: z.enum(["stocked", "defective", "junk", "returned"]),
         operatorName: z.string().max(200).optional(),
       })
     )
@@ -517,7 +522,8 @@ export const inboundDeskRouter = router({
           .update(inventoryItemLabels)
           .set({ status: "stocked", receivedAt: label.receivedAt ?? now })
           .where(eq(inventoryItemLabels.id, label.id));
-      } else if (input.outcome === "defective") {
+      } else if (input.outcome === "defective" || input.outcome === "junk") {
+        const isJunk = input.outcome === "junk";
         if (counted && currentQuantity > 0) {
           await updateLocalInventory(sourceInventory.id, {
             quantity: currentQuantity - 1,
@@ -526,6 +532,7 @@ export const inboundDeskRouter = router({
         nextInventoryId = await createDefectiveInventory({
           label,
           sourceInventory,
+          destination: isJunk ? "junk" : "defective",
         });
         if (!counted) {
           const historyZaicoId =
@@ -537,7 +544,7 @@ export const inboundDeskRouter = router({
             zaicoId: historyZaicoId,
             kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
             title: label.title,
-            category: "不良在庫",
+            category: isJunk ? "ジャンク売り" : "不良在庫",
             supplier:
               purchase?.supplierName ?? sourceInventory.supplierName ?? null,
             quantity: "1",
@@ -558,12 +565,16 @@ export const inboundDeskRouter = router({
             receivedAt: label.receivedAt ?? now,
           })
           .where(eq(inventoryItemLabels.id, label.id));
-        actionItemId = await insertInspectionActionItem({
-          labelId,
-          title: label.title,
-          legacyManagementNo: label.legacyManagementNo,
-          createdBy: workerName,
-        });
+        // 代替品の仕入れ依頼は「代替品仕入依頼」を選んだときだけ出す。
+        // ジャンク売りは手元で売り切る仕分けなので依頼を作らない。
+        if (!isJunk) {
+          actionItemId = await insertInspectionActionItem({
+            labelId,
+            title: label.title,
+            legacyManagementNo: label.legacyManagementNo,
+            createdBy: workerName,
+          });
+        }
       } else {
         if (counted && currentQuantity > 0) {
           await updateLocalInventory(sourceInventory.id, {
