@@ -98,7 +98,7 @@ function exportInventoryCSV(inventories: InventoryItem[]) {
   ];
   for (const inv of inventories) {
     const managementNo = getManagementNo(inv.etc);
-    const cat = inv.categories?.[0] ?? inv.category ?? "";
+    const cat = getInventoryDisplayCategory(inv);
     const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
     const stockQty = parseFloat(inv.quantity ?? "0");
     const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
@@ -126,6 +126,26 @@ function exportInventoryCSV(inventories: InventoryItem[]) {
 }
 
 /** 入庫日または最終更新日からの経過日数を返す */
+function normalizeInventoryCategoryName(category?: string | null, title?: string | null): string {
+  const raw = (category ?? "").trim();
+  const compact = `${raw} ${title ?? ""}`.normalize("NFKC").toLowerCase().replace(/[\s\u3000_-]+/g, "");
+  if (
+    compact.includes("vita1000") ||
+    compact.includes("psvita1000") ||
+    compact.includes("pch1000") ||
+    compact.includes("vita1100") ||
+    compact.includes("psvita1100") ||
+    compact.includes("pch1100")
+  ) {
+    return "Vita1000";
+  }
+  return raw || "未分類";
+}
+
+function getInventoryDisplayCategory(inv: InventoryItem): string {
+  return normalizeInventoryCategoryName(inv.categories?.[0] ?? inv.category, inv.title);
+}
+
 function calcDaysSince(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -720,11 +740,11 @@ export default function Deliveries() {
   const categoryOptions = useMemo(() => {
     const cats = new Set<string>();
     for (const cat of managedCategories ?? []) {
-      if (cat && cat !== "すべて" && cat !== "未分類") cats.add(cat);
+      if (cat && cat !== "すべて" && cat !== "未分類") cats.add(normalizeInventoryCategoryName(cat));
     }
     for (const inv of (inventories ?? []) as InventoryItem[]) {
       if (inv.quantity === null || inv.quantity === undefined) continue;
-      const cat = (inv.categories?.[0] ?? inv.category ?? "").trim();
+      const cat = getInventoryDisplayCategory(inv);
       if (cat && cat !== "未分類") cats.add(cat);
     }
     return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
@@ -742,7 +762,7 @@ export default function Deliveries() {
       .filter((inv) => {
         if (inv.quantity === null || inv.quantity === undefined) return false;
         if (hideZeroStock && parseFloat(inv.quantity ?? "0") <= 0) return false;
-        const cat = inv.categories?.[0] ?? inv.category ?? "未分類";
+        const cat = getInventoryDisplayCategory(inv);
         if (selectedCategory !== "すべて" && cat !== selectedCategory) return false;
         if (q) {
           const managementNo = getManagementNo(inv.etc).toLowerCase().replace(/\s+/g, "");
@@ -832,7 +852,7 @@ export default function Deliveries() {
       if (stockQty <= 0) continue;
       const price = inv.purchase_unit_price ?? inv.unit_price ?? 0;
       if (!price) continue;
-      const cat = inv.categories?.[0] ?? inv.category ?? "未分類";
+      const cat = getInventoryDisplayCategory(inv);
       totals.set(cat, (totals.get(cat) ?? 0) + price * stockQty);
     }
     return totals;
@@ -1425,7 +1445,7 @@ export default function Deliveries() {
                     ).length ?? 0
                   : (inventories as InventoryItem[] | undefined)?.filter((inv) => {
                       if (inv.quantity === null || inv.quantity === undefined) return false;
-                      const c = inv.categories?.[0] ?? inv.category ?? "未分類";
+                      const c = getInventoryDisplayCategory(inv);
                       return c === cat;
                     }).length ?? 0;
                 return (
@@ -1475,7 +1495,7 @@ export default function Deliveries() {
             const qty = item?.quantity ?? 1;
             const stockQty = parseFloat(inv.quantity ?? "0");
             const isZeroStock = stockQty <= 0;
-            const displayCategory = inv.categories?.[0] ?? inv.category ?? "-";
+            const displayCategory = getInventoryDisplayCategory(inv);
             const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
             const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
             const managementNo = getManagementNo(inv.etc);
