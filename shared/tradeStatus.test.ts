@@ -28,7 +28,7 @@ describe("tradeStatus", () => {
         orderedQty: 10,
         registeredQty: 10,
         actualShippedQty: 10,
-        fedexRegisteredQty: 10,
+        fedexRegisteredQty: 0,
         hasShipmentSignal: true,
       }),
     ).toBe("complete");
@@ -42,7 +42,7 @@ describe("tradeStatus", () => {
         orderedQty: 10,
         registeredQty: 10,
         actualShippedQty: 10,
-        fedexRegisteredQty: 10,
+        fedexRegisteredQty: 0,
         hasShipmentSignal: true,
       }),
     ).toBe("remaining 1");
@@ -70,7 +70,7 @@ describe("tradeStatus", () => {
         orderedQty: 10,
         registeredQty: 9,
         actualShippedQty: 10,
-        fedexRegisteredQty: 9,
+        fedexRegisteredQty: 10,
         hasShipmentSignal: true,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b1\u53f0\uff09");

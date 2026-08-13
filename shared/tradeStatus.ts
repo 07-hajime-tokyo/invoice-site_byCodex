@@ -39,11 +39,16 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   if (isTradeRemainingStatus(currentStatus)) return currentStatus;
 
   if (isTradeStatusComplete(currentStatus)) {
-    const fedexRegisteredQty = input.fedexRegisteredQty ?? input.registeredQty;
-    const fedexRemaining = Math.max(0, input.orderedQty - fedexRegisteredQty);
-    return fedexRemaining <= 0
+    const actualShippedQty = input.actualShippedQty ?? input.orderedQty;
+    const actualRemaining = Math.max(0, input.orderedQty - actualShippedQty);
+    if (actualRemaining > 0) {
+      return `\u6b8b${formatRemainingQty(actualRemaining)}`;
+    }
+
+    const registrationRemaining = Math.max(0, input.orderedQty - input.registeredQty);
+    return registrationRemaining <= 0
       ? "complete"
-      : `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(fedexRemaining)}\u53f0\uff09`;
+      : `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;
   }
 
   if (!input.hasShipmentSignal) return currentStatus;
@@ -55,9 +60,8 @@ export function deriveTradeShipmentRegistrationStatus(input: {
     return `\u6b8b${formatRemainingQty(actualRemaining)}`;
   }
 
-  const fedexRegisteredQty = input.fedexRegisteredQty ?? input.registeredQty;
-  const fedexRemaining = Math.max(0, input.orderedQty - fedexRegisteredQty);
-  if (fedexRemaining <= 0) return "complete";
+  const registrationRemaining = Math.max(0, input.orderedQty - input.registeredQty);
+  if (registrationRemaining <= 0) return "complete";
   if (!isTradeStatusComplete(currentStatus) && !isTradeRemainingStatus(currentStatus)) return currentStatus;
-  return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(fedexRemaining)}\u53f0\uff09`;
+  return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;
 }

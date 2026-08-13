@@ -1009,15 +1009,6 @@ async function getTradeShipmentRegistrationProgress(
     };
   }
 
-  const visibleTradesByInvoiceNo = new Map<string, TradeRow[]>();
-  for (const row of rows) {
-    const invoiceNo = String(row.no ?? "");
-    if (!invoiceNo) continue;
-    const trades = visibleTradesByInvoiceNo.get(invoiceNo) ?? [];
-    trades.push(row);
-    visibleTradesByInvoiceNo.set(invoiceNo, trades);
-  }
-
   const fedexDeliveryNoConditions = invoiceNos.flatMap((invoiceNo) => {
     const key = String(invoiceNo);
     return [
@@ -1058,16 +1049,6 @@ async function getTradeShipmentRegistrationProgress(
 
   for (const item of allItems) {
     let tradeId = getShipmentTradeRecordId(item);
-    if (!tradeId) {
-      const invoiceNo = String(item.invoiceNo);
-      const visibleTrades = visibleTradesByInvoiceNo.get(invoiceNo) ?? [];
-      const invoiceTrades = tradesByInvoiceNo.get(invoiceNo) ?? [];
-      if (visibleTrades.length === 1) {
-        tradeId = Number(visibleTrades[0].id);
-      } else if (invoiceTrades.length === 1) {
-        tradeId = Number(invoiceTrades[0].id);
-      }
-    }
     if (!tradeId) continue;
     addTradeQuantity(shipmentItemQtyByTradeId, tradeId, item.quantity);
     invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
@@ -1101,10 +1082,7 @@ async function getTradeShipmentRegistrationProgress(
     ...Array.from(fedexQtyByTradeId.keys()),
   ]);
   for (const tradeId of tradeIds) {
-    registeredQtyByTradeId.set(
-      tradeId,
-      Math.max(shipmentItemQtyByTradeId.get(tradeId) ?? 0, fedexQtyByTradeId.get(tradeId) ?? 0),
-    );
+    registeredQtyByTradeId.set(tradeId, shipmentItemQtyByTradeId.get(tradeId) ?? 0);
   }
 
   return {
@@ -1729,20 +1707,20 @@ export const appRouter = router({
         const rowsWithSheetStatus = sheetProgress
           ? applySheetShipmentStatuses(baseRows, sheetProgress)
           : baseRows;
-        const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithSheetStatus);
+        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithSheetStatus, manualCompleteSet);
+        const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithManualCompleteStatus);
         const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
-          rowsWithSheetStatus,
+          rowsWithManualCompleteStatus,
           shipmentRegistrationProgress,
         );
         const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithShipmentRegistrationStatus);
-        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithComputedStatus, manualCompleteSet);
         const statusFilter = input.status.trim().toLowerCase();
         const statusFilteredRows = statusFilter
-          ? rowsWithManualCompleteStatus.filter((row) => {
+          ? rowsWithComputedStatus.filter((row) => {
               const rowStatus = String(row.status ?? "").trim();
               return rowStatus === input.status || (isTradeStatusComplete(input.status) && isTradeStatusComplete(rowStatus));
             })
-          : rowsWithManualCompleteStatus;
+          : rowsWithComputedStatus;
         const matchingRows = input.incompleteOnly
           ? statusFilteredRows.filter((row) => !isTradeStatusComplete(row.status))
           : statusFilteredRows;
@@ -4396,7 +4374,6 @@ ${contextText}`;
           })
           .from(shipmentItems)
           .where(eq(shipmentItems.invoiceNo, input.invoiceNo));
-        const shippedQty = items.reduce((sum, i) => sum + i.quantity, 0);
         const shippedByTradeId = new Map<number, number>();
         let unassignedShippedQty = 0;
         for (const item of items) {
@@ -4417,6 +4394,7 @@ ${contextText}`;
             remainingQty: Math.max(0, ordered - shipped),
           };
         });
+        const shippedQty = itemSummaries.reduce((sum, item) => sum + item.shippedQty, 0);
         return {
           invoiceNo: input.invoiceNo,
           orderedQty,
@@ -4523,7 +4501,7 @@ ${contextText}`;
           items: z.array(
             z.object({
               invoiceNo: z.number(),
-              tradeRecordId: z.number().optional(),
+              tradeRecordId: z.number().int().positive(),
               quantity: z.number(),
             })
           ),
@@ -4533,7 +4511,7 @@ ${contextText}`;
         const db = (await getDb())!;
 
         // 1. 発送レコードを作成
-        const tradeRecordIds = Array.from(new Set(input.items.map((item) => item.tradeRecordId).filter((id): id is number => typeof id === "number" && id > 0)));
+        const tradeRecordIds = Array.from(new Set(input.items.map((item) => item.tradeRecordId)));
         const tradeRows = tradeRecordIds.length > 0
           ? await db
               .select({ id: tradeRecords.id, no: tradeRecords.no })
@@ -4542,7 +4520,6 @@ ${contextText}`;
           : [];
         const tradeInvoiceById = new Map(tradeRows.map((row) => [row.id, row.no]));
         for (const item of input.items) {
-          if (!item.tradeRecordId) continue;
           if (tradeInvoiceById.get(item.tradeRecordId) !== item.invoiceNo) {
             throw new Error(`出庫明細の商品行がNo.${item.invoiceNo}に紐づいていません。`);
           }
@@ -4561,7 +4538,7 @@ ${contextText}`;
           await db.insert(shipmentItems).values({
             shipmentId,
             invoiceNo: item.invoiceNo,
-            tradeRecordId: item.tradeRecordId ?? null,
+            tradeRecordId: item.tradeRecordId,
             quantity: item.quantity,
           });
         }

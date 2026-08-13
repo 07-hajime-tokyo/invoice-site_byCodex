@@ -88,12 +88,11 @@ function InvoiceItemSelect({
   return (
     <div className="pl-1 space-y-1">
       {lines.length > 1 ? (
-        <Select value={value || "__unassigned__"} onValueChange={(v) => onChange(v === "__unassigned__" ? "" : v)}>
+        <Select value={value} onValueChange={onChange}>
           <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder="商品を選択" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__unassigned__">No単位で登録</SelectItem>
             {lines.map((line) => (
               <SelectItem key={line.tradeRecordId} value={String(line.tradeRecordId)}>
                 {line.productName || `商品行 ${line.tradeRecordId}`} / 残{line.remainingQty}台
@@ -180,7 +179,7 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
       .filter((item) => item.invoiceNo.trim() !== "" && item.quantity.trim() !== "")
       .map((item) => ({
         invoiceNo: parseInt(item.invoiceNo, 10),
-        tradeRecordId: item.tradeRecordId ? parseInt(item.tradeRecordId, 10) : undefined,
+        tradeRecordId: parseInt(item.tradeRecordId, 10),
         quantity: parseInt(item.quantity, 10),
       }));
     if (parsedItems.length === 0) {
@@ -189,6 +188,10 @@ export function AddShipmentDialog({ onSuccess }: AddShipmentDialogProps) {
     }
     if (parsedItems.some((i) => isNaN(i.invoiceNo) || isNaN(i.quantity) || i.quantity <= 0)) {
       toast.error("インボイス番号と発送台数は正の整数で入力してください");
+      return;
+    }
+    if (parsedItems.some((i) => !i.tradeRecordId)) {
+      toast.error("発送登録する商品を選択してください");
       return;
     }
     createMutation.mutate({
