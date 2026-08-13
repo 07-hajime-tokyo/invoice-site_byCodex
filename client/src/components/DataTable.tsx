@@ -319,7 +319,7 @@ export function DataTable({
       </div>
 
       {/* Scrollable table */}
-      <div className="hidden overflow-x-auto md:block">
+      <div className="relative hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
@@ -335,7 +335,7 @@ export function DataTable({
                   </div>
                 </th>
               ))}
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap w-8">
+              <th className="sticky right-0 z-20 w-16 border-l border-border bg-muted/95 px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap shadow-sm">
                 編集
               </th>
             </tr>
@@ -365,7 +365,7 @@ export function DataTable({
                           {formatCell(col, row[col])}
                         </td>
                       ))}
-                      <td className="px-3 py-2 whitespace-nowrap">
+                      <td className="sticky right-0 z-10 border-l border-border bg-white px-3 py-2 whitespace-nowrap shadow-sm">
                         <div className="flex items-center gap-1">
                           <EditTradeDialog record={row} onSuccess={onRecordUpdated} />
                           <button
