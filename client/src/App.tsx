@@ -26,6 +26,7 @@ function Router() {
         <Route path={"/"} component={Home} />
         <Route path={"/inventory"} component={Home} />
         <Route path={"/inventory/purchases"} component={Home} />
+        <Route path={"/inventory/inbound"} component={Home} />
         <Route path={"/inventory/purchase-registration"} component={Home} />
         <Route path={"/inventory/deliveries"} component={Home} />
         <Route path={"/inventory/ebay-inventory"} component={Home} />
