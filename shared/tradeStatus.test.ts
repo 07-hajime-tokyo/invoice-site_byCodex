@@ -52,7 +52,7 @@ describe("tradeStatus", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
-        invoiceNo: 393,
+        invoiceNo: 400,
         orderedQty: 6,
         registeredQty: 5,
         actualShippedQty: 5,
@@ -66,7 +66,7 @@ describe("tradeStatus", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
-        invoiceNo: 393,
+        invoiceNo: 400,
         orderedQty: 10,
         registeredQty: 9,
         actualShippedQty: 10,
@@ -74,6 +74,29 @@ describe("tradeStatus", () => {
         hasShipmentSignal: true,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b1\u53f0\uff09");
+  });
+
+  it("keeps invoice numbers through 399 complete even without site shipment registration", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "complete",
+        invoiceNo: 399,
+        orderedQty: 5,
+        registeredQty: 0,
+        actualShippedQty: 5,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("complete");
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09",
+        invoiceNo: 399,
+        orderedQty: 5,
+        registeredQty: 0,
+        actualShippedQty: 5,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("complete");
   });
 
   it("downgrades sheet complete when shipment registration has not started", () => {

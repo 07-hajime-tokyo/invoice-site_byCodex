@@ -996,7 +996,7 @@ async function getTradeShipmentRegistrationProgress(
     new Set(
       rows
         .map((row) => Number(row.no ?? 0))
-        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 383),
+        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 399),
     ),
   );
 

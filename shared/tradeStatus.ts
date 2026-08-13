@@ -8,6 +8,10 @@ export function isTradeRemainingStatus(status: unknown) {
   return /^\u6b8b\s*[0-9\uff10-\uff19]/.test(normalized) || /^remaining\s*[0-9]/.test(normalized);
 }
 
+function isTradeShipmentRegistrationIncompleteStatus(status: unknown) {
+  return String(status ?? "").includes("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86");
+}
+
 export function isClosedTradeYear(paymentDate?: string | null) {
   const text = String(paymentDate ?? "").trim();
   return /^2025[/-]/.test(text);
@@ -32,11 +36,13 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   if (isClosedTradeYear(input.paymentDate)) return currentStatus;
 
   const invoiceNo = Number(input.invoiceNo ?? 0);
-  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 383) {
-    return currentStatus;
-  }
   if (input.orderedQty <= 0) return currentStatus;
   if (isTradeRemainingStatus(currentStatus)) return currentStatus;
+  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399) {
+    return isTradeStatusComplete(currentStatus) || isTradeShipmentRegistrationIncompleteStatus(currentStatus)
+      ? "complete"
+      : currentStatus;
+  }
 
   if (isTradeStatusComplete(currentStatus)) {
     const actualShippedQty = input.actualShippedQty ?? input.orderedQty;
