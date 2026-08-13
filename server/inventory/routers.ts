@@ -1177,10 +1177,15 @@ async function ensureStockLabelsForInventories<T extends {
     const countableLabelCount = labelStatus === "ordered"
       ? existingLabels.length
       : existingLabels.filter(isStockLabelView).length;
-    const labels = labelQuantity > countableLabelCount
+    const expectedManagementNo = getInventoryManagementNo(inventory.etc);
+    const hasStaleLabelData = existingLabels.some((label) =>
+      String(label.legacyManagementNo ?? "").trim() !== expectedManagementNo ||
+      String((label as { title?: string | null }).title ?? "").trim() !== String(inventory.title ?? "").trim()
+    );
+    const labels = labelQuantity > countableLabelCount || hasStaleLabelData
       ? await ensureInventoryItemLabelsForInventory({
           localInventoryId: inventoryId,
-          legacyManagementNo: getInventoryManagementNo(inventory.etc),
+          legacyManagementNo: expectedManagementNo,
           title: inventory.title,
           quantity: labelQuantity,
           status: labelStatus,
