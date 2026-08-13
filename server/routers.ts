@@ -1118,8 +1118,6 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
   rows: T[],
   progress: TradeShipmentRegistrationProgress,
 ) {
-  if (progress.invoiceNosWithShipmentSignal.size === 0) return rows;
-
   return rows.map((row): T => {
     const invoiceNo = row.no == null ? null : Number(row.no);
     const tradeId = Number(row.id);
