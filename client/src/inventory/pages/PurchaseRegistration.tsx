@@ -4643,6 +4643,7 @@ function ShippingPanel({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
+  const [expandedHistoryNos, setExpandedHistoryNos] = useState<Set<string>>(new Set());
   const [deleteHistoryConfirm, setDeleteHistoryConfirm] = useState<{
     historyId: number;
     deliveryNo: string;
@@ -5251,44 +5252,81 @@ function ShippingPanel({
             <div className="mt-3 divide-y rounded-md border">
             {historyGroups.map((history) => {
               const existingShipments = fedexShipmentsMap.get(history.deliveryNo) ?? [];
+              const itemCount = history.items.reduce((total, item) => total + item.quantity, 0);
+              const isHistoryExpanded = expandedHistoryNos.has(history.deliveryNo);
               return (
-                <div key={history.deliveryNo} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{history.deliveryNo}</span>
-                      <Badge variant="outline">{history.items.reduce((total, item) => total + item.quantity, 0)}点</Badge>
-                      {existingShipments.length > 0 ? <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">FedEx登録済み</Badge> : null}
-                    </div>
-                    <div className="mt-1 truncate text-xs text-muted-foreground">
-                      {history.items.map((item) => item.title).join(", ")}
+                <Collapsible
+                  key={history.deliveryNo}
+                  open={isHistoryExpanded}
+                  onOpenChange={(open) => {
+                    setExpandedHistoryNos((prev) => {
+                      const next = new Set(prev);
+                      if (open) next.add(history.deliveryNo);
+                      else next.delete(history.deliveryNo);
+                      return next;
+                    });
+                  }}
+                  className="p-3"
+                >
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <CollapsibleTrigger asChild>
+                      <button type="button" className="min-w-0 flex-1 text-left">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isHistoryExpanded ? "rotate-0" : "-rotate-90")} />
+                          <span className="font-mono text-sm font-semibold">{history.deliveryNo}</span>
+                          <Badge variant="outline">{itemCount}点</Badge>
+                          {existingShipments.length > 0 ? <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">FedEx登録済み</Badge> : null}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {isHistoryExpanded ? "詳細を閉じる" : "詳細を表示"}
+                        </div>
+                      </button>
+                    </CollapsibleTrigger>
+                    <div className="flex flex-wrap gap-2 md:justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                        onClick={() => setFedexDialog({ deliveryNo: history.deliveryNo, historyId: history.historyId, items: history.items })}
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        FedEx登録
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                        onClick={() => setDeleteHistoryConfirm({
+                          historyId: history.historyId,
+                          deliveryNo: history.deliveryNo,
+                          inventoryIds: Array.from(new Set(history.items.map((item) => item.inventoryId).filter((id) => Number.isFinite(id)))),
+                          titles: history.items.map((item) => item.title).filter(Boolean),
+                        })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        削除
+                      </Button>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-                    onClick={() => setFedexDialog({ deliveryNo: history.deliveryNo, historyId: history.historyId, items: history.items })}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    FedEx登録
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50"
-                    onClick={() => setDeleteHistoryConfirm({
-                      historyId: history.historyId,
-                      deliveryNo: history.deliveryNo,
-                      inventoryIds: Array.from(new Set(history.items.map((item) => item.inventoryId).filter((id) => Number.isFinite(id)))),
-                      titles: history.items.map((item) => item.title).filter(Boolean),
-                    })}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    削除
-                  </Button>
-                </div>
+                  <CollapsibleContent>
+                    <div className="mt-3 overflow-hidden rounded-md border bg-muted/20">
+                      {history.items.map((item, index) => (
+                        <div
+                          key={`${history.deliveryNo}-${item.inventoryId}-${index}`}
+                          className="grid gap-1 border-b px-3 py-2 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_80px_minmax(160px,220px)] md:items-center"
+                        >
+                          <div className="min-w-0 font-medium text-foreground">{item.title}</div>
+                          <div className="text-xs text-muted-foreground md:text-right">{item.quantity}点</div>
+                          <div className="font-mono text-xs text-muted-foreground md:text-right">
+                            {item.managementNo ? `管理番号: ${item.managementNo}` : "管理番号: -"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               );
               })}
             </div>
