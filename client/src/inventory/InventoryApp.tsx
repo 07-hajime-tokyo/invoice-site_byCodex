@@ -3,6 +3,7 @@ import { Route, Switch, useLocation } from "wouter";
 import InventoryDashboardLayout from "@/inventory/components/DashboardLayout";
 
 const Purchases = lazy(() => import("@/inventory/pages/Purchases"));
+const InboundDesk = lazy(() => import("@/inventory/pages/InboundDesk"));
 const PurchaseRegistration = lazy(() => import("@/inventory/pages/PurchaseRegistration"));
 const Deliveries = lazy(() => import("@/inventory/pages/Deliveries"));
 const EbayInventory = lazy(() => import("@/inventory/pages/EbayInventory"));
@@ -32,6 +33,7 @@ function InventoryPageLoading() {
 const INVENTORY_HOME = "/inventory/purchases";
 const REMEMBERED_PATHS = [
   "/inventory/purchases",
+  "/inventory/inbound",
   "/inventory/purchase-registration",
   "/inventory/deliveries",
   "/inventory/ebay-inventory",
@@ -91,6 +93,7 @@ export default function InventoryApp() {
         <Switch>
           <Route path={"/inventory"} component={Purchases} />
           <Route path={"/inventory/purchases"} component={Purchases} />
+          <Route path={"/inventory/inbound"} component={InboundDesk} />
           <Route path={"/inventory/purchase-registration"} component={PurchaseRegistration} />
           <Route path={"/inventory/deliveries"} component={Deliveries} />
           <Route path={"/inventory/ebay-inventory"} component={EbayInventory} />
