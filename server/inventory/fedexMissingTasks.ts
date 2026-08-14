@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { actionItems, deliveryHistories, fedexShipments } from "../../drizzle/schema";
+import { actionItems, deliveryHistories, fedexShipments, outboundBoxes } from "../../drizzle/schema";
 import { getDb } from "./db";
 
 type JsonObject = Record<string, unknown>;
@@ -185,6 +185,45 @@ export async function createFedexMissingActionItems() {
   const fromMs = now - lookbackDays * 24 * 60 * 60 * 1000;
   const beforeMs = now - graceHours * 60 * 60 * 1000;
 
+  // 箱経由は個体名・数量の曖昧マッチをせず、箱の状態をそのまま正本にする。
+  const boxes = await db.select().from(outboundBoxes).orderBy(desc(outboundBoxes.createdAt)).limit(500);
+  let boxCreated = 0;
+  let boxSkippedExisting = 0;
+  let boxCompleted = 0;
+  for (const box of boxes) {
+    const sourceKey = `fedex-missing-box:${box.id}`;
+    const existingOpenTasks = await db
+      .select()
+      .from(actionItems)
+      .where(and(eq(actionItems.sourceKey, sourceKey), eq(actionItems.status, "open")));
+    if (box.status !== "sealed") {
+      if (existingOpenTasks.length > 0) {
+        await db.update(actionItems)
+          .set({ status: "done", completedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(actionItems.sourceKey, sourceKey), eq(actionItems.status, "open")));
+        boxCompleted += existingOpenTasks.length;
+      }
+      continue;
+    }
+    const sealedMs = toTime(box.sealedAt ?? box.createdAt);
+    if (sealedMs == null || sealedMs > beforeMs) continue;
+    if (existingOpenTasks.length > 0) {
+      boxSkippedExisting += existingOpenTasks.length;
+      continue;
+    }
+    await db.insert(actionItems).values({
+      title: "FedEx発送登録待ちの箱",
+      assignee: "出荷担当",
+      detail: `${box.boxCode} は封箱済みですが、追跡番号がまだ紐付いていません。出庫画面で箱ID→FedExラベルの順にスキャンしてください。`,
+      status: "open",
+      source: "cron-fedex-missing",
+      sourceKey,
+      sourceQuestion: "毎朝7時の箱ステータスチェック",
+      createdBy: "cron",
+    });
+    boxCreated += 1;
+  }
+
   const [histories, shipments] = await Promise.all([
     db.select().from(deliveryHistories).orderBy(desc(deliveryHistories.createdAt)).limit(500),
     db.select().from(fedexShipments).orderBy(desc(fedexShipments.createdAt)).limit(1500),
@@ -270,5 +309,10 @@ export async function createFedexMissingActionItems() {
     created,
     skippedExisting,
     completed,
+    boxesScanned: boxes.length,
+    sealedBoxes: boxes.filter((box) => box.status === "sealed").length,
+    boxCreated,
+    boxSkippedExisting,
+    boxCompleted,
   };
 }

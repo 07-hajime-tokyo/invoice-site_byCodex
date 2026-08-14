@@ -24,6 +24,8 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
 import { inboundDeskRouter } from "./inboundDesk";
+import { outboundBoxesRouter } from "./outboundBoxes";
+import { processInventoryDelivery } from "./deliveryService";
 import { recordWorkLog, workLogsRouter } from "./workLogs";
 import { diffInventoryFields, recordInventoryChange } from "./changeLog";
 import { captureDailySnapshot, listDailySnapshots } from "./dailySnapshot";
@@ -485,16 +487,23 @@ async function buildInventoryManagementNoMap(): Promise<Map<number, string>> {
   return inventoryEtcMap;
 }
 
-type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null };
+type ShipmentGasItem = { productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null; labelId?: string };
 
 function mergeShipmentGasItems(items: ShipmentGasItem[]): ShipmentGasItem[] {
   const grouped = new Map<string, ShipmentGasItem>();
   for (const item of items) {
     const name = (item.productNameJa || item.productNameEn).trim();
     if (!name || item.quantity <= 0) continue;
-    const current = grouped.get(name);
+    const key = item.labelId ? `${name}\u0000${item.labelId}` : name;
+    const current = grouped.get(key);
     if (current) current.quantity += item.quantity;
-    else grouped.set(name, { productNameJa: name, productNameEn: item.productNameEn || name, quantity: item.quantity });
+    else grouped.set(key, {
+      productNameJa: name,
+      productNameEn: item.productNameEn || name,
+      quantity: item.quantity,
+      ...(item.managementNo !== undefined ? { managementNo: item.managementNo } : {}),
+      ...(item.labelId ? { labelId: item.labelId } : {}),
+    });
   }
   return Array.from(grouped.values()).filter((item) => item.quantity > 0);
 }
@@ -603,6 +612,8 @@ function shipmentProductMatches(orderName: string, shippedName: string): boolean
 }
 
 async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentGasItem[]): Promise<ShipmentGasItem[]> {
+  // 個体IDを持つ箱経由の行はidentityを落とさないことを優先する。
+  if (items.some((item) => item.labelId)) return mergeShipmentGasItems(items);
   const orderRows = (await getOrderRowsFromTradeRecords().catch(() => []))
     .filter((row) => row.invoiceNo === invoiceNo && row.productName.trim());
   if (orderRows.length === 0) return mergeShipmentGasItems(items);
@@ -2186,6 +2197,7 @@ export const inventoryRouter = router({
   system: systemRouter,
   actionItems: actionItemsRouter,
   inboundDesk: inboundDeskRouter,
+  outboundBoxes: outboundBoxesRouter,
   aiInvestigation: aiInvestigationRouter,
   workLogs: workLogsRouter,
   auth: router({
@@ -4251,126 +4263,11 @@ export const inventoryRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        const zaicoEnabled = await isZaicoEnabled();
-
-        let zaicoResult: { code: number; status: string; message: string; data_id: number } | null = null;
-        let historyStatus: "success" | "error" = "success";
-        let errorMessage: string | undefined;
-
-        if (zaicoEnabled) {
-          // Zaico連携ON: Zaico APIに出庫データを作成
-          const payload = {
-            num: input.deliveryNo,
-            status: "completed_delivery" as const,
-            delivery_date: input.deliveryDate,
-            deliveries: input.items.map((item) => ({
-              inventory_id: item.inventoryId,
-              quantity: item.quantity,
-              ...(item.unitPrice !== undefined ? { unit_price: item.unitPrice } : {}),
-            })),
-          };
-          try {
-            zaicoResult = await createDelivery(payload);
-          } catch (err: unknown) {
-            historyStatus = "error";
-            errorMessage = err instanceof Error ? err.message : "不明なエラー";
-          }
-        } else {
-          // Zaico連携OFF: ローカルDBの在庫数を減算する
-          try {
-            for (const item of input.items) {
-              // zaicoIdで検索（inventoryIdはZaico側のID）
-              const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId);
-              if (localInv) {
-                const newQty = Math.max(0, (localInv.quantity ?? 0) - item.quantity);
-                await updateLocalInventory(localInv.id, { quantity: newQty });
-              }
-            }
-          } catch (err: unknown) {
-            historyStatus = "error";
-            errorMessage = err instanceof Error ? err.message : "ローカルDB在庫更新エラー";
-          }
-        }
-
-        const historyItems = await Promise.all(
-          input.items.map(async (item) => {
-            const localInv = await getLocalInventoryByZaicoIdOrId(item.inventoryId).catch(() => null);
-            const managementNo = localInv?.etc?.split(",")[0]?.trim() || null;
-            const csvProductName = item.csvProductName === undefined
-              ? undefined
-              : item.csvProductName === null
-                ? null
-                : item.csvProductName.trim();
-            return {
-              inventoryId: item.inventoryId,
-              title: item.title,
-              quantity: item.quantity,
-              ...(managementNo ? { managementNo } : {}),
-              ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
-              ...(csvProductName !== undefined ? { csvProductName } : {}),
-            };
-          })
-        );
-
-        // 出庫履歴をDBに保存
-        await createDeliveryHistory({
-          deliveryNo: input.deliveryNo,
-          zaicoDeliveryId: zaicoResult?.data_id ?? null,
-          itemsJson: JSON.stringify(historyItems),
-          status: historyStatus,
-          errorMessage: errorMessage ?? null,
-        });
-
-        if (historyStatus === "error") {
-          throw new Error(errorMessage ?? "出庫処理に失敗しました");
-        }
-
-        const shippedLabelIds = Array.from(new Set(
-          input.items
-            .map((item) => item.labelId?.trim().toUpperCase())
-            .filter((labelId): labelId is string => Boolean(labelId)),
-        ));
-        if (shippedLabelIds.length > 0) {
-          const db = await getDb();
-          if (db) {
-            const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
-            const now = new Date();
-            for (const labelId of shippedLabelIds) {
-              await db
-                .update(labelTbl)
-                .set({ status: "shipped", shippedAt: now })
-                .where(eq(labelTbl.labelId, labelId));
-            }
-          }
-        }
-
-        const workLogQuantity = historyItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-        await recordWorkLog({
-          workerName: input.operatorName?.trim() || "野田",
-          category: "出庫登録",
-          status: "done",
-          startedAt: new Date(),
-          endedAt: new Date(),
-          quantity: Math.round(workLogQuantity),
-          memo: `出庫No: ${input.deliveryNo}`,
-          createdBy: input.operatorName?.trim() || "出庫登録",
-          sourceType: "delivery",
-          sourceId: input.deliveryNo,
-          detailsJson: JSON.stringify({
-            deliveryNo: input.deliveryNo,
-            deliveryDate: input.deliveryDate,
-            trackingNumber: input.trackingNumber ?? null,
-            items: historyItems.map((item) => ({
-              inventoryId: item.inventoryId,
-              title: item.title,
-              quantity: item.quantity,
-              managementNo: "managementNo" in item ? item.managementNo : null,
-              tradeRecordId: "tradeRecordId" in item ? item.tradeRecordId : null,
-              csvProductName: "csvProductName" in item ? item.csvProductName : undefined,
-            })),
-          }),
-        });
-
+        const deliveryResult = await processInventoryDelivery(input);
+        const historyItems = deliveryResult.historyItems;
+        const zaicoResult = deliveryResult.zaicoDeliveryId
+          ? { data_id: deliveryResult.zaicoDeliveryId }
+          : null;
         // FedEx発送情報が入力された場合は発送登録も行う
         let fedexResult: { success: boolean; message: string } | null = null;
         if (input.trackingNumber && input.sheetName) {
@@ -4395,12 +4292,14 @@ export const inventoryRouter = router({
             } catch { /* CSV取得失敗時は商品名直接使用 */ }
 
             // 出庫商品を、保存済みの注文行または共通マッチングでCSV商品へ集計する
-            const aggregated: Map<string, { productNameJa: string; productNameEn: string; quantity: number }> = new Map();
-            const addAggregatedItem = (name: string, quantity: number) => {
+            const aggregated: Map<string, { productNameJa: string; productNameEn: string; quantity: number; labelId?: string }> = new Map();
+            const addAggregatedItem = (name: string, quantity: number, labelId?: string) => {
               const productName = name.trim() || "未分類";
-              const existing = aggregated.get(productName);
+              const normalizedLabelId = labelId?.trim().toUpperCase();
+              const key = normalizedLabelId ? `${productName}\u0000${normalizedLabelId}` : productName;
+              const existing = aggregated.get(key);
               if (existing) existing.quantity += quantity;
-              else aggregated.set(productName, { productNameJa: productName, productNameEn: productName, quantity });
+              else aggregated.set(key, { productNameJa: productName, productNameEn: productName, quantity, ...(normalizedLabelId ? { labelId: normalizedLabelId } : {}) });
             };
 
             for (let itemIndex = 0; itemIndex < input.items.length; itemIndex += 1) {
@@ -4410,12 +4309,12 @@ export const inventoryRouter = router({
 
               if (item.csvProductName !== undefined) {
                 if (item.csvProductName !== null) {
-                  addAggregatedItem(item.csvProductName, item.quantity);
+                  addAggregatedItem(item.csvProductName, item.quantity, item.labelId);
                 } else {
                   const suggestionName = csvProducts.length > 0
                     ? suggestCsvProductNameFromHints(item.title, extractManagementHints(managementNo, item.title), csvProducts)
                     : null;
-                  addAggregatedItem(suggestionName ?? item.title, item.quantity);
+                  addAggregatedItem(suggestionName ?? item.title, item.quantity, item.labelId);
                 }
                 continue;
               }
@@ -4423,7 +4322,7 @@ export const inventoryRouter = router({
               if (item.tradeRecordId) {
                 const product = csvProducts.find((cp) => cp.tradeRecordId === item.tradeRecordId);
                 if (product) {
-                  addAggregatedItem(product.name, item.quantity);
+                  addAggregatedItem(product.name, item.quantity, item.labelId);
                   continue;
                 }
               }
@@ -4431,7 +4330,7 @@ export const inventoryRouter = router({
               const suggestionName = csvProducts.length > 0
                 ? suggestCsvProductNameFromHints(item.title, extractManagementHints(managementNo, item.title), csvProducts)
                 : null;
-              addAggregatedItem(suggestionName ?? item.title, item.quantity);
+              addAggregatedItem(suggestionName ?? item.title, item.quantity, item.labelId);
             }
             const fedexItems = Array.from(aggregated.values());
 

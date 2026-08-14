@@ -530,7 +530,8 @@ export async function getAllPurchaseExtras(): Promise<PurchaseExtra[]> {
 export async function createDeliveryHistory(data: InsertDeliveryHistory) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(deliveryHistories).values(data);
+  const result = await db.insert(deliveryHistories).values(data);
+  return Number((result[0] as { insertId?: number }).insertId ?? 0);
 }
 
 export async function getDeliveryHistories(limit = 100): Promise<DeliveryHistory[]> {
