@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
+import { classifyOutboundScan, normalizeOutboundScan } from "@shared/outboundBoxes";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -3426,6 +3427,16 @@ function LabelPrintStyles() {
           font-family: Arial, sans-serif;
         }
 
+        .label-print-box {
+          border: 1.2mm solid #0f172a;
+          padding: 1.4mm 1.8mm;
+        }
+
+        .label-print-box .label-print-id {
+          font-size: 17pt;
+          letter-spacing: 0.12em;
+        }
+
         .label-print-id {
           margin-bottom: 1.2mm;
           font-family: Consolas, "Courier New", monospace;
@@ -3536,7 +3547,7 @@ function PrintableLabelSheet({ labels, startPosition = 1 }: { labels: LabelView[
         <div key={`label-page-${pageIndex}`} className="label-print-sheet">
           {pageSlots.map((label, slotIndex) =>
             label ? (
-              <div key={label.key} className="label-print-item">
+              <div key={label.key} className={cn("label-print-item", label.labelId.startsWith("B") && "label-print-box")}>
                 <div>
                   <div className="label-print-id">{label.labelId}</div>
                   {label.allocationLabel ? <div className="label-print-ref">{label.allocationLabel}</div> : null}
@@ -4619,6 +4630,262 @@ function StockPanel({
   );
 }
 
+type OutboundBoxView = {
+  id: number;
+  boxCode: string;
+  status: "open" | "sealed" | "shipped";
+  deliveryHistoryId: number | null;
+  trackingNumber: string | null;
+  fedexShipmentId: number | null;
+  openedAt: string | Date;
+  sealedAt: string | Date | null;
+  linkedAt: string | Date | null;
+  items: Array<{
+    id: number;
+    labelId: string;
+    title: string;
+    status: string;
+    legacyManagementNo: string | null;
+    localInventoryId: number | null;
+  }>;
+};
+
+function localDateInputValue(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function outboundBoxPrintLabel(boxCode: string): LabelView {
+  return {
+    key: `outbound-box-${boxCode}`,
+    labelId: boxCode,
+    rawStatus: "open",
+    status: "箱",
+    title: "海外直取 出庫箱",
+    printTitle: "海外直取 出庫箱",
+    category: "出庫箱",
+    legacyManagementNo: "",
+    allocationLabel: "箱ID / OUTBOUND BOX",
+    unitPrice: 0,
+    supplier: { name: "", url: "" },
+    purchaseDate: localDateInputValue(),
+    rowId: 0,
+    itemId: 0,
+  };
+}
+
+function OutboundBoxPanel() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.inventory.outboundBoxes.list.useQuery(undefined, {
+    staleTime: 10_000,
+    refetchOnMount: "always",
+  });
+  const boxes = (data ?? []) as OutboundBoxView[];
+  const [boxCount, setBoxCount] = useState(1);
+  const [currentBoxCode, setCurrentBoxCode] = useState("");
+  const [scanValue, setScanValue] = useState("");
+  const [linkBoxCode, setLinkBoxCode] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [sheetName, setSheetName] = useState<ShipmentSheetName>("独発送管理");
+  const [shippingDate, setShippingDate] = useState(todayShipmentDate());
+  const [traceLabelId, setTraceLabelId] = useState("");
+  const [printLabels, setPrintLabels] = useState<LabelView[]>([]);
+  const [printJobId, setPrintJobId] = useState(0);
+  const currentBox = boxes.find((box) => box.boxCode === currentBoxCode) ?? null;
+  const sealedBoxes = boxes.filter((box) => box.status === "sealed");
+  const openBoxes = boxes.filter((box) => box.status === "open");
+  const normalizedTraceLabel = normalizeOutboundScan(traceLabelId);
+  const traceQuery = trpc.inventory.outboundBoxes.traceByLabel.useQuery(
+    { labelId: normalizedTraceLabel },
+    { enabled: /^[ABCDEFGHJKLMNPQRSTUVWXYZ]{7}$/.test(normalizedTraceLabel) },
+  );
+
+  const refreshBoxes = () => void utils.inventory.outboundBoxes.list.invalidate();
+  const mutationError = (label: string) => (error: { message: string }) => toast.error(`${label}: ${error.message}`);
+  const createBoxes = trpc.inventory.outboundBoxes.create.useMutation({
+    onSuccess: (created) => {
+      refreshBoxes();
+      const createdBoxes = created as OutboundBoxView[];
+      setPrintLabels(createdBoxes.map((box) => outboundBoxPrintLabel(box.boxCode)));
+      setPrintJobId((value) => value + 1);
+      if (createdBoxes[0]) setCurrentBoxCode(createdBoxes[0].boxCode);
+      toast.success(`${createdBoxes.length}箱を発番しました。印刷画面を開きます`);
+    },
+    onError: mutationError("箱の発番に失敗しました"),
+  });
+  const openBox = trpc.inventory.outboundBoxes.open.useMutation({
+    onSuccess: (box) => {
+      refreshBoxes();
+      if (box) setCurrentBoxCode(box.boxCode);
+      toast.success(`${box?.boxCode ?? "箱"}を開きました`);
+    },
+    onError: mutationError("箱を開けませんでした"),
+  });
+  const addItem = trpc.inventory.outboundBoxes.addItem.useMutation({
+    onSuccess: (box) => {
+      refreshBoxes();
+      if (box) setCurrentBoxCode(box.boxCode);
+      toast.success("個体を箱に追加しました");
+    },
+    onError: mutationError("個体を追加できませんでした"),
+  });
+  const removeItem = trpc.inventory.outboundBoxes.removeItem.useMutation({
+    onSuccess: refreshBoxes,
+    onError: mutationError("個体を取り消せませんでした"),
+  });
+  const discardBox = trpc.inventory.outboundBoxes.discard.useMutation({
+    onSuccess: () => {
+      refreshBoxes();
+      setCurrentBoxCode("");
+      toast.success("未使用の箱を破棄しました");
+    },
+    onError: mutationError("箱を破棄できませんでした"),
+  });
+  const sealBox = trpc.inventory.outboundBoxes.seal.useMutation({
+    onSuccess: (box) => {
+      refreshBoxes();
+      void utils.inventory.zaico.getInventories.invalidate();
+      void utils.inventory.deliveryHistory.list.invalidate();
+      setLinkBoxCode(box?.boxCode ?? "");
+      setCurrentBoxCode("");
+      toast.success(`${box?.boxCode ?? "箱"}を封じ、出庫登録しました`);
+    },
+    onError: mutationError("封箱に失敗しました"),
+  });
+  const linkTracking = trpc.inventory.outboundBoxes.linkTracking.useMutation({
+    onSuccess: (box) => {
+      refreshBoxes();
+      void utils.inventory.fedex.getAll.invalidate();
+      setTrackingNumber("");
+      setLinkBoxCode("");
+      if (box.spreadsheetSuccess) toast.success(`${box.boxCode}に追跡番号を登録し、スプレッドシートへ書き込みました`);
+      else toast.warning(`${box.boxCode}への紐付けは完了しました。スプレッドシート: ${"spreadsheetError" in box ? box.spreadsheetError ?? "要確認" : "要確認"}`);
+    },
+    onError: mutationError("追跡番号を紐付けできませんでした"),
+  });
+
+  const handleScan = (rawValue: string) => {
+    const normalized = normalizeOutboundScan(rawValue);
+    setScanValue(normalized);
+    const kind = classifyOutboundScan(normalized);
+    if (kind === "box") {
+      const found = boxes.find((box) => box.boxCode === normalized);
+      if (found?.status === "sealed") {
+        setLinkBoxCode(found.boxCode);
+        toast.info(`${found.boxCode}を追跡番号待ちとして選択しました`);
+      } else if (found?.status === "shipped") {
+        toast.info(`${found.boxCode}は${found.trackingNumber ?? "追跡番号登録済み"}で発送済みです`);
+      } else {
+        openBox.mutate({ boxCode: normalized, operatorName: getCurrentWorkWorkerName("出荷担当") });
+      }
+    } else if (kind === "label") {
+      if (!currentBoxCode) {
+        toast.error("先に箱IDをスキャンしてください");
+      } else {
+        addItem.mutate({ boxCode: currentBoxCode, labelId: normalized });
+      }
+    } else if (kind === "tracking") {
+      if (!linkBoxCode) toast.error("先に封済みの箱IDをスキャンしてください");
+      else setTrackingNumber(normalized);
+    } else {
+      toast.error("箱ID・個体ラベル・追跡番号のどれにも判定できませんでした");
+    }
+    setScanValue("");
+  };
+  const qrScanner = useQrCameraScanner(handleScan);
+
+  useEffect(() => {
+    if (printJobId === 0 || printLabels.length === 0) return;
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => window.clearTimeout(timer);
+  }, [printJobId, printLabels]);
+
+  const busy = createBoxes.isPending || openBox.isPending || addItem.isPending || sealBox.isPending || linkTracking.isPending;
+  return (
+    <section className="rounded-md border-2 border-indigo-300 bg-indigo-50/40 p-3 sm:p-4">
+      <PrintableLabelSheet labels={printLabels} />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold">海外直取：箱モード</h2>
+            <Badge className="bg-indigo-700 text-white hover:bg-indigo-700">FedEx</Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">箱ID→個体ラベル→封箱。後日、箱ID→FedExラベルの2スキャンで紐付けます。</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input type="number" min={1} max={20} value={boxCount} onChange={(event) => setBoxCount(Math.min(20, Math.max(1, Number(event.target.value) || 1)))} className="w-20" aria-label="作る箱数" />
+          <Button type="button" className="gap-2 bg-indigo-700 text-white hover:bg-indigo-800" disabled={createBoxes.isPending} onClick={() => createBoxes.mutate({ count: boxCount, operatorName: getCurrentWorkWorkerName("出荷担当") })}>
+            {createBoxes.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            箱を作る・{boxCount}枚印刷
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-md border bg-white p-3">
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="gap-2" disabled={qrScanner.cameraActive} onClick={qrScanner.startCamera}><ScanLine className="h-4 w-4" />QR読取</Button>
+          {qrScanner.cameraActive ? <Button type="button" variant="outline" onClick={qrScanner.stopCamera}>停止</Button> : null}
+          <Badge variant="outline">選択箱: {currentBoxCode || "なし"}</Badge>
+          <Badge variant="outline">追跡待ち: {linkBoxCode || "なし"}</Badge>
+        </div>
+        <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", qrScanner.cameraActive ? "block" : "hidden")}>
+          <video ref={qrScanner.videoRef} className="h-[50vh] min-h-[260px] max-h-[480px] w-full object-cover" muted playsInline />
+        </div>
+        {qrScanner.cameraError ? <p className="mt-2 text-sm text-destructive">{qrScanner.cameraError}</p> : null}
+        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Input value={scanValue} onChange={(event) => setScanValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") handleScan(scanValue); }} placeholder="箱ID・個体ラベル・FedEx追跡番号をスキャン／入力" autoComplete="off" className="h-11 font-mono" />
+          <Button type="button" disabled={!scanValue.trim() || busy} onClick={() => handleScan(scanValue)}>自動判定</Button>
+        </div>
+      </div>
+
+      {currentBox ? (
+        <div className="mt-4 rounded-md border border-indigo-300 bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><span className="font-mono text-xl font-bold">{currentBox.boxCode}</span><Badge variant="secondary" className="ml-2">{currentBox.items.length}点</Badge></div>
+            <Button type="button" className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={currentBox.items.length === 0 || sealBox.isPending} onClick={() => sealBox.mutate({ boxCode: currentBox.boxCode, deliveryDate: localDateInputValue(), operatorName: getCurrentWorkWorkerName("出荷担当") })}>
+              {sealBox.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}封をする
+            </Button>
+          </div>
+          <div className="mt-3 space-y-2">
+            {currentBox.items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                <div><span className="font-mono font-bold">{item.labelId}</span><span className="ml-2">{item.title}</span><span className="ml-2 text-xs text-muted-foreground">{item.legacyManagementNo}</span></div>
+                <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => removeItem.mutate({ boxCode: currentBox.boxCode, labelId: item.labelId })}>取り消す</Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {sealedBoxes.length > 0 ? (
+        <div className="mt-4 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+          <h3 className="font-semibold text-amber-950">発送登録待ちの箱（{sealedBoxes.length}箱）</h3>
+          <div className="mt-2 flex flex-wrap gap-2">{sealedBoxes.map((box) => <Button key={box.id} type="button" variant={linkBoxCode === box.boxCode ? "default" : "outline"} onClick={() => setLinkBoxCode(box.boxCode)}><span className="font-mono">{box.boxCode}</span><Badge variant="secondary" className="ml-2">{box.items.length}点</Badge></Button>)}</div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-[150px_minmax(0,1fr)_170px_110px_auto]">
+            <Input value={linkBoxCode} onChange={(event) => setLinkBoxCode(normalizeOutboundScan(event.target.value))} placeholder="B000001" className="font-mono" />
+            <Input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="FedEx追跡番号（手入力可）" className="font-mono" />
+            <select className={fieldClass} value={sheetName} onChange={(event) => setSheetName(event.target.value as ShipmentSheetName)}>{SHIPMENT_SHEET_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+            <Input value={shippingDate} onChange={(event) => setShippingDate(event.target.value)} placeholder="M/D" />
+            <Button type="button" className="bg-blue-700 text-white hover:bg-blue-800" disabled={!linkBoxCode || !trackingNumber.trim() || linkTracking.isPending} onClick={() => linkTracking.mutate({ boxCode: linkBoxCode, trackingNumber, sheetName, shippingDate, operatorName: getCurrentWorkWorkerName("出荷担当") })}>{linkTracking.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}追跡番号を紐付け</Button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-md border bg-white p-3">
+          <h3 className="font-semibold">開いたままの箱</h3>
+          {isLoading ? <p className="mt-2 text-sm text-muted-foreground">読み込み中…</p> : openBoxes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ありません</p> : <div className="mt-2 space-y-2">{openBoxes.map((box) => <div key={box.id} className="flex items-center justify-between gap-2 rounded border p-2"><Button type="button" variant="ghost" className="font-mono" onClick={() => setCurrentBoxCode(box.boxCode)}>{box.boxCode}（{box.items.length}点）</Button>{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => { if (window.confirm(`${box.boxCode}を破棄しますか？`)) discardBox.mutate({ boxCode: box.boxCode }); }}><Trash2 className="mr-1 h-4 w-4" />破棄</Button> : null}</div>)}</div>}
+        </div>
+        <div className="rounded-md border bg-white p-3">
+          <h3 className="font-semibold">個体IDから発送を追跡</h3>
+          <Input className="mt-2 font-mono" value={traceLabelId} onChange={(event) => setTraceLabelId(event.target.value)} placeholder="英字7文字の個体ID" />
+          {traceQuery.data?.label ? <div className="mt-2 rounded border p-2 text-sm"><div><span className="font-mono font-bold">{traceQuery.data.label.labelId}</span> / {traceQuery.data.label.title}</div><div className="mt-1">箱: <span className="font-mono font-semibold">{traceQuery.data.box?.boxCode ?? "未割当"}</span> → 追跡番号: <span className="font-mono font-semibold">{traceQuery.data.box?.trackingNumber ?? "未登録"}</span></div></div> : normalizedTraceLabel.length === 7 && !traceQuery.isFetching ? <p className="mt-2 text-sm text-muted-foreground">個体が見つかりません</p> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ShippingPanel({
   group,
   invoiceOptions,
@@ -5025,6 +5292,7 @@ function ShippingPanel({
 
   return (
     <div className="space-y-4">
+      <OutboundBoxPanel />
       <section className="rounded-md border bg-background p-3 sm:p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -6322,7 +6590,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : !isStockWorkflow && !isScanWorkflow && !hasWorkflowTargets ? (
+          ) : !isStockWorkflow && !isScanWorkflow && !isShippingWorkflow && !hasWorkflowTargets ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
