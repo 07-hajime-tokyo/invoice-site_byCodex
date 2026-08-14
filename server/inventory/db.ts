@@ -163,6 +163,13 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         sourceKey varchar(255) NULL,
         receivedAt timestamp NULL,
         shippedAt timestamp NULL,
+        defectTags varchar(255) NULL,
+        defectNote varchar(500) NULL,
+        defectPhotosJson text NULL,
+        defectRecordedAt timestamp NULL,
+        yahooClosedPricesJson text NULL,
+        yahooPriceFetchedAt timestamp NULL,
+        defectiveSheetSyncedAt timestamp NULL,
         createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_inventory_item_labels_purchase_id (purchaseId),
@@ -171,6 +178,27 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_inventory_item_labels_source_key (sourceKey)
       )
     `);
+    const defectiveLabelColumns = [
+      ["defectTags", "varchar(255) NULL"],
+      ["defectNote", "varchar(500) NULL"],
+      ["defectPhotosJson", "text NULL"],
+      ["defectRecordedAt", "timestamp NULL"],
+      ["yahooClosedPricesJson", "text NULL"],
+      ["yahooPriceFetchedAt", "timestamp NULL"],
+      ["defectiveSheetSyncedAt", "timestamp NULL"],
+    ] as const;
+    for (const [column, definition] of defectiveLabelColumns) {
+      const existingColumn = await db.execute(
+        sql.raw(`SHOW COLUMNS FROM inventory_item_labels LIKE '${column}'`)
+      );
+      if (getRawRows(existingColumn).length === 0) {
+        await db.execute(
+          sql.raw(
+            `ALTER TABLE inventory_item_labels ADD COLUMN ${column} ${definition}`
+          )
+        );
+      }
+    }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS action_item_assignees (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,

@@ -5,13 +5,18 @@ import { captureDailySnapshot } from "../inventory/dailySnapshot";
 import { appRouter } from "../routers";
 import { ADMIN_EMAILS } from "@shared/const";
 import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
+import { refreshStaleDefectiveListings } from "../inventory/defectiveSync";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
-    return process.env.NODE_ENV !== "production" ||
+    return (
+      process.env.NODE_ENV !== "production" ||
       req.get("x-vercel-cron") === "1" ||
-      String(req.get("user-agent") ?? "").toLowerCase().includes("vercel-cron");
+      String(req.get("user-agent") ?? "")
+        .toLowerCase()
+        .includes("vercel-cron")
+    );
   }
   return req.get("authorization") === `Bearer ${secret}`;
 }
@@ -91,6 +96,23 @@ export function registerCronRoutes(app: Express) {
       console.error("[cron/inbound-classify] failed", error);
       res.status(500).json({
         error: "Inbound classify failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/cron/defective-yahoo-prices", async (req, res) => {
+    if (!isAuthorizedCronRequest(req)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      res.json(await refreshStaleDefectiveListings());
+    } catch (error) {
+      console.error("[cron/defective-yahoo-prices] failed", error);
+      res.status(500).json({
+        error: "Defective Yahoo price refresh failed",
         detail: error instanceof Error ? error.message : String(error),
       });
     }

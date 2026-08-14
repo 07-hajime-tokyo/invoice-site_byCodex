@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/inventory-snapshot",
       "schedule": "50 14 * * *"
+    },
+    {
+      "path": "/api/cron/defective-yahoo-prices",
+      "schedule": "5 15 * * *"
     }
   ],
   "headers": [
