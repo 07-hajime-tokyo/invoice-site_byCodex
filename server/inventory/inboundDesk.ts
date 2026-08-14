@@ -19,8 +19,43 @@ import {
   updateLocalPurchaseStatus,
 } from "./db";
 import { recordWorkLog } from "./workLogs";
+import {
+  DEFECT_PHOTO_KINDS,
+  DEFECT_TAGS,
+  type DefectPhoto,
+} from "./defectiveListing";
+import { uploadDefectivePhotos } from "./defectivePhotos";
+import { syncDefectiveListingByLabelId } from "./defectiveSync";
 
 type InspectionOutcome = "stocked" | "defective" | "returned";
+
+export const inboundInspectionInputSchema = z
+  .object({
+    labelId: z.string().min(1).max(80),
+    outcome: z.enum(["stocked", "defective", "returned"]),
+    operatorName: z.string().max(200).optional(),
+    defectTags: z.array(z.enum(DEFECT_TAGS)).max(9).optional(),
+    defectNote: z.string().max(500).optional(),
+    defectPhotos: z
+      .array(
+        z.object({
+          url: z.string().url().max(2_000),
+          key: z.string().min(1).max(512),
+          kind: z.enum(DEFECT_PHOTO_KINDS),
+        })
+      )
+      .max(10)
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.outcome === "defective" && !value.defectTags?.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["defectTags"],
+        message: "不良時は不良タグを1つ以上選んでください",
+      });
+    }
+  });
 
 function normalizeStatus(value: unknown): string {
   return String(value ?? "")
@@ -188,6 +223,8 @@ async function recordInspection(input: {
   outcome: InspectionOutcome;
   workerName: string;
   actionItemId: number | null;
+  defectTags?: readonly string[];
+  photoCount?: number;
 }) {
   const now = new Date();
   await recordWorkLog({
@@ -205,6 +242,8 @@ async function recordInspection(input: {
       labelId: input.labelId,
       outcome: input.outcome,
       actionItemId: input.actionItemId,
+      defectTags: input.defectTags ?? [],
+      photoCount: input.photoCount ?? 0,
     }),
   });
 }
@@ -291,6 +330,26 @@ export const inboundDeskRouter = router({
       const inventory = label.localInventoryId
         ? (inventoryById.get(label.localInventoryId) ?? null)
         : null;
+      const market = (() => {
+        try {
+          return JSON.parse(label.yahooClosedPricesJson ?? "null") as {
+            keyword?: string;
+            adopted?: { median?: number | null };
+          } | null;
+        } catch {
+          return null;
+        }
+      })();
+      const defectPhotos = (() => {
+        try {
+          const photos = JSON.parse(
+            label.defectPhotosJson ?? "[]"
+          ) as unknown[];
+          return Array.isArray(photos) ? photos.length : 0;
+        } catch {
+          return 0;
+        }
+      })();
       return {
         labelId: label.labelId,
         status: normalizeStatus(label.status),
@@ -312,6 +371,17 @@ export const inboundDeskRouter = router({
         inventoryCounted: countedLabelIds.has(
           label.labelId.trim().toUpperCase()
         ),
+        defectTags: String(label.defectTags ?? "")
+          .split(",")
+          .map(tag => tag.trim())
+          .filter(Boolean),
+        defectNote: label.defectNote ?? "",
+        defectPhotoCount: defectPhotos,
+        marketKeyword: market?.keyword ?? "",
+        marketMedian: market?.adopted?.median ?? null,
+        marketFetchedAt: label.yahooPriceFetchedAt?.toISOString() ?? null,
+        defectiveSheetSyncedAt:
+          label.defectiveSheetSyncedAt?.toISOString() ?? null,
       };
     };
     const labelsById = new Map(
@@ -431,14 +501,70 @@ export const inboundDeskRouter = router({
       return { received, alreadyReceived, notFound, rejected };
     }),
 
-  inspect: protectedProcedure
+  uploadDefectPhotos: protectedProcedure
     .input(
       z.object({
         labelId: z.string().min(1).max(80),
-        outcome: z.enum(["stocked", "defective", "returned"]),
-        operatorName: z.string().max(200).optional(),
+        files: z
+          .array(
+            z.object({
+              base64: z
+                .string()
+                .min(1)
+                .max(20 * 1024 * 1024),
+              mimeType: z
+                .string()
+                .regex(/^image\//i)
+                .max(100),
+              kind: z.enum(DEFECT_PHOTO_KINDS),
+            })
+          )
+          .max(10)
+          .refine(
+            files =>
+              files.reduce((sum, file) => sum + file.base64.length, 0) <=
+              45 * 1024 * 1024,
+            "写真の合計サイズは45MB以下にしてください"
+          ),
       })
     )
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const labelId = input.labelId.trim().toUpperCase();
+      const [label] = await db
+        .select({
+          id: inventoryItemLabels.id,
+          status: inventoryItemLabels.status,
+        })
+        .from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.labelId, labelId))
+        .limit(1);
+      if (!label)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `商品ID ${labelId} が見つかりません`,
+        });
+      if (normalizeStatus(label.status) !== "received")
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${labelId} は検品待ちではありません`,
+        });
+      return { photos: await uploadDefectivePhotos(labelId, input.files) };
+    }),
+
+  refreshDefectiveListing: protectedProcedure
+    .input(
+      z.object({
+        labelId: z.string().min(1).max(80),
+        keyword: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input }) =>
+      syncDefectiveListingByLabelId(input.labelId, { keyword: input.keyword })
+    ),
+
+  inspect: protectedProcedure
+    .input(inboundInspectionInputSchema)
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       const labelId = input.labelId.trim().toUpperCase();
@@ -518,6 +644,16 @@ export const inboundDeskRouter = router({
           .set({ status: "stocked", receivedAt: label.receivedAt ?? now })
           .where(eq(inventoryItemLabels.id, label.id));
       } else if (input.outcome === "defective") {
+        const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
+        const expectedPhotoPrefix = `defective/${labelId}/`;
+        if (
+          defectPhotos.some(photo => !photo.key.startsWith(expectedPhotoPrefix))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "写真の商品IDと検品対象の商品IDが一致しません",
+          });
+        }
         if (counted && currentQuantity > 0) {
           await updateLocalInventory(sourceInventory.id, {
             quantity: currentQuantity - 1,
@@ -556,6 +692,11 @@ export const inboundDeskRouter = router({
             status: "stocked",
             localInventoryId: nextInventoryId,
             receivedAt: label.receivedAt ?? now,
+            defectTags: input.defectTags!.join(","),
+            defectNote: input.defectNote?.trim() || null,
+            defectPhotosJson: JSON.stringify(defectPhotos),
+            defectRecordedAt: now,
+            defectiveSheetSyncedAt: null,
           })
           .where(eq(inventoryItemLabels.id, label.id));
         actionItemId = await insertInspectionActionItem({
@@ -581,13 +722,29 @@ export const inboundDeskRouter = router({
         outcome: input.outcome,
         workerName,
         actionItemId,
+        defectTags: input.defectTags,
+        photoCount: input.defectPhotos?.length,
       });
+      if (input.outcome === "defective") {
+        setImmediate(() => {
+          void syncDefectiveListingByLabelId(labelId).catch(error => {
+            console.error(
+              "[defective-listing] asynchronous preparation failed",
+              {
+                labelId,
+                error: error instanceof Error ? error.message : String(error),
+              }
+            );
+          });
+        });
+      }
       return {
         labelId,
         outcome: input.outcome,
         localInventoryId: nextInventoryId,
         actionItemId,
         inventoryCountChanged: input.outcome === "stocked" ? !counted : counted,
+        listingPreparation: input.outcome === "defective" ? "queued" : null,
       };
     }),
 });

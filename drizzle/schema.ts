@@ -671,6 +671,20 @@ export const inventoryItemLabels = mysqlTable("inventory_item_labels", {
   sourceKey: varchar("sourceKey", { length: 255 }),
   receivedAt: timestamp("receivedAt"),
   shippedAt: timestamp("shippedAt"),
+  /** Fixed defect tags, stored as a comma-separated list. */
+  defectTags: varchar("defectTags", { length: 255 }),
+  /** One-line inspection note for the defective item. */
+  defectNote: varchar("defectNote", { length: 500 }),
+  /** JSON array of { url, key, kind } for the item photos. */
+  defectPhotosJson: text("defectPhotosJson"),
+  /** When the defect details were recorded. */
+  defectRecordedAt: timestamp("defectRecordedAt"),
+  /** Last Yahoo closed-price result used to build the sheet row. */
+  yahooClosedPricesJson: text("yahooClosedPricesJson"),
+  /** When Yahoo closed prices were last fetched. */
+  yahooPriceFetchedAt: timestamp("yahooPriceFetchedAt"),
+  /** Last successful one-way upsert into the defective inventory sheet. */
+  defectiveSheetSyncedAt: timestamp("defectiveSheetSyncedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

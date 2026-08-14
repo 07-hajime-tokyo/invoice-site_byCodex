@@ -12,6 +12,13 @@ export type InboundLabel = {
   receivedAt: string | null;
   updatedAt: string;
   inventoryCounted: boolean;
+  defectTags?: string[];
+  defectNote?: string;
+  defectPhotoCount?: number;
+  marketKeyword?: string;
+  marketMedian?: number | null;
+  marketFetchedAt?: string | null;
+  defectiveSheetSyncedAt?: string | null;
 };
 
 export type InboundInvoiceSummary = {
