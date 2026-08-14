@@ -21,6 +21,7 @@ export type InventoryDeliveryInput = {
     tradeRecordId?: number | null;
     csvProductName?: string | null;
     labelId?: string;
+    previousStatus?: "received" | "stocked";
   }>;
   trackingNumber?: string;
   operatorName?: string;
@@ -77,6 +78,7 @@ export async function processInventoryDelivery(input: InventoryDeliveryInput) {
       title: item.title,
       quantity: item.quantity,
       ...(labelId ? { labelId } : {}),
+      ...(item.previousStatus ? { previousStatus: item.previousStatus } : {}),
       ...(managementNo ? { managementNo } : {}),
       ...(item.tradeRecordId ? { tradeRecordId: item.tradeRecordId } : {}),
       ...(csvProductName !== undefined ? { csvProductName } : {}),

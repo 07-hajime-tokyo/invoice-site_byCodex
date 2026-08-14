@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   actionItems,
   inventoryItemLabels,
   localInventories,
   localPurchases,
+  outboundBoxes,
   workLogs,
 } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -26,6 +27,12 @@ import {
 } from "./defectiveListing";
 import { uploadDefectivePhotos } from "./defectivePhotos";
 import { syncDefectiveListingByLabelId } from "./defectiveSync";
+import {
+  createDefectiveGroup,
+  dissolveDefectiveGroup,
+  listDefectiveGroups,
+  syncDefectiveGroup,
+} from "./defectiveGroups";
 
 type InspectionOutcome = "stocked" | "defective" | "returned";
 
@@ -56,6 +63,42 @@ export const inboundInspectionInputSchema = z
       });
     }
   });
+
+export const restockToDefectiveInputSchema = z.object({
+  labelId: z.string().min(1).max(80),
+  operatorName: z.string().max(200).optional(),
+  defectTags: z.array(z.enum(DEFECT_TAGS)).min(1).max(9),
+  defectNote: z.string().max(500).optional(),
+  defectPhotos: z.array(z.object({
+    url: z.string().url().max(2_000),
+    key: z.string().min(1).max(512),
+    kind: z.enum(DEFECT_PHOTO_KINDS),
+  })).max(10).optional(),
+});
+
+export function restockToDefectiveBlockReason(input: {
+  status: string;
+  boxStatus?: string | null;
+  boxCode?: string | null;
+  alreadyDefective?: boolean;
+}): string | null {
+  const status = normalizeStatus(input.status);
+  if (input.boxStatus === "shipped") {
+    return `${input.boxCode ?? "箱"} の追跡番号を解除し、封を解いてから不良在庫へ移してください`;
+  }
+  if (input.boxStatus === "sealed") {
+    return `${input.boxCode ?? "箱"} の封を解いてから不良在庫へ移してください`;
+  }
+  if (input.boxStatus === "open") {
+    return `${input.boxCode ?? "箱"} から個体を取り出してから不良在庫へ移してください`;
+  }
+  if (status === "shipped") {
+    return "出荷済みの個体は本操作の対象外です。返品フローで処理してください";
+  }
+  if (input.alreadyDefective) return "この個体は既に不良在庫として登録済みです";
+  if (status !== "stocked") return `在庫化済み（stocked）の個体だけ変更できます。現在: ${input.status}`;
+  return null;
+}
 
 function normalizeStatus(value: unknown): string {
   return String(value ?? "")
@@ -151,7 +194,7 @@ async function markPurchaseReceivedIfComplete(purchaseId: number | null) {
     );
 }
 
-async function insertInspectionActionItem(input: {
+export async function insertInspectionActionItem(input: {
   labelId: string;
   title: string;
   legacyManagementNo: string | null;
@@ -188,11 +231,11 @@ async function insertInspectionActionItem(input: {
   return Number((result as { insertId?: number }).insertId ?? 0) || null;
 }
 
-async function createDefectiveInventory(input: {
+export async function createDefectiveInventory(input: {
   label: typeof inventoryItemLabels.$inferSelect;
   sourceInventory: typeof localInventories.$inferSelect;
-}) {
-  const db = await requireDb();
+}, executor?: Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "insert">) {
+  const db = executor ?? await requireDb();
   const [result] = await db.insert(localInventories).values({
     zaicoId: null,
     title: input.label.title || input.sourceInventory.title,
@@ -248,7 +291,69 @@ async function recordInspection(input: {
   });
 }
 
+async function loadRestockCandidate(labelId: string) {
+  const db = await requireDb();
+  const normalizedId = labelId.trim().toUpperCase();
+  const [label] = await db.select().from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.labelId, normalizedId)).limit(1);
+  if (!label) return null;
+  const [inventory] = label.localInventoryId
+    ? await db.select().from(localInventories)
+        .where(eq(localInventories.id, label.localInventoryId)).limit(1)
+    : [];
+  const [box] = label.outboundBoxId
+    ? await db.select().from(outboundBoxes)
+        .where(eq(outboundBoxes.id, label.outboundBoxId)).limit(1)
+    : [];
+  const reason = restockToDefectiveBlockReason({
+    status: label.status,
+    boxStatus: box?.status,
+    boxCode: box?.boxCode,
+    alreadyDefective: Boolean(label.defectRecordedAt),
+  });
+  return {
+    label,
+    inventory: inventory ?? null,
+    box: box ?? null,
+    eligible: !reason,
+    reason,
+  };
+}
+
 export const inboundDeskRouter = router({
+  defectiveGroups: protectedProcedure.query(() => listDefectiveGroups()),
+
+  createDefectiveGroup: protectedProcedure
+    .input(z.object({
+      labelIds: z.array(z.string().min(1).max(80)).min(2).max(50),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(({ input, ctx }) => createDefectiveGroup(
+      input.labelIds,
+      operatorName(input.operatorName, ctx.user.name ?? ctx.user.email),
+    )),
+
+  syncDefectiveGroup: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(({ input }) => syncDefectiveGroup(input.id)),
+
+  dissolveDefectiveGroup: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(({ input }) => dissolveDefectiveGroup(input.id)),
+
+  listRestockCandidates: protectedProcedure.query(async () => {
+    const db = await requireDb();
+    const labels = await db.select({ labelId: inventoryItemLabels.labelId })
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.status, "stocked"));
+    const candidates = await Promise.all(labels.map(row => loadRestockCandidate(row.labelId)));
+    return candidates.filter(candidate => candidate && !candidate.label.defectRecordedAt);
+  }),
+
+  lookupRestockCandidate: protectedProcedure
+    .input(z.object({ labelId: z.string().min(1).max(80) }))
+    .query(async ({ input }) => loadRestockCandidate(input.labelId)),
+
   snapshot: protectedProcedure.query(async () => {
     const db = await requireDb();
     const [
@@ -535,6 +640,8 @@ export const inboundDeskRouter = router({
         .select({
           id: inventoryItemLabels.id,
           status: inventoryItemLabels.status,
+          outboundBoxId: inventoryItemLabels.outboundBoxId,
+          defectRecordedAt: inventoryItemLabels.defectRecordedAt,
         })
         .from(inventoryItemLabels)
         .where(eq(inventoryItemLabels.labelId, labelId))
@@ -544,10 +651,12 @@ export const inboundDeskRouter = router({
           code: "NOT_FOUND",
           message: `商品ID ${labelId} が見つかりません`,
         });
-      if (normalizeStatus(label.status) !== "received")
+      const candidate = await loadRestockCandidate(labelId);
+      const status = normalizeStatus(label.status);
+      if (status !== "received" && (status !== "stocked" || !candidate?.eligible))
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `${labelId} は検品待ちではありません`,
+          message: candidate?.reason ?? `${labelId} は検品待ち・在庫化済みのどちらでもありません`,
         });
       return { photos: await uploadDefectivePhotos(labelId, input.files) };
     }),
@@ -562,6 +671,108 @@ export const inboundDeskRouter = router({
     .mutation(async ({ input }) =>
       syncDefectiveListingByLabelId(input.labelId, { keyword: input.keyword })
     ),
+
+  restockToDefective: protectedProcedure
+    .input(restockToDefectiveInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const labelId = input.labelId.trim().toUpperCase();
+      const candidate = await loadRestockCandidate(labelId);
+      if (!candidate) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `商品ID ${labelId} が見つかりません` });
+      }
+      if (!candidate.eligible) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: candidate.reason ?? "不良在庫へ移せません" });
+      }
+      if (!candidate.inventory) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} に在庫情報が紐づいていません` });
+      }
+      const currentQuantity = Number(candidate.inventory.quantity ?? 0);
+      if (currentQuantity < 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} の在庫数が0のため不良在庫へ移せません` });
+      }
+      const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
+      const expectedPhotoPrefix = `defective/${labelId}/`;
+      if (defectPhotos.some(photo => !photo.key.startsWith(expectedPhotoPrefix))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "写真の商品IDと対象の商品IDが一致しません" });
+      }
+
+      const db = await requireDb();
+      const now = new Date();
+      const workerName = operatorName(input.operatorName, ctx.user.name ?? ctx.user.email);
+      const defectiveInventoryId = await db.transaction(async tx => {
+        const quantityUpdate = await tx.update(localInventories)
+          .set({ quantity: sql`${localInventories.quantity} - 1` })
+          .where(and(
+            eq(localInventories.id, candidate.inventory!.id),
+            gt(localInventories.quantity, 0),
+          ));
+        const quantityChanged = Number((quantityUpdate[0] as { affectedRows?: number }).affectedRows ?? 0) === 1;
+        if (!quantityChanged) {
+          throw new TRPCError({ code: "CONFLICT", message: `${labelId} の在庫数が既に変更されています。画面を更新してください` });
+        }
+
+        const inventoryId = await createDefectiveInventory({
+          label: candidate.label,
+          sourceInventory: candidate.inventory!,
+        }, tx);
+        const labelUpdate = await tx.update(inventoryItemLabels).set({
+          status: "stocked",
+          localInventoryId: inventoryId,
+          outboundBoxId: null,
+          shippedAt: null,
+          defectTags: input.defectTags.join(","),
+          defectNote: input.defectNote?.trim() || null,
+          defectPhotosJson: JSON.stringify(defectPhotos),
+          defectRecordedAt: now,
+          defectiveSheetSyncedAt: null,
+        }).where(and(
+          eq(inventoryItemLabels.id, candidate.label.id),
+          eq(inventoryItemLabels.status, "stocked"),
+          isNull(inventoryItemLabels.outboundBoxId),
+          isNull(inventoryItemLabels.defectRecordedAt),
+        ));
+        const labelChanged = Number((labelUpdate[0] as { affectedRows?: number }).affectedRows ?? 0) === 1;
+        if (!labelChanged) {
+          throw new TRPCError({ code: "CONFLICT", message: `${labelId} の状態が既に変更されています。画面を更新してください` });
+        }
+        return inventoryId;
+      });
+      const actionItemId = await insertInspectionActionItem({
+        labelId,
+        title: candidate.label.title,
+        legacyManagementNo: candidate.label.legacyManagementNo,
+        createdBy: workerName,
+      });
+      await recordWorkLog({
+        workerName,
+        category: "在庫から不良在庫へ変更",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: 1,
+        memo: `${labelId} / ${candidate.label.title}`,
+        createdBy: workerName,
+        sourceType: "restock-to-defective",
+        sourceId: labelId,
+        detailsJson: JSON.stringify({
+          labelId,
+          sourceInventoryId: candidate.inventory.id,
+          defectiveInventoryId,
+          defectTags: input.defectTags,
+          photoCount: defectPhotos.length,
+          actionItemId,
+        }),
+      });
+      setImmediate(() => {
+        void syncDefectiveListingByLabelId(labelId).catch(error => {
+          console.error("[defective-listing] restock preparation failed", {
+            labelId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      });
+      return { labelId, defectiveInventoryId, actionItemId, listingPreparation: "queued" as const };
+    }),
 
   inspect: protectedProcedure
     .input(inboundInspectionInputSchema)

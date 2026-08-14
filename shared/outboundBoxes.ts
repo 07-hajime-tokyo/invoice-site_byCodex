@@ -58,3 +58,40 @@ export function groupOutboundFedexItemsByInvoice(items: OutboundFedexItem[]): Ma
   }
   return groups;
 }
+
+export type ShipmentSheetName =
+  | "独発送管理"
+  | "サミー発送管理"
+  | "デボン発送管理"
+  | "サイモン発送管理"
+  | "ネレ発送管理";
+
+/** Strict mapping: callers must stop and ask a human when this returns null. */
+export function shipmentSheetForPartner(
+  partner: string | null | undefined
+): ShipmentSheetName | null {
+  const text = String(partner ?? "").normalize("NFKC").trim().toLowerCase();
+  if (!text) return null;
+  if (text.includes("デボン") || text.includes("devon")) return "デボン発送管理";
+  if (text.includes("サイモン") || text.includes("simon")) return "サイモン発送管理";
+  if (text.includes("ネレ") || text.includes("nele")) return "ネレ発送管理";
+  if (
+    text.includes("サミー") ||
+    text.includes("samee") ||
+    text.includes("sami") ||
+    text.includes("sammy")
+  ) return "サミー発送管理";
+  if (
+    text.includes("マキシム") ||
+    text.includes("maxim") ||
+    text.includes("ルカ") ||
+    text.includes("luca")
+  ) return "独発送管理";
+  return null;
+}
+
+export function priorStatusForUnseal(value: unknown): "received" | "stocked" {
+  return String(value ?? "").trim().toLowerCase() === "received"
+    ? "received"
+    : "stocked";
+}

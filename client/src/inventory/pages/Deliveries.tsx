@@ -62,6 +62,13 @@ import { PaginationBar } from "@/inventory/components/PaginationBar";
 import { EbayListingUrlEditor } from "@/inventory/components/EbayListingUrlEditor";
 import { getEbayStockType } from "@shared/ebayInventory";
 import { suggestCsvProduct } from "@shared/productMatching";
+import {
+  DefectiveInspectionDialog,
+  fileAsBase64,
+  type DefectTag,
+  type UploadedDefectPhoto,
+} from "@/inventory/components/DefectiveInspectionDialog";
+import type { InboundLabel } from "@/inventory/lib/inboundDesk";
 
 interface InventoryItemLabel {
   id?: number;
@@ -270,6 +277,17 @@ export default function Deliveries() {
   const { data: todayTrackingNumbers } = trpc.inventory.fedex.getTodayTrackingNumbers.useQuery(undefined, { enabled: loadSecondaryData });
   const { data: csvRows } = trpc.inventory.orderManagement.getCsvData.useQuery(undefined, { enabled: loadSecondaryData });
   const { data: managedCategories } = trpc.inventory.zaico.getCategories.useQuery();
+  const { data: restockCandidates } = trpc.inventory.inboundDesk.listRestockCandidates.useQuery();
+  const [restockLabelInput, setRestockLabelInput] = useState("");
+  const normalizedRestockLabel = restockLabelInput.normalize("NFKC").trim().toUpperCase();
+  const restockLookup = trpc.inventory.inboundDesk.lookupRestockCandidate.useQuery(
+    { labelId: normalizedRestockLabel },
+    { enabled: /^[ABCDEFGHJKLMNPQRSTUVWXYZ]{7}$/.test(normalizedRestockLabel) },
+  );
+  const [defectiveTarget, setDefectiveTarget] = useState<InboundLabel | null>(null);
+  const [restockChoiceInventoryId, setRestockChoiceInventoryId] = useState<number | null>(null);
+  const uploadRestockPhotos = trpc.inventory.inboundDesk.uploadDefectPhotos.useMutation();
+  const restockToDefective = trpc.inventory.inboundDesk.restockToDefective.useMutation();
 
   /** 管理番号の2番目の部分（_区切り）から取引先を判別する */
   function detectCustomerFromManagementNo(etc: string | undefined): { code: string; displayName: string } | null {
@@ -1298,6 +1316,55 @@ export default function Deliveries() {
     }
   }
 
+  function openRestockCandidate(candidate: NonNullable<typeof restockLookup.data>) {
+    if (!candidate.eligible) {
+      toast.error(candidate.reason ?? "この個体は不良在庫へ移せません");
+      return;
+    }
+    setDefectiveTarget(candidate.label as unknown as InboundLabel);
+  }
+
+  async function submitRestockDefective(value: {
+    defectTags: DefectTag[];
+    defectNote: string;
+    files: File[];
+  }) {
+    if (!defectiveTarget) return;
+    try {
+      let photos: UploadedDefectPhoto[] = [];
+      if (value.files.length > 0) {
+        const files = await Promise.all(value.files.map(async (file, index) => ({
+          base64: await fileAsBase64(file),
+          mimeType: file.type || "image/jpeg",
+          kind: (index === 0 ? "whole" : index === 1 ? "defect" : "accessory") as UploadedDefectPhoto["kind"],
+        })));
+        const uploaded = await uploadRestockPhotos.mutateAsync({ labelId: defectiveTarget.labelId, files });
+        photos = uploaded.photos as UploadedDefectPhoto[];
+      }
+      await restockToDefective.mutateAsync({
+        labelId: defectiveTarget.labelId,
+        operatorName: getCurrentWorkWorkerName("検品担当"),
+        defectTags: value.defectTags,
+        defectNote: value.defectNote,
+        defectPhotos: photos,
+      });
+      toast.success(`${defectiveTarget.labelId} を不良在庫へ移しました`);
+      setDefectiveTarget(null);
+      setRestockLabelInput("");
+      setRestockChoiceInventoryId(null);
+      await Promise.all([
+        utils.inventory.inboundDesk.listRestockCandidates.invalidate(),
+        utils.inventory.inboundDesk.lookupRestockCandidate.invalidate(),
+        utils.inventory.inboundDesk.defectiveGroups.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.actionItems.list.invalidate(),
+      ]);
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "不良在庫への変更に失敗しました");
+    }
+  }
+
   if (isLoading && !inventories) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1394,6 +1461,39 @@ export default function Deliveries() {
         </div>
       </div>
       </div>
+
+      <section className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="font-semibold text-amber-950">在庫化後に判明した不良</h2>
+            <p className="mt-1 text-sm text-amber-900">個体IDを直接入力・スキャンします。封済み／出荷済みは、先に追跡解除と封解きを案内します。</p>
+          </div>
+          <div className="flex w-full gap-2 md:max-w-md">
+            <Input
+              value={restockLabelInput}
+              onChange={event => setRestockLabelInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter" && restockLookup.data) openRestockCandidate(restockLookup.data);
+              }}
+              placeholder="7桁の個体ID"
+              className="h-11 bg-white font-mono uppercase"
+            />
+            <Button type="button" className="min-h-11" disabled={restockLookup.isFetching || !restockLookup.data} onClick={() => restockLookup.data && openRestockCandidate(restockLookup.data)}>
+              {restockLookup.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <AlertCircle className="mr-2 h-4 w-4" />}
+              不良在庫へ移す
+            </Button>
+          </div>
+        </div>
+        {normalizedRestockLabel.length === 7 && !restockLookup.isFetching ? (
+          <p className={`mt-2 text-sm ${restockLookup.data?.eligible ? "text-emerald-800" : "text-destructive"}`}>
+            {restockLookup.data
+              ? restockLookup.data.eligible
+                ? `${restockLookup.data.label.labelId} / ${restockLookup.data.label.title}（変更できます）`
+                : restockLookup.data.reason
+              : "該当する個体IDが見つかりません"}
+          </p>
+        ) : null}
+      </section>
 
       {/* 合計金額サマリー */}
       {showTotals && grandTotal > 0 && (
@@ -1499,6 +1599,9 @@ export default function Deliveries() {
             const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
             const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
             const managementNo = getManagementNo(inv.etc);
+            const defectiveCandidatesForRow = (restockCandidates ?? []).filter(candidate =>
+              candidate?.eligible && candidate.inventory?.id === inv.id
+            );
 
             // 経過日数の計算
             const baseDateStr = inv.last_purchase_date ?? inv.updated_at ?? null;
@@ -1587,6 +1690,19 @@ export default function Deliveries() {
                       )}
                     </div>
                   </div>
+                  {defectiveCandidatesForRow.length > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => defectiveCandidatesForRow.length === 1
+                        ? openRestockCandidate(defectiveCandidatesForRow[0]!)
+                        : setRestockChoiceInventoryId(inv.id)}
+                      className="mr-1 flex-shrink-0 border-amber-500 text-xs text-amber-700 hover:bg-amber-50"
+                    >
+                      <AlertCircle className="mr-1 h-3.5 w-3.5" />
+                      不良在庫へ移す{defectiveCandidatesForRow.length > 1 ? `（${defectiveCandidatesForRow.length}個体）` : ""}
+                    </Button>
+                  ) : null}
                   {/* 発注済みボタン */}
                   <Button
                     size="sm"
@@ -3365,6 +3481,37 @@ export default function Deliveries() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={restockChoiceInventoryId !== null} onOpenChange={open => !open && setRestockChoiceInventoryId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>不良在庫へ移す個体を選択</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {(restockCandidates ?? [])
+              .filter(candidate => candidate?.eligible && candidate.inventory?.id === restockChoiceInventoryId)
+              .map(candidate => (
+                <Button key={candidate!.label.labelId} type="button" variant="outline" className="h-auto w-full justify-start py-3 text-left" onClick={() => {
+                  setRestockChoiceInventoryId(null);
+                  openRestockCandidate(candidate!);
+                }}>
+                  <span className="font-mono font-bold">{candidate!.label.labelId}</span>
+                  <span className="ml-2 whitespace-normal">{candidate!.label.title}</span>
+                </Button>
+              ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRestockChoiceInventoryId(null)}>キャンセル</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DefectiveInspectionDialog
+        label={defectiveTarget}
+        busy={uploadRestockPhotos.isPending || restockToDefective.isPending}
+        onClose={() => setDefectiveTarget(null)}
+        onSubmit={submitRestockDefective}
+      />
     </div>
   );
 }

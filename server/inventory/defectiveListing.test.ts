@@ -12,12 +12,17 @@ import {
   convertDefectivePhotoToJpeg,
   uploadDefectivePhotos,
 } from "./defectivePhotos";
-import { inboundInspectionInputSchema } from "./inboundDesk";
+import { estimateGroupMarketMedian } from "./defectiveGroups";
+import {
+  inboundInspectionInputSchema,
+  restockToDefectiveBlockReason,
+  restockToDefectiveInputSchema,
+} from "./inboundDesk";
 import { postGasAction } from "./gasClient";
 import { parseYahooClosedPricesHtml } from "./yahooClosedPrices";
 
 const fixtureHtml = `<!doctype html><html><head>
-  <meta name="description" content="過去の落札相場です。約123件の落札価格を確認できます。">
+  <meta name="description" content="過去120日間の落札相場です。約123件の落札価格を確認できます。">
 </head><body>
   <dl><div><dt>最安</dt><dd>100円</dd></div><div><dt>平均</dt><dd>2,500円</dd></div><div><dt>最高</dt><dd>9,999円</dd></div></dl>
   <script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
@@ -74,6 +79,23 @@ const fixtureHtml = `<!doctype html><html><head>
 </body></html>`;
 
 describe("defective listing generation", () => {
+  it("estimates a bundle as the representative single-item median times quantity", () => {
+    expect(estimateGroupMarketMedian([1000, 1000, 3000], 3)).toBe(3000);
+    expect(estimateGroupMarketMedian([1000, 3000], 2)).toBe(4000);
+    expect(estimateGroupMarketMedian([1000], 2)).toBeNull();
+  });
+
+  it("rejects shipped and sealed labels with the required recovery route", () => {
+    expect(restockToDefectiveBlockReason({ status: "shipped", boxStatus: "shipped", boxCode: "B000001" }))
+      .toMatch(/追跡番号を解除し、封を解いて/);
+    expect(restockToDefectiveBlockReason({ status: "stocked", boxStatus: "sealed", boxCode: "B000002" }))
+      .toMatch(/封を解いて/);
+    expect(restockToDefectiveBlockReason({ status: "stocked" })).toBeNull();
+    expect(restockToDefectiveInputSchema.safeParse({
+      labelId: "ACDEFGH",
+      defectTags: [],
+    }).success).toBe(false);
+  });
   it("keeps the warning, junk prefix, and defect tag within 65 characters", () => {
     const title = generateDefectiveTitle({
       productName:
@@ -114,7 +136,7 @@ describe("defective listing generation", () => {
       market: {
         keyword: "Nintendo HAC-001 起動しない",
         fetchedAt: "2026-08-14T00:00:00.000Z",
-        summary180d: { min: 0, avg: 0, max: 0, count: 0 },
+        summaryWindow: { days: 0, min: 0, avg: 0, max: 0, count: 0 },
         adopted: { count: 0, median: null, min: null, max: null },
         samples: [],
       },
@@ -159,7 +181,8 @@ describe("Yahoo closed-price parsing", () => {
       "Nintendo Switch ジャンク",
       new Date("2026-08-14T12:00:00Z")
     );
-    expect(result.summary180d).toEqual({
+    expect(result.summaryWindow).toEqual({
+      days: 120,
       min: 100,
       avg: 2500,
       max: 9999,

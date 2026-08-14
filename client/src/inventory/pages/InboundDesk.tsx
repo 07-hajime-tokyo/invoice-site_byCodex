@@ -1,16 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   buildInboundInvoiceRollups,
   groupInboundBoxes,
@@ -36,9 +27,21 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
+import {
+  DefectiveInspectionDialog,
+  fileAsBase64,
+  type DefectTag,
+  type UploadedDefectPhoto,
+} from "@/inventory/components/DefectiveInspectionDialog";
 
 type Phase = "receive" | "inspect" | "review";
 type InspectionOutcome = "stocked" | "defective" | "returned";
+
+const OutboundBoxIssuer = lazy(async () => {
+  const module = await import("@/inventory/pages/PurchaseRegistration");
+  return { default: module.OutboundBoxIssuer };
+});
 
 const PHASES: Array<{ value: Phase; number: string; label: string }> = [
   { value: "receive", number: "①", label: "受け取り" },
@@ -56,34 +59,6 @@ const CARRIER_LABELS: Record<string, string> = {
   fukuyama: "福山通運",
 };
 
-const DEFECT_TAG_OPTIONS = [
-  "通電せず",
-  "起動しない",
-  "画面不良",
-  "バッテリー不良",
-  "充電不可",
-  "ボタン・スティック不良",
-  "外装破損",
-  "付属品欠品",
-  "その他",
-] as const;
-type DefectTag = (typeof DEFECT_TAG_OPTIONS)[number];
-
-type UploadedDefectPhoto = {
-  url: string;
-  key: string;
-  kind: "whole" | "defect" | "accessory";
-};
-
-function fileAsBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () =>
-      reject(reader.error ?? new Error("写真を読み込めませんでした"));
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.readAsDataURL(file);
-  });
-}
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "日時不明";
@@ -179,167 +154,6 @@ function LabelDetails({ label }: { label: InboundLabel }) {
         旧管理番号: {label.legacyManagementNo || "-"}
       </div>
     </div>
-  );
-}
-
-function DefectiveInspectionDialog({
-  label,
-  busy,
-  onClose,
-  onSubmit,
-}: {
-  label: InboundLabel | null;
-  busy: boolean;
-  onClose: () => void;
-  onSubmit: (value: {
-    defectTags: DefectTag[];
-    defectNote: string;
-    files: File[];
-  }) => Promise<void>;
-}) {
-  const [defectTags, setDefectTags] = useState<DefectTag[]>([]);
-  const [defectNote, setDefectNote] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-
-  useEffect(() => {
-    if (!label) return;
-    setDefectTags([]);
-    setDefectNote("");
-    setFiles([]);
-  }, [label]);
-
-  return (
-    <Dialog
-      open={Boolean(label)}
-      onOpenChange={open => !open && !busy && onClose()}
-    >
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl [&>button]:min-h-12 [&>button]:min-w-12">
-        <DialogHeader>
-          <DialogTitle>不良内容と写真を記録</DialogTitle>
-          <DialogDescription>
-            {label ? `${label.labelId} / ${label.title}` : ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-5">
-          <fieldset>
-            <legend className="text-sm font-semibold">
-              不良タグ <span className="text-destructive">（1つ以上必須）</span>
-            </legend>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {DEFECT_TAG_OPTIONS.map(tag => {
-                const selected = defectTags.includes(tag);
-                return (
-                  <Button
-                    key={tag}
-                    type="button"
-                    variant={selected ? "default" : "outline"}
-                    aria-pressed={selected}
-                    className="min-h-12 h-auto whitespace-normal px-2 py-2"
-                    onClick={() =>
-                      setDefectTags(current =>
-                        selected
-                          ? current.filter(value => value !== tag)
-                          : [...current, tag]
-                      )
-                    }
-                    disabled={busy}
-                  >
-                    {tag}
-                  </Button>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          <div>
-            <label htmlFor="defect-note" className="text-sm font-semibold">
-              不良メモ（任意・1行）
-            </label>
-            <Textarea
-              id="defect-note"
-              value={defectNote}
-              maxLength={500}
-              rows={2}
-              className="mt-2 min-h-11"
-              placeholder="例: ACアダプター接続時に充電ランプが点灯しません"
-              onChange={event =>
-                setDefectNote(event.target.value.replace(/[\r\n]+/g, " "))
-              }
-              disabled={busy}
-            />
-          </div>
-
-          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-            <div className="text-sm font-semibold text-sky-950">
-              写真は3枚推奨（最大10枚）
-            </div>
-            <div className="mt-1 text-xs text-sky-900">
-              ①全体 ②不良箇所のアップ
-              ③付属品込み。写真0枚でも登録できますが、出品タイトルに「写真未撮影」が付きます。
-            </div>
-            <input
-              id="defect-photos"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              className="sr-only"
-              onChange={event => {
-                const selected = Array.from(event.target.files ?? []);
-                if (selected.length > 10) toast.error("写真は10枚までです");
-                const next = selected.slice(0, 10);
-                const total = next.reduce((sum, file) => sum + file.size, 0);
-                if (total > 45 * 1024 * 1024) {
-                  toast.error("写真の合計サイズは45MB以下にしてください");
-                  event.target.value = "";
-                  setFiles([]);
-                  return;
-                }
-                setFiles(next);
-              }}
-              disabled={busy}
-            />
-            <label
-              htmlFor="defect-photos"
-              className="mt-3 flex min-h-12 cursor-pointer items-center justify-center rounded-md border border-sky-300 bg-white px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm"
-            >
-              iPhoneで撮影・写真を選択
-            </label>
-            <div className="mt-2 text-xs text-sky-900">
-              {files.length > 0
-                ? `${files.length}枚選択: ${files.map(file => file.name).join(" / ")}`
-                : "写真なし"}
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-12"
-            onClick={onClose}
-            disabled={busy}
-          >
-            キャンセル
-          </Button>
-          <Button
-            type="button"
-            className="min-h-12"
-            disabled={busy || defectTags.length === 0}
-            onClick={() => void onSubmit({ defectTags, defectNote, files })}
-          >
-            {busy ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <TriangleAlert className="mr-2 h-4 w-4" />
-            )}
-            不良在庫として登録
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1101,6 +915,97 @@ function DefectiveMarketRefresh({
   );
 }
 
+function DefectiveGroupingPanel() {
+  const utils = trpc.useUtils();
+  const query = trpc.inventory.inboundDesk.defectiveGroups.useQuery();
+  const [selected, setSelected] = useState<string[]>([]);
+  const createGroup = trpc.inventory.inboundDesk.createDefectiveGroup.useMutation({
+    onSuccess: result => {
+      setSelected([]);
+      void utils.inventory.inboundDesk.defectiveGroups.invalidate();
+      if (result.sheet.success) toast.success(`${result.group.groupCode} をまとめ用1行としてシートへ登録しました`);
+      else toast.warning(`${result.group.groupCode} は作成済みです。シート連携は要確認: ${result.sheet.message ?? "未反映"}`);
+    },
+    onError: error => toast.error(error.message),
+  });
+  const dissolveGroup = trpc.inventory.inboundDesk.dissolveDefectiveGroup.useMutation({
+    onSuccess: result => {
+      void utils.inventory.inboundDesk.defectiveGroups.invalidate();
+      toast.success(`${result.groupCode} を解除しました。シート行は監査用に解除済みとして残します`);
+    },
+    onError: error => toast.error(error.message),
+  });
+  const syncGroup = trpc.inventory.inboundDesk.syncDefectiveGroup.useMutation({
+    onSuccess: result => {
+      void utils.inventory.inboundDesk.defectiveGroups.invalidate();
+      if (result.sheet.success) toast.success(`${result.groupCode} をシートへ再送しました`);
+      else toast.warning(`${result.groupCode} のシート連携に失敗しました: ${result.sheet.message ?? "要確認"}`);
+    },
+    onError: error => toast.error(error.message),
+  });
+  const activeGroups = (query.data?.groups ?? []).filter(group => group.status === "active");
+
+  return (
+    <section className="rounded-xl border border-violet-300 bg-violet-50/60 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="font-semibold text-violet-950">ジャンクまとめ出品グループ</h2>
+          <p className="mt-1 text-sm text-violet-900">複数個体を選ぶと、代表する単品中央値×台数を目安にまとめ用1行を「不良在庫」シートへ作ります。</p>
+        </div>
+        <Button
+          type="button"
+          disabled={selected.length < 2 || createGroup.isPending}
+          onClick={() => createGroup.mutate({ labelIds: selected, operatorName: getCurrentWorkWorkerName("検品担当") })}
+        >
+          {createGroup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          選択した{selected.length}個体を1出品にまとめる
+        </Button>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {(query.data?.candidates ?? []).map(candidate => {
+          const checked = selected.includes(candidate.labelId);
+          return (
+            <label key={candidate.labelId} className="flex cursor-pointer items-start gap-3 rounded border bg-white p-3">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => setSelected(current => checked ? current.filter(id => id !== candidate.labelId) : [...current, candidate.labelId])}
+                className="mt-1 h-5 w-5"
+              />
+              <span className="min-w-0 text-sm">
+                <span className="font-mono font-bold">{candidate.labelId}</span>
+                <span className="ml-2">{candidate.title}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{candidate.defectTags.join("、") || "その他"} / 単品中央値: {candidate.marketMedian == null ? "未取得" : `${candidate.marketMedian.toLocaleString()}円`}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {(query.data?.candidates.length ?? 0) === 0 ? <p className="mt-3 text-sm text-muted-foreground">グループ未所属の不良個体はありません。</p> : null}
+      {activeGroups.length > 0 ? (
+        <div className="mt-4 space-y-2 border-t border-violet-200 pt-3">
+          <h3 className="text-sm font-semibold">有効なグループ</h3>
+          {activeGroups.map(group => (
+            <div key={group.id} className="flex flex-wrap items-center justify-between gap-2 rounded border bg-white p-2 text-sm">
+              <div><span className="font-mono font-bold">{group.groupCode}</span><span className="ml-2">{group.memberLabelIds.join(", ")}</span></div>
+              <div className="flex flex-wrap gap-2">
+                {!group.sheetSyncedAt ? (
+                  <Button type="button" size="sm" variant="outline" disabled={syncGroup.isPending} onClick={() => syncGroup.mutate({ id: group.id })}>
+                    シートへ再送
+                  </Button>
+                ) : null}
+                <Button type="button" size="sm" variant="outline" disabled={dissolveGroup.isPending} onClick={() => {
+                  if (window.confirm(`${group.groupCode} を解除しますか？シート行は削除せず「解除済み」に更新します。`)) dissolveGroup.mutate({ id: group.id });
+                }}>グループを解除</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function InboundDesk() {
   const [phase, setPhase] = useState<Phase>("receive");
   const snapshotQuery = trpc.inventory.inboundDesk.snapshot.useQuery(
@@ -1161,6 +1066,18 @@ export default function InboundDesk() {
         </p>
       </header>
 
+      <section className="rounded-xl border-2 border-indigo-300 bg-indigo-50/50 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="font-semibold text-indigo-950">出庫箱を先に発番・印刷</h2>
+            <p className="mt-1 text-sm text-indigo-900">検品前・入荷0件の日でも発番できます。空の箱は出庫画面の「開いたままの箱」に残ります。</p>
+          </div>
+          <Suspense fallback={<Loader2 className="h-5 w-5 animate-spin text-indigo-700" />}>
+            <OutboundBoxIssuer operatorRole="荷受け担当" />
+          </Suspense>
+        </div>
+      </section>
+
       <PhaseNavigation
         phase={phase}
         onChange={setPhase}
@@ -1189,22 +1106,25 @@ export default function InboundDesk() {
         <InspectPhase boxes={boxes} onRefresh={refresh} />
       ) : null}
       {phase === "review" ? (
-        <ReviewPhase
-          pendingCount={pendingLabels.length}
-          recent={
-            (snapshotQuery.data?.recent ?? []) as Array<
-              InboundLabel & {
-                outcome: InspectionOutcome;
-                actionItemId: number | null;
-                processedAt: string;
-                workerName: string;
-              }
-            >
-          }
-          actionItems={snapshotQuery.data?.actionItems ?? []}
-          rollups={rollups}
-          onRefresh={refresh}
-        />
+        <>
+          <ReviewPhase
+            pendingCount={pendingLabels.length}
+            recent={
+              (snapshotQuery.data?.recent ?? []) as Array<
+                InboundLabel & {
+                  outcome: InspectionOutcome;
+                  actionItemId: number | null;
+                  processedAt: string;
+                  workerName: string;
+                }
+              >
+            }
+            actionItems={snapshotQuery.data?.actionItems ?? []}
+            rollups={rollups}
+            onRefresh={refresh}
+          />
+          <DefectiveGroupingPanel />
+        </>
       ) : null}
     </div>
   );

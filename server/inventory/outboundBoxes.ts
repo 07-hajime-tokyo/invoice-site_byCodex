@@ -1,26 +1,31 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { inventoryItemLabels, outboundBoxes } from "../../drizzle/schema";
+import {
+  deliveryHistories,
+  fedexShipments,
+  inventoryItemLabels,
+  localInventories,
+  outboundBoxes,
+  tradeRecords,
+  workLogs,
+} from "../../drizzle/schema";
 import {
   buildOutboundFedexItems,
   formatOutboundBoxCode,
   groupOutboundFedexItemsByInvoice,
   normalizeOutboundScan,
   OUTBOUND_BOX_CODE_PATTERN,
+  priorStatusForUnseal,
   PRODUCT_LABEL_PATTERN,
+  shipmentSheetForPartner,
+  type OutboundFedexItem,
+  type ShipmentSheetName,
 } from "../../shared/outboundBoxes";
 import { protectedProcedure, router } from "../_core/trpc";
 import { createFedexShipment, getDb, getLocalInventoryById, updateFedexShipmentStatus } from "./db";
 import { processInventoryDelivery } from "./deliveryService";
+import { postGasAction } from "./gasClient";
 import { recordWorkLog } from "./workLogs";
-
-const shipmentSheetNameSchema = z.enum([
-  "独発送管理",
-  "サミー発送管理",
-  "デボン発送管理",
-  "サイモン発送管理",
-  "ネレ発送管理",
-]);
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -76,26 +81,49 @@ async function issueOneBox(operatorName: string | null) {
   throw new Error("箱IDの発番が競合しました。もう一度実行してください");
 }
 
-async function postGas(payload: Record<string, unknown>) {
-  const gasUrl = process.env.GAS_WEBHOOK_URL;
-  if (!gasUrl) return { success: false, message: "GAS_WEBHOOK_URLが未設定" };
-  try {
-    const response = await fetch(gasUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: process.env.GAS_WEBHOOK_SECRET ?? "", ...payload }),
-      redirect: "manual",
-    });
-    const text = response.status === 301 || response.status === 302
-      ? await fetch(response.headers.get("location") ?? gasUrl).then((next) => next.text())
-      : await response.text();
-    try {
-      return JSON.parse(text) as { success: boolean; message?: string };
-    } catch {
-      return { success: false, message: text };
+async function resolveShipmentDestinations(items: OutboundFedexItem[]) {
+  const invoiceNos = Array.from(new Set(items.map(item => item.invoiceNo)));
+  const missingInvoice = items.find(item => !item.invoiceNo);
+  if (missingInvoice) {
+    throw new Error(`${missingInvoice.labelId} のインボイスNoを特定できません。取引先を確認してください`);
+  }
+  const numericInvoiceNos = invoiceNos.map(value => Number(value));
+  const db = await requireDb();
+  const rows = await db
+    .select({ invoiceNo: tradeRecords.no, partner: tradeRecords.partner })
+    .from(tradeRecords)
+    .where(inArray(tradeRecords.no, numericInvoiceNos));
+  const destinationByInvoice = new Map<string, { partner: string; sheetName: ShipmentSheetName }>();
+  for (const invoiceNo of invoiceNos as string[]) {
+    const partners = Array.from(new Set(rows
+      .filter(row => Number(row.invoiceNo) === Number(invoiceNo))
+      .map(row => String(row.partner ?? "").trim())
+      .filter(Boolean)));
+    if (partners.length !== 1) {
+      throw new Error(`インボイスNo.${invoiceNo} の取引先を一意に特定できません。人が取引データを確認してください`);
     }
-  } catch (error) {
-    return { success: false, message: errorText(error) };
+    const sheetName = shipmentSheetForPartner(partners[0]);
+    if (!sheetName) {
+      throw new Error(`インボイスNo.${invoiceNo} の取引先「${partners[0]}」に発送管理シートが設定されていません`);
+    }
+    destinationByInvoice.set(invoiceNo, { partner: partners[0], sheetName });
+  }
+  return destinationByInvoice;
+}
+
+export async function deleteShipmentRowsForUnlink(
+  shipments: Array<{ sheetName: string; trackingNumber: string }>,
+  post: typeof postGasAction = postGasAction,
+) {
+  for (const shipment of shipments) {
+    const result = await post({
+      action: "deleteShipmentBatch",
+      sheetName: shipment.sheetName,
+      trackingNumber: shipment.trackingNumber,
+    });
+    if (!result.success) {
+      throw new Error(`Googleスプレッドシートの行を削除できませんでした: ${result.message ?? "要確認"}`);
+    }
   }
 }
 
@@ -216,6 +244,7 @@ export const outboundBoxesRouter = router({
             title: label.title,
             quantity: 1,
             labelId: label.labelId,
+            previousStatus: priorStatusForUnseal(label.status),
           };
         }));
         const result = await processInventoryDelivery({
@@ -245,7 +274,6 @@ export const outboundBoxesRouter = router({
     .input(z.object({
       boxCode: z.string(),
       trackingNumber: z.string().min(6).max(100),
-      sheetName: shipmentSheetNameSchema,
       shippingDate: z.string().min(3).max(20),
       operatorName: z.string().max(200).optional(),
     }))
@@ -260,38 +288,59 @@ export const outboundBoxesRouter = router({
       if (box.status !== "sealed" || !box.deliveryHistoryId) throw new Error("先に箱を封じてください");
       const labels = await getBoxLabels(box.id);
       const items = buildOutboundFedexItems(labels);
+      const destinationByInvoice = await resolveShipmentDestinations(items);
       const operatorName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
-      const fedexShipmentId = await createFedexShipment({
-        deliveryNo: box.boxCode,
-        sheetName: input.sheetName,
-        shippingDate: input.shippingDate,
-        trackingNumber,
-        itemsJson: JSON.stringify(items),
-        spreadsheetStatus: "pending",
-        operatorName,
-        historyId: box.deliveryHistoryId,
-      });
+      const invoiceGroups = groupOutboundFedexItemsByInvoice(items);
+      const itemsBySheet = new Map<ShipmentSheetName, OutboundFedexItem[]>();
+      for (const [invoiceNo, invoiceItems] of invoiceGroups) {
+        const destination = destinationByInvoice.get(invoiceNo);
+        if (!destination) throw new Error(`インボイスNo.${invoiceNo} の取引先を特定できません`);
+        itemsBySheet.set(destination.sheetName, [
+          ...(itemsBySheet.get(destination.sheetName) ?? []),
+          ...invoiceItems,
+        ]);
+      }
+      const shipmentIds = new Map<ShipmentSheetName, number>();
+      for (const [sheetName, sheetItems] of itemsBySheet) {
+        shipmentIds.set(sheetName, await createFedexShipment({
+          deliveryNo: box.boxCode,
+          sheetName,
+          shippingDate: input.shippingDate,
+          trackingNumber,
+          itemsJson: JSON.stringify(sheetItems),
+          spreadsheetStatus: "pending",
+          operatorName,
+          historyId: box.deliveryHistoryId,
+        }));
+      }
 
-      const gasResults = [];
+      const gasResults: Array<{ sheetName: ShipmentSheetName; success: boolean; message?: string }> = [];
       for (const [invoiceNo, invoiceItems] of groupOutboundFedexItemsByInvoice(items)) {
-        gasResults.push(await postGas({
+        const destination = destinationByInvoice.get(invoiceNo)!;
+        const result = await postGasAction({
           action: "writeShipmentBatch",
           deliveryNo: box.boxCode,
           invoiceNo,
-          sheetName: input.sheetName,
+          sheetName: destination.sheetName,
           shippingDate: input.shippingDate,
           trackingNumber,
           items: invoiceItems,
-        }));
+        });
+        gasResults.push({ sheetName: destination.sheetName, ...result });
       }
       const spreadsheetSuccess = gasResults.every((result) => result.success);
       const spreadsheetError = gasResults.filter((result) => !result.success).map((result) => result.message).join(" / ");
-      await updateFedexShipmentStatus(fedexShipmentId, spreadsheetSuccess ? "success" : "error", spreadsheetError || undefined);
+      for (const [sheetName, shipmentId] of shipmentIds) {
+        const sheetResults = gasResults.filter(result => result.sheetName === sheetName);
+        const sheetSuccess = sheetResults.every(result => result.success);
+        const sheetError = sheetResults.filter(result => !result.success).map(result => result.message).join(" / ");
+        await updateFedexShipmentStatus(shipmentId, sheetSuccess ? "success" : "error", sheetError || undefined);
+      }
       const db = await requireDb();
       await db.update(outboundBoxes).set({
         status: "shipped",
         trackingNumber,
-        fedexShipmentId,
+        fedexShipmentId: shipmentIds.values().next().value ?? null,
         linkedAt: new Date(),
       }).where(eq(outboundBoxes.id, box.id));
       await recordWorkLog({
@@ -308,6 +357,155 @@ export const outboundBoxesRouter = router({
         detailsJson: JSON.stringify({ boxCode: box.boxCode, trackingNumber, items }),
       });
       return { ...(await getBoxDetail(box.boxCode)), spreadsheetSuccess, spreadsheetError: spreadsheetError || null };
+    }),
+
+  unlinkTracking: protectedProcedure
+    .input(z.object({
+      boxCode: z.string(),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const box = await getBoxByCode(normalizeOutboundScan(input.boxCode));
+      if (!box) throw new Error("箱が見つかりません");
+      if (box.status !== "shipped" || !box.trackingNumber || !box.deliveryHistoryId) {
+        throw new Error("追跡番号が紐付いている箱だけ解除できます");
+      }
+      const db = await requireDb();
+      const shipments = await db.select().from(fedexShipments).where(and(
+        eq(fedexShipments.historyId, box.deliveryHistoryId),
+        isNull(fedexShipments.cancelledAt),
+      ));
+      if (shipments.length === 0) throw new Error("解除対象のFedEx発送記録が見つかりません");
+
+      await deleteShipmentRowsForUnlink(shipments);
+
+      const now = new Date();
+      const workerName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
+      await db.transaction(async tx => {
+        await tx.update(fedexShipments).set({
+          cancelledAt: now,
+          cancellationReason: `箱 ${box.boxCode} の追跡紐付け解除`,
+          spreadsheetStatus: "success",
+          spreadsheetError: null,
+        }).where(and(
+          eq(fedexShipments.historyId, box.deliveryHistoryId!),
+          isNull(fedexShipments.cancelledAt),
+        ));
+        await tx.update(outboundBoxes).set({
+          status: "sealed",
+          trackingNumber: null,
+          fedexShipmentId: null,
+          linkedAt: null,
+          trackingUnlinkedAt: now,
+        }).where(and(eq(outboundBoxes.id, box.id), eq(outboundBoxes.status, "shipped")));
+        await tx.insert(workLogs).values({
+          workerName,
+          category: "箱追跡解除",
+          status: "done",
+          startedAt: now,
+          endedAt: now,
+          quantity: shipments.length,
+          memo: `箱ID: ${box.boxCode} / 追跡番号: ${box.trackingNumber}`,
+          createdBy: workerName,
+          sourceType: "box-unlink-tracking",
+          sourceId: box.boxCode,
+          detailsJson: JSON.stringify({ boxCode: box.boxCode, trackingNumber: box.trackingNumber, shipmentIds: shipments.map(row => row.id) }),
+        });
+      });
+      return getBoxDetail(box.boxCode);
+    }),
+
+  unseal: protectedProcedure
+    .input(z.object({
+      boxCode: z.string(),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const box = await getBoxByCode(normalizeOutboundScan(input.boxCode));
+      if (!box) throw new Error("箱が見つかりません");
+      if (box.status === "open") return { ...(await getBoxDetail(box.boxCode)), restoredCount: 0, alreadyOpen: true };
+      if (box.status === "shipped") {
+        throw new Error("先に追跡番号の紐付けを解除してください。Googleスプレッドシートの行削除確認が必要です");
+      }
+      if (!box.deliveryHistoryId) throw new Error("取消対象の出庫履歴が見つかりません");
+      const db = await requireDb();
+      const [history] = await db.select().from(deliveryHistories)
+        .where(eq(deliveryHistories.id, box.deliveryHistoryId)).limit(1);
+      if (!history) throw new Error("取消対象の出庫履歴が見つかりません");
+      const labels = await getBoxLabels(box.id);
+      type HistoryItem = { inventoryId?: number; quantity?: number; labelId?: string; previousStatus?: string };
+      const historyItems = JSON.parse(history.itemsJson || "[]") as HistoryItem[];
+      const previousStatusByLabel = new Map(historyItems
+        .filter(item => item.labelId)
+        .map(item => [normalizeOutboundScan(item.labelId!), priorStatusForUnseal(item.previousStatus)]));
+      const now = new Date();
+      const workerName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
+      let restoredCount = 0;
+
+      await db.transaction(async tx => {
+        const claimed = await tx.update(outboundBoxes).set({
+          status: "open",
+          sealedAt: null,
+          deliveryHistoryId: null,
+          unsealedAt: now,
+        }).where(and(eq(outboundBoxes.id, box.id), eq(outboundBoxes.status, "sealed")));
+        const affectedRows = Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0);
+        if (affectedRows !== 1) return;
+
+        const cancelledItems = (() => {
+          try {
+            const parsed = JSON.parse(history.cancelledItemsJson || "[]");
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })();
+        for (const label of labels) {
+          const restoredStatus = previousStatusByLabel.get(label.labelId) ?? "stocked";
+          const changed = await tx.update(inventoryItemLabels).set({
+            status: restoredStatus,
+            shippedAt: null,
+          }).where(and(
+            eq(inventoryItemLabels.id, label.id),
+            eq(inventoryItemLabels.outboundBoxId, box.id),
+            eq(inventoryItemLabels.status, "shipped"),
+          ));
+          const labelChanged = Number((changed[0] as { affectedRows?: number }).affectedRows ?? 0) === 1;
+          if (!labelChanged) continue;
+          restoredCount += 1;
+          if (label.localInventoryId) {
+            await tx.update(localInventories)
+              .set({ quantity: sql`${localInventories.quantity} + 1` })
+              .where(eq(localInventories.id, label.localInventoryId));
+          }
+          const historyItem = historyItems.find(item => normalizeOutboundScan(item.labelId ?? "") === label.labelId);
+          cancelledItems.push({
+            inventoryId: historyItem?.inventoryId ?? label.localInventoryId,
+            quantity: historyItem?.quantity ?? 1,
+            labelId: label.labelId,
+            cancelledAt: now.toISOString(),
+            reason: "box-unseal",
+            boxCode: box.boxCode,
+          });
+        }
+        await tx.update(deliveryHistories)
+          .set({ cancelledItemsJson: JSON.stringify(cancelledItems) })
+          .where(eq(deliveryHistories.id, history.id));
+        await tx.insert(workLogs).values({
+          workerName,
+          category: "箱の封解き",
+          status: "done",
+          startedAt: now,
+          endedAt: now,
+          quantity: restoredCount,
+          memo: `箱ID: ${box.boxCode} / 在庫復元: ${restoredCount}点`,
+          createdBy: workerName,
+          sourceType: "box-unseal",
+          sourceId: box.boxCode,
+          detailsJson: JSON.stringify({ boxCode: box.boxCode, labelIds: labels.map(label => label.labelId), deliveryHistoryId: history.id }),
+        });
+      });
+      return { ...(await getBoxDetail(box.boxCode)), restoredCount, alreadyOpen: restoredCount === 0 };
     }),
 
   traceByLabel: protectedProcedure

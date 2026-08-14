@@ -669,6 +669,10 @@ export const outboundBoxes = mysqlTable("outbound_boxes", {
   openedAt: timestamp("openedAt").defaultNow().notNull(),
   sealedAt: timestamp("sealedAt"),
   linkedAt: timestamp("linkedAt"),
+  /** Last time a shipped box was detached from its tracking number. */
+  trackingUnlinkedAt: timestamp("trackingUnlinkedAt"),
+  /** Last time a sealed box was reopened and its delivery was cancelled. */
+  unsealedAt: timestamp("unsealedAt"),
   discardedAt: timestamp("discardedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -1039,11 +1043,32 @@ export const fedexShipments = mysqlTable("fedex_shipments", {
   operatorName: varchar("operatorName", { length: 200 }),
   /** 紐付く出庫履歴ID（delivery_histories.id）。1件のFedEx発送が1件の出庫履歴に対応 */
   historyId: int("historyId"),
+  /** Cancellation is soft-only so shipment audit evidence is retained. */
+  cancelledAt: timestamp("cancelledAt"),
+  cancellationReason: varchar("cancellationReason", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type FedexShipment = typeof fedexShipments.$inferSelect;
 export type InsertFedexShipment = typeof fedexShipments.$inferInsert;
+
+/**
+ * A group combines multiple defective product IDs into one Yahoo listing row.
+ * Members are snapshotted as JSON so dissolving a group never deletes evidence.
+ */
+export const defectiveListingGroups = mysqlTable("defective_listing_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  groupCode: varchar("groupCode", { length: 32 }).notNull().unique(),
+  status: mysqlEnum("status", ["active", "dissolved"]).default("active").notNull(),
+  memberLabelIdsJson: text("memberLabelIdsJson").notNull(),
+  createdBy: varchar("createdBy", { length: 200 }),
+  sheetSyncedAt: timestamp("sheetSyncedAt"),
+  dissolvedAt: timestamp("dissolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type DefectiveListingGroup = typeof defectiveListingGroups.$inferSelect;
+export type InsertDefectiveListingGroup = typeof defectiveListingGroups.$inferInsert;
 
 /**
  * 取引先ポータル認証テーブル

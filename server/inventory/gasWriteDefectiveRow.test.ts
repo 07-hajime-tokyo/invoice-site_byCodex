@@ -141,5 +141,16 @@ describe("writeDefectiveRow.gs", () => {
     for (const [header, value] of Object.entries(humanValues)) {
       expect(sheet.value(2, headers.indexOf(header) + 1)).toBe(value);
     }
+
+    handler({ ...basePayload, productId: "DG-TEST", productName: "まとめ3台", median: 6000 });
+    for (const [header, value] of Object.entries(humanValues)) {
+      sheet.set(3, headers.indexOf(header) + 1, value);
+    }
+    handler({ ...basePayload, productId: "DG-TEST", productName: "まとめ3台 更新", median: 6000 });
+    expect(sheet.getLastRow()).toBe(3);
+    expect(sheet.value(3, headers.indexOf("商品名") + 1)).toBe("まとめ3台 更新");
+    for (const [header, value] of Object.entries(humanValues)) {
+      expect(sheet.value(3, headers.indexOf(header) + 1)).toBe(value);
+    }
   });
 });

@@ -12,7 +12,13 @@ export type YahooClosedPriceSample = {
 export type YahooClosedPrices = {
   keyword: string;
   fetchedAt: string;
-  summary180d: { min: number; avg: number; max: number; count: number };
+  summaryWindow: {
+    days: number;
+    min: number;
+    avg: number;
+    max: number;
+    count: number;
+  };
   adopted: {
     count: number;
     median: number | null;
@@ -118,9 +124,14 @@ function summaryValue(html: string, label: string): number {
 function parseSummary(html: string) {
   const $ = load(html);
   const description = $('meta[name="description"]').attr("content") ?? "";
+  const pageText = `${description} ${$.text()}`.normalize("NFKC");
+  const daysMatch =
+    pageText.match(/過去\s*(\d+)\s*日(?:間|分)?/u) ??
+    pageText.match(/(\d+)\s*日間/u);
   const countMatch =
-    description.match(/約?([\d,]+)件/u) ?? $.text().match(/約?([\d,]+)件/u);
+    description.match(/約?([\d,]+)件/u) ?? pageText.match(/約?([\d,]+)件/u);
   return {
+    days: amount(daysMatch?.[1]),
     min: summaryValue(html, "最安"),
     avg: summaryValue(html, "平均"),
     max: summaryValue(html, "最高"),
@@ -149,7 +160,7 @@ export function parseYahooClosedPricesHtml(
   return {
     keyword,
     fetchedAt: fetchedAt.toISOString(),
-    summary180d: parseSummary(html),
+    summaryWindow: parseSummary(html),
     adopted: {
       count: adoptedItems.length,
       median: median(prices),
@@ -166,7 +177,7 @@ function emptyResult(keyword: string, fetchedAt: Date): YahooClosedPrices {
   return {
     keyword,
     fetchedAt: fetchedAt.toISOString(),
-    summary180d: { min: 0, avg: 0, max: 0, count: 0 },
+    summaryWindow: { days: 0, min: 0, avg: 0, max: 0, count: 0 },
     adopted: { count: 0, median: null, min: null, max: null },
     samples: [],
   };

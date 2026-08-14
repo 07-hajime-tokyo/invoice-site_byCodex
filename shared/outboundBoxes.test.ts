@@ -4,6 +4,8 @@ import {
   classifyOutboundScan,
   formatOutboundBoxCode,
   groupOutboundFedexItemsByInvoice,
+  priorStatusForUnseal,
+  shipmentSheetForPartner,
 } from "./outboundBoxes";
 
 describe("outbound box identifiers", () => {
@@ -32,5 +34,17 @@ describe("FedEx item identity", () => {
     const groups = groupOutboundFedexItemsByInvoice(items);
     expect(groups.get("401")).toHaveLength(2);
     expect(groups.get("402")).toHaveLength(1);
+  });
+
+  it("routes known partners strictly and never guesses an unknown sheet", () => {
+    expect(shipmentSheetForPartner("Luca Neumann")).toBe("独発送管理");
+    expect(shipmentSheetForPartner("samee")).toBe("サミー発送管理");
+    expect(shipmentSheetForPartner("unknown buyer")).toBeNull();
+  });
+
+  it("restores only the two allowed pre-seal label statuses", () => {
+    expect(priorStatusForUnseal("received")).toBe("received");
+    expect(priorStatusForUnseal("stocked")).toBe("stocked");
+    expect(priorStatusForUnseal(undefined)).toBe("stocked");
   });
 });
