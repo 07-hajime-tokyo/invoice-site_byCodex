@@ -3744,7 +3744,7 @@ function LabelPrintStyles() {
           overflow: visible !important;
         }
 
-        body > *:not(.label-print-root):not(.checklist-print-root) {
+        body > *:not(.label-print-root):not(.checklist-print-root):not(.docpack-print-root) {
           display: none !important;
         }
 

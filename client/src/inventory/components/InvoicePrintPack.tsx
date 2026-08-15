@@ -37,7 +37,14 @@ export function InvoicePrintPackStyles() {
           background: #fff !important;
         }
 
-        body > *:not(.docpack-print-root) { display: none !important; }
+        /*
+         * 印刷ルートは複数ある（ラベル・確認シート・この一覧）。
+         * ここで自分以外を全部隠すと、同じ画面に同居している他の印刷ルートまで消えて白紙になる。
+         * 実際に荷受け画面で箱シールが白紙で出た（2026-08-15）。3つとも除外する。
+         */
+        body > *:not(.docpack-print-root):not(.label-print-root):not(.checklist-print-root) {
+          display: none !important;
+        }
 
         .docpack-print-root {
           display: block !important;
