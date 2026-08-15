@@ -3163,6 +3163,7 @@ function OrderDashboard({
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
 }) {
+  const hideFulfillment = group?.key === EBAY_GROUP_KEY;
   const [showShippedRows, setShowShippedRows] = useState(false);
   const groupRows = getAllRowsFromGroup(group, rows);
   const displayRows = detailRows ?? groupRows;
@@ -3189,6 +3190,8 @@ function OrderDashboard({
 
   return (
     <div className="space-y-5">
+      {!hideFulfillment ? (
+        <>
       <section className="rounded-md border bg-background">
         <div className="border-b bg-muted/30 px-4 py-3 text-sm text-muted-foreground">引当先を選ぶ</div>
         <div className="grid gap-3 p-4 md:grid-cols-4">
@@ -3205,6 +3208,8 @@ function OrderDashboard({
         onProductFilter={onProductFilter}
         stockOnly={group?.key === OTHER_INVOICE_KEY}
       />
+        </>
+      ) : null}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
@@ -6175,7 +6180,12 @@ export default function PurchaseRegistration() {
       ]),
     [ebayInventoryLabelGroup, invoiceGroups],
   );
-  const selectedGroup = invoiceGroups.find((group) => group.key === selectedGroupKey) ?? invoiceGroups[0] ?? null;
+  const selectedGroup =
+    invoiceGroups.find((group) => group.key === selectedGroupKey) ??
+    (selectedGroupKey === EBAY_GROUP_KEY ? ebayInventoryLabelGroup : null) ??
+    invoiceGroups[0] ??
+    null;
+  const selectedIsEbayGroup = selectedGroupKey === EBAY_GROUP_KEY || selectedGroup?.key === EBAY_GROUP_KEY;
   const selectedLabelPrintGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedShippingGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedReturnGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
@@ -6210,6 +6220,15 @@ export default function PurchaseRegistration() {
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
+  const selectedEbayStockItems = useMemo(
+    () => selectedIsEbayGroup
+      ? allStockItems.filter((item) => (
+        isEbayManagementNo(item.legacyManagementNo) &&
+        (!searchText || buildStockSearchText(item).includes(searchText))
+      ))
+      : [],
+    [allStockItems, searchText, selectedIsEbayGroup],
+  );
   const selectedInvoiceStockItems = useMemo(
     () => filterInvoiceStockItems(allStockItems, selectedInvoiceNo, selectedRowInventoryIds),
     [allStockItems, selectedInvoiceNo, selectedRowInventoryIds],
@@ -6227,8 +6246,15 @@ export default function PurchaseRegistration() {
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
   const selectedDetailStockItems = useMemo(
-    () => filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter),
-    [productDetailFilter, selectedInvoiceStockItems],
+    () => {
+      if (selectedIsEbayGroup) {
+        return productDetailFilter
+          ? filterStockItemsByProductDetail(selectedEbayStockItems, productDetailFilter)
+          : selectedEbayStockItems;
+      }
+      return filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter);
+    },
+    [productDetailFilter, selectedEbayStockItems, selectedInvoiceStockItems, selectedIsEbayGroup],
   );
 
   const counts = useMemo(() => {
