@@ -3354,6 +3354,16 @@ function LabelChecklistView({ labels }: { labels: LabelView[] }) {
   );
 }
 
+/** Asia/Tokyo の「今日」を YYYY-MM-DD で返す。ブラウザのタイムゾーンに引きずられないようにする。 */
+function todayInTokyo(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function LabelPrintPanel({
   labels,
   allLabels,
@@ -3390,6 +3400,37 @@ function LabelPrintPanel({
   const selectedCount = selectedLabels.length;
   const labelPrintGroups = useMemo(() => buildLabelPrintGroups(editableLabels), [editableLabels]);
   const [showChecklist, setShowChecklist] = useState(false);
+  // カテゴリ別ブロックは既定で閉じておく。開いたブロックのぶんだけQRを描く。
+  // 在庫一覧グループは数百枚あり、全部を一度に描くとブラウザが固まるため（2026-08-15 実測）。
+  const [openGroupNames, setOpenGroupNames] = useState<string[]>([]);
+  const openGroupNameSet = useMemo(() => new Set(openGroupNames), [openGroupNames]);
+
+  // 「今日の荷受分」。荷受日＝配送伝票のバーコードを読んだ時点で、入庫日とは別物。
+  const [receivedDate, setReceivedDate] = useState<string>(() => todayInTokyo());
+  const [excludeAccessories, setExcludeAccessories] = useState(true);
+  const receivedQuery = trpc.inventory.inboundDesk.receivedLabelIdsOn.useQuery(
+    { date: receivedDate },
+    { enabled: /^\d{4}-\d{2}-\d{2}$/.test(receivedDate), staleTime: 30_000 },
+  );
+  const receivedLabelIdSet = useMemo(
+    () => new Set(receivedQuery.data?.labelIds ?? []),
+    [receivedQuery.data],
+  );
+  const receivedDateLabels = useMemo(() => {
+    if (receivedLabelIdSet.size === 0) return [];
+    return editableLabels.filter((label) => {
+      if (!receivedLabelIdSet.has(label.labelId.trim().toUpperCase())) return false;
+      // 消耗品（ケーブル・バッテリー等）はラベルを貼らない方針のため既定で外す
+      if (excludeAccessories && isStockProposalAccessory(label.title, label.category)) return false;
+      return true;
+    });
+  }, [editableLabels, excludeAccessories, receivedLabelIdSet]);
+
+  const toggleGroupOpen = (name: string) => {
+    setOpenGroupNames((current) =>
+      current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
+    );
+  };
 
   const toggleGroup = (keys: string[], checked: boolean) => {
     setSelectedKeys((current) => {
@@ -3458,6 +3499,45 @@ function LabelPrintPanel({
               <span className="text-xs text-muted-foreground">
                 面目から（左上が1・右へ2・3、次の段が4）。使いかけのシートの続きから刷るときに変える
               </span>
+            </div>
+            <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="label-received-date" className="text-sm font-medium">
+                  荷受日
+                </label>
+                <Input
+                  id="label-received-date"
+                  type="date"
+                  value={receivedDate}
+                  onChange={(event) => setReceivedDate(event.target.value)}
+                  className="h-9 w-40"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-fit gap-2 border-emerald-300 bg-white"
+                  disabled={receivedQuery.isLoading || receivedDateLabels.length === 0}
+                  onClick={() => onPrintLabels(receivedDateLabels)}
+                >
+                  <Printer className="h-4 w-4" />
+                  {receivedQuery.isLoading
+                    ? "荷受分を確認中…"
+                    : `この日の荷受分 ${receivedDateLabels.length}件を印刷`}
+                </Button>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={excludeAccessories}
+                    onChange={(event) => setExcludeAccessories(event.target.checked)}
+                    className="h-3.5 w-3.5 accent-emerald-700"
+                  />
+                  消耗品（ケーブル・バッテリー等）を除く
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                配送伝票のバーコードを読んだ日で数えます（動作確認の前後は問いません）。
+                貼るのは動作確認を通ってからで、不良になったぶんの紙は捨ててください。
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -3534,11 +3614,13 @@ function LabelPrintPanel({
             const groupKeys = group.labels.map((label) => label.key);
             const checkedCount = groupKeys.filter((key) => selectedKeySet.has(key)).length;
             const allChecked = checkedCount === groupKeys.length;
+            const isOpen = openGroupNameSet.has(group.name);
             return (
               <section key={group.name} className="overflow-hidden rounded-md border bg-background">
-                <label className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-3">
                   <input
                     type="checkbox"
+                    aria-label={`${group.name} をまとめて選択`}
                     checked={allChecked}
                     ref={(node) => {
                       // 一部だけ選ばれている状態を見せる
@@ -3547,10 +3629,24 @@ function LabelPrintPanel({
                     onChange={(event) => toggleGroup(groupKeys, event.target.checked)}
                     className="h-4 w-4 accent-emerald-700"
                   />
-                  <span className="text-sm font-semibold">{group.name}</span>
-                  <Badge variant="outline">{group.labels.length}枚</Badge>
-                  {checkedCount > 0 ? <Badge variant="secondary">選択 {checkedCount}</Badge> : null}
-                </label>
+                  <button
+                    type="button"
+                    className="flex flex-1 flex-wrap items-center gap-2 text-left"
+                    aria-expanded={isOpen}
+                    onClick={() => toggleGroupOpen(group.name)}
+                  >
+                    <ChevronDown
+                      className={cn("h-4 w-4 shrink-0 transition-transform", !isOpen && "-rotate-90")}
+                    />
+                    <span className="text-sm font-semibold">{group.name}</span>
+                    <Badge variant="outline">{group.labels.length}枚</Badge>
+                    {checkedCount > 0 ? <Badge variant="secondary">選択 {checkedCount}</Badge> : null}
+                    {!isOpen ? (
+                      <span className="text-xs text-muted-foreground">開くと1枚ずつ確認できます</span>
+                    ) : null}
+                  </button>
+                </div>
+                {!isOpen ? null : (
                 <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                   {group.labels.map((label) => {
                     const checked = selectedKeySet.has(label.key);
@@ -3598,6 +3694,7 @@ function LabelPrintPanel({
                     );
                   })}
                 </div>
+                )}
               </section>
             );
           })}

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   actionItems,
@@ -587,6 +587,41 @@ export const inboundDeskRouter = router({
   lookupRestockCandidate: protectedProcedure
     .input(z.object({ labelId: z.string().min(1).max(80) }))
     .query(async ({ input }) => loadRestockCandidate(input.labelId)),
+
+  /**
+   * 指定日に荷受けした商品IDを返す。
+   * 「荷受日」は配送伝票のバーコードを読んだ時点（receivedAt）で、入庫日（動作確認OKで作られる
+   * 入庫履歴の日付）とは別物。実データで8日ずれていた例がある（2026-08-15）。
+   * 日付の区切りは Asia/Tokyo。
+   */
+  receivedLabelIdsOn: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const start = new Date(`${input.date}T00:00:00+09:00`);
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      if (Number.isNaN(start.getTime())) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "日付の形式が不正です" });
+      }
+      const rows = await db
+        .select({
+          labelId: inventoryItemLabels.labelId,
+          receivedAt: inventoryItemLabels.receivedAt,
+        })
+        .from(inventoryItemLabels)
+        .where(
+          and(
+            gte(inventoryItemLabels.receivedAt, start),
+            lt(inventoryItemLabels.receivedAt, end)
+          )
+        );
+      return {
+        date: input.date,
+        labelIds: rows
+          .map(row => row.labelId?.trim().toUpperCase())
+          .filter((labelId): labelId is string => Boolean(labelId)),
+      };
+    }),
 
   snapshot: protectedProcedure.query(async () => {
     const db = await requireDb();
