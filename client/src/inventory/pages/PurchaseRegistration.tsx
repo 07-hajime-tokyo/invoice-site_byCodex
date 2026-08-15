@@ -3428,13 +3428,14 @@ function LabelPrintPanel({
   );
   const receivedDateLabels = useMemo(() => {
     if (receivedLabelIdSet.size === 0) return [];
-    return editableLabels.filter((label) => {
+    // その日に届いたものは引当先をまたぐ。選んでいるグループではなく全体から拾う。
+    return editableAllLabels.filter((label) => {
       if (!receivedLabelIdSet.has(label.labelId.trim().toUpperCase())) return false;
       // 消耗品（ケーブル・バッテリー等）はラベルを貼らない方針のため既定で外す
       if (excludeAccessories && isStockProposalAccessory(label.title, label.category)) return false;
       return true;
     });
-  }, [editableLabels, excludeAccessories, receivedLabelIdSet]);
+  }, [editableAllLabels, excludeAccessories, receivedLabelIdSet]);
 
   const toggleGroupOpen = (name: string) => {
     setOpenGroupNames((current) =>
@@ -3546,6 +3547,7 @@ function LabelPrintPanel({
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 配送伝票のバーコードを読んだ日で数えます（動作確認の前後は問いません）。
+                <strong>引当先の選択に関係なく、その日に届いたぶんを全部</strong>刷ります。
                 貼るのは動作確認を通ってからで、不良になったぶんの紙は捨ててください。
               </p>
             </div>
