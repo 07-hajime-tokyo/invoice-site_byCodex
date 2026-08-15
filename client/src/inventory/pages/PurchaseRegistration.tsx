@@ -1568,22 +1568,32 @@ function createQrMatrix(value: string): boolean[][] {
   return matrix.map((row) => row.map(Boolean));
 }
 
+const QR_QUIET_ZONE = 2;
+
+/**
+ * 暗モジュールを1本のパスにまとめる。
+ * モジュールごとに<rect>を出すとQR1枚で約200要素になり、ラベル印刷のように数百枚を
+ * 並べる画面でブラウザが固まる（2026-08-15 本番で実測）。見た目は変えない。
+ */
+function buildQrPath(matrix: boolean[][]): string {
+  let path = "";
+  for (let y = 0; y < matrix.length; y += 1) {
+    const row = matrix[y];
+    for (let x = 0; x < row.length; x += 1) {
+      if (row[x]) path += `M${x + QR_QUIET_ZONE} ${y + QR_QUIET_ZONE}h1v1h-1z`;
+    }
+  }
+  return path;
+}
+
 function ProductQrCode({ value }: { value: string }) {
   const matrix = useMemo(() => createQrMatrix(value), [value]);
-  const quietZone = 2;
-  const size = matrix.length + quietZone * 2;
+  const path = useMemo(() => buildQrPath(matrix), [matrix]);
+  const size = matrix.length + QR_QUIET_ZONE * 2;
   return (
     <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`QR ${value}`} className="h-full w-full bg-white">
       <rect width={size} height={size} fill="white" />
-      {matrix.map((row, y) => (
-        <g key={y}>
-          {row.map((dark, x) =>
-            dark ? (
-              <rect key={x} x={x + quietZone} y={y + quietZone} width="1" height="1" fill="#0f172a" />
-            ) : null,
-          )}
-        </g>
-      ))}
+      {path ? <path d={path} fill="#0f172a" shapeRendering="crispEdges" /> : null}
     </svg>
   );
 }
