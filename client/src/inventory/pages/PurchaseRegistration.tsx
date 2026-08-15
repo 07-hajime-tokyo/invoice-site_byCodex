@@ -20,6 +20,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ClipboardCheck,
   ClipboardList,
   ExternalLink,
   FileText,
@@ -1160,6 +1161,49 @@ function loadLabelStartPosition(): number {
 function saveLabelStartPosition(value: number): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LABEL_START_POSITION_STORAGE_KEY, String(clampLabelStartPosition(value)));
+}
+
+/** 入庫スキャンの履歴。QR印刷や動作確認ページへ移動して戻っても残るよう端末に保存する。 */
+const SCAN_HISTORY_STORAGE_KEY = "purchase-registration-scan-history-v1";
+const SCAN_HISTORY_LIMIT = 50;
+
+type ScanHistoryEntry = {
+  labelId: string;
+  title: string;
+  legacyManagementNo: string;
+  allocationLabel: string;
+  supplierName: string;
+  scannedAt: string;
+};
+
+function loadScanHistory(): ScanHistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SCAN_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is ScanHistoryEntry => {
+      return Boolean(entry) && typeof (entry as ScanHistoryEntry).labelId === "string";
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveScanHistory(entries: ScanHistoryEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SCAN_HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, SCAN_HISTORY_LIMIT)));
+  } catch {
+    // 保存できなくてもスキャン作業自体は続けられるので握りつぶす
+  }
+}
+
+function formatScanTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 /** 開始位置から count 枚刷ったあとに、次に空いている面の番号。 */
@@ -3825,7 +3869,24 @@ function ScanPanel({
   const [confirmValue, setConfirmValue] = useState("");
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(() => new Set());
   const [bulkReceivePending, setBulkReceivePending] = useState(false);
+  const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>(() => loadScanHistory());
   const resumeCameraAfterConfirmRef = useRef(false);
+
+  function pushScanHistory(entry: ScanHistoryEntry) {
+    setScanHistory((current) => {
+      // 同じ商品IDを読み直したときは最新の1件だけ残す
+      const next = [entry, ...current.filter((item) => item.labelId !== entry.labelId)].slice(0, SCAN_HISTORY_LIMIT);
+      saveScanHistory(next);
+      return next;
+    });
+  }
+
+  function clearScanHistory() {
+    if (scanHistory.length === 0) return;
+    if (!window.confirm("スキャン履歴を消しますか？")) return;
+    setScanHistory([]);
+    saveScanHistory([]);
+  }
   // バーコードリーダーはキーボードとして打ち込むので、入力欄に常にフォーカスを戻す
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const focusScanInput = () => {
@@ -3940,6 +4001,14 @@ function ScanPanel({
 
   function markReceivedLabel(label: LabelView | null | undefined, result: ReceivePurchaseLabelResult) {
     if (!label) return;
+    pushScanHistory({
+      labelId: result.labelId ?? label.labelId,
+      title: result.title ?? label.title,
+      legacyManagementNo: result.legacyManagementNo ?? label.legacyManagementNo,
+      allocationLabel: label.allocationLabel,
+      supplierName: label.supplier.name,
+      scannedAt: new Date().toISOString(),
+    });
     onReceivedLabel?.({
       ...label,
       rawStatus: "received",
@@ -4091,7 +4160,8 @@ function ScanPanel({
   }
 
   return (
-    <div className="space-y-3 md:space-y-4">
+    <div className="grid gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="space-y-3 md:space-y-4">
       <section className="rounded-md border bg-background p-3 md:p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h2 className="text-lg font-semibold">入庫スキャン</h2>
@@ -4295,7 +4365,71 @@ function ScanPanel({
       ) : (
         <EmptyState icon={ScanLine} title="スキャン待ちです" />
       )}
+      </div>
+
+      <ScanHistorySidebar entries={scanHistory} onClear={clearScanHistory} />
     </div>
+  );
+}
+
+/** スキャンした商品を右側にためておくサイドバー。QR印刷や動作確認へ移動しても残る。 */
+function ScanHistorySidebar({ entries, onClear }: { entries: ScanHistoryEntry[]; onClear: () => void }) {
+  return (
+    <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start">
+      <section className="rounded-md border bg-background p-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">スキャンしたデータ</h3>
+          <Badge variant="outline">{entries.length.toLocaleString()}件</Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          この端末に保存されます。QR印刷や動作確認ページへ移動しても残ります。
+        </p>
+        <a
+          href="/inventory/inbound"
+          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <ClipboardCheck className="h-4 w-4" />
+          動作確認に移る
+        </a>
+        {entries.length > 0 ? (
+          <Button type="button" variant="ghost" size="sm" className="mt-2 w-full" onClick={onClear}>
+            履歴を消す
+          </Button>
+        ) : null}
+      </section>
+
+      {entries.length === 0 ? (
+        <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+          まだスキャンしていません
+        </div>
+      ) : (
+        <section className="space-y-2">
+          {entries.map((entry) => (
+            <div key={`${entry.labelId}-${entry.scannedAt}`} className="rounded-md border bg-card p-2.5 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-base font-bold tracking-wide text-slate-950">{entry.labelId}</div>
+                  <div className="mt-0.5 truncate text-xs font-medium text-slate-700">{entry.title}</div>
+                </div>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{formatScanTime(entry.scannedAt)}</span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {entry.allocationLabel ? (
+                  <Badge variant="secondary" className="font-mono text-[11px]">
+                    {entry.allocationLabel}
+                  </Badge>
+                ) : null}
+                {entry.supplierName ? (
+                  <Badge variant="outline" className="text-[11px]">
+                    {entry.supplierName}
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+    </aside>
   );
 }
 
@@ -4986,6 +5120,7 @@ function ShippingPanel({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
+  const [expandedHistoryNos, setExpandedHistoryNos] = useState<Set<string>>(new Set());
   const [deleteHistoryConfirm, setDeleteHistoryConfirm] = useState<{
     historyId: number;
     deliveryNo: string;
@@ -5595,44 +5730,81 @@ function ShippingPanel({
             <div className="mt-3 divide-y rounded-md border">
             {historyGroups.map((history) => {
               const existingShipments = fedexShipmentsMap.get(history.deliveryNo) ?? [];
+              const itemCount = history.items.reduce((total, item) => total + item.quantity, 0);
+              const isHistoryExpanded = expandedHistoryNos.has(history.deliveryNo);
               return (
-                <div key={history.deliveryNo} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{history.deliveryNo}</span>
-                      <Badge variant="outline">{history.items.reduce((total, item) => total + item.quantity, 0)}点</Badge>
-                      {existingShipments.length > 0 ? <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">FedEx登録済み</Badge> : null}
-                    </div>
-                    <div className="mt-1 truncate text-xs text-muted-foreground">
-                      {history.items.map((item) => item.title).join(", ")}
+                <Collapsible
+                  key={history.deliveryNo}
+                  open={isHistoryExpanded}
+                  onOpenChange={(open) => {
+                    setExpandedHistoryNos((prev) => {
+                      const next = new Set(prev);
+                      if (open) next.add(history.deliveryNo);
+                      else next.delete(history.deliveryNo);
+                      return next;
+                    });
+                  }}
+                  className="p-3"
+                >
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <CollapsibleTrigger asChild>
+                      <button type="button" className="min-w-0 flex-1 text-left">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isHistoryExpanded ? "rotate-0" : "-rotate-90")} />
+                          <span className="font-mono text-sm font-semibold">{history.deliveryNo}</span>
+                          <Badge variant="outline">{itemCount}点</Badge>
+                          {existingShipments.length > 0 ? <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">FedEx登録済み</Badge> : null}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {isHistoryExpanded ? "詳細を閉じる" : "詳細を表示"}
+                        </div>
+                      </button>
+                    </CollapsibleTrigger>
+                    <div className="flex flex-wrap gap-2 md:justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                        onClick={() => setFedexDialog({ deliveryNo: history.deliveryNo, historyId: history.historyId, items: history.items })}
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        FedEx登録
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                        onClick={() => setDeleteHistoryConfirm({
+                          historyId: history.historyId,
+                          deliveryNo: history.deliveryNo,
+                          inventoryIds: Array.from(new Set(history.items.map((item) => item.inventoryId).filter((id) => Number.isFinite(id)))),
+                          titles: history.items.map((item) => item.title).filter(Boolean),
+                        })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        削除
+                      </Button>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-                    onClick={() => setFedexDialog({ deliveryNo: history.deliveryNo, historyId: history.historyId, items: history.items })}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    FedEx登録
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50"
-                    onClick={() => setDeleteHistoryConfirm({
-                      historyId: history.historyId,
-                      deliveryNo: history.deliveryNo,
-                      inventoryIds: Array.from(new Set(history.items.map((item) => item.inventoryId).filter((id) => Number.isFinite(id)))),
-                      titles: history.items.map((item) => item.title).filter(Boolean),
-                    })}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    削除
-                  </Button>
-                </div>
+                  <CollapsibleContent>
+                    <div className="mt-3 overflow-hidden rounded-md border bg-muted/20">
+                      {history.items.map((item, index) => (
+                        <div
+                          key={`${history.deliveryNo}-${item.inventoryId}-${index}`}
+                          className="grid gap-1 border-b px-3 py-2 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_80px_minmax(160px,220px)] md:items-center"
+                        >
+                          <div className="min-w-0 font-medium text-foreground">{item.title}</div>
+                          <div className="text-xs text-muted-foreground md:text-right">{item.quantity}点</div>
+                          <div className="font-mono text-xs text-muted-foreground md:text-right">
+                            {item.managementNo ? `管理番号: ${item.managementNo}` : "管理番号: -"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               );
               })}
             </div>
@@ -6666,7 +6838,7 @@ export default function PurchaseRegistration() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               読み込み中
             </div>
-          ) : !isStockWorkflow && !isScanWorkflow && !isShippingWorkflow && !hasWorkflowTargets ? (
+          ) : !isStockWorkflow && !isScanWorkflow && !hasWorkflowTargets ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
             <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">

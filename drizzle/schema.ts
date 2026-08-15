@@ -711,6 +711,23 @@ export const inventoryItemLabels = mysqlTable("inventory_item_labels", {
   yahooPriceFetchedAt: timestamp("yahooPriceFetchedAt"),
   /** Last successful one-way upsert into the defective inventory sheet. */
   defectiveSheetSyncedAt: timestamp("defectiveSheetSyncedAt"),
+  /** Latest inspection result. Null on rows created before inspection undo support. */
+  inspectionOutcome: varchar("inspectionOutcome", { length: 32 }),
+  /** Replacement purchase request is independent from the defect destination. */
+  replacementRequested: boolean("replacementRequested"),
+  /** Inventory row linked before the latest inspection. */
+  inspectionSourceInventoryId: int("inspectionSourceInventoryId"),
+  /** Inventory row created/used by the latest inspection. */
+  inspectionInventoryId: int("inspectionInventoryId"),
+  /** Quantity delta applied to inspectionSourceInventoryId (-1, 0, or 1). */
+  inspectionQuantityDelta: int("inspectionQuantityDelta"),
+  /** Purchase history produced by the latest inspection, if any. */
+  inspectionPurchaseHistoryId: int("inspectionPurchaseHistoryId"),
+  /** Replacement action item produced by the latest inspection, if any. */
+  inspectionActionItemId: int("inspectionActionItemId"),
+  inspectedAt: timestamp("inspectedAt"),
+  inspectionCancelledAt: timestamp("inspectionCancelledAt"),
+  inspectionCancelledBy: varchar("inspectionCancelledBy", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

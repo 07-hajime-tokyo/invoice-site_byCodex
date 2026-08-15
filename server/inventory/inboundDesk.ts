@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   actionItems,
@@ -7,6 +7,7 @@ import {
   localInventories,
   localPurchases,
   outboundBoxes,
+  purchaseHistories,
   workLogs,
 } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -28,18 +29,26 @@ import {
 import { uploadDefectivePhotos } from "./defectivePhotos";
 import { syncDefectiveListingByLabelId } from "./defectiveSync";
 import {
+  actionItemUndoDisposition,
+  missingUndoRejection,
+  normalizeUndoLabelIds,
+  receiveUndoBlockReason,
+  runClaimedUndo,
+} from "./inboundUndo";
+import {
   createDefectiveGroup,
   dissolveDefectiveGroup,
   listDefectiveGroups,
   syncDefectiveGroup,
 } from "./defectiveGroups";
 
-type InspectionOutcome = "stocked" | "defective" | "returned";
+type InspectionOutcome = "stocked" | "defective" | "junk" | "returned";
 
 export const inboundInspectionInputSchema = z
   .object({
     labelId: z.string().min(1).max(80),
-    outcome: z.enum(["stocked", "defective", "returned"]),
+    outcome: z.enum(["stocked", "defective", "junk", "returned"]),
+    requestReplacement: z.boolean().optional(),
     operatorName: z.string().max(200).optional(),
     defectTags: z.array(z.enum(DEFECT_TAGS)).max(9).optional(),
     defectNote: z.string().max(500).optional(),
@@ -55,7 +64,10 @@ export const inboundInspectionInputSchema = z
       .optional(),
   })
   .superRefine((value, context) => {
-    if (value.outcome === "defective" && !value.defectTags?.length) {
+    if (
+      (value.outcome === "defective" || value.outcome === "junk") &&
+      !value.defectTags?.length
+    ) {
       context.addIssue({
         code: "custom",
         path: ["defectTags"],
@@ -104,6 +116,17 @@ function normalizeStatus(value: unknown): string {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+function insertIdFromResult(result: unknown): number | null {
+  const row = Array.isArray(result) ? result[0] : result;
+  const value = Number((row as { insertId?: number } | null)?.insertId ?? 0);
+  return value > 0 ? value : null;
+}
+
+function affectedRowsFromResult(result: unknown): number {
+  const row = Array.isArray(result) ? result[0] : result;
+  return Number((row as { affectedRows?: number } | null)?.affectedRows ?? 0);
 }
 
 function invoiceAllocation(managementNo: string | null | undefined) {
@@ -234,17 +257,20 @@ export async function insertInspectionActionItem(input: {
 export async function createDefectiveInventory(input: {
   label: typeof inventoryItemLabels.$inferSelect;
   sourceInventory: typeof localInventories.$inferSelect;
+  /** 不良在庫の仕分け先。ジャンク売りは在庫一覧で見分けられるよう別カテゴリにする */
+  destination?: "defective" | "junk";
 }, executor?: Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "insert">) {
   const db = executor ?? await requireDb();
+  const isJunk = input.destination === "junk";
   const [result] = await db.insert(localInventories).values({
     zaicoId: null,
     title: input.label.title || input.sourceInventory.title,
-    category: "不良在庫",
+    category: isJunk ? "ジャンク売り" : "不良在庫",
     place: input.sourceInventory.place,
     quantity: 1,
     unit: input.sourceInventory.unit,
     unitPrice: input.sourceInventory.unitPrice,
-    etc: `在庫_不良_${input.label.labelId}`,
+    etc: `在庫_${isJunk ? "ジャンク" : "不良"}_${input.label.labelId}`,
     supplierUrl: input.sourceInventory.supplierUrl,
     supplierName: input.sourceInventory.supplierName,
     ebayListingUrl: null,
@@ -256,7 +282,9 @@ export async function createDefectiveInventory(input: {
   if (!inventoryId)
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "不良在庫を作成できませんでした",
+      message: isJunk
+        ? "ジャンク在庫を作成できませんでした"
+        : "不良在庫を作成できませんでした",
     });
   return inventoryId;
 }
@@ -266,6 +294,11 @@ async function recordInspection(input: {
   outcome: InspectionOutcome;
   workerName: string;
   actionItemId: number | null;
+  requestReplacement: boolean;
+  sourceInventoryId: number;
+  inspectionInventoryId: number;
+  quantityDelta: number;
+  purchaseHistoryId: number | null;
   defectTags?: readonly string[];
   photoCount?: number;
 }) {
@@ -285,6 +318,11 @@ async function recordInspection(input: {
       labelId: input.labelId,
       outcome: input.outcome,
       actionItemId: input.actionItemId,
+      requestReplacement: input.requestReplacement,
+      sourceInventoryId: input.sourceInventoryId,
+      inspectionInventoryId: input.inspectionInventoryId,
+      quantityDelta: input.quantityDelta,
+      purchaseHistoryId: input.purchaseHistoryId,
       defectTags: input.defectTags ?? [],
       photoCount: input.photoCount ?? 0,
     }),
@@ -318,6 +356,202 @@ async function loadRestockCandidate(labelId: string) {
     eligible: !reason,
     reason,
   };
+}
+
+type UndoKind = "receive" | "inspection";
+
+type InspectionUndoMeta = {
+  outcome: InspectionOutcome;
+  sourceInventoryId: number;
+  inspectionInventoryId: number;
+  quantityDelta: number;
+  purchaseHistoryId: number | null;
+  actionItem: typeof actionItems.$inferSelect | null;
+};
+
+async function resolveInspectionUndoMeta(
+  label: typeof inventoryItemLabels.$inferSelect
+): Promise<InspectionUndoMeta | null> {
+  const db = await requireDb();
+  const [latestLog] = await db
+    .select()
+    .from(workLogs)
+    .where(
+      and(
+        eq(workLogs.sourceType, "inbound-inspection"),
+        eq(workLogs.sourceId, label.labelId)
+      )
+    )
+    .orderBy(desc(workLogs.createdAt))
+    .limit(1);
+  const details = (() => {
+    try {
+      return JSON.parse(latestLog?.detailsJson ?? "{}") as {
+        outcome?: InspectionOutcome;
+        sourceInventoryId?: number;
+        inspectionInventoryId?: number;
+        quantityDelta?: number;
+        purchaseHistoryId?: number | null;
+        actionItemId?: number | null;
+      };
+    } catch {
+      return {};
+    }
+  })();
+  const outcome = (label.inspectionOutcome ?? details.outcome) as
+    | InspectionOutcome
+    | null;
+  if (!outcome) return null;
+
+  const purchase = await findPurchaseForLabel(label);
+  const sourceInventoryId =
+    label.inspectionSourceInventoryId ??
+    details.sourceInventoryId ??
+    (outcome === "defective" || outcome === "junk"
+      ? purchase?.localInventoryId
+      : label.localInventoryId);
+  const inspectionInventoryId =
+    label.inspectionInventoryId ??
+    details.inspectionInventoryId ??
+    label.localInventoryId;
+  if (!sourceInventoryId || !inspectionInventoryId) return null;
+
+  let quantityDelta =
+    label.inspectionQuantityDelta ?? details.quantityDelta ?? null;
+  if (quantityDelta == null) {
+    const countedBeforeInspection = await labelWasAlreadyCounted(label.labelId);
+    quantityDelta =
+      outcome === "stocked"
+        ? countedBeforeInspection
+          ? 0
+          : 1
+        : countedBeforeInspection
+          ? -1
+          : 0;
+  }
+
+  const actionItemId =
+    label.inspectionActionItemId ??
+    details.actionItemId ??
+    null;
+  const [actionItem] = actionItemId
+    ? await db
+        .select()
+        .from(actionItems)
+        .where(eq(actionItems.id, actionItemId))
+        .limit(1)
+    : await db
+        .select()
+        .from(actionItems)
+        .where(
+          and(
+            eq(actionItems.source, "inbound-inspection"),
+            eq(actionItems.sourceKey, label.labelId)
+          )
+        )
+        .limit(1);
+
+  let purchaseHistoryId =
+    label.inspectionPurchaseHistoryId ??
+    details.purchaseHistoryId ??
+    null;
+  if (!purchaseHistoryId && quantityDelta !== 0) {
+    const [history] = await db
+      .select({ id: purchaseHistories.id })
+      .from(purchaseHistories)
+      .where(
+        and(
+          eq(purchaseHistories.inventoryId, inspectionInventoryId),
+          eq(purchaseHistories.cancelled, 0)
+        )
+      )
+      .orderBy(desc(purchaseHistories.createdAt))
+      .limit(1);
+    purchaseHistoryId = history?.id ?? null;
+  }
+
+  return {
+    outcome,
+    sourceInventoryId,
+    inspectionInventoryId,
+    quantityDelta,
+    purchaseHistoryId,
+    actionItem: actionItem ?? null,
+  };
+}
+
+async function loadUndoPreview(kind: UndoKind, labelIds: string[]) {
+  const db = await requireDb();
+  const uniqueIds = normalizeUndoLabelIds(labelIds);
+  if (uniqueIds.length === 0) return [];
+  const labels = await db
+    .select()
+    .from(inventoryItemLabels)
+    .where(inArray(inventoryItemLabels.labelId, uniqueIds));
+  const labelsById = new Map(labels.map(label => [label.labelId, label]));
+  const items = [] as Array<{
+    labelId: string;
+    canUndo: boolean;
+    reason: string | null;
+    inventoryRollback: number;
+    actionItemDisposition: "cancel" | "retain" | "none";
+    meta: InspectionUndoMeta | null;
+    label: typeof inventoryItemLabels.$inferSelect | null;
+  }>;
+
+  for (const labelId of uniqueIds) {
+    const label = labelsById.get(labelId) ?? null;
+    if (!label) {
+      items.push({
+        ...missingUndoRejection(labelId),
+        canUndo: false,
+        inventoryRollback: 0,
+        actionItemDisposition: "none",
+        meta: null,
+        label: null,
+      });
+      continue;
+    }
+    const status = normalizeStatus(label.status);
+    if (kind === "receive") {
+      const reason = receiveUndoBlockReason(status);
+      items.push({
+        labelId,
+        canUndo: !reason,
+        reason,
+        inventoryRollback: 0,
+        actionItemDisposition: "none",
+        meta: null,
+        label,
+      });
+      continue;
+    }
+
+    const meta = await resolveInspectionUndoMeta(label);
+    const shipped = status === "shipped" || Boolean(label.outboundBoxId);
+    const alreadyUndone = status === "received" || Boolean(label.inspectionCancelledAt);
+    const reason = shipped
+      ? "出庫箱への格納・出庫後は取り消せません"
+      : alreadyUndone
+        ? "動作確認は既に取り消されています"
+        : !meta
+          ? "動作確認の巻き戻し情報を特定できません"
+          : null;
+    items.push({
+      labelId,
+      canUndo: !reason,
+      reason,
+      inventoryRollback: Math.abs(meta?.quantityDelta ?? 0),
+      actionItemDisposition: actionItemUndoDisposition({
+        exists: Boolean(meta?.actionItem),
+        status: meta?.actionItem?.status,
+        completedAt: meta?.actionItem?.completedAt,
+      }),
+      meta,
+      label,
+    });
+  }
+  return items;
 }
 
 export const inboundDeskRouter = router({
@@ -492,6 +726,19 @@ export const inboundDeskRouter = router({
     const labelsById = new Map(
       labels.map(label => [label.labelId, labelView(label)])
     );
+    const activeInspectionLabelIds = new Set(
+      labels
+        .filter(label => {
+          const status = normalizeStatus(label.status);
+          return (
+            status !== "ordered" &&
+            status !== "received" &&
+            !label.inspectionCancelledAt
+          );
+        })
+        .map(label => label.labelId)
+    );
+    const seenRecentLabelIds = new Set<string>();
     const recent = inspectionLogs.flatMap(log => {
       const details = (() => {
         try {
@@ -499,6 +746,7 @@ export const inboundDeskRouter = router({
             labelId?: string;
             outcome?: InspectionOutcome;
             actionItemId?: number | null;
+            requestReplacement?: boolean;
           };
         } catch {
           return {};
@@ -508,12 +756,21 @@ export const inboundDeskRouter = router({
         details.labelId?.trim().toUpperCase() ||
         splitSourceIds(log.sourceId)[0];
       const label = labelId ? labelsById.get(labelId) : null;
-      if (!label || !details.outcome) return [];
+      if (
+        !label ||
+        !details.outcome ||
+        !activeInspectionLabelIds.has(label.labelId) ||
+        seenRecentLabelIds.has(label.labelId)
+      )
+        return [];
+      seenRecentLabelIds.add(label.labelId);
       return [
         {
           ...label,
           outcome: details.outcome,
           actionItemId: details.actionItemId ?? null,
+          requestReplacement:
+            details.requestReplacement ?? details.outcome === "defective",
           processedAt: (
             log.endedAt ??
             log.updatedAt ??
@@ -538,6 +795,213 @@ export const inboundDeskRouter = router({
       })),
     };
   }),
+
+  undoPreview: protectedProcedure
+    .input(
+      z.object({
+        kind: z.enum(["receive", "inspection"]),
+        labelIds: z.array(z.string().max(80)).max(100),
+      })
+    )
+    .query(async ({ input }) => {
+      const items = await loadUndoPreview(input.kind, input.labelIds);
+      return {
+        items: items.map(({ meta: _meta, label: _label, ...item }) => item),
+        summary: {
+          undoable: items.filter(item => item.canUndo).length,
+          rejected: items.filter(item => !item.canUndo).length,
+          inventoryRollback: items.reduce(
+            (sum, item) => sum + (item.canUndo ? item.inventoryRollback : 0),
+            0
+          ),
+          actionItemsCancelled: items.filter(
+            item => item.canUndo && item.actionItemDisposition === "cancel"
+          ).length,
+          actionItemsRetained: items.filter(
+            item => item.canUndo && item.actionItemDisposition === "retain"
+          ).length,
+        },
+      };
+    }),
+
+  undo: protectedProcedure
+    .input(
+      z.object({
+        kind: z.enum(["receive", "inspection"]),
+        labelIds: z.array(z.string().max(80)).max(100),
+        operatorName: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const workerName = operatorName(
+        input.operatorName,
+        ctx.user.name ?? ctx.user.email
+      );
+      const preview = await loadUndoPreview(input.kind, input.labelIds);
+      const restored: string[] = [];
+      const rejected = preview
+        .filter(item => !item.canUndo)
+        .map(item => ({ labelId: item.labelId, reason: item.reason! }));
+      let inventoryRollback = 0;
+      let actionItemsCancelled = 0;
+      let actionItemsRetained = 0;
+
+      for (const item of preview.filter(candidate => candidate.canUndo)) {
+        const label = item.label!;
+        const now = new Date();
+        try {
+          const changed = await db.transaction(async tx =>
+            runClaimedUndo({
+              claim: async () => {
+                const result =
+                  input.kind === "receive"
+                    ? await tx
+                        .update(inventoryItemLabels)
+                        .set({ status: "ordered", receivedAt: null })
+                        .where(
+                          and(
+                            eq(inventoryItemLabels.id, label.id),
+                            eq(inventoryItemLabels.status, "received")
+                          )
+                        )
+                    : await tx
+                        .update(inventoryItemLabels)
+                        .set({
+                          status: "received",
+                          localInventoryId: item.meta!.sourceInventoryId,
+                          defectTags: null,
+                          defectNote: null,
+                          defectPhotosJson: null,
+                          defectRecordedAt: null,
+                          yahooClosedPricesJson: null,
+                          yahooPriceFetchedAt: null,
+                          defectiveSheetSyncedAt: null,
+                          inspectionCancelledAt: now,
+                          inspectionCancelledBy: workerName,
+                        })
+                        .where(
+                          and(
+                            eq(inventoryItemLabels.id, label.id),
+                            eq(inventoryItemLabels.status, label.status),
+                            isNull(inventoryItemLabels.inspectionCancelledAt)
+                          )
+                        );
+                return affectedRowsFromResult(result) === 1;
+              },
+              rollback: async () => {
+                if (input.kind === "inspection") {
+                  const meta = item.meta!;
+                  if (meta.quantityDelta > 0) {
+                    const quantityResult = await tx
+                      .update(localInventories)
+                      .set({
+                        quantity: sql`${localInventories.quantity} - ${meta.quantityDelta}`,
+                      })
+                      .where(
+                        and(
+                          eq(localInventories.id, meta.sourceInventoryId),
+                          gte(localInventories.quantity, meta.quantityDelta)
+                        )
+                      );
+                    if (affectedRowsFromResult(quantityResult) !== 1)
+                      throw new TRPCError({
+                        code: "CONFLICT",
+                        message: `${item.labelId} の在庫数が既に変わっています`,
+                      });
+                  } else if (meta.quantityDelta < 0) {
+                    await tx
+                      .update(localInventories)
+                      .set({
+                        quantity: sql`${localInventories.quantity} + ${Math.abs(meta.quantityDelta)}`,
+                      })
+                      .where(eq(localInventories.id, meta.sourceInventoryId));
+                  }
+                  if (meta.inspectionInventoryId !== meta.sourceInventoryId) {
+                    await tx
+                      .update(localInventories)
+                      .set({ quantity: 0, isDeleted: 1 })
+                      .where(eq(localInventories.id, meta.inspectionInventoryId));
+                  }
+                  if (meta.purchaseHistoryId) {
+                    await tx
+                      .update(purchaseHistories)
+                      .set({ cancelled: 1 })
+                      .where(
+                        and(
+                          eq(purchaseHistories.id, meta.purchaseHistoryId),
+                          eq(purchaseHistories.cancelled, 0)
+                        )
+                      );
+                  }
+                  if (meta.actionItem) {
+                    const completed =
+                      meta.actionItem.status === "done" ||
+                      Boolean(meta.actionItem.completedAt);
+                    const note = completed
+                      ? `[動作確認取消済み ${now.toISOString()}] 完了済みのため記録を保持`
+                      : `[動作確認取消済み ${now.toISOString()}] 未完了依頼を取消`;
+                    await tx
+                      .update(actionItems)
+                      .set({
+                        status: "done",
+                        completedAt: meta.actionItem.completedAt ?? now,
+                        detail: `${meta.actionItem.detail}\n\n${note}`,
+                      })
+                      .where(eq(actionItems.id, meta.actionItem.id));
+                  }
+                }
+                await tx.insert(workLogs).values({
+                  workerName,
+                  category:
+                    input.kind === "receive" ? "荷受け取消" : "動作確認取消",
+                  status: "done",
+                  startedAt: now,
+                  endedAt: now,
+                  quantity: 1,
+                  memo: `商品ID: ${item.labelId}`,
+                  createdBy: workerName,
+                  sourceType:
+                    input.kind === "receive"
+                      ? "inbound-receipt-undo"
+                      : "inbound-inspection-undo",
+                  sourceId: item.labelId,
+                  detailsJson: JSON.stringify({
+                    labelId: item.labelId,
+                    kind: input.kind,
+                    inventoryRollback: item.inventoryRollback,
+                    actionItemDisposition: item.actionItemDisposition,
+                  }),
+                });
+              },
+            })
+          );
+          if (!changed) {
+            rejected.push({
+              labelId: item.labelId,
+              reason: "別の操作で状態が変わったため取り消しませんでした",
+            });
+            continue;
+          }
+          restored.push(item.labelId);
+          inventoryRollback += item.inventoryRollback;
+          if (item.actionItemDisposition === "cancel") actionItemsCancelled += 1;
+          if (item.actionItemDisposition === "retain") actionItemsRetained += 1;
+        } catch (error) {
+          rejected.push({
+            labelId: item.labelId,
+            reason: error instanceof Error ? error.message : "取消に失敗しました",
+          });
+        }
+      }
+      return {
+        restored,
+        rejected,
+        inventoryRollback,
+        actionItemsCancelled,
+        actionItemsRetained,
+      };
+    }),
 
   receive: protectedProcedure
     .input(
@@ -613,14 +1077,8 @@ export const inboundDeskRouter = router({
         files: z
           .array(
             z.object({
-              base64: z
-                .string()
-                .min(1)
-                .max(20 * 1024 * 1024),
-              mimeType: z
-                .string()
-                .regex(/^image\//i)
-                .max(100),
+              base64: z.string().min(1).max(20 * 1024 * 1024),
+              mimeType: z.string().regex(/^image\//i).max(100),
               kind: z.enum(DEFECT_PHOTO_KINDS),
             })
           )
@@ -653,10 +1111,15 @@ export const inboundDeskRouter = router({
         });
       const candidate = await loadRestockCandidate(labelId);
       const status = normalizeStatus(label.status);
-      if (status !== "received" && (status !== "stocked" || !candidate?.eligible))
+      if (
+        status !== "received" &&
+        (status !== "stocked" || !candidate?.eligible)
+      )
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: candidate?.reason ?? `${labelId} は検品待ち・在庫化済みのどちらでもありません`,
+          message:
+            candidate?.reason ??
+            `${labelId} は動作確認待ち・在庫化済みのどちらでもありません`,
         });
       return { photos: await uploadDefectivePhotos(labelId, input.files) };
     }),
@@ -822,9 +1285,28 @@ export const inboundDeskRouter = router({
       const now = new Date();
       let nextInventoryId = sourceInventory.id;
       let actionItemId: number | null = null;
+      let purchaseHistoryId: number | null = null;
+      let quantityDelta = 0;
+      const requestReplacement =
+        input.outcome === "stocked"
+          ? false
+          : (input.requestReplacement ?? input.outcome === "defective");
+      const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
+      if (
+        (input.outcome === "defective" || input.outcome === "junk") &&
+        defectPhotos.some(
+          photo => !photo.key.startsWith(`defective/${labelId}/`)
+        )
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "写真の商品IDと動作確認対象の商品IDが一致しません",
+        });
+      }
 
       if (input.outcome === "stocked") {
         if (!counted) {
+          quantityDelta = 1;
           await updateLocalInventory(sourceInventory.id, {
             quantity: currentQuantity + 1,
           });
@@ -833,7 +1315,7 @@ export const inboundDeskRouter = router({
             purchase?.id ??
             sourceInventory.zaicoId ??
             sourceInventory.id;
-          await createPurchaseHistory({
+          purchaseHistoryId = insertIdFromResult(await createPurchaseHistory({
             zaicoId: historyZaicoId,
             kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
             title: label.title,
@@ -848,24 +1330,16 @@ export const inboundDeskRouter = router({
             inventoryId: sourceInventory.id,
             cancelled: 0,
             operatorName: workerName,
-          });
+          }));
         }
         await db
           .update(inventoryItemLabels)
           .set({ status: "stocked", receivedAt: label.receivedAt ?? now })
           .where(eq(inventoryItemLabels.id, label.id));
-      } else if (input.outcome === "defective") {
-        const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
-        const expectedPhotoPrefix = `defective/${labelId}/`;
-        if (
-          defectPhotos.some(photo => !photo.key.startsWith(expectedPhotoPrefix))
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "写真の商品IDと検品対象の商品IDが一致しません",
-          });
-        }
+      } else if (input.outcome === "defective" || input.outcome === "junk") {
+        const isJunk = input.outcome === "junk";
         if (counted && currentQuantity > 0) {
+          quantityDelta = -1;
           await updateLocalInventory(sourceInventory.id, {
             quantity: currentQuantity - 1,
           });
@@ -873,6 +1347,7 @@ export const inboundDeskRouter = router({
         nextInventoryId = await createDefectiveInventory({
           label,
           sourceInventory,
+          destination: isJunk ? "junk" : "defective",
         });
         if (!counted) {
           const historyZaicoId =
@@ -880,11 +1355,11 @@ export const inboundDeskRouter = router({
             purchase?.id ??
             sourceInventory.zaicoId ??
             sourceInventory.id;
-          await createPurchaseHistory({
+          purchaseHistoryId = insertIdFromResult(await createPurchaseHistory({
             zaicoId: historyZaicoId,
             kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
             title: label.title,
-            category: "不良在庫",
+            category: isJunk ? "ジャンク売り" : "不良在庫",
             supplier:
               purchase?.supplierName ?? sourceInventory.supplierName ?? null,
             quantity: "1",
@@ -895,7 +1370,7 @@ export const inboundDeskRouter = router({
             inventoryId: nextInventoryId,
             cancelled: 0,
             operatorName: workerName,
-          });
+          }));
         }
         await db
           .update(inventoryItemLabels)
@@ -910,14 +1385,17 @@ export const inboundDeskRouter = router({
             defectiveSheetSyncedAt: null,
           })
           .where(eq(inventoryItemLabels.id, label.id));
-        actionItemId = await insertInspectionActionItem({
-          labelId,
-          title: label.title,
-          legacyManagementNo: label.legacyManagementNo,
-          createdBy: workerName,
-        });
+        if (requestReplacement) {
+          actionItemId = await insertInspectionActionItem({
+            labelId,
+            title: label.title,
+            legacyManagementNo: label.legacyManagementNo,
+            createdBy: workerName,
+          });
+        }
       } else {
         if (counted && currentQuantity > 0) {
+          quantityDelta = -1;
           await updateLocalInventory(sourceInventory.id, {
             quantity: currentQuantity - 1,
           });
@@ -926,17 +1404,46 @@ export const inboundDeskRouter = router({
           .update(inventoryItemLabels)
           .set({ status: "returned", receivedAt: label.receivedAt ?? now })
           .where(eq(inventoryItemLabels.id, label.id));
+        if (requestReplacement) {
+          actionItemId = await insertInspectionActionItem({
+            labelId,
+            title: label.title,
+            legacyManagementNo: label.legacyManagementNo,
+            createdBy: workerName,
+          });
+        }
       }
+
+      await db
+        .update(inventoryItemLabels)
+        .set({
+          inspectionOutcome: input.outcome,
+          replacementRequested: requestReplacement,
+          inspectionSourceInventoryId: sourceInventory.id,
+          inspectionInventoryId: nextInventoryId,
+          inspectionQuantityDelta: quantityDelta,
+          inspectionPurchaseHistoryId: purchaseHistoryId,
+          inspectionActionItemId: actionItemId,
+          inspectedAt: now,
+          inspectionCancelledAt: null,
+          inspectionCancelledBy: null,
+        })
+        .where(eq(inventoryItemLabels.id, label.id));
 
       await recordInspection({
         labelId,
         outcome: input.outcome,
         workerName,
         actionItemId,
+        requestReplacement,
+        sourceInventoryId: sourceInventory.id,
+        inspectionInventoryId: nextInventoryId,
+        quantityDelta,
+        purchaseHistoryId,
         defectTags: input.defectTags,
         photoCount: input.defectPhotos?.length,
       });
-      if (input.outcome === "defective") {
+      if (input.outcome === "defective" || input.outcome === "junk") {
         setImmediate(() => {
           void syncDefectiveListingByLabelId(labelId).catch(error => {
             console.error(
@@ -955,7 +1462,10 @@ export const inboundDeskRouter = router({
         localInventoryId: nextInventoryId,
         actionItemId,
         inventoryCountChanged: input.outcome === "stocked" ? !counted : counted,
-        listingPreparation: input.outcome === "defective" ? "queued" : null,
+        listingPreparation:
+          input.outcome === "defective" || input.outcome === "junk"
+            ? "queued"
+            : null,
       };
     }),
 });

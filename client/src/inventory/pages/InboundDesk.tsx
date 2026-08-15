@@ -1,6 +1,15 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   buildInboundInvoiceRollups,
@@ -24,6 +33,7 @@ import {
   RefreshCw,
   RotateCcw,
   ScanLine,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -36,7 +46,9 @@ import {
 } from "@/inventory/components/DefectiveInspectionDialog";
 
 type Phase = "receive" | "inspect" | "review";
-type InspectionOutcome = "stocked" | "defective" | "returned";
+type InspectionOutcome = "stocked" | "defective" | "junk" | "returned";
+/** 不良と判定したときの仕分け先 */
+type DefectDestination = "junk" | "returned";
 
 const OutboundBoxIssuer = lazy(async () => {
   const module = await import("@/inventory/pages/PurchaseRegistration");
@@ -45,9 +57,78 @@ const OutboundBoxIssuer = lazy(async () => {
 
 const PHASES: Array<{ value: Phase; number: string; label: string }> = [
   { value: "receive", number: "①", label: "受け取り" },
-  { value: "inspect", number: "②", label: "検品" },
+  { value: "inspect", number: "②", label: "動作確認" },
   { value: "review", number: "③", label: "確認" },
 ];
+
+const OUTCOME_LABELS: Record<InspectionOutcome, string> = {
+  stocked: "動作確認OK",
+  defective: "不良在庫（旧）",
+  junk: "不良・ジャンク売",
+  returned: "不良・返品",
+};
+
+const DEFECT_DESTINATIONS: Array<{
+  value: DefectDestination;
+  label: string;
+  hint: string;
+}> = [
+  { value: "junk", label: "ジャンク売", hint: "ジャンク売り在庫に回します" },
+  { value: "returned", label: "返品", hint: "仕入先へ返品します" },
+];
+
+/** 動作確認の入力途中を端末に残しておくキー（QR印刷などへ移動しても消えないように） */
+const INSPECTION_DRAFT_STORAGE_KEY = "inbound-desk-inspection-draft-v1";
+
+type InspectionDecision = {
+  outcome: "stocked" | DefectDestination | null;
+  requestReplacement: boolean;
+  defectTags?: DefectTag[];
+  defectNote?: string;
+  defectPhotos?: UploadedDefectPhoto[];
+};
+
+type InspectionDraft = Record<string, InspectionDecision>;
+
+function loadInspectionDraft(): InspectionDraft {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(INSPECTION_DRAFT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).map(([labelId, value]) => {
+        if (typeof value === "string") {
+          const legacyOutcome = value as InspectionOutcome;
+          return [
+            labelId,
+            {
+              outcome:
+                legacyOutcome === "defective" ? "junk" : legacyOutcome,
+              requestReplacement: legacyOutcome === "defective",
+            } satisfies InspectionDecision,
+          ];
+        }
+        return [labelId, value as InspectionDecision];
+      })
+    );
+  } catch {
+    return {};
+  }
+}
+
+function saveInspectionDraft(draft: InspectionDraft) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      INSPECTION_DRAFT_STORAGE_KEY,
+      JSON.stringify(draft)
+    );
+  } catch {
+    // 保存できなくても動作確認自体は続けられるので握りつぶす
+  }
+}
 
 const CARRIER_LABELS: Record<string, string> = {
   yamato: "ヤマト運輸",
@@ -238,7 +319,146 @@ function InvoiceRollupTable({
   );
 }
 
-function InboundBoxCard({ box }: { box: InboundBox }) {
+function UndoButton({
+  kind,
+  labelIds,
+  label,
+  onDone,
+}: {
+  kind: "receive" | "inspection";
+  labelIds: string[];
+  label: string;
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const preview = trpc.inventory.inboundDesk.undoPreview.useQuery(
+    { kind, labelIds },
+    { enabled: open && labelIds.length > 0 }
+  );
+  const undo = trpc.inventory.inboundDesk.undo.useMutation();
+  const utils = trpc.useUtils();
+
+  async function execute() {
+    try {
+      const result = await undo.mutateAsync({
+        kind,
+        labelIds,
+        operatorName: getCurrentWorkWorkerName("荷受け担当"),
+      });
+      if (result.restored.length)
+        toast.success(`${result.restored.length}台を取り消しました`);
+      if (result.rejected.length)
+        toast.warning(
+          result.rejected
+            .map(item => `${item.labelId}: ${item.reason}`)
+            .join(" / ")
+        );
+      setOpen(false);
+      await Promise.all([
+        utils.inventory.inboundDesk.snapshot.invalidate(),
+        utils.inventory.inboundDesk.undoPreview.invalidate(),
+        utils.inventory.actionItems.list.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+      ]);
+      await onDone();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "取消に失敗しました");
+    }
+  }
+
+  const data = preview.data;
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="border-rose-300 text-rose-800 hover:bg-rose-50"
+        onClick={() => setOpen(true)}
+        disabled={!labelIds.length}
+      >
+        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+        {label}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {kind === "receive" ? "受け取り" : "動作確認"}を取り消す
+            </DialogTitle>
+            <DialogDescription>
+              実際に状態を取得し直し、戻せる個体だけを巻き戻します。
+            </DialogDescription>
+          </DialogHeader>
+          {preview.isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : data ? (
+            <div className="space-y-3">
+              <div className="grid gap-2 text-sm sm:grid-cols-4">
+                <Badge variant="secondary">取消可能 {data.summary.undoable}台</Badge>
+                <Badge variant="outline">戻る在庫 {data.summary.inventoryRollback}点</Badge>
+                <Badge variant="outline">取消依頼 {data.summary.actionItemsCancelled}件</Badge>
+                <Badge variant="outline">保持依頼 {data.summary.actionItemsRetained}件</Badge>
+              </div>
+              <div className="divide-y rounded-lg border">
+                {data.items.map(item => (
+                  <div key={item.labelId} className="p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold">{item.labelId}</span>
+                      <Badge variant={item.canUndo ? "secondary" : "destructive"}>
+                        {item.canUndo ? "取消可能" : "取消不可"}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {item.reason ??
+                        `在庫 ${item.inventoryRollback}点 / 代替品依頼: ${
+                          item.actionItemDisposition === "cancel"
+                            ? "未完了のため取消"
+                            : item.actionItemDisposition === "retain"
+                              ? "完了済みのため保持"
+                              : "なし"
+                        }`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-destructive">
+              {preview.error?.message ?? "取消内容を取得できませんでした"}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              閉じる
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void execute()}
+              disabled={!data?.summary.undoable || undo.isPending}
+            >
+              {undo.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              取消を実行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function InboundBoxCard({
+  box,
+  undoLabelIds,
+  onRefresh,
+}: {
+  box: InboundBox;
+  undoLabelIds: string[];
+  onRefresh: () => Promise<void>;
+}) {
   return (
     <article className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -254,8 +474,16 @@ function InboundBoxCard({ box }: { box: InboundBox }) {
             </Badge>
           </div>
         </div>
-        <div className="text-xs text-muted-foreground">
-          荷受け {formatDateTime(box.receivedAt)}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-xs text-muted-foreground">
+            荷受け {formatDateTime(box.receivedAt)}
+          </div>
+          <UndoButton
+            kind="receive"
+            labelIds={undoLabelIds}
+            label="箱ごと取消"
+            onDone={onRefresh}
+          />
         </div>
       </div>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -264,7 +492,15 @@ function InboundBoxCard({ box }: { box: InboundBox }) {
             key={label.labelId}
             className="rounded-lg border bg-background p-3"
           >
-            <LabelDetails label={label} />
+            <div className="flex items-start justify-between gap-2">
+              <LabelDetails label={label} />
+              <UndoButton
+                kind="receive"
+                labelIds={[label.labelId]}
+                label="取消"
+                onDone={onRefresh}
+              />
+            </div>
           </div>
         ))}
       </div>
@@ -432,7 +668,7 @@ function ReceivePhase({
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">荷受け済み・未検品</h2>
+          <h2 className="text-lg font-semibold">荷受け済み・動作確認待ち</h2>
           <Badge variant="secondary">
             {boxes.length.toLocaleString()}箱 /{" "}
             {boxes
@@ -440,12 +676,33 @@ function ReceivePhase({
               .toLocaleString()}
             台
           </Badge>
+          {boxes.length ? (
+            <UndoButton
+              kind="receive"
+              labelIds={boxes.flatMap(box => box.labels.map(label => label.labelId))}
+              label="表示中を一括取消"
+              onDone={onRefresh}
+            />
+          ) : null}
         </div>
         {boxes.length > 0 ? (
-          boxes.map(box => <InboundBoxCard key={box.key} box={box} />)
+          boxes.map(box => (
+            <InboundBoxCard
+              key={box.key}
+              box={box}
+              undoLabelIds={
+                box.trackingNumber
+                  ? matchInboundLabels(box.trackingNumber, labels).map(
+                      label => label.labelId
+                    )
+                  : box.labels.map(label => label.labelId)
+              }
+              onRefresh={onRefresh}
+            />
+          ))
         ) : (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-            検品待ちの箱はありません
+            動作確認待ちの箱はありません
           </div>
         )}
       </section>
@@ -454,7 +711,7 @@ function ReceivePhase({
         <div>
           <h2 className="text-lg font-semibold">インボイス別の埋まり具合</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            検品待ちがすべて合格した場合の見込みです。
+            動作確認待ちがすべて合格した場合の見込みです。
           </p>
         </div>
         <InvoiceRollupTable rollups={rollups} projected />
@@ -472,9 +729,13 @@ function InspectPhase({
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [scanValue, setScanValue] = useState("");
-  const [defectiveLabel, setDefectiveLabel] = useState<InboundLabel | null>(
+  const [draft, setDraft] = useState<InspectionDraft>(() =>
+    loadInspectionDraft()
+  );
+  const [defectiveTarget, setDefectiveTarget] = useState<InboundLabel | null>(
     null
   );
+  const [isCommitting, setIsCommitting] = useState(false);
   const inspectMutation = trpc.inventory.inboundDesk.inspect.useMutation();
   const uploadMutation =
     trpc.inventory.inboundDesk.uploadDefectPhotos.useMutation();
@@ -482,6 +743,20 @@ function InspectPhase({
   const pendingLabels = useMemo(
     () => boxes.flatMap(box => box.labels),
     [boxes]
+  );
+
+  // 判定済みだが未登録のものだけを数える。登録済みは一覧から消えるので下書きからも落とす。
+  const draftEntries = useMemo(
+    () =>
+      pendingLabels
+        .map(label => ({ label, decision: draft[label.labelId] }))
+        .filter(
+          (
+            entry
+          ): entry is { label: InboundLabel; decision: InspectionDecision } =>
+            Boolean(entry.decision?.outcome)
+        ),
+    [draft, pendingLabels]
   );
 
   const focusScanInput = () => {
@@ -493,56 +768,118 @@ function InspectPhase({
     focusScanInput();
   }, []);
 
-  async function processLabel(
-    label: InboundLabel,
-    outcome: InspectionOutcome,
-    defect?: {
-      defectTags: DefectTag[];
-      defectNote: string;
-      defectPhotos: UploadedDefectPhoto[];
-    }
-  ) {
-    if (inspectMutation.isPending) return;
-    if (
-      outcome === "returned" &&
-      !window.confirm(`${label.labelId} を仕入先返品に回しますか？`)
-    )
-      return;
+  function defaultReplacement(label: InboundLabel) {
+    return Boolean(invoiceAllocation(label.legacyManagementNo).invoiceNo);
+  }
+
+  function updateDraft(label: InboundLabel, patch: Partial<InspectionDecision>) {
+    setDraft(current => {
+      const currentDecision = current[label.labelId] ?? {
+        outcome: null,
+        requestReplacement: defaultReplacement(label),
+      };
+      const next = {
+        ...current,
+        [label.labelId]: { ...currentDecision, ...patch },
+      };
+      saveInspectionDraft(next);
+      return next;
+    });
+  }
+
+  /** 一覧から消えた（＝登録済みの）商品の下書きを掃除する */
+  function pruneDraft(labelIds: string[]) {
+    setDraft(current => {
+      const next = { ...current };
+      for (const labelId of labelIds) delete next[labelId];
+      saveInspectionDraft(next);
+      return next;
+    });
+  }
+
+  /** 下書きの判定をまとめて入庫登録する */
+  async function commitDraft() {
+    if (isCommitting || draftEntries.length === 0) return;
+    const defectCount = draftEntries.filter(
+      entry => entry.decision.outcome !== "stocked"
+    ).length;
+    const confirmMessage = defectCount
+      ? `${draftEntries.length}台を入庫登録します。うち${defectCount}台は不良として仕分けます。よろしいですか？`
+      : `${draftEntries.length}台を入庫登録します。よろしいですか？`;
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsCommitting(true);
+    const done: string[] = [];
+    const failed: string[] = [];
+    let actionItemCount = 0;
     try {
-      const result = await inspectMutation.mutateAsync({
-        labelId: label.labelId,
-        outcome,
-        ...defect,
-      });
-      if (outcome === "stocked")
-        toast.success(`${label.labelId} を在庫化しました`);
-      if (outcome === "defective") {
-        toast.success(
-          result.actionItemId
-            ? "不良在庫へ移し、野田さんへの代替品依頼を作成しました"
-            : "不良在庫へ移しました"
-        );
-        setDefectiveLabel(null);
+      for (const entry of draftEntries) {
+        try {
+          const result = await inspectMutation.mutateAsync({
+            labelId: entry.label.labelId,
+            outcome: entry.decision.outcome!,
+            requestReplacement: entry.decision.requestReplacement,
+            defectTags: entry.decision.defectTags,
+            defectNote: entry.decision.defectNote,
+            defectPhotos: entry.decision.defectPhotos,
+          });
+          if (result.actionItemId) actionItemCount += 1;
+          done.push(entry.label.labelId);
+        } catch (error) {
+          failed.push(entry.label.labelId);
+          toast.error(
+            `${entry.label.labelId}: ${
+              error instanceof Error ? error.message : "登録できませんでした"
+            }`
+          );
+        }
       }
-      if (outcome === "returned")
-        toast.success(`${label.labelId} を仕入先返品に回しました`);
-      setScanValue("");
-      await Promise.all([
-        utils.inventory.inboundDesk.snapshot.invalidate(),
-        utils.inventory.orderManagement.getSummary.invalidate(),
-        utils.inventory.actionItems.list.invalidate(),
-        utils.inventory.zaico.getInventories.invalidate(),
-      ]);
-      await onRefresh();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "検品結果を登録できませんでした"
-      );
+      if (done.length) {
+        pruneDraft(done);
+        toast.success(
+          actionItemCount
+            ? `${done.length}台を入庫登録し、代替品の仕入れ依頼を${actionItemCount}件作成しました`
+            : `${done.length}台を入庫登録しました`
+        );
+        await Promise.all([
+          utils.inventory.inboundDesk.snapshot.invalidate(),
+          utils.inventory.orderManagement.getSummary.invalidate(),
+          utils.inventory.actionItems.list.invalidate(),
+          utils.inventory.zaico.getInventories.invalidate(),
+        ]);
+        await onRefresh();
+      }
+      if (failed.length)
+        toast.error(`${failed.length}台は登録できませんでした（下書きに残しています）`);
     } finally {
+      setIsCommitting(false);
       focusScanInput();
     }
+  }
+
+  /** スキャンした商品を「動作確認OK」として下書きに入れる */
+  function submitAcceptedScan() {
+    const normalized = scanValue.normalize("NFKC").trim().toUpperCase();
+    if (!normalized) return;
+    const label = pendingLabels.find(
+      candidate => candidate.labelId.trim().toUpperCase() === normalized
+    );
+    if (!label) {
+      toast.error("動作確認待ちの商品IDに一致しません");
+      setScanValue("");
+      focusScanInput();
+      return;
+    }
+    updateDraft(label, {
+      outcome: "stocked",
+      requestReplacement: false,
+      defectTags: undefined,
+      defectNote: undefined,
+      defectPhotos: undefined,
+    });
+    toast.success(`${label.labelId} を動作確認OKにしました`);
+    setScanValue("");
+    focusScanInput();
   }
 
   async function submitDefective(value: {
@@ -550,7 +887,7 @@ function InspectPhase({
     defectNote: string;
     files: File[];
   }) {
-    if (!defectiveLabel) return;
+    if (!defectiveTarget) return;
     try {
       const kinds = ["whole", "defect", "accessory"] as const;
       const uploadFiles = await Promise.all(
@@ -560,59 +897,45 @@ function InspectPhase({
           kind: kinds[index] ?? "defect",
         }))
       );
-      const photos =
-        uploadFiles.length > 0
-          ? (
-              await uploadMutation.mutateAsync({
-                labelId: defectiveLabel.labelId,
-                files: uploadFiles,
-              })
-            ).photos
-          : [];
-      await processLabel(defectiveLabel, "defective", {
+      const photos = uploadFiles.length
+        ? (
+            await uploadMutation.mutateAsync({
+              labelId: defectiveTarget.labelId,
+              files: uploadFiles,
+            })
+          ).photos
+        : [];
+      updateDraft(defectiveTarget, {
+        outcome: "junk",
         defectTags: value.defectTags,
         defectNote: value.defectNote,
         defectPhotos: photos,
       });
+      setDefectiveTarget(null);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "不良写真を登録できませんでした"
+        error instanceof Error ? error.message : "不良写真を登録できませんでした"
       );
     }
-  }
-
-  async function submitAcceptedScan() {
-    const normalized = scanValue.normalize("NFKC").trim().toUpperCase();
-    if (!normalized) return;
-    const label = pendingLabels.find(
-      candidate => candidate.labelId.trim().toUpperCase() === normalized
-    );
-    if (!label) {
-      toast.error("検品待ちの商品IDに一致しません");
-      setScanValue("");
-      focusScanInput();
-      return;
-    }
-    await processLabel(label, "stocked");
   }
 
   return (
     <div className="space-y-5">
       <DefectiveInspectionDialog
-        label={defectiveLabel}
+        label={defectiveTarget}
         busy={inspectMutation.isPending || uploadMutation.isPending}
-        onClose={() => setDefectiveLabel(null)}
+        onClose={() => setDefectiveTarget(null)}
         onSubmit={submitDefective}
       />
       <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-emerald-950">
           <CheckCircle2 className="h-5 w-5" />
-          合格した商品だけラベルを貼る
+          一つずつ動作確認して合否を入れる
         </h2>
         <p className="mt-1 text-sm text-emerald-900">
-          合格品にラベルを貼り、商品IDをスキャンすると在庫化します。不良品にはラベルを貼りません。
+          合格品にラベルを貼って商品IDをスキャンすると「動作確認OK」に入ります。
+          不良は下のカードから仕分け先を選んでください。判定は一時保存され、
+          「入庫登録」を押すまで在庫には反映されません。
         </p>
         <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
           <Input
@@ -620,7 +943,7 @@ function InspectPhase({
             value={scanValue}
             onChange={event => setScanValue(event.target.value)}
             onKeyDown={event => {
-              if (event.key === "Enter") void submitAcceptedScan();
+              if (event.key === "Enter") submitAcceptedScan();
             }}
             placeholder="合格品に貼った7文字の商品IDをスキャン"
             autoComplete="off"
@@ -629,23 +952,75 @@ function InspectPhase({
           <Button
             type="button"
             className="h-12"
-            onClick={() => void submitAcceptedScan()}
-            disabled={!scanValue.trim() || inspectMutation.isPending}
+            onClick={() => submitAcceptedScan()}
+            disabled={!scanValue.trim() || isCommitting}
           >
-            {inspectMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <PackageCheck className="mr-2 h-4 w-4" />
-            )}
-            合格・在庫化
+            <PackageCheck className="mr-2 h-4 w-4" />
+            動作確認OK
           </Button>
         </div>
+      </section>
+
+      <section
+        className={cn(
+          "sticky top-2 z-10 rounded-xl border p-4 shadow-sm",
+          draftEntries.length
+            ? "border-blue-200 bg-blue-50"
+            : "border-dashed bg-background"
+        )}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-muted-foreground">
+              判定済み（一時保存）
+            </div>
+            <div className="text-2xl font-bold tabular-nums">
+              {draftEntries.length.toLocaleString()}
+              <span className="ml-1 text-base font-normal text-muted-foreground">
+                / {pendingLabels.length.toLocaleString()}台
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                if (!draftEntries.length) return;
+                if (!window.confirm("入力した判定をすべて取り消しますか？")) return;
+                pruneDraft(draftEntries.map(entry => entry.label.labelId));
+              }}
+              disabled={!draftEntries.length || isCommitting}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              判定を取り消す
+            </Button>
+            <Button
+              type="button"
+              className="h-11"
+              onClick={() => void commitDraft()}
+              disabled={!draftEntries.length || isCommitting}
+            >
+              {isCommitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+              )}
+              入庫登録（{draftEntries.length}台）
+            </Button>
+          </div>
+        </div>
+        {draftEntries.length ? (
+          <p className="mt-2 text-xs text-blue-900">
+            この判定は端末に保存されています。QR印刷などへ移動して戻ってきても消えません。
+          </p>
+        ) : null}
       </section>
 
       {boxes.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center">
           <ClipboardCheck className="mx-auto h-8 w-8 text-emerald-600" />
-          <div className="mt-2 font-semibold">検品待ちは0台です</div>
+          <div className="mt-2 font-semibold">動作確認待ちは0台です</div>
         </div>
       ) : (
         boxes.map(box => (
@@ -665,37 +1040,137 @@ function InspectPhase({
               <Badge>{box.labels.length.toLocaleString()}台</Badge>
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {box.labels.map(label => (
-                <div
-                  key={label.labelId}
-                  className="rounded-lg border bg-background p-3"
-                >
-                  <LabelDetails label={label} />
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11 border-amber-300 text-amber-800 hover:bg-amber-50"
-                      onClick={() => setDefectiveLabel(label)}
-                      disabled={
-                        inspectMutation.isPending || uploadMutation.isPending
-                      }
-                    >
-                      <TriangleAlert className="mr-2 h-4 w-4" />
-                      不良（国内販売）
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void processLabel(label, "returned")}
-                      disabled={inspectMutation.isPending}
-                    >
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      仕入先へ返品
-                    </Button>
+              {box.labels.map(label => {
+                const decision = draft[label.labelId];
+                const decided = decision?.outcome ?? null;
+                const replacementChecked =
+                  decision?.requestReplacement ?? defaultReplacement(label);
+                return (
+                  <div
+                    key={label.labelId}
+                    className={cn(
+                      "rounded-lg border bg-background p-3",
+                      decided === "stocked" && "border-emerald-300 bg-emerald-50/60",
+                      decided && decided !== "stocked" && "border-amber-300 bg-amber-50/60"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <LabelDetails label={label} />
+                      {decided ? (
+                        <Badge
+                          variant={decided === "stocked" ? "default" : "secondary"}
+                          className="shrink-0"
+                        >
+                          {OUTCOME_LABELS[decided]}
+                          {decided !== "stocked" && replacementChecked
+                            ? "＋代替品仕入"
+                            : ""}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <Button
+                        type="button"
+                        variant={decided === "stocked" ? "default" : "outline"}
+                        className={cn(
+                          decided !== "stocked" &&
+                            "border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                        )}
+                        onClick={() =>
+                          updateDraft(label, {
+                            outcome: "stocked",
+                            requestReplacement: false,
+                          })
+                        }
+                        disabled={isCommitting}
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        動作確認OK
+                      </Button>
+                      {decided ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() =>
+                            updateDraft(label, {
+                              outcome: null,
+                              defectTags: undefined,
+                              defectNote: undefined,
+                              defectPhotos: undefined,
+                            })
+                          }
+                          disabled={isCommitting}
+                        >
+                          判定をやり直す
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="mt-2">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        不良のときの仕分け先
+                      </div>
+                      <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                        {DEFECT_DESTINATIONS.map(destination => (
+                          <Button
+                            key={destination.value}
+                            type="button"
+                            size="sm"
+                            variant={
+                              decided === destination.value ? "default" : "outline"
+                            }
+                            className={cn(
+                              decided !== destination.value &&
+                                "border-amber-300 text-amber-800 hover:bg-amber-50"
+                            )}
+                            title={destination.hint}
+                            onClick={() => {
+                              if (destination.value === "junk") {
+                                setDefectiveTarget(label);
+                                return;
+                              }
+                              updateDraft(label, {
+                                outcome: "returned",
+                                defectTags: undefined,
+                                defectNote: undefined,
+                                defectPhotos: undefined,
+                              });
+                            }}
+                            disabled={isCommitting}
+                          >
+                            {destination.value === "returned" ? (
+                              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                            ) : (
+                              <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            {destination.label}
+                          </Button>
+                        ))}
+                      </div>
+                      {decided !== "stocked" ? (
+                        <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
+                          <Checkbox
+                            checked={replacementChecked}
+                            onCheckedChange={checked =>
+                              updateDraft(label, {
+                                requestReplacement: checked === true,
+                              })
+                            }
+                            disabled={isCommitting}
+                          />
+                          <span>
+                            代替品を仕入れる（野田さんへ依頼）
+                            <span className="block text-xs text-blue-800">
+                              {invoiceAllocation(label.legacyManagementNo).invoiceNo
+                                ? "インボイス引当のため初期値ON"
+                                : "在庫用のため初期値OFF"}
+                            </span>
+                          </span>
+                        </label>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </article>
         ))
@@ -716,6 +1191,7 @@ function ReviewPhase({
     InboundLabel & {
       outcome: InspectionOutcome;
       actionItemId: number | null;
+      requestReplacement: boolean;
       processedAt: string;
       workerName: string;
     }
@@ -732,11 +1208,7 @@ function ReviewPhase({
   rollups: InboundInvoiceRollup[];
   onRefresh: () => Promise<void>;
 }) {
-  const outcomeLabel: Record<InspectionOutcome, string> = {
-    stocked: "在庫化",
-    defective: "不良在庫",
-    returned: "仕入先返品",
-  };
+  const outcomeLabel = OUTCOME_LABELS;
   return (
     <div className="space-y-6">
       <section
@@ -754,7 +1226,7 @@ function ReviewPhase({
             <TriangleAlert className="h-8 w-8 text-amber-700" />
           )}
           <div>
-            <div className="text-sm font-medium">検品待ち</div>
+            <div className="text-sm font-medium">動作確認待ち</div>
             <div className="text-3xl font-bold tabular-nums">
               {pendingCount.toLocaleString()}台
             </div>
@@ -763,10 +1235,20 @@ function ReviewPhase({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">直近の処理結果</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">直近の処理結果</h2>
+          {recent.length ? (
+            <UndoButton
+              kind="inspection"
+              labelIds={Array.from(new Set(recent.map(item => item.labelId)))}
+              label="表示中を一括取消"
+              onDone={onRefresh}
+            />
+          ) : null}
+        </div>
         {recent.length === 0 ? (
           <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            荷受けデスクでの検品結果はまだありません
+            荷受けデスクでの動作確認の結果はまだありません
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -782,6 +1264,7 @@ function ReviewPhase({
                     }
                   >
                     {outcomeLabel[item.outcome]}
+                    {item.requestReplacement ? "＋代替品仕入" : ""}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
                     {formatDateTime(item.processedAt)}
@@ -790,7 +1273,15 @@ function ReviewPhase({
                 <div className="mt-3">
                   <LabelDetails label={item} />
                 </div>
-                {item.outcome === "defective" ? (
+                <div className="mt-3">
+                  <UndoButton
+                    kind="inspection"
+                    labelIds={[item.labelId]}
+                    label="動作確認を取消"
+                    onDone={onRefresh}
+                  />
+                </div>
+                {item.outcome === "defective" || item.outcome === "junk" ? (
                   <DefectiveMarketRefresh item={item} onRefresh={onRefresh} />
                 ) : null}
               </article>
@@ -1062,7 +1553,7 @@ export default function InboundDesk() {
         </div>
         <h1 className="mt-1 text-2xl font-bold tracking-tight">荷受け</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          段ボールを開ける前に中身と引当先を確認し、検品を通ったものだけ在庫にします。
+          段ボールを開ける前に中身と引当先を確認し、動作確認を通ったものだけ在庫にします。
         </p>
       </header>
 
@@ -1114,6 +1605,7 @@ export default function InboundDesk() {
                 InboundLabel & {
                   outcome: InspectionOutcome;
                   actionItemId: number | null;
+                  requestReplacement: boolean;
                   processedAt: string;
                   workerName: string;
                 }
