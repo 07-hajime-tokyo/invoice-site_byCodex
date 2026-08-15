@@ -30,6 +30,7 @@ import {
   Loader2,
   PackageCheck,
   PackageOpen,
+  Printer,
   RefreshCw,
   RotateCcw,
   ScanLine,
@@ -37,6 +38,11 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  InvoicePrintPack,
+  InvoicePrintPackStyles,
+  type PrintPackMode,
+} from "@/inventory/components/InvoicePrintPack";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import {
   DefectiveInspectionDialog,
@@ -1499,6 +1505,10 @@ function DefectiveGroupingPanel() {
 
 export default function InboundDesk() {
   const [phase, setPhase] = useState<Phase>("receive");
+  // 紙に出す用。押した時だけ描いて印刷ダイアログを開く。
+  const [printPackMode, setPrintPackMode] = useState<PrintPackMode | null>(null);
+  const [printPackJobId, setPrintPackJobId] = useState(0);
+  const [printPackAt, setPrintPackAt] = useState("");
   const snapshotQuery = trpc.inventory.inboundDesk.snapshot.useQuery(
     undefined,
     {
@@ -1536,6 +1546,28 @@ export default function InboundDesk() {
     await Promise.all([snapshotQuery.refetch(), summaryQuery.refetch()]);
   }
 
+  function openPrintPack(mode: PrintPackMode) {
+    setPrintPackAt(
+      new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date())
+    );
+    setPrintPackMode(mode);
+    setPrintPackJobId(id => id + 1);
+  }
+
+  useEffect(() => {
+    if (printPackJobId === 0 || !printPackMode) return;
+    // 描画が終わってから印刷ダイアログを開く
+    const timer = window.setTimeout(() => window.print(), 150);
+    return () => window.clearTimeout(timer);
+  }, [printPackJobId, printPackMode]);
+
   if (snapshotQuery.isLoading || summaryQuery.isLoading) {
     return (
       <div className="flex min-h-[320px] items-center justify-center">
@@ -1546,15 +1578,45 @@ export default function InboundDesk() {
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 p-3 md:p-6">
+      <InvoicePrintPackStyles />
+      <InvoicePrintPack rollups={rollups} mode={printPackMode} printedAt={printPackAt} />
       <header>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <PackageOpen className="h-4 w-4" />
-          取引ハブ
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <PackageOpen className="h-4 w-4" />
+              取引ハブ
+            </div>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight">荷受け</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              段ボールを開ける前に中身と引当先を確認し、動作確認を通ったものだけ在庫にします。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={rollups.length === 0}
+              onClick={() => openPrintPack("summary")}
+            >
+              <Printer className="h-4 w-4" />
+              一覧を印刷
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={rollups.length === 0}
+              onClick={() => openPrintPack("full")}
+            >
+              <Printer className="h-4 w-4" />
+              一覧＋内訳を印刷（1枚に4面）
+            </Button>
+          </div>
         </div>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">荷受け</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          段ボールを開ける前に中身と引当先を確認し、動作確認を通ったものだけ在庫にします。
-        </p>
       </header>
 
       <section className="rounded-xl border-2 border-indigo-300 bg-indigo-50/50 p-4">
