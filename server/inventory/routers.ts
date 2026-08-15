@@ -1146,9 +1146,113 @@ function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
   return inventoryStockQuantity(quantity) > 0 ? "stocked" : "ordered";
 }
 
+const EBAY_7696_SECOND_MANAGEMENT_NO = "ebay_7696_2";
+const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:restored";
+
 const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
 const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
 const MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID = "QDYEZHT";
+
+type InventoryRestoreField =
+  | "title"
+  | "quantity"
+  | "unit"
+  | "category"
+  | "place"
+  | "etc"
+  | "unitPrice"
+  | "supplierName"
+  | "supplierUrl"
+  | "ebayListingUrl"
+  | "ebayOrderUrl"
+  | "ebayOrderStatus";
+
+const INVENTORY_RESTORE_FIELD_LABELS: Record<string, InventoryRestoreField> = {
+  商品名: "title",
+  在庫数: "quantity",
+  単位: "unit",
+  カテゴリ: "category",
+  保管場所: "place",
+  "管理番号・備考": "etc",
+  仕入単価: "unitPrice",
+  仕入先: "supplierName",
+  仕入先URL: "supplierUrl",
+  eBay出品URL: "ebayListingUrl",
+  eBay注文URL: "ebayOrderUrl",
+  eBay状態: "ebayOrderStatus",
+};
+
+function parseInventoryRestoreMemo(memo: string | null | undefined): Partial<Record<InventoryRestoreField, string | null>> {
+  const restored: Partial<Record<InventoryRestoreField, string | null>> = {};
+  for (const part of String(memo ?? "").split(" / ")) {
+    const separatorIndex = part.indexOf(": ");
+    if (separatorIndex < 0) continue;
+    const field = INVENTORY_RESTORE_FIELD_LABELS[part.slice(0, separatorIndex).trim()];
+    if (!field) continue;
+
+    const valuePart = part.slice(separatorIndex + 2);
+    const arrowIndex = valuePart.indexOf(" → ");
+    if (arrowIndex < 0) continue;
+    const before = valuePart.slice(0, arrowIndex).trim();
+    restored[field] = before === "（空）" ? null : before;
+  }
+  return restored;
+}
+
+async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
+  const alreadyRestored = await getSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY);
+  if (alreadyRestored === "1") return;
+
+  const target = (await getLocalInventories()).find(
+    (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
+  );
+  if (!target) return;
+
+  const inventoryIdForMemos = target.zaicoId ?? target.id;
+  const latestUpdateMemo = (await getInventoryMemos(inventoryIdForMemos, 20)).find(
+    (memo) => String(memo.changeType ?? "").trim() === "updated" && String(memo.memo ?? "").includes(" → "),
+  );
+  if (!latestUpdateMemo) return;
+
+  const restored = parseInventoryRestoreMemo(latestUpdateMemo.memo);
+  const restoredEtc = restored.etc ?? target.etc;
+  if (getInventoryManagementNo(restoredEtc) !== EBAY_7696_SECOND_MANAGEMENT_NO) return;
+
+  const nextValues = {
+    title: restored.title ?? target.title,
+    quantity: restored.quantity == null ? target.quantity : Math.max(0, Math.round(Number(restored.quantity) || 0)),
+    unit: restored.unit ?? target.unit,
+    category: restored.category ?? target.category,
+    place: restored.place ?? target.place,
+    etc: restoredEtc,
+    unitPrice: restored.unitPrice ?? target.unitPrice,
+    supplierName: restored.supplierName ?? target.supplierName,
+    supplierUrl: restored.supplierUrl ?? target.supplierUrl,
+    ebayListingUrl: restored.ebayListingUrl ?? target.ebayListingUrl,
+    ebayOrderUrl: restored.ebayOrderUrl ?? target.ebayOrderUrl,
+    ebayOrderStatus: normalizeEbayOrderStatus(restored.ebayOrderStatus ?? target.ebayOrderStatus),
+  };
+
+  await updateLocalInventory(target.id, nextValues);
+  await ensureInventoryItemLabelsForInventory({
+    localInventoryId: target.id,
+    legacyManagementNo: getInventoryManagementNo(nextValues.etc),
+    title: nextValues.title,
+    quantity: inventoryLabelQuantity(nextValues.quantity),
+    status: inventoryInitialLabelStatus(nextValues.quantity),
+    sourceKey: `inventory:${target.id}`,
+  });
+  await recordInventoryChange({
+    inventoryId: inventoryIdForMemos,
+    title: nextValues.title,
+    changeType: "updated",
+    source: "ui",
+    note: "ebay_7696_2 を上書き前の変更履歴から復元",
+    quantityBefore: target.quantity,
+    quantityAfter: nextValues.quantity,
+  });
+  await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+}
 
 async function repairMaxim404PartialCancelLabel(): Promise<void> {
   const db = await getDb();
@@ -1226,6 +1330,7 @@ async function ensureStockLabelsForInventories<T extends {
   etc?: string | null;
 }>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
   if (inventories.length === 0) return [];
+  await repairEbay7696SecondInventoryOverwrite();
   await repairMaxim404PartialCancelLabel();
   const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
   return Promise.all(inventories.map(async (inventory) => {
@@ -2523,6 +2628,7 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
+        await repairEbay7696SecondInventoryOverwrite();
         const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
