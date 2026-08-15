@@ -1146,6 +1146,64 @@ function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
   return inventoryStockQuantity(quantity) > 0 ? "stocked" : "ordered";
 }
 
+const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
+const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
+const MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID = "QDYEZHT";
+
+async function repairMaxim404PartialCancelLabel(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+  const { inArray } = await import("drizzle-orm");
+  const targetLabels = await db
+    .select()
+    .from(labelTbl)
+    .where(inArray(labelTbl.labelId, [MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID, MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID]));
+  const keepLabel = targetLabels.find((label) =>
+    String(label.labelId ?? "").trim().toUpperCase() === MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID
+  );
+  const removeLabel = targetLabels.find((label) =>
+    String(label.labelId ?? "").trim().toUpperCase() === MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID
+  );
+
+  if (removeLabel && !keepLabel) {
+    await db
+      .update(labelTbl)
+      .set({
+        labelId: MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID,
+        legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO,
+        title: removeLabel.title || "3DS LL ホワイト",
+      })
+      .where(eq(labelTbl.id, removeLabel.id));
+    return;
+  }
+
+  if (removeLabel && keepLabel) {
+    await db
+      .update(labelTbl)
+      .set({
+        purchaseId: removeLabel.purchaseId ?? keepLabel.purchaseId,
+        localInventoryId: removeLabel.localInventoryId ?? keepLabel.localInventoryId,
+        legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO,
+        title: removeLabel.title || keepLabel.title || "3DS LL ホワイト",
+        status: removeLabel.status ?? keepLabel.status,
+        receivedAt: removeLabel.receivedAt ?? keepLabel.receivedAt,
+        shippedAt: removeLabel.shippedAt ?? keepLabel.shippedAt,
+      })
+      .where(eq(labelTbl.id, keepLabel.id));
+    await db.delete(labelTbl).where(eq(labelTbl.id, removeLabel.id));
+    return;
+  }
+
+  if (keepLabel && String(keepLabel.legacyManagementNo ?? "").trim() !== MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO) {
+    await db
+      .update(labelTbl)
+      .set({ legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO })
+      .where(eq(labelTbl.id, keepLabel.id));
+  }
+}
+
 function isStockLabelView(label: InventoryItemLabelView): boolean {
   const status = String(label.status ?? "").trim().toLowerCase();
   return !status || status === "stocked" || status === "received";
@@ -1168,6 +1226,7 @@ async function ensureStockLabelsForInventories<T extends {
   etc?: string | null;
 }>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
   if (inventories.length === 0) return [];
+  await repairMaxim404PartialCancelLabel();
   const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
   return Promise.all(inventories.map(async (inventory) => {
     const inventoryId = Number(inventory.id);
@@ -1290,6 +1349,7 @@ function localPurchaseLabelViews(
 }
 
 async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
+  await repairMaxim404PartialCancelLabel();
   let changed = false;
 
   for (const row of rows) {

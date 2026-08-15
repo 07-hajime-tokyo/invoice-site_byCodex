@@ -1010,6 +1010,12 @@ function labelTimestampMs(value: unknown): number {
 }
 
 function labelKeepPriority(label: InventoryItemLabel): number {
+  const labelId = String(label.labelId ?? "").trim().toUpperCase();
+  const legacyManagementNo = String(label.legacyManagementNo ?? "").trim();
+  if (legacyManagementNo === "404_マキシム_3DSLL_2/5") {
+    if (labelId === "SEGCUWZ") return -10;
+    if (labelId === "QDYEZHT") return 10;
+  }
   const status = String(label.status ?? "").trim().toLowerCase();
   if (status === "shipped" || status === "returned") return 0;
   if (status === "received" || status === "stocked") return 1;
