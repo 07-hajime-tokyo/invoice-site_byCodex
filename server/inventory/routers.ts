@@ -1147,7 +1147,7 @@ function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
 }
 
 const EBAY_7696_SECOND_MANAGEMENT_NO = "ebay_7696_2";
-const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:restored";
+const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:restored:v2";
 
 const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
 const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
