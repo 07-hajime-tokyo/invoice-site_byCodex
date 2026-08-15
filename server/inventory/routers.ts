@@ -1160,6 +1160,8 @@ function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
 
 const EBAY_7696_SECOND_MANAGEMENT_NO = "ebay_7696_2";
 const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:restored:v5";
+const EBAY_7696_SECOND_ALTERNATE_MANAGEMENT_NO = "ebay_7696_2_代替";
+const EBAY_7696_SECOND_ALTERNATE_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:alternate-restored:v1";
 
 const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
 const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
@@ -1261,6 +1263,20 @@ function restoreSnapshotDiffersFromInventory(
 }
 
 async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
+  const alternateAlreadyRestored = await getSystemSetting(EBAY_7696_SECOND_ALTERNATE_RESTORE_SETTING_KEY);
+  if (alternateAlreadyRestored !== "1") {
+    const inventoriesWithDeleted = await getLocalInventories(true);
+    const alternateTarget = inventoriesWithDeleted.find(
+      (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_ALTERNATE_MANAGEMENT_NO,
+    );
+    if (alternateTarget) {
+      if (Number(alternateTarget.isDeleted ?? 0) !== 0) {
+        await updateLocalInventory(alternateTarget.id, { isDeleted: 0 });
+      }
+      await setSystemSetting(EBAY_7696_SECOND_ALTERNATE_RESTORE_SETTING_KEY, "1");
+    }
+  }
+
   const alreadyRestored = await getSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY);
   if (alreadyRestored === "1") return;
 
