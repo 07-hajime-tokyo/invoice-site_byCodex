@@ -1509,6 +1509,14 @@ export default function InboundDesk() {
   const [printPackMode, setPrintPackMode] = useState<PrintPackMode | null>(null);
   const [printPackJobId, setPrintPackJobId] = useState(0);
   const [printPackAt, setPrintPackAt] = useState("");
+  const [packDate, setPackDate] = useState(() =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date())
+  );
   const snapshotQuery = trpc.inventory.inboundDesk.snapshot.useQuery(
     undefined,
     {
@@ -1541,6 +1549,33 @@ export default function InboundDesk() {
       ),
     [pendingLabels, summaryQuery.data]
   );
+
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const isToday = packDate === today;
+
+  const activityQuery = trpc.inventory.inboundDesk.dailyActivity.useQuery(
+    { date: packDate },
+    { enabled: /^\d{4}-\d{2}-\d{2}$/.test(packDate), staleTime: 30_000 }
+  );
+  const savedSnapshotQuery = trpc.inventory.inboundDesk.fulfillmentSnapshot.useQuery(
+    { date: packDate },
+    { enabled: !isToday && /^\d{4}-\d{2}-\d{2}$/.test(packDate), staleTime: 30_000 }
+  );
+  const saveSnapshot = trpc.inventory.inboundDesk.saveFulfillmentSnapshot.useMutation({
+    onSuccess: result => toast.success(`${result.date} の充足状況を保存しました（${result.count}件）`),
+    onError: error => toast.error(`保存に失敗しました: ${error.message}`),
+  });
+
+  // 過去日は保存済みの記録だけを使う。今の状態で代用すると別物の数字が紙に出る。
+  const packRollups = isToday
+    ? rollups
+    : ((savedSnapshotQuery.data?.rollups ?? []) as InboundInvoiceRollup[]);
+  const canPrintFulfillment = packRollups.length > 0;
 
   async function refresh() {
     await Promise.all([snapshotQuery.refetch(), summaryQuery.refetch()]);
@@ -1579,7 +1614,12 @@ export default function InboundDesk() {
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 p-3 md:p-6">
       <InvoicePrintPackStyles />
-      <InvoicePrintPack rollups={rollups} mode={printPackMode} printedAt={printPackAt} />
+      <InvoicePrintPack
+        rollups={packRollups}
+        mode={printPackMode}
+        printedAt={printPackAt}
+        activity={activityQuery.data ?? null}
+      />
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -1592,29 +1632,72 @@ export default function InboundDesk() {
               段ボールを開ける前に中身と引当先を確認し、動作確認を通ったものだけ在庫にします。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={rollups.length === 0}
-              onClick={() => openPrintPack("summary")}
-            >
-              <Printer className="h-4 w-4" />
-              一覧を印刷
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={rollups.length === 0}
-              onClick={() => openPrintPack("full")}
-            >
-              <Printer className="h-4 w-4" />
-              一覧＋内訳を印刷（1枚に4面）
-            </Button>
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="pack-date" className="text-sm font-medium">
+                対象日
+              </label>
+              <Input
+                id="pack-date"
+                type="date"
+                value={packDate}
+                max={today}
+                onChange={event => setPackDate(event.target.value)}
+                className="h-9 w-40"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={!canPrintFulfillment}
+                onClick={() => openPrintPack("summary")}
+              >
+                <Printer className="h-4 w-4" />
+                一覧
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={!canPrintFulfillment}
+                onClick={() => openPrintPack("full")}
+              >
+                <Printer className="h-4 w-4" />
+                一覧＋内訳（4面）
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={activityQuery.isLoading}
+                onClick={() => openPrintPack("daily")}
+              >
+                <Printer className="h-4 w-4" />
+                その日の作業（荷受け{activityQuery.data?.receipts.length ?? 0}・動作確認
+                {activityQuery.data?.inspections.length ?? 0}）
+              </Button>
+              {isToday ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={saveSnapshot.isPending || rollups.length === 0}
+                  onClick={() => saveSnapshot.mutate({ date: today, rollups: rollups as unknown as Record<string, unknown>[] })}
+                >
+                  今日の充足状況を保存
+                </Button>
+              ) : null}
+            </div>
+            {!isToday && !canPrintFulfillment ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                この日の充足状況は保存されていません。充足状況は今の在庫から毎回計算しているため、
+                過去日は後から再現できません。「その日の作業」は保存が無くても出せます。
+                以後のために、区切りのついた日に「今日の充足状況を保存」を押しておいてください。
+              </p>
+            ) : null}
           </div>
         </div>
       </header>

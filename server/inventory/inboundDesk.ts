@@ -3,6 +3,7 @@ import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   actionItems,
+  fulfillmentSnapshots,
   inventoryItemLabels,
   localInventories,
   localPurchases,
@@ -621,6 +622,150 @@ export const inboundDeskRouter = router({
           .map(row => row.labelId?.trim().toUpperCase())
           .filter((labelId): labelId is string => Boolean(labelId)),
       };
+    }),
+
+  /**
+   * 指定日に何をしたかの一覧。荷受けと動作確認を作業ログから拾う。
+   * 充足状況（一覧）は「今」の状態から毎回計算しているので過去日を再現できない。
+   * 「その日に何を触ったか」はここで出す。日付の区切りは Asia/Tokyo。
+   */
+  dailyActivity: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const start = new Date(`${input.date}T00:00:00+09:00`);
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const logs = await db
+        .select({
+          id: workLogs.id,
+          workerName: workLogs.workerName,
+          category: workLogs.category,
+          sourceType: workLogs.sourceType,
+          sourceId: workLogs.sourceId,
+          detailsJson: workLogs.detailsJson,
+          createdAt: workLogs.createdAt,
+        })
+        .from(workLogs)
+        .where(
+          and(
+            gte(workLogs.createdAt, start),
+            lt(workLogs.createdAt, end),
+            inArray(workLogs.sourceType, ["inbound-receipt", "inbound-inspection"])
+          )
+        )
+        .orderBy(workLogs.createdAt);
+
+      const labelIds = Array.from(
+        new Set(logs.map(log => log.sourceId).filter((id): id is string => Boolean(id)))
+      );
+      const labelRows = labelIds.length
+        ? await db
+            .select({
+              labelId: inventoryItemLabels.labelId,
+              title: inventoryItemLabels.title,
+              legacyManagementNo: inventoryItemLabels.legacyManagementNo,
+            })
+            .from(inventoryItemLabels)
+            .where(inArray(inventoryItemLabels.labelId, labelIds))
+        : [];
+      const titleByLabelId = new Map(
+        labelRows.map(row => [row.labelId, { title: row.title, legacyManagementNo: row.legacyManagementNo }])
+      );
+
+      const outcomeLabels: Record<string, string> = {
+        stocked: "動作確認OK",
+        defective: "不良在庫",
+        junk: "ジャンク売り",
+        returned: "仕入先返品",
+      };
+
+      const entries = logs.map(log => {
+        let outcome: string | null = null;
+        let requestReplacement: boolean | null = null;
+        if (log.detailsJson) {
+          try {
+            const parsed = JSON.parse(log.detailsJson) as {
+              outcome?: string;
+              requestReplacement?: boolean;
+            };
+            outcome = parsed.outcome ? (outcomeLabels[parsed.outcome] ?? parsed.outcome) : null;
+            requestReplacement = parsed.requestReplacement ?? null;
+          } catch {
+            // 壊れた記録は無視して一覧を止めない
+          }
+        }
+        const meta = log.sourceId ? titleByLabelId.get(log.sourceId) : undefined;
+        return {
+          id: log.id,
+          kind: log.sourceType === "inbound-receipt" ? ("receipt" as const) : ("inspection" as const),
+          labelId: log.sourceId ?? "",
+          title: meta?.title ?? "",
+          legacyManagementNo: meta?.legacyManagementNo ?? "",
+          worker: log.workerName,
+          outcome,
+          requestReplacement,
+          at: log.createdAt?.toISOString() ?? null,
+        };
+      });
+
+      return {
+        date: input.date,
+        receipts: entries.filter(entry => entry.kind === "receipt"),
+        inspections: entries.filter(entry => entry.kind === "inspection"),
+      };
+    }),
+
+  /** その日の充足状況を1行だけ残す。同じ日に何度押しても上書きになる。 */
+  saveFulfillmentSnapshot: protectedProcedure
+    .input(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        rollups: z.array(z.record(z.string(), z.unknown())).max(200),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const capturedBy = operatorName(undefined, ctx.user.name ?? ctx.user.email);
+      const rollupsJson = JSON.stringify(input.rollups);
+      await db
+        .insert(fulfillmentSnapshots)
+        .values({ snapshotDate: input.date, rollupsJson, capturedBy })
+        .onDuplicateKeyUpdate({ set: { rollupsJson, capturedBy } });
+      return { date: input.date, count: input.rollups.length };
+    }),
+
+  /** 保存済みスナップショットのある日付。印刷画面の日付候補に使う。 */
+  fulfillmentSnapshotDates: protectedProcedure.query(async () => {
+    const db = await requireDb();
+    const rows = await db
+      .select({ snapshotDate: fulfillmentSnapshots.snapshotDate })
+      .from(fulfillmentSnapshots)
+      .orderBy(desc(fulfillmentSnapshots.snapshotDate))
+      .limit(120);
+    return rows.map(row => row.snapshotDate);
+  }),
+
+  /** 指定日の充足状況。保存が無ければ null を返す（今の状態で代用しない）。 */
+  fulfillmentSnapshot: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const [row] = await db
+        .select()
+        .from(fulfillmentSnapshots)
+        .where(eq(fulfillmentSnapshots.snapshotDate, input.date))
+        .limit(1);
+      if (!row) return null;
+      try {
+        return {
+          date: row.snapshotDate,
+          capturedBy: row.capturedBy,
+          savedAt: row.updatedAt?.toISOString() ?? null,
+          rollups: JSON.parse(row.rollupsJson) as unknown[],
+        };
+      } catch {
+        return null;
+      }
     }),
 
   snapshot: protectedProcedure.query(async () => {

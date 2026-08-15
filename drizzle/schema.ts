@@ -656,6 +656,23 @@ export type LocalPurchase = typeof localPurchases.$inferSelect;
 export type InsertLocalPurchase = typeof localPurchases.$inferInsert;
 
 /**
+ * 充足状況の日次スナップショット。
+ * 充足状況は現在の在庫・出庫から毎回計算しているため、過去のある日を後から再現できない。
+ * 1日1行だけ残し、あとから日付を選んで刷れるようにする。
+ */
+export const fulfillmentSnapshots = mysqlTable("fulfillment_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Asia/Tokyo の YYYY-MM-DD */
+  snapshotDate: varchar("snapshotDate", { length: 10 }).notNull().unique(),
+  rollupsJson: text("rollupsJson").notNull(),
+  capturedBy: varchar("capturedBy", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type FulfillmentSnapshot = typeof fulfillmentSnapshots.$inferSelect;
+export type InsertFulfillmentSnapshot = typeof fulfillmentSnapshots.$inferInsert;
+
+/**
  * Outbound boxes keep a scannable identity before a FedEx tracking number exists.
  */
 export const outboundBoxes = mysqlTable("outbound_boxes", {

@@ -10,7 +10,25 @@ import type { InboundInvoiceRollup } from "../lib/inboundDesk";
  * - 読めればよいのは内訳・数量。机の上で数を突き合わせるための紙
  */
 
-export type PrintPackMode = "summary" | "full";
+export type PrintPackMode = "summary" | "full" | "daily";
+
+export type DailyActivityEntry = {
+  id: number;
+  kind: "receipt" | "inspection";
+  labelId: string;
+  title: string;
+  legacyManagementNo: string;
+  worker: string;
+  outcome: string | null;
+  requestReplacement: boolean | null;
+  at: string | null;
+};
+
+export type DailyActivity = {
+  date: string;
+  receipts: DailyActivityEntry[];
+  inspections: DailyActivityEntry[];
+};
 
 const CARDS_PER_PAGE = 4;
 
@@ -183,23 +201,108 @@ function InvoiceCard({ rollup }: { rollup: InboundInvoiceRollup }) {
   );
 }
 
+function formatClock(value: string | null): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function ActivityCard({
+  heading,
+  entries,
+  showOutcome,
+}: {
+  heading: string;
+  entries: DailyActivityEntry[];
+  showOutcome: boolean;
+}) {
+  return (
+    <div className="docpack-card">
+      <div className="docpack-card-head">
+        {heading}
+        <span className="docpack-card-sub">　{entries.length}件</span>
+      </div>
+      {entries.length === 0 ? (
+        <div className="docpack-card-sub">この日の記録はありません</div>
+      ) : (
+        <table className="docpack-table">
+          <thead>
+            <tr>
+              <th className="docpack-num">時刻</th>
+              <th>商品ID</th>
+              <th>品名</th>
+              {showOutcome ? <th>判定</th> : null}
+              <th>担当</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={entry.id}>
+                <td className="docpack-num">{formatClock(entry.at)}</td>
+                <td>{entry.labelId}</td>
+                <td className="docpack-name">{entry.title}</td>
+                {showOutcome ? (
+                  <td>
+                    {entry.outcome ?? ""}
+                    {entry.requestReplacement ? "／代替品依頼" : ""}
+                  </td>
+                ) : null}
+                <td>{entry.worker}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function InvoicePrintPack({
   rollups,
   mode,
   printedAt,
+  activity,
 }: {
   rollups: InboundInvoiceRollup[];
   mode: PrintPackMode | null;
   printedAt: string;
+  activity?: DailyActivity | null;
 }) {
-  if (!mode || rollups.length === 0) return null;
+  if (!mode) return null;
+  if (mode === "daily" && !activity) return null;
+  if (mode !== "daily" && rollups.length === 0) return null;
 
-  const cards: React.ReactNode[] = [
-    <SummaryCard key="summary" rollups={rollups} printedAt={printedAt} />,
-  ];
-  if (mode === "full") {
-    for (const rollup of rollups) {
-      cards.push(<InvoiceCard key={`invoice-${rollup.key}`} rollup={rollup} />);
+  const cards: React.ReactNode[] = [];
+
+  if (mode === "daily" && activity) {
+    // 1枚に収まらないぶんは続きのカードへ送る。1カードあたり28行を目安にする。
+    const ROWS_PER_CARD = 28;
+    const push = (heading: string, entries: DailyActivityEntry[], showOutcome: boolean) => {
+      const pages = entries.length === 0 ? [[]] : chunk(entries, ROWS_PER_CARD);
+      pages.forEach((pageEntries, index) => {
+        cards.push(
+          <ActivityCard
+            key={`${heading}-${index}`}
+            heading={pages.length > 1 ? `${heading}（${index + 1}/${pages.length}）` : heading}
+            entries={pageEntries}
+            showOutcome={showOutcome}
+          />
+        );
+      });
+    };
+    push(`${activity.date} 荷受け`, activity.receipts, false);
+    push(`${activity.date} 動作確認`, activity.inspections, true);
+  } else {
+    cards.push(<SummaryCard key="summary" rollups={rollups} printedAt={printedAt} />);
+    if (mode === "full") {
+      for (const rollup of rollups) {
+        cards.push(<InvoiceCard key={`invoice-${rollup.key}`} rollup={rollup} />);
+      }
     }
   }
 
