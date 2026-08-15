@@ -1289,6 +1289,36 @@ function localPurchaseLabelViews(
   );
 }
 
+async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
+  let changed = false;
+
+  for (const row of rows) {
+    for (const item of localPurchaseItems(row)) {
+      const desiredQuantity = Math.max(1, Math.floor(Number(item.quantity ?? row.quantity ?? 1)) || 1);
+      const labels = labelsForPurchaseItem(row, item);
+      if (labels.length <= desiredQuantity) continue;
+
+      const rawInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
+      const localInventoryId = Number.isFinite(rawInventoryId) && rawInventoryId > 0 ? rawInventoryId : null;
+      const managementNo = getPurchaseItemManagementNo(row, item) || row.managementNo || null;
+      const title = String(item.title ?? row.title ?? "").trim();
+
+      await ensureInventoryItemLabels({
+        purchaseId: row.id,
+        localInventoryId,
+        legacyManagementNo: managementNo,
+        title: title || row.title || managementNo || "商品",
+        quantity: desiredQuantity,
+        status: row.status === "purchased" ? "received" : "ordered",
+        sourceKey: managementNo ? `management:${managementNo}` : null,
+      });
+      changed = true;
+    }
+  }
+
+  return changed ? getLocalPurchases() : rows;
+}
+
 function isLocalPurchaseReceivedFromLabels(
   row: LocalPurchaseRow,
   inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
@@ -2258,7 +2288,8 @@ export const inventoryRouter = router({
      * 入庫予定一覧取得（ordered / not_ordered）
      */
     getPurchases: publicProcedure.query(async () => {
-      const localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
+      let localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
+      localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
       return localPurchaseRows.map((p) => {
         const displayStatus = getLocalPurchaseDisplayStatus(p);
         const items = (() => {
@@ -2574,6 +2605,7 @@ export const inventoryRouter = router({
           ]);
           localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
           localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
+          localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
           // T22: 分類を解決（auto行は自動判定＋バックフィル、manual行は保存値尊重）
           const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
           const invIds = localPurchaseRows
@@ -2742,6 +2774,7 @@ export const inventoryRouter = router({
         ]);
         localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
         localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
+        localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows
