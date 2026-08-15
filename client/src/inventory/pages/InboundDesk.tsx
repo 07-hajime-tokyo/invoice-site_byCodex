@@ -1575,13 +1575,18 @@ export default function InboundDesk() {
   const packRollupsAll = isToday
     ? rollups
     : ((savedSnapshotQuery.data?.rollups ?? []) as InboundInvoiceRollup[]);
-  // 紙に出すのは進行中の取引だけにする。399以下は完了扱いというのがこのアプリの既定
-  // （shared/tradeStatus.ts と同じ基準）。終わった取引まで刷ると紙が読みにくくなる。
+  // 紙に出すのは進行中の取引だけにする。終わった取引まで刷ると紙が読みにくくなる。
+  // 1) 399以下は完了扱い（shared/tradeStatus.ts と同じ基準）
+  // 2) 400以降でも、受注数まで出庫し終えたものは完了扱いにする（2026-08-16 村上さん指示）
   const packRollups = useMemo(
     () =>
       packRollupsAll.filter(rollup => {
         const invoiceNo = Number(rollup.key);
-        return Number.isFinite(invoiceNo) && invoiceNo > 399;
+        if (!Number.isFinite(invoiceNo) || invoiceNo <= 399) return false;
+        const ordered = Number(rollup.csvOrderQty) || 0;
+        const delivered = Number(rollup.deliveredCount) || 0;
+        if (ordered > 0 && delivered >= ordered) return false;
+        return true;
       }),
     [packRollupsAll]
   );
@@ -1704,7 +1709,8 @@ export default function InboundDesk() {
             </div>
             {hiddenCompletedCount > 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                紙に出すのは No.400 以降だけです（完了済み {hiddenCompletedCount} 件は載せません）。
+                紙に出すのは進行中の取引だけです（完了済み {hiddenCompletedCount} 件は載せません。
+                No.399以下と、受注数まで出庫し終えたもの）。
               </p>
             ) : null}
             {!isToday && !canPrintFulfillment ? (
