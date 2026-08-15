@@ -1913,10 +1913,10 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
       }
       current.matchTexts = unique([...(current.matchTexts ?? []), ...purchaseItemMatchTexts(item)]);
       current.required += quantity;
-      if (isReceived(row)) {
-        current.secured += Math.min(quantity, itemStockQuantity(item));
-      } else {
-        current.waiting += quantity;
+      const securedQuantity = Math.min(quantity, itemStockQuantity(item));
+      current.secured += securedQuantity;
+      if (!isReceived(row)) {
+        current.waiting += Math.max(0, quantity - securedQuantity);
       }
       const unitPrice = toNumber(item.unit_price);
       if (unitPrice > 0) {
@@ -1926,6 +1926,55 @@ function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
       map.set(key, current);
     }
   }
+  return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title, "ja"));
+}
+
+function buildInvoiceStockProductSummaries(
+  stockItems: StockItemView[],
+  invoiceNo: string | null,
+  excludedInventoryIds: Set<number>,
+): ProductSummary[] {
+  if (!invoiceNo) return [];
+  const map = new Map<string, ProductSummary>();
+
+  for (const item of stockItems) {
+    if (excludedInventoryIds.has(item.inventoryId)) continue;
+    const parsed = parseInvoiceFromManagementNo(item.legacyManagementNo);
+    if (parsed?.invoiceNo !== invoiceNo) continue;
+
+    const title = item.title;
+    const key = productKey(title);
+    const current = map.get(key) ?? {
+      key,
+      title,
+      managementNos: [],
+      matchTexts: [],
+      required: 0,
+      secured: 0,
+      waiting: 0,
+      unitPriceTotal: 0,
+      unitPriceCount: 0,
+    };
+    const quantity = Math.max(0, Math.floor(Number(item.quantity)) || 0);
+    if (quantity <= 0) continue;
+
+    current.secured += quantity;
+    current.managementNos = unique([...(current.managementNos ?? []), item.legacyManagementNo]);
+    current.matchTexts = unique([
+      ...(current.matchTexts ?? []),
+      item.title,
+      item.category,
+      item.legacyManagementNo,
+      item.allocationLabel,
+      item.supplier.name,
+    ]);
+    if (item.unitPrice > 0) {
+      current.unitPriceTotal += item.unitPrice * quantity;
+      current.unitPriceCount += quantity;
+    }
+    map.set(key, current);
+  }
+
   return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title, "ja"));
 }
 
@@ -5960,6 +6009,13 @@ export default function PurchaseRegistration() {
   const selectedReturnGroup = labelPrintGroups.find((group) => group.key === selectedGroupKey) ?? labelPrintGroups[0] ?? null;
   const selectedRows = getAllRowsFromGroup(selectedGroup, filteredRows);
   const selectedInvoiceNo = invoiceNoFromGroupKey(selectedGroup?.key);
+  const selectedRowInventoryIds = useMemo(() => new Set(
+    selectedRows.flatMap((row) =>
+      row.purchase_items
+        .map((item) => Number(item.inventory_id))
+        .filter((inventoryId) => Number.isFinite(inventoryId) && inventoryId > 0),
+    ),
+  ), [selectedRows]);
   const { data: selectedInvoiceProducts } = trpc.inventory.orderManagement.getInvoiceProducts.useQuery(
     { invoiceNo: selectedInvoiceNo ?? "0" },
     {
@@ -5982,7 +6038,14 @@ export default function PurchaseRegistration() {
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
-  const selectedBaseProducts = selectedGroup?.products ?? buildProductSummaries(selectedRows);
+  const selectedInvoiceStockProducts = useMemo(
+    () => buildInvoiceStockProductSummaries(allStockItems, selectedInvoiceNo, selectedRowInventoryIds),
+    [allStockItems, selectedInvoiceNo, selectedRowInventoryIds],
+  );
+  const selectedBaseProducts = useMemo(
+    () => [...(selectedGroup?.products ?? buildProductSummaries(selectedRows)), ...selectedInvoiceStockProducts],
+    [selectedGroup?.products, selectedInvoiceStockProducts, selectedRows],
+  );
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
