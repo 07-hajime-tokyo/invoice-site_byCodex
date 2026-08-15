@@ -1157,6 +1157,168 @@ function inventoryInitialLabelStatus(quantity: unknown): "ordered" | "stocked" {
   return inventoryStockQuantity(quantity) > 0 ? "stocked" : "ordered";
 }
 
+const EBAY_7696_SECOND_MANAGEMENT_NO = "ebay_7696_2";
+const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:restored:v2";
+
+const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
+const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
+const MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID = "QDYEZHT";
+
+type InventoryRestoreField =
+  | "title"
+  | "quantity"
+  | "unit"
+  | "category"
+  | "place"
+  | "etc"
+  | "unitPrice"
+  | "supplierName"
+  | "supplierUrl"
+  | "ebayListingUrl"
+  | "ebayOrderUrl"
+  | "ebayOrderStatus";
+
+const INVENTORY_RESTORE_FIELD_LABELS: Record<string, InventoryRestoreField> = {
+  商品名: "title",
+  在庫数: "quantity",
+  単位: "unit",
+  カテゴリ: "category",
+  保管場所: "place",
+  "管理番号・備考": "etc",
+  仕入単価: "unitPrice",
+  仕入先: "supplierName",
+  仕入先URL: "supplierUrl",
+  eBay出品URL: "ebayListingUrl",
+  eBay注文URL: "ebayOrderUrl",
+  eBay状態: "ebayOrderStatus",
+};
+
+function parseInventoryRestoreMemo(memo: string | null | undefined): Partial<Record<InventoryRestoreField, string | null>> {
+  const restored: Partial<Record<InventoryRestoreField, string | null>> = {};
+  for (const part of String(memo ?? "").split(" / ")) {
+    const separatorIndex = part.indexOf(": ");
+    if (separatorIndex < 0) continue;
+    const field = INVENTORY_RESTORE_FIELD_LABELS[part.slice(0, separatorIndex).trim()];
+    if (!field) continue;
+
+    const valuePart = part.slice(separatorIndex + 2);
+    const arrowIndex = valuePart.indexOf(" → ");
+    if (arrowIndex < 0) continue;
+    const before = valuePart.slice(0, arrowIndex).trim();
+    restored[field] = before === "（空）" ? null : before;
+  }
+  return restored;
+}
+
+async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
+  const alreadyRestored = await getSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY);
+  if (alreadyRestored === "1") return;
+
+  const target = (await getLocalInventories()).find(
+    (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
+  );
+  if (!target) return;
+
+  const inventoryIdForMemos = target.zaicoId ?? target.id;
+  const latestUpdateMemo = (await getInventoryMemos(inventoryIdForMemos, 20)).find(
+    (memo) => String(memo.changeType ?? "").trim() === "updated" && String(memo.memo ?? "").includes(" → "),
+  );
+  if (!latestUpdateMemo) return;
+
+  const restored = parseInventoryRestoreMemo(latestUpdateMemo.memo);
+  const restoredEtc = restored.etc ?? target.etc;
+  if (getInventoryManagementNo(restoredEtc) !== EBAY_7696_SECOND_MANAGEMENT_NO) return;
+
+  const nextValues = {
+    title: restored.title ?? target.title,
+    quantity: restored.quantity == null ? target.quantity : Math.max(0, Math.round(Number(restored.quantity) || 0)),
+    unit: restored.unit ?? target.unit,
+    category: restored.category ?? target.category,
+    place: restored.place ?? target.place,
+    etc: restoredEtc,
+    unitPrice: restored.unitPrice ?? target.unitPrice,
+    supplierName: restored.supplierName ?? target.supplierName,
+    supplierUrl: restored.supplierUrl ?? target.supplierUrl,
+    ebayListingUrl: restored.ebayListingUrl ?? target.ebayListingUrl,
+    ebayOrderUrl: restored.ebayOrderUrl ?? target.ebayOrderUrl,
+    ebayOrderStatus: normalizeEbayOrderStatus(restored.ebayOrderStatus ?? target.ebayOrderStatus),
+  };
+
+  await updateLocalInventory(target.id, nextValues);
+  await ensureInventoryItemLabelsForInventory({
+    localInventoryId: target.id,
+    legacyManagementNo: getInventoryManagementNo(nextValues.etc),
+    title: nextValues.title,
+    quantity: inventoryLabelQuantity(nextValues.quantity),
+    status: inventoryInitialLabelStatus(nextValues.quantity),
+    sourceKey: `inventory:${target.id}`,
+  });
+  await recordInventoryChange({
+    inventoryId: inventoryIdForMemos,
+    title: nextValues.title,
+    changeType: "updated",
+    source: "ui",
+    note: "ebay_7696_2 を上書き前の変更履歴から復元",
+    quantityBefore: target.quantity,
+    quantityAfter: nextValues.quantity,
+  });
+  await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+}
+
+async function repairMaxim404PartialCancelLabel(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+  const { inArray } = await import("drizzle-orm");
+  const targetLabels = await db
+    .select()
+    .from(labelTbl)
+    .where(inArray(labelTbl.labelId, [MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID, MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID]));
+  const keepLabel = targetLabels.find((label) =>
+    String(label.labelId ?? "").trim().toUpperCase() === MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID
+  );
+  const removeLabel = targetLabels.find((label) =>
+    String(label.labelId ?? "").trim().toUpperCase() === MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID
+  );
+
+  if (removeLabel && !keepLabel) {
+    await db
+      .update(labelTbl)
+      .set({
+        labelId: MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID,
+        legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO,
+        title: removeLabel.title || "3DS LL ホワイト",
+      })
+      .where(eq(labelTbl.id, removeLabel.id));
+    return;
+  }
+
+  if (removeLabel && keepLabel) {
+    await db
+      .update(labelTbl)
+      .set({
+        purchaseId: removeLabel.purchaseId ?? keepLabel.purchaseId,
+        localInventoryId: removeLabel.localInventoryId ?? keepLabel.localInventoryId,
+        legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO,
+        title: removeLabel.title || keepLabel.title || "3DS LL ホワイト",
+        status: removeLabel.status ?? keepLabel.status,
+        receivedAt: removeLabel.receivedAt ?? keepLabel.receivedAt,
+        shippedAt: removeLabel.shippedAt ?? keepLabel.shippedAt,
+      })
+      .where(eq(labelTbl.id, keepLabel.id));
+    await db.delete(labelTbl).where(eq(labelTbl.id, removeLabel.id));
+    return;
+  }
+
+  if (keepLabel && String(keepLabel.legacyManagementNo ?? "").trim() !== MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO) {
+    await db
+      .update(labelTbl)
+      .set({ legacyManagementNo: MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO })
+      .where(eq(labelTbl.id, keepLabel.id));
+  }
+}
+
 function isStockLabelView(label: InventoryItemLabelView): boolean {
   const status = String(label.status ?? "").trim().toLowerCase();
   return !status || status === "stocked" || status === "received";
@@ -1179,6 +1341,8 @@ async function ensureStockLabelsForInventories<T extends {
   etc?: string | null;
 }>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
   if (inventories.length === 0) return [];
+  await repairEbay7696SecondInventoryOverwrite();
+  await repairMaxim404PartialCancelLabel();
   const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
   return Promise.all(inventories.map(async (inventory) => {
     const inventoryId = Number(inventory.id);
@@ -1298,6 +1462,37 @@ function localPurchaseLabelViews(
   return uniqueInventoryItemLabelViews(
     localPurchaseItems(row).flatMap((item) => labelsForPurchaseItem(row, item, inventoryLabelMap)),
   );
+}
+
+async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
+  await repairMaxim404PartialCancelLabel();
+  let changed = false;
+
+  for (const row of rows) {
+    for (const item of localPurchaseItems(row)) {
+      const desiredQuantity = Math.max(1, Math.floor(Number(item.quantity ?? row.quantity ?? 1)) || 1);
+      const labels = labelsForPurchaseItem(row, item);
+      if (labels.length <= desiredQuantity) continue;
+
+      const rawInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
+      const localInventoryId = Number.isFinite(rawInventoryId) && rawInventoryId > 0 ? rawInventoryId : null;
+      const managementNo = getPurchaseItemManagementNo(row, item) || row.managementNo || null;
+      const title = String(item.title ?? row.title ?? "").trim();
+
+      await ensureInventoryItemLabels({
+        purchaseId: row.id,
+        localInventoryId,
+        legacyManagementNo: managementNo,
+        title: title || row.title || managementNo || "商品",
+        quantity: desiredQuantity,
+        status: row.status === "purchased" ? "received" : "ordered",
+        sourceKey: managementNo ? `management:${managementNo}` : null,
+      });
+      changed = true;
+    }
+  }
+
+  return changed ? getLocalPurchases() : rows;
 }
 
 function isLocalPurchaseReceivedFromLabels(
@@ -2270,7 +2465,8 @@ export const inventoryRouter = router({
      * 入庫予定一覧取得（ordered / not_ordered）
      */
     getPurchases: publicProcedure.query(async () => {
-      const localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
+      let localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(await getLocalPurchases());
+      localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
       return localPurchaseRows.map((p) => {
         const displayStatus = getLocalPurchaseDisplayStatus(p);
         const items = (() => {
@@ -2444,6 +2640,7 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
+        await repairEbay7696SecondInventoryOverwrite();
         const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
@@ -2586,6 +2783,7 @@ export const inventoryRouter = router({
           ]);
           localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
           localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
+          localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
           // T22: 分類を解決（auto行は自動判定＋バックフィル、manual行は保存値尊重）
           const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
           const invIds = localPurchaseRows
@@ -2754,6 +2952,7 @@ export const inventoryRouter = router({
         ]);
         localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
         localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
+        localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows

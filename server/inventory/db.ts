@@ -1033,6 +1033,63 @@ function normalizeLabelQuantity(quantity: number): number {
   return Math.max(0, Math.floor(quantity));
 }
 
+function labelTimestampMs(value: unknown): number {
+  const ms = value ? new Date(value as string | number | Date).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function labelKeepPriority(label: InventoryItemLabel): number {
+  const labelId = String(label.labelId ?? "").trim().toUpperCase();
+  const legacyManagementNo = String(label.legacyManagementNo ?? "").trim();
+  if (legacyManagementNo === "404_マキシム_3DSLL_2/5") {
+    if (labelId === "SEGCUWZ") return -10;
+    if (labelId === "QDYEZHT") return 10;
+  }
+  const status = String(label.status ?? "").trim().toLowerCase();
+  if (status === "shipped" || status === "returned") return 0;
+  if (status === "received" || status === "stocked") return 1;
+  if (status === "ordered" || !status) return 2;
+  if (status === "cancelled") return 3;
+  return 2;
+}
+
+function mustKeepPurchaseLabel(label: InventoryItemLabel): boolean {
+  const status = String(label.status ?? "").trim().toLowerCase();
+  return status === "shipped" || status === "returned";
+}
+
+async function trimPurchaseLabelsToQuantity(
+  db: AppDatabase,
+  labels: InventoryItemLabel[],
+  desiredQuantity: number,
+): Promise<InventoryItemLabel[]> {
+  if (labels.length <= desiredQuantity) return labels;
+  const protectedCount = labels.filter(mustKeepPurchaseLabel).length;
+  const keepCount = Math.max(desiredQuantity, protectedCount);
+  if (labels.length <= keepCount) return labels;
+
+  const keepIds = new Set(
+    [...labels]
+      .sort((a, b) => (
+        labelKeepPriority(a) - labelKeepPriority(b) ||
+        labelTimestampMs(a.receivedAt ?? a.createdAt) - labelTimestampMs(b.receivedAt ?? b.createdAt) ||
+        Number(a.id ?? 0) - Number(b.id ?? 0)
+      ))
+      .slice(0, keepCount)
+      .map((label) => label.id),
+  );
+  const deleteIds = labels
+    .filter((label) => !keepIds.has(label.id))
+    .map((label) => Number(label.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (deleteIds.length > 0) {
+    await db.delete(inventoryItemLabels).where(inArray(inventoryItemLabels.id, deleteIds));
+  }
+
+  return labels.filter((label) => keepIds.has(label.id));
+}
+
 function groupLabelsByNumber<T extends InventoryItemLabel>(
   labels: T[],
   key: "purchaseId" | "localInventoryId",
@@ -1261,6 +1318,10 @@ export async function ensureInventoryItemLabels(input: {
       .from(inventoryItemLabels)
       .where(eq(inventoryItemLabels.legacyManagementNo, legacyManagementNo))
       .orderBy(desc(inventoryItemLabels.createdAt));
+  }
+
+  if (existingByPurchase.length > 0) {
+    existing = await trimPurchaseLabelsToQuantity(db, existing, desiredQuantity);
   }
 
   for (const label of existing) {
