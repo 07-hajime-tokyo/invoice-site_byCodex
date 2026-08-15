@@ -6222,7 +6222,8 @@ export default function PurchaseRegistration() {
     () => [...(selectedGroup?.products ?? buildProductSummaries(selectedRows)), ...selectedInvoiceStockProducts],
     [selectedGroup?.products, selectedInvoiceStockProducts, selectedRows],
   );
-  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
+  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? [])
+    .filter((product) => !selectedInvoiceNo || product.invoiceOrdered != null);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
   const selectedDetailStockItems = useMemo(
