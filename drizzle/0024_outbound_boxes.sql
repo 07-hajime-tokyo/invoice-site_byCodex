@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS `outbound_boxes` (
   INDEX `idx_outbound_boxes_discarded` (`discardedAt`)
 );
 
+-- TiDBは同一ALTER内での「列追加＋その列へのインデックス追加」を受け付けないため2文に分ける
 ALTER TABLE `inventory_item_labels`
-  ADD COLUMN `outboundBoxId` int NULL AFTER `sourceKey`,
+  ADD COLUMN `outboundBoxId` int NULL AFTER `sourceKey`;
+
+ALTER TABLE `inventory_item_labels`
   ADD INDEX `idx_inventory_item_labels_outbound_box` (`outboundBoxId`);
