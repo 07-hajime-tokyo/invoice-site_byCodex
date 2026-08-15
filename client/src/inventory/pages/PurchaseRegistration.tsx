@@ -5152,6 +5152,18 @@ export function OutboundBoxIssuer({
   const [boxCount, setBoxCount] = useState(1);
   const [printLabels, setPrintLabels] = useState<LabelView[]>([]);
   const [printJobId, setPrintJobId] = useState(0);
+  // 発番は成功したのに印刷が失敗する（プリンタ未接続など）ことがある。
+  // 番号は戻らないので、発番済みで中身が空の箱を刷り直せるようにしておく。
+  const boxListQuery = trpc.inventory.outboundBoxes.list.useQuery(undefined, {
+    staleTime: 10_000,
+  });
+  const unusedBoxes = useMemo(
+    () =>
+      ((boxListQuery.data ?? []) as OutboundBoxView[]).filter(
+        box => box.status === "open" && box.items.length === 0
+      ),
+    [boxListQuery.data]
+  );
   const createBoxes = trpc.inventory.outboundBoxes.create.useMutation({
     onSuccess: created => {
       void utils.inventory.outboundBoxes.list.invalidate();
@@ -5192,6 +5204,26 @@ export function OutboundBoxIssuer({
         {createBoxes.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
         箱を作る・{boxCount}枚印刷
       </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-11 gap-2"
+        disabled={unusedBoxes.length === 0}
+        title="発番済みで中身が空の箱を刷り直します。新しい番号は増えません"
+        onClick={() => {
+          setPrintLabels(unusedBoxes.map(box => outboundBoxPrintLabel(box.boxCode)));
+          setPrintJobId(value => value + 1);
+        }}
+      >
+        <Printer className="h-4 w-4" />
+        発番済みの空箱 {unusedBoxes.length}枚を刷り直す
+      </Button>
+      {unusedBoxes.length > 0 ? (
+        <span className="w-full text-xs text-muted-foreground">
+          刷り直せる箱: {unusedBoxes.map(box => box.boxCode).join("・")}
+          （印刷が失敗しても番号は戻りません。新しく作らず、ここから刷り直してください）
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -5204,6 +5236,9 @@ function OutboundBoxPanel() {
   });
   const boxes = (data ?? []) as OutboundBoxView[];
   const [currentBoxCode, setCurrentBoxCode] = useState("");
+  // 発番済みの箱シールの刷り直し用（印刷が失敗しても番号は戻らないため）
+  const [boxPrintLabels, setBoxPrintLabels] = useState<LabelView[]>([]);
+  const [boxPrintJobId, setBoxPrintJobId] = useState(0);
   const [scanValue, setScanValue] = useState("");
   const [linkBoxCode, setLinkBoxCode] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -5321,8 +5356,17 @@ function OutboundBoxPanel() {
   const qrScanner = useQrCameraScanner(handleScan);
 
   const busy = openBox.isPending || addItem.isPending || sealBox.isPending || linkTracking.isPending || unlinkTracking.isPending || unsealBox.isPending;
+
+  useEffect(() => {
+    if (boxPrintJobId === 0 || boxPrintLabels.length === 0) return;
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => window.clearTimeout(timer);
+  }, [boxPrintJobId, boxPrintLabels]);
+
   return (
     <section className="rounded-md border-2 border-indigo-300 bg-indigo-50/40 p-3 sm:p-4">
+      <LabelPrintStyles />
+      <PrintableLabelSheet labels={boxPrintLabels} />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -5417,7 +5461,7 @@ function OutboundBoxPanel() {
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border bg-white p-3">
           <h3 className="font-semibold">開いたままの箱</h3>
-          {isLoading ? <p className="mt-2 text-sm text-muted-foreground">読み込み中…</p> : openBoxes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ありません</p> : <div className="mt-2 space-y-2">{openBoxes.map((box) => <div key={box.id} className="flex items-center justify-between gap-2 rounded border p-2"><Button type="button" variant="ghost" className="font-mono" onClick={() => setCurrentBoxCode(box.boxCode)}>{box.boxCode}（{box.items.length}点）</Button>{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => { if (window.confirm(`${box.boxCode}を破棄しますか？`)) discardBox.mutate({ boxCode: box.boxCode }); }}><Trash2 className="mr-1 h-4 w-4" />破棄</Button> : null}</div>)}</div>}
+          {isLoading ? <p className="mt-2 text-sm text-muted-foreground">読み込み中…</p> : openBoxes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ありません</p> : <div className="mt-2 space-y-2">{openBoxes.map((box) => <div key={box.id} className="flex items-center justify-between gap-2 rounded border p-2"><Button type="button" variant="ghost" className="font-mono" onClick={() => setCurrentBoxCode(box.boxCode)}>{box.boxCode}（{box.items.length}点）</Button><div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" title="この箱のシールを刷り直します。新しい番号は増えません" onClick={() => { setBoxPrintLabels([outboundBoxPrintLabel(box.boxCode)]); setBoxPrintJobId((value) => value + 1); }}><Printer className="mr-1 h-4 w-4" />刷り直す</Button>{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => { if (window.confirm(`${box.boxCode}を破棄しますか？`)) discardBox.mutate({ boxCode: box.boxCode }); }}><Trash2 className="mr-1 h-4 w-4" />破棄</Button> : null}</div></div>)}</div>}
         </div>
         <div className="rounded-md border bg-white p-3">
           <h3 className="font-semibold">個体IDから発送を追跡</h3>
