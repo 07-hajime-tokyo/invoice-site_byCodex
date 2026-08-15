@@ -663,7 +663,10 @@ function displayProductTitle(item: PurchaseItem): string {
   const managementNo = parseEtc(item.etc).managementNo;
   const text = `${managementNo} ${title}`;
 
-  if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) return "New 3DS LL どうぶつの森";
+  if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) {
+    if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL どうぶつの森";
+    return "3DS LL どうぶつの森";
+  }
   if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) return "New 2DS LL ランダムカラー";
   if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL ランダムカラー";
   if (hasAnyProductText(text, ["new 3ds", "new3ds"])) return "New 3DS ランダムカラー";
@@ -711,11 +714,36 @@ function actualProductTitle(item: PurchaseItem): string {
 
 type CsvProductCandidate = { name: string; qty: number };
 
+function suggestAnimalCrossingInvoiceProduct(
+  title: string,
+  managementNo: string,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const text = `${title} ${managementNo}`;
+  if (!hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) return null;
+
+  const animalCrossingCandidates = candidates.filter((candidate) =>
+    hasAnyProductText(candidate.name, ["どうぶつの森", "animal crossing"]),
+  );
+  if (animalCrossingCandidates.length === 0) return null;
+
+  const model = extractPreferredModel(title, managementNo);
+  if (model) {
+    const sameModelCandidates = animalCrossingCandidates.filter((candidate) => extractModel(candidate.name) === model);
+    if (sameModelCandidates.length === 1) return sameModelCandidates[0].name;
+  }
+
+  return animalCrossingCandidates.length === 1 ? animalCrossingCandidates[0].name : null;
+}
+
 function suggestInvoiceProductName(
   title: string,
   managementNo: string,
   candidates: CsvProductCandidate[],
 ): string | null {
+  const animalCrossingSuggestion = suggestAnimalCrossingInvoiceProduct(title, managementNo, candidates);
+  if (animalCrossingSuggestion) return animalCrossingSuggestion;
+
   const suggestion = suggestCsvProduct(title, managementNo, candidates);
   if (suggestion) return suggestion.name;
 
@@ -773,6 +801,26 @@ function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targe
   );
 }
 
+function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetTitle?: string): boolean {
+  if (productKey(item.title) === targetKey) return true;
+  if (!targetTitle) return false;
+
+  const managementHints = extractManagementHints(item.legacyManagementNo, item.allocationLabel);
+  const matchText = unique([
+    item.title,
+    item.category,
+    item.legacyManagementNo,
+    item.allocationLabel,
+    item.supplier.name,
+    ...managementHints,
+  ]).join(" ");
+
+  return (
+    suggestInvoiceProductNameFromHints(item.title, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
+    suggestInvoiceProductName(matchText, managementHints.join(" "), [{ name: targetTitle, qty: 1 }]) === targetTitle
+  );
+}
+
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
   if (!filter) return rows;
   return rows.flatMap((row) => {
@@ -786,6 +834,12 @@ function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFil
     });
     return purchaseItems.length > 0 ? [{ ...row, purchase_items: purchaseItems }] : [];
   });
+}
+
+function filterStockItemsByProductDetail(items: StockItemView[], filter: ProductDetailFilter | null): StockItemView[] {
+  if (!filter || filter.mode !== "stock") return [];
+  if (!filter.productKey) return items;
+  return items.filter((item) => stockItemMatchesProduct(item, filter.productKey ?? "", filter.productTitle));
 }
 
 function productDetailFilterLabel(filter: ProductDetailFilter): string {
@@ -1978,6 +2032,18 @@ function buildInvoiceStockProductSummaries(
   return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title, "ja"));
 }
 
+function filterInvoiceStockItems(
+  stockItems: StockItemView[],
+  invoiceNo: string | null,
+  excludedInventoryIds: Set<number>,
+): StockItemView[] {
+  if (!invoiceNo) return [];
+  return stockItems.filter((item) => {
+    if (excludedInventoryIds.has(item.inventoryId)) return false;
+    return parseInvoiceFromManagementNo(item.legacyManagementNo)?.invoiceNo === invoiceNo;
+  });
+}
+
 function invoiceNoFromGroupKey(key?: string | null): string | null {
   const match = key?.match(/^invoice-(\d+)$/);
   return match?.[1] ?? null;
@@ -2649,6 +2715,89 @@ function PurchaseRegistrationCard({
   );
 }
 
+function StockDetailCard({
+  item,
+  onOpenEdit,
+}: {
+  item: StockItemView;
+  onOpenEdit: (inventoryId: number) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-emerald-100 bg-emerald-50/30 shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-emerald-100 p-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {item.labelId ? (
+              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-lg font-semibold tracking-wide text-emerald-800">
+                {item.labelId}
+              </span>
+            ) : (
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-600">
+                商品ID未発行
+              </span>
+            )}
+            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">現在庫</Badge>
+            {item.quantity > 1 ? <Badge variant="outline">{item.quantity.toLocaleString()}点</Badge> : null}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>旧管理番号: {item.legacyManagementNo || "-"}</span>
+            <span>引当先: {item.allocationLabel || "-"}</span>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit"
+          onClick={() => onOpenEdit(item.inventoryId)}
+        >
+          <Pencil className="h-4 w-4" />
+          編集
+        </Button>
+      </div>
+
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="min-w-0 xl:col-span-2">
+          <div className="text-xs text-muted-foreground">商品名</div>
+          <div className="mt-1 truncate text-sm font-medium">{item.title || "-"}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">在庫数</div>
+          <div className="mt-1 text-sm font-semibold">{item.quantity.toLocaleString()}個</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">仕入単価</div>
+          <div className="mt-1 text-sm font-semibold">{formatCurrency(item.unitPrice)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">入庫日</div>
+          <div className="mt-1 flex items-center gap-1 text-sm font-medium">
+            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+            {formatDate(item.purchaseDate)}
+          </div>
+        </div>
+        <div className="min-w-0 md:col-span-2 xl:col-span-5">
+          <div className="text-xs text-muted-foreground">仕入先</div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm">
+            <span className="truncate font-medium">{item.supplier.name}</span>
+            {item.supplier.url ? (
+              <a
+                href={item.supplier.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+              >
+                開く
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="min-w-0 rounded-md border bg-background p-3 md:p-4">
@@ -2986,11 +3135,13 @@ function OrderDashboard({
   rows,
   products: productsOverride,
   detailRows,
+  stockDetailItems = [],
   productFilter,
   onProductFilter,
   onClearProductFilter,
   onPrintLabels,
   onOpenEdit,
+  onOpenStockEdit,
   onOpenTrackingDialog,
   onOpenShippingHistory,
   onDeleteRow,
@@ -3000,11 +3151,13 @@ function OrderDashboard({
   rows: PurchaseRow[];
   products?: ProductSummary[];
   detailRows?: PurchaseRow[];
+  stockDetailItems?: StockItemView[];
   productFilter?: ProductDetailFilter | null;
   onProductFilter?: (filter: ProductDetailFilter) => void;
   onClearProductFilter?: () => void;
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
+  onOpenStockEdit: (inventoryId: number) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
@@ -3058,6 +3211,11 @@ function OrderDashboard({
           <PackagePlus className="h-4 w-4 text-emerald-700" />
           仕入れ登録
           <Badge variant="outline">{visibleRows.length}件</Badge>
+          {stockDetailItems.length > 0 ? (
+            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+              現在庫 {stockDetailItems.reduce((total, item) => total + item.quantity, 0).toLocaleString()}点
+            </Badge>
+          ) : null}
           {shippedRows.length > 0 ? (
             <Button
               type="button"
@@ -3082,7 +3240,7 @@ function OrderDashboard({
           ) : null}
         </div>
         <div className="space-y-3">
-          {visibleRows.length === 0 ? (
+          {visibleRows.length === 0 && stockDetailItems.length === 0 ? (
             <EmptyState
               icon={PackageCheck}
               title="該当する仕入れ登録がありません"
@@ -3093,18 +3251,32 @@ function OrderDashboard({
               }
             />
           ) : (
-            visibleRows.map((row) => (
-              <PurchaseRegistrationCard
-                key={row.id}
-                row={row}
-                onPrintLabels={onPrintLabels}
-                onOpenEdit={onOpenEdit}
-                onOpenTrackingDialog={onOpenTrackingDialog}
-                onOpenShippingHistory={onOpenShippingHistory}
-                onDeleteRow={onDeleteRow}
-                isDeleting={deletingRowId === row.id}
-              />
-            ))
+            <>
+              {visibleRows.map((row) => (
+                <PurchaseRegistrationCard
+                  key={row.id}
+                  row={row}
+                  onPrintLabels={onPrintLabels}
+                  onOpenEdit={onOpenEdit}
+                  onOpenTrackingDialog={onOpenTrackingDialog}
+                  onOpenShippingHistory={onOpenShippingHistory}
+                  onDeleteRow={onDeleteRow}
+                  isDeleting={deletingRowId === row.id}
+                />
+              ))}
+              {stockDetailItems.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+                    <Boxes className="h-4 w-4" />
+                    現在庫
+                    <Badge variant="outline">{stockDetailItems.length}件</Badge>
+                  </div>
+                  {stockDetailItems.map((item) => (
+                    <StockDetailCard key={item.key} item={item} onOpenEdit={onOpenStockEdit} />
+                  ))}
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </section>
@@ -6038,9 +6210,13 @@ export default function PurchaseRegistration() {
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
-  const selectedInvoiceStockProducts = useMemo(
-    () => buildInvoiceStockProductSummaries(allStockItems, selectedInvoiceNo, selectedRowInventoryIds),
+  const selectedInvoiceStockItems = useMemo(
+    () => filterInvoiceStockItems(allStockItems, selectedInvoiceNo, selectedRowInventoryIds),
     [allStockItems, selectedInvoiceNo, selectedRowInventoryIds],
+  );
+  const selectedInvoiceStockProducts = useMemo(
+    () => buildInvoiceStockProductSummaries(selectedInvoiceStockItems, selectedInvoiceNo, selectedRowInventoryIds),
+    [selectedInvoiceNo, selectedInvoiceStockItems, selectedRowInventoryIds],
   );
   const selectedBaseProducts = useMemo(
     () => [...(selectedGroup?.products ?? buildProductSummaries(selectedRows)), ...selectedInvoiceStockProducts],
@@ -6049,6 +6225,10 @@ export default function PurchaseRegistration() {
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? []);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
+  const selectedDetailStockItems = useMemo(
+    () => filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter),
+    [productDetailFilter, selectedInvoiceStockItems],
+  );
 
   const counts = useMemo(() => {
     return countableRows.reduce(
@@ -6567,11 +6747,13 @@ export default function PurchaseRegistration() {
                   rows={filteredRows}
                   products={selectedProducts}
                   detailRows={selectedDetailRows}
+                  stockDetailItems={selectedDetailStockItems}
                   productFilter={productDetailFilter}
                   onProductFilter={setProductDetailFilter}
                   onClearProductFilter={() => setProductDetailFilter(null)}
                   onPrintLabels={handlePrintLabels}
                   onOpenEdit={handleOpenPurchaseEditDialog}
+                  onOpenStockEdit={handleOpenStockEditDialog}
                   onOpenTrackingDialog={handleOpenTrackingDialog}
                   onOpenShippingHistory={handleOpenShippingHistory}
                   onDeleteRow={handleDeletePurchaseRow}
