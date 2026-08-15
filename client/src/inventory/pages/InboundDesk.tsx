@@ -1572,9 +1572,20 @@ export default function InboundDesk() {
   });
 
   // 過去日は保存済みの記録だけを使う。今の状態で代用すると別物の数字が紙に出る。
-  const packRollups = isToday
+  const packRollupsAll = isToday
     ? rollups
     : ((savedSnapshotQuery.data?.rollups ?? []) as InboundInvoiceRollup[]);
+  // 紙に出すのは進行中の取引だけにする。399以下は完了扱いというのがこのアプリの既定
+  // （shared/tradeStatus.ts と同じ基準）。終わった取引まで刷ると紙が読みにくくなる。
+  const packRollups = useMemo(
+    () =>
+      packRollupsAll.filter(rollup => {
+        const invoiceNo = Number(rollup.key);
+        return Number.isFinite(invoiceNo) && invoiceNo > 399;
+      }),
+    [packRollupsAll]
+  );
+  const hiddenCompletedCount = packRollupsAll.length - packRollups.length;
   const canPrintFulfillment = packRollups.length > 0;
 
   async function refresh() {
@@ -1691,6 +1702,11 @@ export default function InboundDesk() {
                 </Button>
               ) : null}
             </div>
+            {hiddenCompletedCount > 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                紙に出すのは No.400 以降だけです（完了済み {hiddenCompletedCount} 件は載せません）。
+              </p>
+            ) : null}
             {!isToday && !canPrintFulfillment ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 この日の充足状況は保存されていません。充足状況は今の在庫から毎回計算しているため、
