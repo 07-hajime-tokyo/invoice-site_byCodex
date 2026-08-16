@@ -5250,7 +5250,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
       setAttachBoxCode(null);
       setAttachDeliveryNo("");
       toast.success(
-        `${result.boxCode} に 出庫No ${result.deliveryNo} を紐づけました（個体${result.attachedLabels}件${
+        `${result.boxCode} に 出庫No ${result.deliveryNos.join("・")} を紐づけました（個体${result.attachedLabels}件${
           result.trackingNumber ? ` / 追跡 ${result.trackingNumber}` : " / 追跡番号は未登録"
         }）`,
       );
@@ -5401,7 +5401,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Input
               className="h-9 w-72 font-mono"
-              placeholder="出庫No（例: 400_Maxim260816）"
+              placeholder="出庫No（複数可・スペースや読点で区切る）"
               value={attachDeliveryNo}
               onChange={(event) => setAttachDeliveryNo(event.target.value)}
             />
@@ -5409,7 +5409,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
               type="button"
               size="sm"
               disabled={attachDelivery.isPending || attachDeliveryNo.trim().length === 0}
-              onClick={() => attachDelivery.mutate({ boxCode: attachBoxCode, deliveryNo: attachDeliveryNo.trim(), operatorName: getCurrentWorkWorkerName("出荷担当") })}
+              onClick={() => attachDelivery.mutate({ boxCode: attachBoxCode, deliveryNos: attachDeliveryNo.split(/[\s,、・]+/).map(v => v.trim()).filter(Boolean), operatorName: getCurrentWorkWorkerName("出荷担当") })}
             >
               {attachDelivery.isPending ? "紐付け中…" : "紐づける"}
             </Button>
@@ -7764,3 +7764,5 @@ export default function PurchaseRegistration() {
     </div>
   );
 }
+
+

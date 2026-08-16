@@ -147,7 +147,8 @@ export const outboundBoxesRouter = router({
     .input(
       z.object({
         boxCode: z.string(),
-        deliveryNo: z.string().min(1).max(200),
+        // 1箱に複数のインボイスが混ざることがある（2026-08-16 の1箱目は400/401/404の18台）
+        deliveryNos: z.array(z.string().min(1).max(200)).min(1).max(20),
         operatorName: z.string().max(200).optional(),
       })
     )
@@ -161,13 +162,17 @@ export const outboundBoxesRouter = router({
       const existingItems = await getBoxLabels(box.id);
       if (existingItems.length > 0) throw new Error(`${boxCode}には既に個体が入っています`);
 
-      const deliveryNo = input.deliveryNo.trim();
-      const histories = await db
-        .select()
-        .from(deliveryHistories)
-        .where(eq(deliveryHistories.deliveryNo, deliveryNo));
-      const succeeded = histories.filter(history => history.status === "success");
-      if (succeeded.length === 0) throw new Error(`出庫No ${deliveryNo} の成功記録が見つかりません`);
+      const deliveryNos = Array.from(new Set(input.deliveryNos.map(value => value.trim()).filter(Boolean)));
+      const succeeded = [];
+      for (const deliveryNo of deliveryNos) {
+        const histories = await db
+          .select()
+          .from(deliveryHistories)
+          .where(eq(deliveryHistories.deliveryNo, deliveryNo));
+        const ok = histories.filter(history => history.status === "success");
+        if (ok.length === 0) throw new Error(`出庫No ${deliveryNo} の成功記録が見つかりません`);
+        succeeded.push(...ok);
+      }
 
       // itemsJson から個体IDを拾う。古い記録には labelId が入っていないことがある。
       const labelIds = new Set<string>();
@@ -204,7 +209,7 @@ export const outboundBoxesRouter = router({
       const [fedex] = await db
         .select()
         .from(fedexShipments)
-        .where(eq(fedexShipments.deliveryNo, deliveryNo))
+        .where(inArray(fedexShipments.deliveryNo, deliveryNos))
         .limit(1);
       const trackingNumber = fedex?.trackingNumber?.trim() || null;
       const now = new Date();
@@ -227,15 +232,15 @@ export const outboundBoxesRouter = router({
         startedAt: now,
         endedAt: now,
         quantity: attached,
-        memo: `${boxCode} に 出庫No ${deliveryNo} を紐づけた（個体${attached}件・在庫は動かしていない）`,
+        memo: `${boxCode} に 出庫No ${deliveryNos.join("・")} を紐づけた（個体${attached}件・在庫は動かしていない）`,
         sourceType: "outbound-box-attach",
         sourceId: boxCode,
-        detailsJson: JSON.stringify({ boxCode, deliveryNo, attached, trackingNumber }),
+        detailsJson: JSON.stringify({ boxCode, deliveryNos, attached, trackingNumber }),
       });
 
       return {
         boxCode,
-        deliveryNo,
+        deliveryNos,
         attachedLabels: attached,
         foundLabelIds: labelIds.size,
         trackingNumber,
@@ -627,3 +632,4 @@ export const outboundBoxesRouter = router({
       return { label, box };
     }),
 });
+
