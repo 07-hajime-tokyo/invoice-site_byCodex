@@ -715,6 +715,95 @@ export const inboundDeskRouter = router({
       };
     }),
 
+  /**
+   * 過去の荷受け分を、動作確認を通さずに待ち行列から外す（遡及クローズ）。
+   *
+   * 動作確認フェーズは開発の途中から入ったため、それ以前に荷受けした個体が
+   * 「検品待ち」に取り残されている。中には既に従来経路で出庫済みのものもある
+   * （2026-08-16 実データで No.398/399/402 の完了済みインボイス分を確認）。
+   *
+   * 通常の inspect は在庫を増やす経路を通るので、ここでは絶対に使わない。
+   * この処理は status を進めるだけで、在庫・入庫履歴・やることには一切触れない。
+   */
+  closeInspectionBacklog: protectedProcedure
+    .input(
+      z.object({
+        receivedBefore: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        dryRun: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const workerName = operatorName(undefined, ctx.user.name ?? ctx.user.email);
+      const boundary = new Date(`${input.receivedBefore}T00:00:00+09:00`);
+      const targets = await db
+        .select({
+          id: inventoryItemLabels.id,
+          labelId: inventoryItemLabels.labelId,
+          receivedAt: inventoryItemLabels.receivedAt,
+        })
+        .from(inventoryItemLabels)
+        .where(
+          and(
+            eq(inventoryItemLabels.status, "received"),
+            lt(inventoryItemLabels.receivedAt, boundary)
+          )
+        );
+
+      if (input.dryRun) {
+        return { dryRun: true, count: targets.length, labelIds: targets.map(t => t.labelId) };
+      }
+
+      const now = new Date();
+      let closed = 0;
+      for (const target of targets) {
+        // 条件付き更新で状態を奪う。二重実行しても2回進まない。
+        const result = await db
+          .update(inventoryItemLabels)
+          .set({
+            status: "stocked",
+            inspectionOutcome: "stocked",
+            replacementRequested: false,
+            inspectedAt: now,
+            inspectionCancelledAt: null,
+            inspectionCancelledBy: null,
+            // 在庫まわりは触らない。遡及なので巻き戻しの対象も作らない。
+            inspectionSourceInventoryId: null,
+            inspectionInventoryId: null,
+            inspectionQuantityDelta: 0,
+            inspectionPurchaseHistoryId: null,
+            inspectionActionItemId: null,
+          })
+          .where(
+            and(
+              eq(inventoryItemLabels.id, target.id),
+              eq(inventoryItemLabels.status, "received")
+            )
+          );
+        if (affectedRowsFromResult(result) === 1) closed += 1;
+      }
+
+      await recordWorkLog({
+        workerName,
+        category: "検品待ちの遡及クローズ",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: closed,
+        memo: `${input.receivedBefore} より前の荷受け分 ${closed}件を動作確認済みにした（在庫は動かしていない）`,
+        createdBy: workerName,
+        sourceType: "inbound-backlog-close",
+        sourceId: input.receivedBefore,
+        detailsJson: JSON.stringify({
+          receivedBefore: input.receivedBefore,
+          closed,
+          labelIds: targets.map(t => t.labelId),
+        }),
+      });
+
+      return { dryRun: false, count: targets.length, closed, labelIds: [] as string[] };
+    }),
+
   /** その日の充足状況を1行だけ残す。同じ日に何度押しても上書きになる。 */
   saveFulfillmentSnapshot: protectedProcedure
     .input(

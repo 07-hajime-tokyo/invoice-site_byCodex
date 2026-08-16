@@ -5230,7 +5230,7 @@ export function OutboundBoxIssuer({
   );
 }
 
-function OutboundBoxPanel() {
+function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: string | null) => void } = {}) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.inventory.outboundBoxes.list.useQuery(undefined, {
     staleTime: 10_000,
@@ -5364,6 +5364,11 @@ function OutboundBoxPanel() {
     const timer = window.setTimeout(() => window.print(), 100);
     return () => window.clearTimeout(timer);
   }, [boxPrintJobId, boxPrintLabels]);
+
+  // 開いている箱を親へ伝える。従来の出庫パネルを伏せるため。
+  useEffect(() => {
+    onOpenBoxChange?.(currentBoxCode || null);
+  }, [currentBoxCode, onOpenBoxChange]);
 
   return (
     <section className="rounded-md border-2 border-indigo-300 bg-indigo-50/40 p-3 sm:p-4">
@@ -5500,6 +5505,12 @@ function ShippingPanel({
   const [showConfirm, setShowConfirm] = useState(false);
   const [fedexDialog, setFedexDialog] = useState<{ deliveryNo: string; historyId: number; items: HistoryItem[] } | null>(null);
   const [expandedHistoryNos, setExpandedHistoryNos] = useState<Set<string>>(new Set());
+  // 箱モードで箱を開いている間は、こちらの従来出庫を伏せて取り違えを防ぐ
+  const [openBoxCode, setOpenBoxCode] = useState<string | null>(null);
+  const [forceLegacyShipping, setForceLegacyShipping] = useState(false);
+  useEffect(() => {
+    if (!openBoxCode) setForceLegacyShipping(false);
+  }, [openBoxCode]);
   const [deleteHistoryConfirm, setDeleteHistoryConfirm] = useState<{
     historyId: number;
     deliveryNo: string;
@@ -5882,13 +5893,39 @@ function ShippingPanel({
 
   return (
     <div className="space-y-4">
-      <OutboundBoxPanel />
-      <section className="rounded-md border bg-background p-3 sm:p-4">
+      <OutboundBoxPanel onOpenBoxChange={setOpenBoxCode} />
+      {openBoxCode ? (
+        <section className="rounded-md border-2 border-amber-400 bg-amber-50 p-3 sm:p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            箱モードで {openBoxCode} を開いています。個体IDは上の共通スキャン欄で読んでください。
+          </p>
+          <p className="mt-1 text-xs text-amber-900">
+            下の「出庫」で登録すると、箱に紐づかないまま出庫が確定します（2026-08-16に実際に起きました）。
+            箱を閉じるか「封をする」まで、こちらは使えません。
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2 bg-white"
+            onClick={() => setForceLegacyShipping(true)}
+          >
+            それでも箱を使わずに出庫する
+          </Button>
+        </section>
+      ) : null}
+      <section
+        className={cn(
+          "rounded-md border bg-background p-3 sm:p-4",
+          openBoxCode && !forceLegacyShipping && "pointer-events-none opacity-40"
+        )}
+        aria-hidden={openBoxCode && !forceLegacyShipping ? true : undefined}
+      >
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold">出庫</h2>
+            <h2 className="text-lg font-semibold">出庫（箱を使わない）</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              選択中のインボイス/在庫から、商品IDラベル単位で出庫できます。
+              選択中のインボイス/在庫から、商品IDラベル単位で出庫できます。海外直取で箱IDを使うときは上のパネルで行ってください。
             </p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">

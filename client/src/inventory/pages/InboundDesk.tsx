@@ -245,6 +245,105 @@ function LabelDetails({ label }: { label: InboundLabel }) {
   );
 }
 
+/**
+ * 動作確認フェーズが開発の途中から入ったため、それ以前に荷受けした個体が検品待ちに残っている。
+ * 既に出庫済みのものも混ざるので、遡って動作確認はせず待ち行列から外すだけにする。
+ * 在庫は動かさない。
+ */
+function BacklogCloseCard({
+  pendingLabels,
+  onDone,
+}: {
+  pendingLabels: InboundLabel[];
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [cutoff, setCutoff] = useState(() =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date())
+  );
+  const utils = trpc.useUtils();
+  const close = trpc.inventory.inboundDesk.closeInspectionBacklog.useMutation({
+    onSuccess: result => {
+      toast.success(`${result.closed}件を動作確認済みにしました（在庫は動かしていません）`);
+      void utils.inventory.inboundDesk.snapshot.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: error => toast.error(`失敗しました: ${error.message}`),
+  });
+
+  const targets = useMemo(
+    () => pendingLabels.filter(label => (label.receivedAt ?? "") < `${cutoff}T00:00:00`),
+    [cutoff, pendingLabels]
+  );
+  const olderThanToday = pendingLabels.length - targets.length;
+
+  if (pendingLabels.length === 0) return null;
+
+  return (
+    <section className="rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+      {!open ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-amber-900">
+            過去に荷受けしたぶんが検品待ちに残っています（現在 {pendingLabels.length}台）。
+            遡って動作確認しないものは、まとめて外せます。
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+            まとめて動作確認済みにする
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="backlog-cutoff" className="text-sm font-medium">
+              この日より前の荷受け分
+            </label>
+            <Input
+              id="backlog-cutoff"
+              type="date"
+              value={cutoff}
+              onChange={event => setCutoff(event.target.value)}
+              className="h-9 w-40"
+            />
+            <span className="text-sm font-semibold">対象 {targets.length}台</span>
+            <span className="text-xs text-muted-foreground">（残す {olderThanToday}台）</span>
+          </div>
+          <p className="text-xs text-amber-900">
+            在庫・入庫履歴・やることには一切触れません。待ち行列から外すだけです。
+            すでに出庫済みの個体が混ざっていても在庫は増えません。作業ログに残ります。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={close.isPending || targets.length === 0}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `${cutoff} より前に荷受けした ${targets.length}台を動作確認済みにします。\n在庫は動かしません。よろしいですか。`
+                  )
+                )
+                  return;
+                close.mutate({ receivedBefore: cutoff, dryRun: false });
+              }}
+            >
+              {close.isPending ? "処理中…" : `${targets.length}台を動作確認済みにする`}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              やめる
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function InvoiceRollupTable({
   rollups,
   projected,
@@ -1784,7 +1883,10 @@ export default function InboundDesk() {
         />
       ) : null}
       {phase === "inspect" ? (
-        <InspectPhase boxes={boxes} onRefresh={refresh} />
+        <>
+          <BacklogCloseCard pendingLabels={pendingLabels} onDone={refresh} />
+          <InspectPhase boxes={boxes} onRefresh={refresh} />
+        </>
       ) : null}
       {phase === "review" ? (
         <>
