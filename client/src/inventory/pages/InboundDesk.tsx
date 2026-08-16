@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import {
   InvoicePrintPack,
   InvoicePrintPackStyles,
+  type InvoiceProductDetail,
   type PrintPackMode,
 } from "@/inventory/components/InvoicePrintPack";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
@@ -1509,6 +1510,8 @@ export default function InboundDesk() {
   const [printPackMode, setPrintPackMode] = useState<PrintPackMode | null>(null);
   const [printPackJobId, setPrintPackJobId] = useState(0);
   const [printPackAt, setPrintPackAt] = useState("");
+  const [packDetails, setPackDetails] = useState<Record<string, InvoiceProductDetail | null>>({});
+  const utils = trpc.useUtils();
   const [packDate, setPackDate] = useState(() =>
     new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Tokyo",
@@ -1597,7 +1600,26 @@ export default function InboundDesk() {
     await Promise.all([snapshotQuery.refetch(), summaryQuery.refetch()]);
   }
 
-  function openPrintPack(mode: PrintPackMode) {
+  async function openPrintPack(mode: PrintPackMode) {
+    // 内訳は品目ごとの発注数・出庫済・残りを見せたい。押した時だけ取りに行く。
+    if (mode === "full") {
+      try {
+        const fetched = await Promise.all(
+          packRollups.map(rollup =>
+            utils.inventory.orderManagement.getInvoiceProducts
+              .fetch({ invoiceNo: rollup.key })
+              .catch(() => null)
+          )
+        );
+        const next: Record<string, InvoiceProductDetail | null> = {};
+        packRollups.forEach((rollup, index) => {
+          next[rollup.key] = (fetched[index] as InvoiceProductDetail | null) ?? null;
+        });
+        setPackDetails(next);
+      } catch {
+        setPackDetails({});
+      }
+    }
     setPrintPackAt(
       new Intl.DateTimeFormat("ja-JP", {
         timeZone: "Asia/Tokyo",
@@ -1635,6 +1657,7 @@ export default function InboundDesk() {
         mode={printPackMode}
         printedAt={printPackAt}
         activity={activityQuery.data ?? null}
+        details={packDetails}
       />
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1788,3 +1811,4 @@ export default function InboundDesk() {
     </div>
   );
 }
+

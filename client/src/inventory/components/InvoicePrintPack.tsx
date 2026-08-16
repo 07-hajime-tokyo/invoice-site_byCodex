@@ -30,6 +30,17 @@ export type DailyActivity = {
   inspections: DailyActivityEntry[];
 };
 
+/** 品目ごとの発注数・出庫済・残り（orderManagement.getInvoiceProducts の戻り） */
+export type InvoiceProductDetail = {
+  invoiceNo: string;
+  products: Array<{
+    productName: string;
+    orderQty: number;
+    deliveredQty: number;
+    remainingQty: number;
+  }>;
+};
+
 const CARDS_PER_PAGE = 4;
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -152,6 +163,14 @@ export function InvoicePrintPackStyles() {
           width: 11mm;
         }
         .docpack-short { color: #b91c1c; font-weight: 700; }
+
+        .docpack-note {
+          margin-top: 1.5mm;
+          padding-top: 1mm;
+          border-top: 0.2mm solid #e2e8f0;
+          font-size: 6.5pt;
+          color: #475569;
+        }
         /* 長い品名はセルの中で折り返す。はみ出させない */
         .docpack-name { overflow-wrap: anywhere; word-break: break-word; }
         .docpack-card-head { overflow-wrap: anywhere; }
@@ -173,60 +192,102 @@ function SummaryCard({ rollups, printedAt }: { rollups: InboundInvoiceRollup[]; 
             <th>引当先</th>
             <th className="docpack-num">受注</th>
             <th className="docpack-num">出庫済</th>
-            <th className="docpack-num">在庫確保</th>
+            <th className="docpack-num">未出庫</th>
+            <th className="docpack-num">手元在庫</th>
             <th className="docpack-num">検品待ち</th>
-            <th className="docpack-num">なお不足</th>
+            <th className="docpack-num">要仕入</th>
           </tr>
         </thead>
         <tbody>
-          {rollups.map((rollup) => (
-            <tr key={rollup.key}>
-              <td className="docpack-name">
-                No.{rollup.key} {rollup.partner}
-              </td>
-              <td className="docpack-num">{rollup.csvOrderQty}</td>
-              <td className="docpack-num">{rollup.deliveredCount}</td>
-              <td className="docpack-num">{rollup.stockCount}</td>
-              <td className="docpack-num">{rollup.inboundCount}</td>
-              <td className={rollup.stillShortAfterInbound > 0 ? "docpack-num docpack-short" : "docpack-num"}>
-                {rollup.stillShortAfterInbound}
-              </td>
-            </tr>
-          ))}
+          {rollups.map((rollup) => {
+            const notShipped = Math.max(0, rollup.csvOrderQty - rollup.deliveredCount);
+            return (
+              <tr key={rollup.key}>
+                <td className="docpack-name">
+                  No.{rollup.key} {rollup.partner}
+                </td>
+                <td className="docpack-num">{rollup.csvOrderQty}</td>
+                <td className="docpack-num">{rollup.deliveredCount}</td>
+                <td className={notShipped > 0 ? "docpack-num docpack-short" : "docpack-num"}>{notShipped}</td>
+                <td className="docpack-num">{rollup.stockCount}</td>
+                <td className="docpack-num">{rollup.inboundCount}</td>
+                <td className={rollup.stillShortAfterInbound > 0 ? "docpack-num docpack-short" : "docpack-num"}>
+                  {rollup.stillShortAfterInbound}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      <div className="docpack-note">
+        未出庫＝受注−出庫済（あと何台送るか）。手元在庫と検品待ちで賄えるぶんは要仕入に出ません。
+        要仕入＝検品待ちが全部合格してもなお足りない数。
+      </div>
     </div>
   );
 }
 
-function InvoiceCard({ rollup }: { rollup: InboundInvoiceRollup }) {
+function InvoiceCard({
+  rollup,
+  detail,
+}: {
+  rollup: InboundInvoiceRollup;
+  detail?: InvoiceProductDetail | null;
+}) {
+  const notShipped = Math.max(0, rollup.csvOrderQty - rollup.deliveredCount);
+  // 品目ごとの発注数・出庫済・残りが取れていればそれを使う。
+  // 取れないときだけ、取引CSVの数量と状況にそのまま落とす。
+  const rows =
+    detail?.products?.map((product) => ({
+      name: product.productName,
+      ordered: product.orderQty,
+      delivered: product.deliveredQty,
+      remaining: product.remainingQty,
+    })) ??
+    rollup.csvProducts.map((product) => ({
+      name: product.name,
+      ordered: product.qty,
+      delivered: null as number | null,
+      remaining: null as number | null,
+    }));
+
   return (
     <div className="docpack-card">
       <div className="docpack-card-head">
         No.{rollup.key} {rollup.partner}
         <span className="docpack-card-sub">
-          　受注 {rollup.csvOrderQty} ／ 出庫済 {rollup.deliveredCount} ／ 在庫確保 {rollup.stockCount} ／ 検品待ち{" "}
-          {rollup.inboundCount} ／ なお不足 {rollup.stillShortAfterInbound}
+          　受注 {rollup.csvOrderQty}／出庫済 {rollup.deliveredCount}／
+          <strong>未出庫 {notShipped}</strong>　手元在庫 {rollup.stockCount}／検品待ち {rollup.inboundCount}／要仕入{" "}
+          {rollup.stillShortAfterInbound}
         </span>
       </div>
       <table className="docpack-table">
         <thead>
           <tr>
             <th>品目</th>
-            <th className="docpack-num">数量</th>
-            <th>状況</th>
+            <th className="docpack-num">発注</th>
+            <th className="docpack-num">出庫済</th>
+            <th className="docpack-num">残り</th>
           </tr>
         </thead>
         <tbody>
-          {rollup.csvProducts.map((product, index) => (
-            <tr key={`${rollup.key}-${product.name}-${index}`}>
-              <td className="docpack-name">{product.name}</td>
-              <td className="docpack-num">{product.qty}</td>
-              <td>{product.status}</td>
+          {rows.map((row, index) => (
+            <tr key={`${rollup.key}-${row.name}-${index}`}>
+              <td className="docpack-name">{row.name}</td>
+              <td className="docpack-num">{row.ordered}</td>
+              <td className="docpack-num">{row.delivered ?? "—"}</td>
+              <td
+                className={
+                  row.remaining != null && row.remaining > 0 ? "docpack-num docpack-short" : "docpack-num"
+                }
+              >
+                {row.remaining ?? "—"}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <div className="docpack-note">残り＝発注−出庫済。ここが0になればその品目は送り終わり。</div>
     </div>
   );
 }
@@ -297,11 +358,13 @@ export function InvoicePrintPack({
   mode,
   printedAt,
   activity,
+  details,
 }: {
   rollups: InboundInvoiceRollup[];
   mode: PrintPackMode | null;
   printedAt: string;
   activity?: DailyActivity | null;
+  details?: Record<string, InvoiceProductDetail | null>;
 }) {
   if (!mode) return null;
   if (mode === "daily" && !activity) return null;
@@ -331,7 +394,13 @@ export function InvoicePrintPack({
     cards.push(<SummaryCard key="summary" rollups={rollups} printedAt={printedAt} />);
     if (mode === "full") {
       for (const rollup of rollups) {
-        cards.push(<InvoiceCard key={`invoice-${rollup.key}`} rollup={rollup} />);
+        cards.push(
+          <InvoiceCard
+            key={`invoice-${rollup.key}`}
+            rollup={rollup}
+            detail={details?.[rollup.key] ?? null}
+          />
+        );
       }
     }
   }
