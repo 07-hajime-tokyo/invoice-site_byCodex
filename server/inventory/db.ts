@@ -1608,6 +1608,12 @@ export async function upsertLocalPurchase(data: InsertLocalPurchase) {
   await db.insert(localPurchases).values(data).onDuplicateKeyUpdate({ set: updateSet });
 }
 
+export async function updateLocalPurchase(id: number, data: Partial<InsertLocalPurchase>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(localPurchases).set(data).where(eq(localPurchases.id, id));
+}
+
 export async function getLocalPurchases(status?: string): Promise<LocalPurchaseWithLabels[]> {
   const db = await getDb();
   if (!db) {

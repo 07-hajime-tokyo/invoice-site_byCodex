@@ -489,6 +489,8 @@ export default function EbayInventory() {
         quantity,
         unitPrice: unitPrice ?? undefined,
         customerName: item.supplierName ?? undefined,
+        supplierName: item.supplierName ?? undefined,
+        supplierUrl: item.supplierUrl ?? undefined,
         num: item.managementNo || undefined,
         managementNo: item.managementNo || undefined,
       });

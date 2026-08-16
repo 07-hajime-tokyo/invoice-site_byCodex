@@ -504,6 +504,7 @@ interface OrderedPurchaseForm {
   estimatedPurchaseDate: string;
   memo: string;
   managementNo: string;
+  supplierUrl: string;
 }
 
 const emptyOrderedForm: OrderedPurchaseForm = {
@@ -516,6 +517,7 @@ const emptyOrderedForm: OrderedPurchaseForm = {
   estimatedPurchaseDate: "",
   memo: "",
   managementNo: "",
+  supplierUrl: "",
 };
 
 // ============================================================
@@ -1055,7 +1057,7 @@ export default function Purchases() {
     if (!inventories) return [];
     const q = orderedInventorySearch.toLowerCase();
     if (!q) return inventories.slice(0, 50);
-    return (inventories as Array<{ id: number; title: string; quantity: string; unit: string; etc?: string; purchase_unit_price?: number }>)
+    return (inventories as Array<{ id: number; title: string; quantity: string; unit: string; etc?: string; purchase_unit_price?: number; unit_price?: number; supplierName?: string | null; supplierUrl?: string | null }>)
       .filter((inv) =>
         inv.title.toLowerCase().includes(q) ||
         (inv.etc ?? "").toLowerCase().includes(q)
@@ -1070,14 +1072,17 @@ export default function Purchases() {
     void refetchInventories();
   }
 
-  function handleSelectInventoryForOrder(inv: { id: number; title: string; unit: string; purchase_unit_price?: number; etc?: string }) {
+  function handleSelectInventoryForOrder(inv: { id: number; title: string; unit: string; purchase_unit_price?: number; unit_price?: number; etc?: string; supplierName?: string | null; supplierUrl?: string | null }) {
     const managementNo = cleanManagementNo(inv.etc);
+    const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
     setOrderedForm(f => ({
       ...f,
       inventoryId: String(inv.id),
       title: inv.title,
-      unitPrice: inv.purchase_unit_price != null ? String(inv.purchase_unit_price) : "",
+      unitPrice: unitPrice != null ? String(unitPrice) : "",
       managementNo,
+      customerName: inv.supplierName ?? "",
+      supplierUrl: inv.supplierUrl ?? "",
     }));
     setOrderedInventorySearch(inv.title);
   }
@@ -1096,6 +1101,8 @@ export default function Purchases() {
         quantity: qty,
         unitPrice: orderedForm.unitPrice.trim() !== "" ? parseFloat(orderedForm.unitPrice) : undefined,
         customerName: orderedForm.customerName || undefined,
+        supplierName: orderedForm.customerName || undefined,
+        supplierUrl: orderedForm.supplierUrl || undefined,
         num: orderedForm.num || undefined,
         estimatedPurchaseDate: orderedForm.estimatedPurchaseDate || undefined,
         memo: orderedForm.memo || undefined,
@@ -2870,7 +2877,7 @@ export default function Purchases() {
                       key={inv.id}
                       type="button"
                       className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 border-b last:border-0"
-                      onClick={() => handleSelectInventoryForOrder(inv as { id: number; title: string; unit: string; purchase_unit_price?: number; etc?: string })}
+                      onClick={() => handleSelectInventoryForOrder(inv as { id: number; title: string; unit: string; purchase_unit_price?: number; unit_price?: number; etc?: string; supplierName?: string | null; supplierUrl?: string | null })}
                     >
                       <span className="font-medium">{(inv as { title: string }).title}</span>
                       {(inv as { etc?: string }).etc && (

@@ -387,6 +387,9 @@ export default function Deliveries() {
   const [newSupplierInput, setNewSupplierInput] = useState("");
 
   const allSuppliers = [...DEFAULT_SUPPLIERS, ...customSuppliers];
+  const orderedSupplierOptions = orderedSupplier && !allSuppliers.includes(orderedSupplier)
+    ? [orderedSupplier, ...allSuppliers]
+    : allSuppliers;
 
   function addCustomSupplier() {
     const name = newSupplierInput.trim();
@@ -424,10 +427,11 @@ export default function Deliveries() {
   async function openOrderedDialogForInv(inv: InventoryItem) {
     setOrderedTargetInv(inv);
     setOrderedQty("1");
-    setOrderedUnitPrice(inv.unit_price != null ? String(inv.unit_price) : (inv.purchase_unit_price != null ? String(inv.purchase_unit_price) : ""));
+    const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
+    setOrderedUnitPrice(unitPrice != null ? String(unitPrice) : "");
     setOrderedNum("");
     setOrderedDate("");
-    setOrderedSupplier("");
+    setOrderedSupplier(inv.supplierName?.trim() ?? "");
     setOrderedMemo("");
     setShowAddSupplier(false);
     setNewSupplierInput("");
@@ -453,13 +457,20 @@ export default function Deliveries() {
     setIsOrderedSubmitting(true);
     try {
       const managementNo = getManagementNo(orderedTargetInv.etc);
+      const selectedSupplier = orderedSupplier.trim() || orderedTargetInv.supplierName?.trim() || undefined;
+      const originalSupplier = orderedTargetInv.supplierName?.trim() || "";
+      const supplierUrl = !selectedSupplier || selectedSupplier === originalSupplier
+        ? orderedTargetInv.supplierUrl?.trim() || undefined
+        : undefined;
       // 仕入先はサイト内DBに保存する
       await createOrderedPurchaseMutation.mutateAsync({
         inventoryId: orderedTargetInv.id,
         title: orderedTargetInv.title,
         quantity: qty,
         unitPrice: orderedUnitPrice ? parseFloat(orderedUnitPrice) : undefined,
-        customerName: undefined,
+        customerName: selectedSupplier,
+        supplierName: selectedSupplier,
+        supplierUrl,
         num: orderedNum || undefined,
         estimatedPurchaseDate: orderedDate || undefined,
         memo: orderedMemo || undefined,
@@ -1229,7 +1240,7 @@ export default function Deliveries() {
       category: inv.categories?.[0] ?? inv.category ?? "",
       place: inv.place ?? "",
       etc: inv.etc ?? "",
-      purchase_unit_price: inv.purchase_unit_price != null ? String(inv.purchase_unit_price) : "",
+      purchase_unit_price: inv.purchase_unit_price != null ? String(inv.purchase_unit_price) : (inv.unit_price != null ? String(inv.unit_price) : ""),
       supplierUrl: inv.supplierUrl ?? "",
       supplierName: inv.supplierName ?? "",
       ebayListingUrl: inv.ebayListingUrl ?? "",
@@ -3137,7 +3148,7 @@ export default function Deliveries() {
                     <SelectValue placeholder="仕入先を選択" />
                   </SelectTrigger>
                   <SelectContent>
-                    {allSuppliers.map((s) => (
+                    {orderedSupplierOptions.map((s) => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                     <SelectItem value="__add__" className="text-primary font-medium">➕ 新しい仕入先を追加</SelectItem>

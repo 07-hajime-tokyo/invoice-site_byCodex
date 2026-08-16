@@ -89,6 +89,7 @@ import {
   deleteLocalInventory,
   countLocalInventories,
   upsertLocalPurchase,
+  updateLocalPurchase,
   getLocalPurchases,
   updateLocalPurchaseStatus,
   ensureInventoryItemLabels,
@@ -1163,6 +1164,8 @@ const EBAY_7696_SECOND_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:resto
 const EBAY_7696_SECOND_ALTERNATE_MANAGEMENT_NO = "ebay_7696_2_代替";
 const EBAY_7696_SECOND_ALTERNATE_RESTORE_SETTING_KEY = "repair:inventory:ebay_7696_2:alternate-restored:v1";
 const EBAY_7696_SECOND_KNOWN_CONTENT_SETTING_KEY = "repair:inventory:ebay_7696_2:known-content:v1";
+const EBAY_7696_SECOND_ORDER_SYNC_SETTING_KEY = "repair:inventory:ebay_7696_2:order-sync:v1";
+const EBAY_7696_SECOND_CORRECTED_UNIT_PRICE = "14790";
 const EBAY_7696_SECOND_KNOWN_PURCHASE_DATE = "2026-08-12";
 const EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME = "駿河屋 名古屋栄店";
 
@@ -1288,6 +1291,10 @@ async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
     (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
   );
   if (!target) return;
+  if (Number(target.isDeleted ?? 0) === 0) {
+    await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+    return;
+  }
 
   const memoCandidates: Array<{ inventory: LocalInventoryRow; memo: InventoryMemoRow; restored: Partial<Record<InventoryRestoreField, string | null>> }> = [];
   for (const inventory of [target]) {
@@ -1378,6 +1385,92 @@ async function repairEbay7696SecondKnownContent(): Promise<void> {
   await setSystemSetting(EBAY_7696_SECOND_KNOWN_CONTENT_SETTING_KEY, "1");
 }
 
+async function repairEbay7696SecondOrderSync(): Promise<void> {
+  const alreadyApplied = await getSystemSetting(EBAY_7696_SECOND_ORDER_SYNC_SETTING_KEY);
+  if (alreadyApplied === "1") return;
+
+  const inventories = await getLocalInventories(true);
+  const target = inventories.find(
+    (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
+  );
+  if (!target) return;
+
+  const supplierName = String(target.supplierName ?? "").trim() || EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME;
+  const supplierUrl = String(target.supplierUrl ?? "").trim() || null;
+  const title = String(target.title ?? "").trim() || EBAY_7696_SECOND_MANAGEMENT_NO;
+  await updateLocalInventory(target.id, {
+    unitPrice: EBAY_7696_SECOND_CORRECTED_UNIT_PRICE,
+    supplierName,
+    supplierUrl,
+    etc: target.etc ?? EBAY_7696_SECOND_MANAGEMENT_NO,
+  });
+
+  const purchases = await getLocalPurchases();
+  const existing = purchases.find(
+    (purchase) => getInventoryManagementNo(purchase.managementNo) === EBAY_7696_SECOND_MANAGEMENT_NO,
+  );
+  const maxNum = purchases.reduce((max, purchase) => {
+    const n = parseInt(purchase.purchaseNum ?? "0", 10);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+  const purchaseNum = existing?.purchaseNum ?? String(maxNum + 1);
+  const quantity = 1;
+  const status = existing?.status ?? "ordered";
+  const purchaseData = {
+    purchaseNum,
+    status,
+    itemsJson: JSON.stringify([{
+      id: 0,
+      inventory_id: target.id,
+      inventoryId: target.id,
+      title,
+      quantity: String(quantity),
+      unit_price: Number(EBAY_7696_SECOND_CORRECTED_UNIT_PRICE),
+      unitPrice: Number(EBAY_7696_SECOND_CORRECTED_UNIT_PRICE),
+      etc: EBAY_7696_SECOND_MANAGEMENT_NO,
+      status,
+      category: target.category ?? null,
+    }]),
+    localInventoryId: target.id,
+    title,
+    category: target.category ?? null,
+    quantity,
+    unitPrice: EBAY_7696_SECOND_CORRECTED_UNIT_PRICE,
+    managementNo: EBAY_7696_SECOND_MANAGEMENT_NO,
+    purchaseDate: existing?.purchaseDate ?? EBAY_7696_SECOND_KNOWN_PURCHASE_DATE,
+    receivedDate: existing?.receivedDate ?? null,
+    supplierUrl,
+    supplierName,
+  };
+
+  const purchaseId = existing
+    ? (await updateLocalPurchase(existing.id, purchaseData), existing.id)
+    : await insertLocalPurchase({
+        zaicoId: null,
+        ...purchaseData,
+        inboundClass: null,
+        classSource: "auto",
+        stage: "ordered",
+        stageUpdatedBy: "system-repair",
+        stageUpdatedAt: new Date(),
+        shaftParentPurchaseId: null,
+      });
+
+  if (purchaseId > 0) {
+    await ensureInventoryItemLabels({
+      purchaseId,
+      localInventoryId: target.id,
+      legacyManagementNo: EBAY_7696_SECOND_MANAGEMENT_NO,
+      title,
+      quantity,
+      status: status === "purchased" ? "received" : "ordered",
+      sourceKey: `management:${EBAY_7696_SECOND_MANAGEMENT_NO}`,
+    });
+  }
+
+  await setSystemSetting(EBAY_7696_SECOND_ORDER_SYNC_SETTING_KEY, "1");
+}
+
 async function repairMaxim404PartialCancelLabel(): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -1456,6 +1549,7 @@ async function ensureStockLabelsForInventories<T extends {
   if (inventories.length === 0) return [];
   await repairEbay7696SecondInventoryOverwrite();
   await repairEbay7696SecondKnownContent();
+  await repairEbay7696SecondOrderSync();
   await repairMaxim404PartialCancelLabel();
   const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
   return Promise.all(inventories.map(async (inventory) => {
@@ -1813,6 +1907,13 @@ async function cleanupAllowedRecoveredPurchaseIssues(
     const category = maximSecondOverrides.category ?? maximSecondRow.category ?? null;
     const quantity = Math.max(1, Number(maximSecondOverrides.quantity ?? maximSecondRow.quantity ?? 1) || 1);
     const unitPrice = maximSecondOverrides.unitPrice ?? maximSecondRow.unitPrice ?? null;
+    const existingTrackingNumber = normalizePurchaseTrackingValue(maximSecondRow.trackingNumber);
+    const existingShipDate = normalizePurchaseTrackingValue(maximSecondRow.shipDate);
+    const existingCarrier = normalizePurchaseTrackingValue(maximSecondRow.carrier);
+    const existingNote = normalizePurchaseTrackingValue(maximSecondRow.note);
+    const hasInboundTracking = existingTrackingNumber != null;
+    const repairedStatus = hasInboundTracking ? "shipped" : "ordered";
+    const repairedStage = hasInboundTracking ? "shipped" : maximSecondOverrides.stage ?? "ordered";
     const itemsJson = JSON.stringify([{
       id: 1,
       inventory_id: maximSecondRow.localInventoryId,
@@ -1823,13 +1924,13 @@ async function cleanupAllowedRecoveredPurchaseIssues(
       unitPrice,
       etc: "402_マキシム_2/2",
       category,
-      status: "ordered",
+      status: repairedStatus,
     }]);
     await db
       .update(purchaseTbl)
       .set({
         purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
-        status: "ordered",
+        status: repairedStatus,
         itemsJson,
         title,
         category,
@@ -1838,12 +1939,14 @@ async function cleanupAllowedRecoveredPurchaseIssues(
         managementNo: "402_マキシム_2/2",
         purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
         receivedDate: null,
-        trackingNumber: null,
-        carrier: null,
+        shipDate: existingShipDate,
+        trackingNumber: existingTrackingNumber,
+        carrier: existingCarrier,
+        note: existingNote,
         supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
-        stage: maximSecondOverrides.stage ?? "ordered",
-        stageUpdatedBy: "system-repair",
-        stageUpdatedAt: new Date(),
+        stage: repairedStage,
+        stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
+        stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
       })
       .where(eq(purchaseTbl.id, maximSecondRow.id));
     changed = true;
@@ -2756,6 +2859,7 @@ export const inventoryRouter = router({
       if (!zaicoEnabled) {
         await repairEbay7696SecondInventoryOverwrite();
         await repairEbay7696SecondKnownContent();
+        await repairEbay7696SecondOrderSync();
         const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
@@ -2776,6 +2880,7 @@ export const inventoryRouter = router({
           quantity: String(inv.quantity ?? 0),
           unit: inv.unit ?? "個",
           unit_price: parseMoneyNumber(inv.unitPrice),
+          purchase_unit_price: parseMoneyNumber(inv.unitPrice),
           category: inv.category ?? null,
           categories: inv.category ? [inv.category] : [],
           place: inv.place ?? null,
@@ -4484,6 +4589,8 @@ export const inventoryRouter = router({
           quantity: z.number().positive("数量は1以上にしてください"),
           unitPrice: z.number().optional(),
           customerName: z.string().optional(),
+          supplierName: z.string().nullable().optional(),
+          supplierUrl: z.string().nullable().optional(),
           num: z.string().optional(),
           estimatedPurchaseDate: z.string().optional(),
           memo: z.string().optional(),
@@ -4499,42 +4606,91 @@ export const inventoryRouter = router({
           // 最大の発注Noを取得して+1する
           const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
           const allPurchases = await getLocalPurchases();
+          const linkedInventoryId = localInv?.id ?? input.inventoryId;
+          const managementNo = input.managementNo?.trim() || null;
+          const supplierName =
+            input.supplierName !== undefined
+              ? input.supplierName?.trim() || null
+              : input.customerName?.trim() || localInv?.supplierName || null;
+          const supplierUrl =
+            input.supplierUrl !== undefined
+              ? input.supplierUrl?.trim() || null
+              : localInv?.supplierUrl ?? null;
+          const unitPrice =
+            input.unitPrice != null
+              ? input.unitPrice
+              : localInv?.unitPrice != null
+                ? Number(localInv.unitPrice)
+                : undefined;
           const maxNum = allPurchases.reduce((max, p) => {
             const n = parseInt(p.purchaseNum ?? "0", 10);
             return n > max ? n : max;
           }, 0);
           const newNum = String(maxNum + 1);
-          await upsertLocalPurchase({
-            zaicoId: null,
-            purchaseNum: input.num ?? newNum,
+          const existing = managementNo
+            ? allPurchases.find((purchase) => getInventoryManagementNo(purchase.managementNo) === managementNo)
+            : undefined;
+          if (localInv && unitPrice != null && Number.isFinite(unitPrice)) {
+            await updateLocalInventory(localInv.id, {
+              unitPrice: String(unitPrice),
+              supplierName: supplierName ?? localInv.supplierName,
+              supplierUrl: supplierUrl ?? localInv.supplierUrl,
+            });
+          }
+          const purchaseData = {
+            purchaseNum: input.num ?? existing?.purchaseNum ?? newNum,
             status: "ordered",
             itemsJson: JSON.stringify([{
               id: 0,
               title: input.title,
               quantity: String(input.quantity),
-              unit_price: input.unitPrice ?? null,
-              etc: input.managementNo ?? null,
+              unit_price: unitPrice ?? null,
+              etc: managementNo,
               status: "ordered",
-              inventory_id: input.inventoryId,
+              inventory_id: linkedInventoryId,
+              inventoryId: linkedInventoryId,
             }]),
-            localInventoryId: localInv?.id ?? input.inventoryId,
+            localInventoryId: linkedInventoryId,
             title: input.title,
             category: localInv?.category ?? null,
             quantity: input.quantity,
-            unitPrice: input.unitPrice != null ? String(input.unitPrice) : null,
-            managementNo: input.managementNo ?? null,
+            unitPrice: unitPrice != null && Number.isFinite(unitPrice) ? String(unitPrice) : null,
+            managementNo,
             purchaseDate: input.estimatedPurchaseDate ?? null,
             receivedDate: null,
-            supplierUrl: localInv?.supplierUrl ?? null,
-            supplierName: localInv?.supplierName ?? null,
-          });
-          return { code: 200, status: "ok", message: "発注データを登録しました（ローカルDB）", data_id: 0 };
+            supplierUrl,
+            supplierName,
+          };
+          const purchaseId = existing
+            ? (await updateLocalPurchase(existing.id, purchaseData), existing.id)
+            : await insertLocalPurchase({
+                zaicoId: null,
+                ...purchaseData,
+                inboundClass: null,
+                classSource: "auto",
+                stage: "ordered",
+                stageUpdatedBy: "ui",
+                stageUpdatedAt: new Date(),
+                shaftParentPurchaseId: null,
+              });
+          if (purchaseId > 0) {
+            await ensureInventoryItemLabels({
+              purchaseId,
+              localInventoryId: linkedInventoryId,
+              legacyManagementNo: managementNo,
+              title: input.title,
+              quantity: input.quantity,
+              status: "ordered",
+              sourceKey: managementNo ? `management:${managementNo}` : `purchase:${purchaseId}`,
+            });
+          }
+          return { code: 200, status: "ok", message: "発注データを登録しました（ローカルDB）", data_id: purchaseId };
         }
 
         const token = resolveOperatorToken(input.operatorKey);
         const payload = {
           status: "ordered" as const,
-          customer_name: input.customerName,
+          customer_name: input.customerName ?? input.supplierName ?? undefined,
           num: input.num,
           memo: input.memo,
           purchase_items: [
