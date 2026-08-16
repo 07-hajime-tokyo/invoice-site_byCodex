@@ -788,8 +788,9 @@ async function alignShipmentItemsWithDeliveryHistories<
 
   return shipments.map((shipment) => {
     if (shipment.isManual) return shipment;
-    const history = (shipment.historyId ? historyById.get(shipment.historyId) : undefined)
-      ?? historyByDeliveryNo.get(shipment.deliveryNo);
+    const history = shipment.historyId
+      ? historyById.get(shipment.historyId)
+      : historyByDeliveryNo.get(shipment.deliveryNo);
     if (!history) return shipment;
 
     const historyItems = deliveryHistoryItemsToShipmentItems(history.itemsJson);
@@ -802,6 +803,37 @@ async function alignShipmentItemsWithDeliveryHistories<
     }
     return { ...shipment, itemsJson: JSON.stringify(historyItems) };
   });
+}
+
+async function getShipmentItemsForHistory(historyId?: number | null): Promise<ShipmentGasItem[] | null> {
+  if (!historyId) return null;
+  const history = await getDeliveryHistoryById(historyId).catch(() => null);
+  if (!history || history.status !== "success") return null;
+  const items = deliveryHistoryItemsToShipmentItems(history.itemsJson).map((item) => ({
+    productNameJa: item.productNameJa,
+    productNameEn: item.productNameEn,
+    quantity: item.quantity,
+    ...(item.managementNo !== undefined ? { managementNo: item.managementNo } : {}),
+  }));
+  return items.length > 0 ? items : null;
+}
+
+async function getLiveDeliveryHistoryIds(): Promise<Set<number>> {
+  const histories = await getAllDeliveryHistories().catch(() => []);
+  return new Set(histories.filter((history) => history.status === "success").map((history) => history.id));
+}
+
+function shouldUseExistingShipmentForGas(
+  record: { deliveryNo: string; sheetName: string; trackingNumber: string; historyId?: number | null },
+  target: { deliveryNo: string; sheetName: string; trackingNumber: string; invoiceNo: string; historyId?: number | null },
+  liveHistoryIds: Set<number>,
+): boolean {
+  if (record.sheetName !== target.sheetName) return false;
+  if (record.trackingNumber !== target.trackingNumber) return false;
+  if (invoiceNoFromDeliveryNo(record.deliveryNo) !== target.invoiceNo) return false;
+  if (record.historyId) return liveHistoryIds.has(record.historyId);
+  if (target.historyId) return false;
+  return record.deliveryNo === target.deliveryNo;
 }
 
 function resolveOperatorToken(_operatorKey?: string): string | undefined {
@@ -4813,6 +4845,7 @@ export const inventoryRouter = router({
               itemsJson: JSON.stringify(fedexItems),
               spreadsheetStatus: "pending",
               operatorName: resolveWorkOperatorName(input.operatorName, "delivery-form"),
+              historyId: deliveryResult.historyId,
             });
             await recordWorkLog({
               workerName: resolveWorkOperatorName(input.operatorName, "野田"),
@@ -8019,7 +8052,8 @@ export const inventoryRouter = router({
         const gasUrl = process.env.GAS_WEBHOOK_URL;
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
         const invoiceNo = invoiceNoFromDeliveryNo(input.deliveryNo);
-        const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
+        const sourceItems = (await getShipmentItemsForHistory(input.historyId)) ?? input.items;
+        const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, sourceItems);
         const workOperatorName = resolveWorkOperatorName(input.operatorName, ctx.user.name ?? ctx.user.email ?? null);
 
         // GAS呼び出しヘルパー
@@ -8044,6 +8078,7 @@ export const inventoryRouter = router({
         }
         // 同一追跡番号かつ同一出庫Noの既存記録を確認
         const allRecords = await alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
+        const liveHistoryIds = await getLiveDeliveryHistoryIds();
 
         function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
           try {
@@ -8055,11 +8090,13 @@ export const inventoryRouter = router({
 
         function getExistingGasItemsForWrite(): MergeItem[] {
           return mergeShipmentGasItems(allRecords
-            .filter((record) =>
-              record.sheetName === input.sheetName &&
-              record.trackingNumber === input.trackingNumber &&
-              invoiceNoFromDeliveryNo(record.deliveryNo) === invoiceNo
-            )
+            .filter((record) => shouldUseExistingShipmentForGas(record, {
+              deliveryNo: input.deliveryNo,
+              sheetName: input.sheetName,
+              trackingNumber: input.trackingNumber,
+              invoiceNo,
+              historyId: input.historyId ?? null,
+            }, liveHistoryIds))
             .flatMap((record) => parseShipmentRecordItems(record.itemsJson)));
         }
 
@@ -8281,7 +8318,8 @@ export const inventoryRouter = router({
             await updateFedexShipmentHistoryAndDeliveryNo(input.id, record.historyId ?? null, deliveryNoForGas);
           }
           const invoiceNo = invoiceNoFromDeliveryNo(deliveryNoForGas);
-          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, input.items);
+          const sourceItems = (await getShipmentItemsForHistory(record.historyId)) ?? input.items;
+          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, sourceItems);
           // DBを更新
           await updateFedexShipment(input.id, {
             trackingNumber: input.trackingNumber,
@@ -8373,11 +8411,12 @@ export const inventoryRouter = router({
         const alignedShipments = await Promise.all(input.shipments.map(async (shipment) => {
           const sheetName = shipment.sheetName ?? detectShipmentSheetName(shipment.deliveryNo);
           const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
-          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, shipment.items);
+          const sourceItems = (await getShipmentItemsForHistory(shipment.historyId)) ?? shipment.items;
+          const gasItems = await alignShipmentItemsToOrderRows(invoiceNo, sourceItems);
           return { ...shipment, sheetName, invoiceNo, gasItems };
         }));
 
-        function getBatchGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+        function getBatchGasItemsForWrite(target: { deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string; historyId?: number | null }): MergeItem[] {
           return mergeShipmentGasItems(alignedShipments
             .filter((shipment) =>
               shipment.sheetName === target.sheetName &&
@@ -8400,6 +8439,7 @@ export const inventoryRouter = router({
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
         }
         const allRecords = await alignShipmentItemsWithDeliveryHistories(await getAllFedexShipments());
+        const liveHistoryIds = await getLiveDeliveryHistoryIds();
 
         function parseShipmentRecordItems(itemsJson: string): MergeItem[] {
           try {
@@ -8409,17 +8449,19 @@ export const inventoryRouter = router({
           }
         }
 
-        function getExistingGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+        function getExistingGasItemsForWrite(target: { deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string; historyId?: number | null }): MergeItem[] {
           return mergeShipmentGasItems(allRecords
-            .filter((record) =>
-              record.sheetName === target.sheetName &&
-              record.trackingNumber === target.trackingNumber &&
-              invoiceNoFromDeliveryNo(record.deliveryNo) === target.invoiceNo
-            )
+            .filter((record) => shouldUseExistingShipmentForGas(record, {
+              deliveryNo: target.deliveryNo,
+              sheetName: target.sheetName,
+              trackingNumber: target.trackingNumber,
+              invoiceNo: target.invoiceNo,
+              historyId: target.historyId ?? null,
+            }, liveHistoryIds))
             .flatMap((record) => parseShipmentRecordItems(record.itemsJson)));
         }
 
-        function getGasItemsForWrite(target: { sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string }): MergeItem[] {
+        function getGasItemsForWrite(target: { deliveryNo: string; sheetName: ShipmentSheetName; trackingNumber: string; invoiceNo: string; historyId?: number | null }): MergeItem[] {
           return mergeShipmentGasItems([
             ...getExistingGasItemsForWrite(target),
             ...getBatchGasItemsForWrite(target),
