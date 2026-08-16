@@ -46,9 +46,12 @@ export function InvoicePrintPackStyles() {
       .docpack-print-root { display: none; }
 
       @media print {
-        /* 端が切れないよう、用紙の余白は少し広めに取る。
-           プリンタごとの印字可能領域の差を吸収するため 6mm → 10mm（2026-08-16 実地で見切れ）。 */
-        @page { size: A4 portrait; margin: 10mm; }
+        /*
+         * @page の margin は印刷ダイアログの「余白」設定に上書きされ、実地では効かなかった
+         * （2026-08-16 実物で枠線ごと紙の端に張り付いた）。
+         * 用紙余白は0にして、余白は自前の padding で持つ。こうするとダイアログの設定に左右されない。
+         */
+        @page { size: A4 portrait; margin: 0; }
 
         html, body {
           width: auto !important;
@@ -86,9 +89,12 @@ export function InvoicePrintPackStyles() {
           /* minmax(0,1fr) にしないと、中身の幅がそのまま列幅になって用紙からはみ出す */
           grid-template-columns: repeat(2, minmax(0, 1fr));
           grid-template-rows: repeat(2, minmax(0, 1fr));
-          gap: 3mm;
-          width: 100%;
-          height: 271mm;
+          gap: 4mm;
+          width: 210mm;
+          /* 297mm ちょうどだと丸め誤差で空白ページが1枚増えることがあるので少し引く */
+          height: 296mm;
+          /* プリンタの印字不能領域（おおむね5mm）より内側に入れる */
+          padding: 12mm;
           overflow: hidden;
           page-break-after: always;
           break-after: page;
