@@ -46,13 +46,22 @@ export function InvoicePrintPackStyles() {
       .docpack-print-root { display: none; }
 
       @media print {
-        @page { size: 210mm 297mm; margin: 6mm; }
+        /* 端が切れないよう、用紙の余白は少し広めに取る。
+           プリンタごとの印字可能領域の差を吸収するため 6mm → 10mm（2026-08-16 実地で見切れ）。 */
+        @page { size: A4 portrait; margin: 10mm; }
 
         html, body {
-          width: 210mm !important;
+          width: auto !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #fff !important;
+        }
+
+        /* グリッドの子はそのままだと中身の幅で膨らむ。ここを止めないと右端がはみ出す。 */
+        .docpack-print-root,
+        .docpack-print-root * {
+          box-sizing: border-box;
+          min-width: 0;
         }
 
         /*
@@ -74,10 +83,13 @@ export function InvoicePrintPackStyles() {
         .docpack-page {
           box-sizing: border-box;
           display: grid !important;
-          grid-template-columns: repeat(2, 1fr);
-          grid-template-rows: repeat(2, 1fr);
+          /* minmax(0,1fr) にしないと、中身の幅がそのまま列幅になって用紙からはみ出す */
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-rows: repeat(2, minmax(0, 1fr));
           gap: 3mm;
-          height: 279mm;
+          width: 100%;
+          height: 271mm;
+          overflow: hidden;
           page-break-after: always;
           break-after: page;
         }
@@ -105,7 +117,12 @@ export function InvoicePrintPackStyles() {
           color: #475569;
         }
 
-        .docpack-table { width: 100%; border-collapse: collapse; }
+        /* table-layout: fixed にしないと、長い品名で表がカードより広くなり右端が切れる */
+        .docpack-table {
+          width: 100%;
+          table-layout: fixed;
+          border-collapse: collapse;
+        }
 
         .docpack-table th,
         .docpack-table td {
@@ -122,9 +139,16 @@ export function InvoicePrintPackStyles() {
           white-space: nowrap;
         }
 
-        .docpack-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .docpack-num {
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+          width: 11mm;
+        }
         .docpack-short { color: #b91c1c; font-weight: 700; }
-        .docpack-name { word-break: break-all; }
+        /* 長い品名はセルの中で折り返す。はみ出させない */
+        .docpack-name { overflow-wrap: anywhere; word-break: break-word; }
+        .docpack-card-head { overflow-wrap: anywhere; }
       }
     `}</style>
   );
