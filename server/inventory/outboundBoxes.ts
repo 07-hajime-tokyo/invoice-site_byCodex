@@ -136,6 +136,112 @@ export const outboundBoxesRouter = router({
     return Promise.all(boxes.map(async (box) => ({ ...box, items: await getBoxLabels(box.id) })));
   }),
 
+  /**
+   * すでに登録済みの出庫を、後から箱へ紐づける。
+   *
+   * 箱モードを使わずに従来経路で出庫してしまった場合の後始末用。
+   * 現物には箱シールが貼ってあるのに、システム上は箱が空のまま残る状態を直す。
+   * 出庫そのものは完了しているので、ここでは在庫を一切動かさない。
+   */
+  attachDelivery: protectedProcedure
+    .input(
+      z.object({
+        boxCode: z.string(),
+        deliveryNo: z.string().min(1).max(200),
+        operatorName: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const boxCode = normalizeOutboundScan(input.boxCode);
+      const box = await getBoxDetail(boxCode);
+      if (!box) throw new Error(`${boxCode}が見つかりません`);
+      if (box.discardedAt) throw new Error(`${boxCode}は破棄済みです`);
+      if (box.deliveryHistoryId) throw new Error(`${boxCode}には既に出庫が紐づいています`);
+      const existingItems = await getBoxLabels(box.id);
+      if (existingItems.length > 0) throw new Error(`${boxCode}には既に個体が入っています`);
+
+      const deliveryNo = input.deliveryNo.trim();
+      const histories = await db
+        .select()
+        .from(deliveryHistories)
+        .where(eq(deliveryHistories.deliveryNo, deliveryNo));
+      const succeeded = histories.filter(history => history.status === "success");
+      if (succeeded.length === 0) throw new Error(`出庫No ${deliveryNo} の成功記録が見つかりません`);
+
+      // itemsJson から個体IDを拾う。古い記録には labelId が入っていないことがある。
+      const labelIds = new Set<string>();
+      for (const history of succeeded) {
+        try {
+          const items = JSON.parse(history.itemsJson || "[]") as Array<{ labelId?: string | null }>;
+          for (const item of items) {
+            const labelId = item.labelId?.trim().toUpperCase();
+            if (labelId) labelIds.add(labelId);
+          }
+        } catch {
+          // 壊れた記録は飛ばす。箱の紐付け自体は続ける。
+        }
+      }
+
+      let attached = 0;
+      for (const labelId of labelIds) {
+        const [before] = await db
+          .select({ id: inventoryItemLabels.id })
+          .from(inventoryItemLabels)
+          .where(
+            and(eq(inventoryItemLabels.labelId, labelId), isNull(inventoryItemLabels.outboundBoxId))
+          )
+          .limit(1);
+        if (!before) continue;
+        await db
+          .update(inventoryItemLabels)
+          .set({ outboundBoxId: box.id })
+          .where(eq(inventoryItemLabels.id, before.id));
+        attached += 1;
+      }
+
+      // 追跡番号は既にFedExへ登録済みならそこから引く。無ければ後で紐付ければよい。
+      const [fedex] = await db
+        .select()
+        .from(fedexShipments)
+        .where(eq(fedexShipments.deliveryNo, deliveryNo))
+        .limit(1);
+      const trackingNumber = fedex?.trackingNumber?.trim() || null;
+      const now = new Date();
+      await db
+        .update(outboundBoxes)
+        .set({
+          deliveryHistoryId: succeeded[0].id,
+          trackingNumber,
+          fedexShipmentId: fedex?.id ?? null,
+          status: trackingNumber ? "shipped" : "sealed",
+          sealedAt: box.sealedAt ?? now,
+          linkedAt: trackingNumber ? now : null,
+        })
+        .where(eq(outboundBoxes.id, box.id));
+
+      await recordWorkLog({
+        workerName: input.operatorName?.trim() || ctx.user.name || ctx.user.email || "unknown",
+        category: "既存出庫の箱紐付け",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: attached,
+        memo: `${boxCode} に 出庫No ${deliveryNo} を紐づけた（個体${attached}件・在庫は動かしていない）`,
+        sourceType: "outbound-box-attach",
+        sourceId: boxCode,
+        detailsJson: JSON.stringify({ boxCode, deliveryNo, attached, trackingNumber }),
+      });
+
+      return {
+        boxCode,
+        deliveryNo,
+        attachedLabels: attached,
+        foundLabelIds: labelIds.size,
+        trackingNumber,
+      };
+    }),
+
   create: protectedProcedure
     .input(z.object({ count: z.number().int().min(1).max(20), operatorName: z.string().max(200).optional() }))
     .mutation(async ({ input, ctx }) => {

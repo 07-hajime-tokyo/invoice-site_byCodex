@@ -5241,6 +5241,22 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
   // 発番済みの箱シールの刷り直し用（印刷が失敗しても番号は戻らないため）
   const [boxPrintLabels, setBoxPrintLabels] = useState<LabelView[]>([]);
   const [boxPrintJobId, setBoxPrintJobId] = useState(0);
+  // 箱モードを使わずに従来経路で出庫してしまったぶんを、後から箱へ紐づける
+  const [attachBoxCode, setAttachBoxCode] = useState<string | null>(null);
+  const [attachDeliveryNo, setAttachDeliveryNo] = useState("");
+  const attachDelivery = trpc.inventory.outboundBoxes.attachDelivery.useMutation({
+    onSuccess: (result) => {
+      void utils.inventory.outboundBoxes.list.invalidate();
+      setAttachBoxCode(null);
+      setAttachDeliveryNo("");
+      toast.success(
+        `${result.boxCode} に 出庫No ${result.deliveryNo} を紐づけました（個体${result.attachedLabels}件${
+          result.trackingNumber ? ` / 追跡 ${result.trackingNumber}` : " / 追跡番号は未登録"
+        }）`,
+      );
+    },
+    onError: (error) => toast.error(`紐付けに失敗しました: ${error.message}`),
+  });
   const [scanValue, setScanValue] = useState("");
   const [linkBoxCode, setLinkBoxCode] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -5374,6 +5390,35 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
     <section className="rounded-md border-2 border-indigo-300 bg-indigo-50/40 p-3 sm:p-4">
       <LabelPrintStyles />
       <PrintableLabelSheet labels={boxPrintLabels} />
+      {attachBoxCode ? (
+        <div className="mb-3 rounded-md border-2 border-indigo-400 bg-white p-3">
+          <h4 className="text-sm font-semibold">{attachBoxCode} に登録済みの出庫を紐づける</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            箱モードを使わずに出庫してしまったぶんを、後からこの箱に結び付けます。
+            <strong>在庫は動かしません</strong>（出庫はもう済んでいるため）。
+            追跡番号がFedExに登録済みならそれも取り込みます。
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Input
+              className="h-9 w-72 font-mono"
+              placeholder="出庫No（例: 400_Maxim260816）"
+              value={attachDeliveryNo}
+              onChange={(event) => setAttachDeliveryNo(event.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={attachDelivery.isPending || attachDeliveryNo.trim().length === 0}
+              onClick={() => attachDelivery.mutate({ boxCode: attachBoxCode, deliveryNo: attachDeliveryNo.trim(), operatorName: getCurrentWorkWorkerName("出荷担当") })}
+            >
+              {attachDelivery.isPending ? "紐付け中…" : "紐づける"}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAttachBoxCode(null)}>
+              やめる
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -5468,7 +5513,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border bg-white p-3">
           <h3 className="font-semibold">開いたままの箱</h3>
-          {isLoading ? <p className="mt-2 text-sm text-muted-foreground">読み込み中…</p> : openBoxes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ありません</p> : <div className="mt-2 space-y-2">{openBoxes.map((box) => <div key={box.id} className="flex items-center justify-between gap-2 rounded border p-2"><Button type="button" variant="ghost" className="font-mono" onClick={() => setCurrentBoxCode(box.boxCode)}>{box.boxCode}（{box.items.length}点）</Button><div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" title="この箱のシールを刷り直します。新しい番号は増えません" onClick={() => { setBoxPrintLabels([outboundBoxPrintLabel(box.boxCode)]); setBoxPrintJobId((value) => value + 1); }}><Printer className="mr-1 h-4 w-4" />刷り直す</Button>{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => { if (window.confirm(`${box.boxCode}を破棄しますか？`)) discardBox.mutate({ boxCode: box.boxCode }); }}><Trash2 className="mr-1 h-4 w-4" />破棄</Button> : null}</div></div>)}</div>}
+          {isLoading ? <p className="mt-2 text-sm text-muted-foreground">読み込み中…</p> : openBoxes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ありません</p> : <div className="mt-2 space-y-2">{openBoxes.map((box) => <div key={box.id} className="flex items-center justify-between gap-2 rounded border p-2"><Button type="button" variant="ghost" className="font-mono" onClick={() => setCurrentBoxCode(box.boxCode)}>{box.boxCode}（{box.items.length}点）</Button><div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" title="この箱のシールを刷り直します。新しい番号は増えません" onClick={() => { setBoxPrintLabels([outboundBoxPrintLabel(box.boxCode)]); setBoxPrintJobId((value) => value + 1); }}><Printer className="mr-1 h-4 w-4" />刷り直す</Button>{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" title="箱を使わずに登録済みの出庫を、この箱へ後から紐づけます" onClick={() => { setAttachBoxCode(box.boxCode); setAttachDeliveryNo(""); }}>出庫を紐づけ</Button> : null}{box.items.length === 0 ? <Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => { if (window.confirm(`${box.boxCode}を破棄しますか？`)) discardBox.mutate({ boxCode: box.boxCode }); }}><Trash2 className="mr-1 h-4 w-4" />破棄</Button> : null}</div></div>)}</div>}
         </div>
         <div className="rounded-md border bg-white p-3">
           <h3 className="font-semibold">個体IDから発送を追跡</h3>
