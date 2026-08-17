@@ -714,6 +714,8 @@ export const inventoryItemLabels = mysqlTable("inventory_item_labels", {
   outboundBoxId: int("outboundBoxId"),
   receivedAt: timestamp("receivedAt"),
   shippedAt: timestamp("shippedAt"),
+  /** Yahoo listing reason: "junk" (defective) or "surplus" (working but unwanted). Null means junk. */
+  listingKind: varchar("listingKind", { length: 16 }),
   /** Fixed defect tags, stored as a comma-separated list. */
   defectTags: varchar("defectTags", { length: 255 }),
   /** One-line inspection note for the defective item. */
@@ -1094,6 +1096,8 @@ export const defectiveListingGroups = mysqlTable("defective_listing_groups", {
   id: int("id").autoincrement().primaryKey(),
   groupCode: varchar("groupCode", { length: 32 }).notNull().unique(),
   status: mysqlEnum("status", ["active", "dissolved"]).default("active").notNull(),
+  /** All members share one listing kind. Null means junk. */
+  listingKind: varchar("listingKind", { length: 16 }),
   memberLabelIdsJson: text("memberLabelIdsJson").notNull(),
   createdBy: varchar("createdBy", { length: 200 }),
   sheetSyncedAt: timestamp("sheetSyncedAt"),

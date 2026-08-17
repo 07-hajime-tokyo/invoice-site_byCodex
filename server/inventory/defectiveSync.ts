@@ -3,6 +3,7 @@ import { inventoryItemLabels, localInventories } from "../../drizzle/schema";
 import {
   buildDefectiveSheetPayload,
   generateYahooKeyword,
+  normalizeListingKind,
   type DefectPhoto,
 } from "./defectiveListing";
 import { postGasAction } from "./gasClient";
@@ -56,9 +57,10 @@ export async function syncDefectiveListingByLabelId(
     .split(",")
     .map(tag => tag.trim())
     .filter(Boolean);
+  const listingKind = normalizeListingKind(label.listingKind);
   const keyword =
     options.keyword?.normalize("NFKC").trim() ||
-    generateYahooKeyword(label.title, defectTags);
+    generateYahooKeyword(label.title, defectTags, listingKind);
   const existingMarket = parseMarket(label.yahooClosedPricesJson);
   const market =
     options.reuseFreshMarket && existingMarket?.keyword === keyword
@@ -75,6 +77,7 @@ export async function syncDefectiveListingByLabelId(
     unitPrice: inventory?.unitPrice ?? null,
     market,
     quantity: inventory?.quantity ?? 1,
+    listingKind,
   });
 
   await db

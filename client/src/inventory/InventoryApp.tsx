@@ -20,6 +20,7 @@ const AiInvestigation = lazy(() => import("@/inventory/pages/AiInvestigation"));
 const ActionItems = lazy(() => import("@/inventory/pages/ActionItems"));
 const WorkManagement = lazy(() => import("@/inventory/pages/WorkManagement"));
 const WhatsappHistory = lazy(() => import("@/inventory/pages/WhatsappHistory"));
+const YahooListings = lazy(() => import("@/inventory/pages/YahooListings"));
 const NotFound = lazy(() => import("@/inventory/pages/NotFound"));
 
 function InventoryPageLoading() {
@@ -50,6 +51,7 @@ const REMEMBERED_PATHS = [
   "/inventory/action-items",
   "/inventory/work-management",
   "/inventory/whatsapp-history",
+  "/inventory/yahoo-listings",
 ];
 
 const LAST_PATH_KEY = "invoice_site_inventory_last_path";
@@ -110,6 +112,7 @@ export default function InventoryApp() {
           <Route path={"/inventory/action-items"} component={ActionItems} />
           <Route path={"/inventory/work-management"} component={WorkManagement} />
           <Route path={"/inventory/whatsapp-history"} component={WhatsappHistory} />
+          <Route path={"/inventory/yahoo-listings"} component={YahooListings} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>

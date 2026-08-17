@@ -96,6 +96,55 @@ describe("defective listing generation", () => {
       defectTags: [],
     }).success).toBe(false);
   });
+  it("lets a working surplus item through without defect tags, but still blocks a junk one", () => {
+    expect(restockToDefectiveInputSchema.safeParse({
+      labelId: "ACDEFGH",
+      listingKind: "surplus",
+      defectTags: [],
+    }).success).toBe(true);
+    expect(restockToDefectiveInputSchema.safeParse({
+      labelId: "ACDEFGH",
+      listingKind: "junk",
+      defectTags: [],
+    }).success).toBe(false);
+    // 区分を省いたら従来どおりジャンク扱い
+    const parsed = restockToDefectiveInputSchema.safeParse({
+      labelId: "ACDEFGH",
+      defectTags: ["充電不可"],
+    });
+    expect(parsed.success && parsed.data.listingKind).toBe("junk");
+  });
+  it("drops the junk prefix and the junk wording for a working surplus item", () => {
+    const title = generateDefectiveTitle({
+      productName: "Nintendo Switch 本体のみ 対策済",
+      defectTags: [],
+      photoCount: 3,
+      listingKind: "surplus",
+    });
+    expect(title.includes("【ジャンク】")).toBe(false);
+    expect(title.startsWith("Nintendo ")).toBe(true);
+    expect(title.endsWith(" 動作確認済")).toBe(true);
+    expect(Array.from(title).length).toBeLessThanOrEqual(65);
+
+    const description = generateDefectiveDescription({
+      productName: "Nintendo Switch 本体のみ 対策済",
+      defectTags: [],
+      defectNote: "画面に薄いスレあり",
+      listingKind: "surplus",
+    });
+    expect(description).toContain("商品の状態");
+    expect(description).toContain("・動作確認済みです");
+    expect(description).toContain("・画面に薄いスレあり");
+    expect(description).not.toContain("不良内容");
+    expect(description).not.toContain("動作保証はありません");
+    expect(description).toContain("返品・交換・返金はお受けできません");
+  });
+  it("keeps the surplus keyword free of the junk word so the median is not dragged down", () => {
+    expect(generateYahooKeyword("Nintendo Switch 本体のみ 対策済", [], "surplus"))
+      .not.toContain("ジャンク");
+    expect(generateYahooKeyword("Nintendo Switch 本体のみ 対策済", []))
+      .toContain("ジャンク");
+  });
   it("keeps the warning, junk prefix, and defect tag within 65 characters", () => {
     const title = generateDefectiveTitle({
       productName:

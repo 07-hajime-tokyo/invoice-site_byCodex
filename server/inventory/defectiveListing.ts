@@ -14,9 +14,29 @@ export const DEFECT_TAGS = [
 
 export const DEFECT_PHOTO_KINDS = ["whole", "defect", "accessory"] as const;
 
+/**
+ * ヤフオクへ回す理由の区分。
+ * - junk: 不良品。動作保証なしのジャンクとして出す
+ * - surplus: 動作するが自社では不要になった在庫。ジャンク扱いにはしない
+ */
+export const LISTING_KINDS = ["junk", "surplus"] as const;
+
 export type DefectTag = (typeof DEFECT_TAGS)[number];
 export type DefectPhotoKind = (typeof DEFECT_PHOTO_KINDS)[number];
 export type DefectPhoto = { url: string; key: string; kind: DefectPhotoKind };
+export type ListingKind = (typeof LISTING_KINDS)[number];
+
+/** 区分を持たない旧データはすべてジャンクとして扱う */
+export function normalizeListingKind(
+  value: string | null | undefined
+): ListingKind {
+  return value === "surplus" ? "surplus" : "junk";
+}
+
+export const LISTING_KIND_SHEET_LABELS: Record<ListingKind, string> = {
+  junk: "ジャンク",
+  surplus: "不要在庫",
+};
 
 const KNOWN_BRANDS = [
   "Microsoft",
@@ -45,6 +65,8 @@ const KNOWN_BRANDS = [
 const TITLE_PREFIX = "【ジャンク】";
 const PHOTO_WARNING_PREFIX = "【写真未撮影】";
 const TITLE_LIMIT = 65;
+/** 動作品は不良タグを持たないので、タイトル末尾に状態を明示する */
+const SURPLUS_TITLE_SUFFIX = "動作確認済";
 
 const FIXED_SINGLE = `状態
 ・ジャンク品です
@@ -67,6 +89,33 @@ const FIXED_BUNDLE = `状態
 注意事項
 ・ジャンク品のため動作保証はありません。部品取り・修理前提でご検討ください
 ・個体ごとの不良内容は上記のとおりです。記載以外の不具合がある可能性があります
+・1点のみの販売・分割販売・お値引きはお受けできません
+・返品・交換・返金はお受けできません
+・中古品のため神経質な方はご遠慮ください
+・到着後の細かな状態差異はご容赦ください
+・現状渡しとなりますので、ご理解いただける方のみ購入をお願いいたします`;
+
+const FIXED_SINGLE_WORKING = `状態
+・動作確認済みです
+・中古品のため、スレや小傷があります
+・写真に写っているものがすべてです
+
+注意事項
+・中古品のため、経年による劣化やスレ・小傷があります
+・記載・写真にない細かな傷が見つかる場合があります
+・返品・交換・返金はお受けできません
+・中古品のため神経質な方はご遠慮ください
+・到着後の細かな状態差異はご容赦ください
+・現状渡しとなりますので、ご理解いただける方のみ購入をお願いいたします`;
+
+const FIXED_BUNDLE_WORKING = `状態
+・すべて動作確認済みです
+・中古品のため、スレや小傷があります
+・写真に写っているものがすべてです
+
+注意事項
+・中古品のため、経年による劣化やスレ・小傷があります
+・記載・写真にない細かな傷が見つかる場合があります
 ・1点のみの販売・分割販売・お値引きはお受けできません
 ・返品・交換・返金はお受けできません
 ・中古品のため神経質な方はご遠慮ください
@@ -100,7 +149,8 @@ function productNameWithoutLeadingBrand(productName: string, brand: string) {
 
 export function generateYahooKeyword(
   productName: string,
-  defectTags: readonly string[]
+  defectTags: readonly string[],
+  listingKind: ListingKind = "junk"
 ) {
   const normalized = productName.normalize("NFKC").replace(/\s+/g, " ").trim();
   const brand = extractBrand(normalized);
@@ -118,22 +168,29 @@ export function generateYahooKeyword(
   )
     .slice(0, 6)
     .join(" ");
-  return [core || normalized, defectTags[0] || "ジャンク"]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+  // 動作品はジャンク相場と混ざると中央値が下振れするので、状態語を足さずに引く
+  const conditionWord =
+    listingKind === "surplus" ? "" : defectTags[0] || "ジャンク";
+  return [core || normalized, conditionWord].filter(Boolean).join(" ").trim();
 }
 
 export function generateDefectiveTitle(input: {
   productName: string;
   defectTags: readonly string[];
   photoCount: number;
+  listingKind?: ListingKind;
 }) {
+  const listingKind = input.listingKind ?? "junk";
   const brand = extractBrand(input.productName);
   const productName = productNameWithoutLeadingBrand(input.productName, brand);
   const warning = input.photoCount === 0 ? PHOTO_WARNING_PREFIX : "";
-  const suffix = ` ${input.defectTags[0] || "その他"}`;
-  const fixed = `${warning}${TITLE_PREFIX}${brand ? `${brand} ` : ""}`;
+  const suffix =
+    listingKind === "surplus"
+      ? ` ${SURPLUS_TITLE_SUFFIX}`
+      : ` ${input.defectTags[0] || "その他"}`;
+  // 動作品に【ジャンク】を付けると相場を自分から下げてしまう
+  const kindPrefix = listingKind === "surplus" ? "" : TITLE_PREFIX;
+  const fixed = `${warning}${kindPrefix}${brand ? `${brand} ` : ""}`;
   const available =
     TITLE_LIMIT - codePoints(fixed).length - codePoints(suffix).length;
   return `${fixed}${takeCodePoints(productName, available)}${suffix}`;
@@ -144,12 +201,31 @@ export function generateDefectiveDescription(input: {
   defectTags: readonly string[];
   defectNote?: string | null;
   quantity?: number;
+  listingKind?: ListingKind;
 }) {
+  const listingKind = input.listingKind ?? "junk";
+  const bundle = (input.quantity ?? 1) > 1;
+  const note = input.defectNote?.trim();
+  if (listingKind === "surplus") {
+    const condition = [
+      bundle ? "・すべて動作確認済みです" : "・動作確認済みです",
+      ...(note ? [`・${note}`] : []),
+    ].join("\n");
+    return `商品説明
+${input.productName.trim()} の出品です。
+
+商品の状態
+${condition}
+
+付属品
+・写真に写っているものがすべてです
+
+${bundle ? FIXED_BUNDLE_WORKING : FIXED_SINGLE_WORKING}`;
+  }
   const defects = [
     ...input.defectTags.map(tag => `・${tag}`),
-    ...(input.defectNote?.trim() ? [`・${input.defectNote.trim()}`] : []),
+    ...(note ? [`・${note}`] : []),
   ].join("\n");
-  const fixed = (input.quantity ?? 1) > 1 ? FIXED_BUNDLE : FIXED_SINGLE;
   return `商品説明
 ${input.productName.trim()} の出品です。
 
@@ -159,7 +235,7 @@ ${defects || "・その他"}
 付属品
 ・写真に写っているものがすべてです
 
-${fixed}`;
+${bundle ? FIXED_BUNDLE : FIXED_SINGLE}`;
 }
 
 export type DefectiveSheetPayload = {
@@ -169,6 +245,7 @@ export type DefectiveSheetPayload = {
   productId: string;
   inspectedAt: string;
   productName: string;
+  listingKind: string;
   defectTags: string;
   defectNote: string;
   photos: string[];
@@ -195,7 +272,9 @@ export function buildDefectiveSheetPayload(input: {
   unitPrice?: string | number | null;
   market: YahooClosedPrices;
   quantity?: number;
+  listingKind?: ListingKind;
 }): DefectiveSheetPayload {
+  const listingKind = input.listingKind ?? "junk";
   const noMarket = input.market.adopted.count === 0;
   const numericUnitPrice =
     input.unitPrice == null || input.unitPrice === ""
@@ -207,6 +286,7 @@ export function buildDefectiveSheetPayload(input: {
     productId: input.productId,
     inspectedAt: input.inspectedAt.toISOString(),
     productName: input.productName,
+    listingKind: LISTING_KIND_SHEET_LABELS[listingKind],
     defectTags: input.defectTags.join(","),
     defectNote: input.defectNote?.trim() ?? "",
     photos: input.photos.map(photo => photo.url),
@@ -223,12 +303,14 @@ export function buildDefectiveSheetPayload(input: {
       productName: input.productName,
       defectTags: input.defectTags,
       photoCount: input.photos.length,
+      listingKind,
     }),
     listingDescription: generateDefectiveDescription({
       productName: input.productName,
       defectTags: input.defectTags,
       defectNote: input.defectNote,
       quantity: input.quantity,
+      listingKind,
     }),
   };
 }

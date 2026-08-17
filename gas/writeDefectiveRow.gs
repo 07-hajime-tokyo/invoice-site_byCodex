@@ -7,7 +7,7 @@
 
 var DEFECTIVE_SHEET_NAME_ = "不良在庫";
 var DEFECTIVE_SITE_HEADERS_ = [
-  "商品ID", "検品日", "商品名", "不良タグ", "不良メモ",
+  "商品ID", "検品日", "商品名", "出品区分", "不良タグ", "不良メモ",
   "写真1", "写真2", "写真3", "写真枚数", "仕入単価", "検索キーワード",
   "相場_採用件数", "相場_中央値", "相場_最安", "相場_最高",
   "落札実績1", "落札実績2", "落札実績3", "落札実績4", "落札実績5",
@@ -38,6 +38,7 @@ function defectiveSiteValues_(payload) {
     "商品ID": String(payload.productId || ""),
     "検品日": payload.inspectedAt ? Utilities.formatDate(new Date(payload.inspectedAt), "Asia/Tokyo", "yyyy-MM-dd") : "",
     "商品名": payload.productName || "",
+    "出品区分": payload.listingKind || "ジャンク",
     "不良タグ": payload.defectTags || "",
     "不良メモ": payload.defectNote || "",
     "写真1": defectiveImageCell_(photos[0]),
