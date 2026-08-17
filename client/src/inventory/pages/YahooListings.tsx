@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
   Unlink,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -310,6 +311,7 @@ export default function YahooListings() {
   const [selected, setSelected] = useState<string[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [busyLabelId, setBusyLabelId] = useState<string | null>(null);
+  const [sending, setSending] = useState<{ done: number; total: number } | null>(null);
 
   const utils = trpc.useUtils();
   const queue = trpc.inventory.inboundDesk.yahooListingQueue.useQuery();
@@ -368,6 +370,33 @@ export default function YahooListings() {
     }
   }
 
+  /**
+   * 登録直後のシート書き込みはレスポンスを返したあとに走るため、
+   * Vercelが関数を凍らせると途中で切れて「未反映」のまま残る（2026-08-17に実測）。
+   * ここでは1件ずつ待って送り直し、送れたぶんだけ確実に反映済みにする。
+   */
+  async function onSendPending() {
+    const pending = (queue.data?.items ?? []).filter(item => !item.sheetSyncedAt);
+    if (pending.length === 0) return;
+    setSending({ done: 0, total: pending.length });
+    let failed = 0;
+    for (const [index, item] of pending.entries()) {
+      try {
+        await refreshListing.mutateAsync({
+          labelId: item.labelId,
+          reuseFreshMarket: true,
+        });
+      } catch {
+        failed += 1;
+      }
+      setSending({ done: index + 1, total: pending.length });
+    }
+    setSending(null);
+    await reload();
+    if (failed > 0) toast.warning(`${pending.length - failed}件を反映。${failed}件は失敗しました`);
+    else toast.success(`${pending.length}件をシートへ反映しました`);
+  }
+
   async function onGroup() {
     if (selected.length < 2) {
       toast.error("まとめ出品は2台以上選んでください");
@@ -389,6 +418,7 @@ export default function YahooListings() {
       all: all.length,
       junk: all.filter(item => item.listingKind === "junk").length,
       surplus: all.filter(item => item.listingKind === "surplus").length,
+      pending: all.filter(item => !item.sheetSyncedAt).length,
     };
   }, [queue.data]);
 
@@ -421,6 +451,27 @@ export default function YahooListings() {
         <Button type="button" size="sm" className="min-h-10" onClick={() => setAddOpen(true)}>
           <Plus className="mr-1 h-4 w-4" /> 在庫から追加
         </Button>
+        {counts.pending > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="min-h-10"
+            onClick={() => void onSendPending()}
+            disabled={Boolean(sending)}
+          >
+            {sending ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                送信中 {sending.done}/{sending.total}
+              </>
+            ) : (
+              <>
+                <Send className="mr-1 h-4 w-4" /> 未反映 {counts.pending}件をシートへ送る
+              </>
+            )}
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"

@@ -1612,10 +1612,18 @@ export const inboundDeskRouter = router({
       z.object({
         labelId: z.string().min(1).max(80),
         keyword: z.string().max(200).optional(),
+        /**
+         * シートへ送り直すだけのときは true。
+         * 相場を取り直さないぶん速く、ヤフオクへの往復も増やさない。
+         */
+        reuseFreshMarket: z.boolean().optional(),
       })
     )
     .mutation(async ({ input }) =>
-      syncDefectiveListingByLabelId(input.labelId, { keyword: input.keyword })
+      syncDefectiveListingByLabelId(input.labelId, {
+        keyword: input.keyword,
+        reuseFreshMarket: input.reuseFreshMarket,
+      })
     ),
 
   /**
