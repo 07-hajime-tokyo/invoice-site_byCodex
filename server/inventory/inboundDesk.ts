@@ -89,6 +89,8 @@ export const restockToDefectiveInputSchema = z
     operatorName: z.string().max(200).optional(),
     /** 既定はジャンク。動作するが不要になった在庫を国内で売るときだけ surplus */
     listingKind: z.enum(LISTING_KINDS).default("junk"),
+    /** 代替品の仕入れ依頼を「やること」へ出すか。明示的に頼まれたときだけ true */
+    requestReplacement: z.boolean().default(false),
     defectTags: z.array(z.enum(DEFECT_TAGS)).max(9).default([]),
     defectNote: z.string().max(500).optional(),
     defectPhotos: z.array(z.object({
@@ -592,6 +594,8 @@ async function moveStockToListing(
     defectTags: readonly DefectTag[];
     defectNote?: string;
     defectPhotos?: DefectPhoto[];
+    /** 代替品の仕入れ依頼を「やること」へ出すか。既定は出さない */
+    requestReplacement?: boolean;
   },
   workerName: string
 ) {
@@ -658,12 +662,16 @@ async function moveStockToListing(
     }
     return inventoryId;
   });
-  const actionItemId = await insertInspectionActionItem({
-    labelId,
-    title: candidate.label.title,
-    legacyManagementNo: candidate.label.legacyManagementNo,
-    createdBy: workerName,
-  });
+  // 代替品の仕入れ依頼は、明示的に頼まれたときだけ「やること」へ出す。
+  // ヤフオクへ回す＝売り切る判断なので、自動で仕入れ直す前提に立たない（村上さん指示・2026-08-18）
+  const actionItemId = input.requestReplacement
+    ? await insertInspectionActionItem({
+        labelId,
+        title: candidate.label.title,
+        legacyManagementNo: candidate.label.legacyManagementNo,
+        createdBy: workerName,
+      })
+    : null;
   await recordWorkLog({
     workerName,
     category:
@@ -1636,6 +1644,7 @@ export const inboundDeskRouter = router({
       labelIds: z.array(z.string().min(1).max(80)).min(1).max(100),
       operatorName: z.string().max(200).optional(),
       listingKind: z.enum(LISTING_KINDS).default("junk"),
+      requestReplacement: z.boolean().default(false),
       defectTags: z.array(z.enum(DEFECT_TAGS)).max(9).default([]),
       defectNote: z.string().max(500).optional(),
     }).superRefine((value, context) => {
@@ -1657,6 +1666,7 @@ export const inboundDeskRouter = router({
           const result = await moveStockToListing({
             labelId: rawLabelId,
             listingKind: input.listingKind,
+            requestReplacement: input.requestReplacement,
             defectTags: input.defectTags,
             defectNote: input.defectNote,
             defectPhotos: [],
