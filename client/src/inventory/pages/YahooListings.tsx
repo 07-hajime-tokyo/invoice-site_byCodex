@@ -131,15 +131,17 @@ function AddStockDialog({
 
   return (
     <Dialog open={open} onOpenChange={next => !next && !busy && onClose()}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b px-6 pb-4 pt-6">
           <DialogTitle>在庫から出品待ちへ入れる</DialogTitle>
           <DialogDescription>
             商品名で探して、まとめて選べます。写真はあとから足せます。
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        {/* 登録ボタンは下に固定する。1台選んだ時点ですぐ押せるようにするため、
+            候補が何十行あってもスクロールして探しに行かなくてよい */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div>
             <div className="text-sm font-semibold">1. 何を出すか</div>
             <div className="mt-2 flex gap-2">
@@ -292,11 +294,16 @@ function AddStockDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="flex-none flex-row items-center gap-2 border-t bg-background px-6 py-3 sm:gap-2">
           <Button type="button" variant="outline" className="min-h-12" onClick={onClose} disabled={busy}>
             キャンセル
           </Button>
-          <Button type="button" className="min-h-12" onClick={() => void submit()} disabled={busy || blocked}>
+          <Button
+            type="button"
+            className="min-h-12 flex-1"
+            onClick={() => void submit()}
+            disabled={busy || blocked || selected.length === 0}
+          >
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
             {selected.length}台を出品待ちへ
           </Button>

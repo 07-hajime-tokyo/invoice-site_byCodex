@@ -12,7 +12,7 @@ import {
   type ListingKind,
 } from "./defectiveListing";
 import { getDb } from "./db";
-import { postGasAction } from "./gasClient";
+import { writeYahooListingRow } from "./yahooListingSheet";
 import type { YahooClosedPrices } from "./yahooClosedPrices";
 
 function parseArray<T>(value: string | null | undefined): T[] {
@@ -292,7 +292,7 @@ export async function syncDefectiveGroup(id: number) {
     .where(and(eq(defectiveListingGroups.id, id), eq(defectiveListingGroups.status, "active"))).limit(1);
   if (!group) throw new Error("有効な出品グループが見つかりません");
   const { payload } = await buildGroupPayload(group);
-  const sheet = await postGasAction(payload);
+  const sheet = await writeYahooListingRow(payload);
   if (sheet.success) {
     await db.update(defectiveListingGroups).set({ sheetSyncedAt: new Date() }).where(eq(defectiveListingGroups.id, group.id));
   }
@@ -305,7 +305,7 @@ export async function dissolveDefectiveGroup(id: number) {
     .where(and(eq(defectiveListingGroups.id, id), eq(defectiveListingGroups.status, "active"))).limit(1);
   if (!group) throw new Error("有効な出品グループが見つかりません");
   const { payload } = await buildGroupPayload(group, true);
-  const sheet = await postGasAction(payload);
+  const sheet = await writeYahooListingRow(payload);
   if (!sheet.success) throw new Error(`グループ行を解除済みに更新できませんでした: ${sheet.message ?? "要確認"}`);
   const now = new Date();
   await db.update(defectiveListingGroups).set({

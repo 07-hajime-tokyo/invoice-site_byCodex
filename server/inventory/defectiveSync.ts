@@ -6,7 +6,7 @@ import {
   normalizeListingKind,
   type DefectPhoto,
 } from "./defectiveListing";
-import { postGasAction } from "./gasClient";
+import { writeYahooListingRow } from "./yahooListingSheet";
 import { getDb } from "./db";
 import {
   fetchYahooClosedPrices,
@@ -88,7 +88,7 @@ export async function syncDefectiveListingByLabelId(
     })
     .where(eq(inventoryItemLabels.id, label.id));
 
-  const gasResult = await postGasAction(payload);
+  const gasResult = await writeYahooListingRow(payload);
   if (gasResult.success) {
     await db
       .update(inventoryItemLabels)
