@@ -73,7 +73,7 @@ export function shipmentSheetForPartner(
   const text = String(partner ?? "").normalize("NFKC").trim().toLowerCase();
   if (!text) return null;
   if (text.includes("デボン") || text.includes("devon")) return "デボン発送管理";
-  if (text.includes("サイモン") || text.includes("simon")) return "サイモン発送管理";
+  if (text.includes("サイモン") || text.includes("simon") || text.includes("hennes kamusien")) return "サイモン発送管理";
   if (text.includes("ネレ") || text.includes("nele")) return "ネレ発送管理";
   if (
     text.includes("サミー") ||

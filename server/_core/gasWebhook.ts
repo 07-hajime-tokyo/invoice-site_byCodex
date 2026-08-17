@@ -1,13 +1,14 @@
 import { createHash, timingSafeEqual } from "crypto";
 import type { Express, Request, Response } from "express";
-import { and, desc, eq, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   localInventories,
+  inventoryItemLabels,
   localPurchases,
   purchaseHistories,
 } from "../../drizzle/schema";
-import { ensureInventoryItemLabels, getDb } from "../inventory/db";
+import { createInventoryMemo, ensureInventoryItemLabels, getDb } from "../inventory/db";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -171,6 +172,85 @@ function combineOr(conditions: SQL<unknown>[]) {
   if (conditions.length === 0) return undefined;
   if (conditions.length === 1) return conditions[0];
   return or(...conditions);
+}
+
+const FULL_RESTORE_SNAPSHOT_MARKER = "__FULL_RESTORE_SNAPSHOT_V1__:";
+const FULL_RESTORE_SNAPSHOT_CHANGE_TYPE = "restore_snapshot";
+
+type GasInventoryRow = typeof localInventories.$inferSelect;
+type GasPurchaseRow = typeof localPurchases.$inferSelect;
+type GasLabelRow = typeof inventoryItemLabels.$inferSelect;
+
+async function recordGasFullRestoreSnapshot(input: {
+  inventory?: GasInventoryRow | null;
+  purchases?: GasPurchaseRow[];
+  source: string;
+  reason: string;
+  operatorName?: string | null;
+}) {
+  try {
+    const inventory = input.inventory ?? null;
+    const purchases = input.purchases ?? [];
+    if (!inventory && purchases.length === 0) return;
+
+    const db = await getDb();
+    if (!db) return;
+
+    const labelConditions: SQL<unknown>[] = [];
+    if (inventory?.id) labelConditions.push(eq(inventoryItemLabels.localInventoryId, inventory.id));
+    const purchaseIds = purchases.map((purchase) => purchase.id).filter((id) => Number.isFinite(id));
+    if (purchaseIds.length > 0) labelConditions.push(inArray(inventoryItemLabels.purchaseId, purchaseIds));
+    const labels = labelConditions.length > 0
+      ? await db
+          .select()
+          .from(inventoryItemLabels)
+          .where(combineOr(labelConditions))
+      : [];
+
+    const labelsByInventory = new Map<number, GasLabelRow[]>();
+    const labelsByPurchase = new Map<number, GasLabelRow[]>();
+    for (const label of labels) {
+      if (label.localInventoryId != null) {
+        const current = labelsByInventory.get(label.localInventoryId) ?? [];
+        current.push(label);
+        labelsByInventory.set(label.localInventoryId, current);
+      }
+      if (label.purchaseId != null) {
+        const current = labelsByPurchase.get(label.purchaseId) ?? [];
+        current.push(label);
+        labelsByPurchase.set(label.purchaseId, current);
+      }
+    }
+
+    const snapshot = {
+      version: 1,
+      capturedAt: new Date().toISOString(),
+      source: input.source,
+      reason: input.reason,
+      operatorName: input.operatorName ?? null,
+      inventory: inventory ? { ...inventory, itemLabels: labelsByInventory.get(inventory.id) ?? [] } : null,
+      purchases: purchases.map((purchase) => ({
+        ...purchase,
+        itemLabels: labelsByPurchase.get(purchase.id) ?? [],
+      })),
+      labels,
+    };
+    const memoInventoryId = Number(inventory?.zaicoId ?? inventory?.id ?? purchases[0]?.localInventoryId ?? purchases[0]?.id ?? 0);
+    if (!Number.isFinite(memoInventoryId) || memoInventoryId <= 0) return;
+
+    await createInventoryMemo({
+      zaicoInventoryId: memoInventoryId,
+      title: String(inventory?.title ?? purchases[0]?.title ?? "GAS上書き前スナップショット"),
+      changeType: FULL_RESTORE_SNAPSHOT_CHANGE_TYPE,
+      quantityBefore: inventory?.quantity ?? null,
+      quantityAfter: inventory?.quantity ?? null,
+      quantityDelta: 0,
+      memo: `${FULL_RESTORE_SNAPSHOT_MARKER}${JSON.stringify(snapshot)}`,
+      operatorName: input.operatorName ?? null,
+    });
+  } catch (error) {
+    console.warn("[GAS purchase webhook] failed to record full restore snapshot", error);
+  }
 }
 
 function makeSourceKey(payload: Record<string, unknown>, managementNo: string, purchaseNum: string) {
@@ -360,6 +440,30 @@ export function registerGasWebhookRoutes(app: Express) {
             .limit(1)
         : [];
 
+      const purchaseWhere = managementNo
+        ? eq(localPurchases.managementNo, managementNo)
+        : purchaseNum
+          ? eq(localPurchases.purchaseNum, purchaseNum)
+          : undefined;
+      const existingPurchase = purchaseWhere
+        ? await db
+            .select()
+            .from(localPurchases)
+            .where(purchaseWhere)
+            .orderBy(desc(localPurchases.updatedAt))
+            .limit(1)
+        : [];
+
+      if (existingInventory[0] || existingPurchase[0]) {
+        await recordGasFullRestoreSnapshot({
+          inventory: existingInventory[0] ?? null,
+          purchases: existingPurchase[0] ? [existingPurchase[0]] : [],
+          source: "gas-webhook",
+          reason: "GAS商品登録前",
+          operatorName,
+        });
+      }
+
       if (existingInventory[0]) {
         inventoryId = existingInventory[0].id;
         previousQuantity = existingInventory[0].quantity ?? 0;
@@ -407,20 +511,6 @@ export function registerGasWebhookRoutes(app: Express) {
         inventory_id: inventoryId,
         category,
       }]);
-
-      const purchaseWhere = managementNo
-        ? eq(localPurchases.managementNo, managementNo)
-        : purchaseNum
-          ? eq(localPurchases.purchaseNum, purchaseNum)
-          : undefined;
-      const existingPurchase = purchaseWhere
-        ? await db
-            .select()
-            .from(localPurchases)
-            .where(purchaseWhere)
-            .orderBy(desc(localPurchases.updatedAt))
-            .limit(1)
-        : [];
 
       let purchaseId: number | null = null;
       if (existingPurchase[0]) {

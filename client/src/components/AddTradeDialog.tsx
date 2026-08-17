@@ -118,6 +118,7 @@ const PARTNER_MAP: Record<string, string> = {
   "devon": "デボン",
   "devon brako": "デボン",
   "simon": "サイモン",
+  "hennes kamusien": "サイモン",
   "maxim": "マキシム",
   "nele": "ネレ",
 };
@@ -216,6 +217,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
+  const [invoicePreviewRateLoading, setInvoicePreviewRateLoading] = useState(false);
   const [rateSource, setRateSource] = useState<string | null>(null); // 取得元の説明
   const [statusMode, setStatusMode] = useState<"select" | "free">("select"); // 状況入力モード
   const [shippingManual, setShippingManual] = useState(false); // 送料を手動編集中かどうか
@@ -465,7 +467,8 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     const invoiceNo = numMatch ? numMatch[1] : targetInvoice.invoiceNumber;
 
     const snapshot = targetInvoice.clientSnapshot as { name?: string } | null;
-    const partner = toJapanesePartner(snapshot?.name ?? "");
+    const rawPartnerName = snapshot?.name ?? "";
+    const partner = toJapanesePartner(rawPartnerName);
 
     const currencyRaw = targetInvoice.currency ?? "EUR";
     const currency: "ユーロ" | "ドル" = partner ? getCurrencyForPartner(partner) : currencyRaw === "USD" ? "ドル" : "ユーロ";
@@ -512,6 +515,35 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     setInvoicePreviewOpen(true);
   };
 
+  const handleInvoicePreviewPaymentDateChange = async (value: string) => {
+    setSubmitError(null);
+    const normalized = normalizeDate(value);
+    const nextMonth = normalized ? Number(normalized.slice(5, 7)) : null;
+
+    setInvoiceApplyPreview(prev => prev ? {
+      ...prev,
+      paymentDate: value,
+      ...(nextMonth ? { month: nextMonth } : {}),
+    } : prev);
+
+    if (!normalized) return;
+
+    setInvoicePreviewRateLoading(true);
+    const rates = await fetchFrankfurterRate(normalized) ?? await fetchFrankfurterRate();
+    setInvoicePreviewRateLoading(false);
+
+    if (!rates) {
+      setSubmitError("為替レートを取得できませんでした。別の日付を選ぶか、手動入力で登録してください。");
+      return;
+    }
+
+    setInvoiceApplyPreview(prev => prev ? {
+      ...prev,
+      eurRate: rates.eur,
+      usdRate: rates.usd,
+    } : prev);
+  };
+
   const handleConfirmApplyInvoice = async () => {
     if (!invoiceApplyPreview) return;
     setSubmitError(null);
@@ -538,6 +570,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       });
       setForm(createInitialForm());
       setSubmitError(null);
+      setInvoicePreviewRateLoading(false);
       setRateSource(null);
       setStatusMode("select");
       setShippingManual(false);
@@ -666,7 +699,10 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
         open={invoicePreviewOpen}
         onOpenChange={(nextOpen) => {
           setInvoicePreviewOpen(nextOpen);
-          if (!nextOpen) setInvoiceApplyPreview(null);
+          if (!nextOpen) {
+            setInvoiceApplyPreview(null);
+            setInvoicePreviewRateLoading(false);
+          }
         }}
       >
         <DialogContent className="max-w-lg">
@@ -691,8 +727,19 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
                 <div>
                   取引相手: <span className="font-medium text-foreground">{invoiceApplyPreview.partner}</span>
                 </div>
-                <div>
-                  支払い日: <span className="font-medium text-foreground">{invoiceApplyPreview.paymentDate}</span>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">支払い日</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="date"
+                      value={invoiceApplyPreview.paymentDate}
+                      onChange={(e) => handleInvoicePreviewPaymentDateChange(e.target.value)}
+                      className="h-8 bg-background text-xs"
+                    />
+                    {invoicePreviewRateLoading && (
+                      <Loader2 size={13} className="animate-spin text-primary" />
+                    )}
+                  </div>
                 </div>
                 <div>
                   通貨: <span className="font-medium text-foreground">{invoiceApplyPreview.currency}</span>
@@ -736,6 +783,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               onClick={() => {
                 setInvoicePreviewOpen(false);
                 setInvoiceApplyPreview(null);
+                setInvoicePreviewRateLoading(false);
               }}
               className="w-full sm:w-auto"
             >
@@ -744,7 +792,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
             <Button
               size="sm"
               onClick={handleConfirmApplyInvoice}
-              disabled={!invoiceApplyPreview || invoiceAddMutation.isPending}
+              disabled={!invoiceApplyPreview || invoiceAddMutation.isPending || invoicePreviewRateLoading}
               className="w-full sm:w-auto"
             >
               {invoiceAddMutation.isPending ? (

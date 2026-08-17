@@ -80,6 +80,11 @@ function runWhenIdle(callback: () => void, timeout = 12_000) {
   return () => window.clearTimeout(id);
 }
 
+function normalizeTradeDataPartner(partner: string | null | undefined) {
+  const trimmed = String(partner ?? "").trim();
+  return trimmed.normalize("NFKC").toLowerCase() === "hennes kamusien" ? "サイモン" : trimmed;
+}
+
 // DBレコードをフロントエンドのTradeRecord型に変換する
 function dbRecordToTradeRecord(r: {
   id: number;
@@ -126,7 +131,7 @@ function dbRecordToTradeRecord(r: {
     month: r.month ?? "",
     year,
     yearMonth,
-    partner: r.partner ?? "",
+    partner: normalizeTradeDataPartner(r.partner),
     no: r.no ?? 0,
     paymentDate,
     productName: r.productName ?? "",

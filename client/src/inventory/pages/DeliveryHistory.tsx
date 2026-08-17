@@ -66,6 +66,18 @@ type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボ�
 
 const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
 
+type FedexShipmentView = {
+  id: number;
+  deliveryNo?: string;
+  sheetName: string;
+  shippingDate: string;
+  trackingNumber: string;
+  spreadsheetStatus: string;
+  spreadsheetError?: string | null;
+  itemsJson?: string;
+  historyId?: number | null;
+};
+
 function detectShipmentSheetNameInText(text: string | null | undefined): ShipmentSheetName | null {
   const haystack = text?.toLowerCase() ?? "";
   if (!haystack) return null;
@@ -832,7 +844,7 @@ export function FedexShipmentDialog({
     items: Array<{ productNameJa: string; productNameEn: string; quantity: number; managementNo?: string | null }>;
   }) => void;
   isPending: boolean;
-  existingShipments: Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string }>;
+  existingShipments: FedexShipmentView[];
 }) {
   const today = new Date();
   const defaultDate = `${today.getMonth() + 1}/${today.getDate()}`;
@@ -1940,23 +1952,24 @@ export default function DeliveryHistory() {
     staleTime: 30000,
   });
   const fedexShipmentsMap = useMemo(() => {
-    const map = new Map<string, Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string; historyId?: number | null }>>();
+    const map = new Map<string, FedexShipmentView[]>();
     if (!fedexShipmentsData) return map;
-    for (const s of fedexShipmentsData as Array<{ id: number; deliveryNo: string; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string; historyId?: number | null }>) {
+    for (const s of fedexShipmentsData as FedexShipmentView[]) {
+      if (!s.deliveryNo) continue;
       const key = extractDeliveryGroup(s.deliveryNo);
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push({ id: s.id, sheetName: s.sheetName, shippingDate: s.shippingDate, trackingNumber: s.trackingNumber, spreadsheetStatus: s.spreadsheetStatus, itemsJson: s.itemsJson, historyId: s.historyId });
+      map.get(key)!.push(s);
     }
     return map;
   }, [fedexShipmentsData]);
   // historyId -> 追跡番号リスト（各出庫行に紐付く追跡番号のみ表示するため）
   const fedexByHistoryId = useMemo(() => {
-    const map = new Map<number, Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string }>>();
+    const map = new Map<number, FedexShipmentView[]>();
     if (!fedexShipmentsData) return map;
-    for (const s of fedexShipmentsData as Array<{ id: number; historyId?: number | null; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string }>) {
+    for (const s of fedexShipmentsData as FedexShipmentView[]) {
       if (!s.historyId) continue;
       if (!map.has(s.historyId)) map.set(s.historyId, []);
-      map.get(s.historyId)!.push({ id: s.id, sheetName: s.sheetName, shippingDate: s.shippingDate, trackingNumber: s.trackingNumber, spreadsheetStatus: s.spreadsheetStatus, itemsJson: s.itemsJson });
+      map.get(s.historyId)!.push(s);
     }
     return map;
   }, [fedexShipmentsData]);
@@ -2581,20 +2594,24 @@ export default function DeliveryHistory() {
                       const byHistoryId = fedexByHistoryId.get(history.id) ?? [];
                       // historyIdで紐付けられたものがある場合はそのみ表示
                       // ない場合のみdeliveryNoベース（historyId未設定のもの）を表示
-                      let shipments: Array<{ id: number; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string }>;
+                      let shipments: FedexShipmentView[];
                       if (byHistoryId.length > 0) {
                         shipments = byHistoryId;
                       } else {
                         // historyId未設定のdeliveryNoベースのもの（既存データ）
                         // deliveryNoが完全一致するものだけ表示（グループキーではなく完全一致）
-                        shipments = (fedexShipmentsData as Array<{ id: number; deliveryNo: string; sheetName: string; shippingDate: string; trackingNumber: string; spreadsheetStatus: string; itemsJson: string; historyId?: number | null }> ?? [])
-                          .filter((s) => !s.historyId && s.deliveryNo === history.deliveryNo);
+                        shipments = (fedexShipmentsData as FedexShipmentView[] ?? [])
+                            .filter((s) => !s.historyId && s.deliveryNo === history.deliveryNo);
                       }
                       if (shipments.length === 0) return null;
                       return (
                         <div className="flex items-center gap-1 flex-wrap">
                           {shipments.map((s) => {
-                            const items = (() => { try { return JSON.parse(s.itemsJson) as Array<{productNameJa:string;productNameEn:string;quantity:number}>; } catch { return []; } })();
+                            const items = (() => { try { return JSON.parse(s.itemsJson ?? "[]") as Array<{productNameJa:string;productNameEn:string;quantity:number}>; } catch { return []; } })();
+                            const statusLabel =
+                              s.spreadsheetStatus === "success" ? "スプシ反映済み" :
+                              s.spreadsheetStatus === "error" ? `スプシ反映エラー${s.spreadsheetError ? `: ${s.spreadsheetError}` : ""}` :
+                              "スプシ反映待ち";
                             return (
                               <div
                                 key={s.id}
@@ -2611,7 +2628,7 @@ export default function DeliveryHistory() {
                                   rel="noopener noreferrer"
                                   className="hover:underline"
                                   onClick={(e) => e.stopPropagation()}
-                                  title={`FedEx追跡: ${s.trackingNumber} (発送日: ${s.shippingDate})`}
+                                  title={`FedEx追跡: ${s.trackingNumber} (発送日: ${s.shippingDate}) / ${statusLabel}`}
                                 >
                                   {s.trackingNumber}
                                 </a>

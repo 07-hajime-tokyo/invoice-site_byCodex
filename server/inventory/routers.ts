@@ -18,6 +18,7 @@ import {
 } from "@shared/inboundPipeline";
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
+import type { InsertLocalInventory, InsertLocalPurchase } from "../../drizzle/schema";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -186,7 +187,7 @@ function detectShipmentSheetNameInText(text: string | null | undefined): Shipmen
   const haystack = text?.toLowerCase() ?? "";
   if (!haystack) return null;
   if (haystack.includes("デボン") || haystack.includes("devon")) return "デボン発送管理";
-  if (haystack.includes("サイモン") || haystack.includes("simon")) return "サイモン発送管理";
+  if (haystack.includes("サイモン") || haystack.includes("simon") || haystack.includes("hennes kamusien")) return "サイモン発送管理";
   if (haystack.includes("ネレ") || haystack.includes("nele")) return "ネレ発送管理";
   if (haystack.includes("サミー") || haystack.includes("samee") || haystack.includes("sami") || haystack.includes("sammy")) return "サミー発送管理";
   if (haystack.includes("マキシム") || haystack.includes("maxim") || haystack.includes("ルカ") || haystack.includes("luca")) return "独発送管理";
@@ -355,6 +356,14 @@ type OrderCsvRow = {
 
 type CsvProductCandidate = { name: string; qty: number };
 
+function normalizeTradePartnerName(partner: string | null | undefined): string {
+  const trimmed = String(partner ?? "").trim();
+  if (!trimmed) return "その他";
+  const normalized = trimmed.normalize("NFKC").toLowerCase();
+  if (normalized === "hennes kamusien") return "サイモン";
+  return trimmed;
+}
+
 function suggestCsvProductNameWithFallback(
   title: string,
   managementNo: string,
@@ -432,7 +441,7 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
   return rows
     .map((row) => ({
       tradeRecordId: row.tradeRecordId == null ? null : Number(row.tradeRecordId),
-      partner: row.partner?.trim() || "その他",
+      partner: normalizeTradePartnerName(row.partner),
       invoiceNo: row.invoiceNo != null ? String(row.invoiceNo) : "",
       paymentDate: row.paymentDate ?? "",
       productName: row.productName?.trim() ?? "",
@@ -909,6 +918,7 @@ type PurchasePageRow = {
 type LocalInventoryRow = Awaited<ReturnType<typeof getLocalInventories>>[number];
 type LocalInventoryItemLabelRow = NonNullable<LocalInventoryRow["itemLabels"]>[number];
 type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
+type LocalPurchaseItemLabelRow = NonNullable<LocalPurchaseRow["itemLabels"]>[number];
 type PurchaseHistoryRow = Awaited<ReturnType<typeof getPurchaseHistories>>[number];
 type InventoryMemoRow = Awaited<ReturnType<typeof getInventoryMemos>>[number];
 type InventoryItemLabelView = {
@@ -1298,6 +1308,506 @@ function restoreSnapshotDiffersFromInventory(
     const currentValue = String(currentValues[field] ?? "").trim();
     return restoredValue !== currentValue;
   });
+}
+
+const INVENTORY_RESTORE_FIELDS = [
+  "title",
+  "quantity",
+  "unit",
+  "category",
+  "place",
+  "etc",
+  "unitPrice",
+  "supplierName",
+  "supplierUrl",
+  "ebayListingUrl",
+  "ebayOrderUrl",
+  "ebayOrderStatus",
+] as const satisfies readonly InventoryRestoreField[];
+
+const INVENTORY_RESTORE_FIELD_NAMES: Record<InventoryRestoreField, string> = {
+  title: "商品名",
+  quantity: "在庫数",
+  unit: "単位",
+  category: "カテゴリ",
+  place: "保管場所",
+  etc: "管理番号・備考",
+  unitPrice: "仕入単価",
+  supplierName: "仕入先",
+  supplierUrl: "仕入先URL",
+  ebayListingUrl: "eBay出品URL",
+  ebayOrderUrl: "eBay注文URL",
+  ebayOrderStatus: "eBay状態",
+};
+
+function normalizeRestoreSearchText(value: unknown): string {
+  return String(value ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function inventoryRestoreValue(inventory: LocalInventoryRow, field: InventoryRestoreField): string | null {
+  if (field === "quantity") return String(Math.max(0, Math.round(Number(inventory.quantity) || 0)));
+  if (field === "unitPrice") return inventory.unitPrice == null ? null : String(inventory.unitPrice);
+  const value = inventory[field as keyof LocalInventoryRow];
+  return value == null ? null : String(value);
+}
+
+function restoreSearchInventoryHaystack(inventory: LocalInventoryRow): string {
+  const labelText = (inventory.itemLabels ?? [])
+    .map((label) => `${label.labelId ?? ""} ${label.legacyManagementNo ?? ""}`)
+    .join(" ");
+  return normalizeRestoreSearchText([
+    inventory.id,
+    inventory.zaicoId,
+    inventory.title,
+    inventory.category,
+    inventory.place,
+    inventory.etc,
+    inventory.supplierName,
+    inventory.supplierUrl,
+    getInventoryManagementNo(inventory.etc),
+    labelText,
+  ].filter(Boolean).join(" "));
+}
+
+function restoreSearchDeletedHaystack(item: Awaited<ReturnType<typeof getDeletedInventories>>[number]): string {
+  return normalizeRestoreSearchText([
+    item.id,
+    item.zaicoId,
+    item.title,
+    item.category,
+    item.place,
+    item.etc,
+    item.unitPrice,
+    item.deletedBy,
+    getInventoryManagementNo(item.etc),
+  ].filter(Boolean).join(" "));
+}
+
+function parsedRestoreFieldsForMemo(memo: InventoryMemoRow, inventory: LocalInventoryRow | null) {
+  const restored = parseInventoryRestoreMemo(memo.memo);
+  return (Object.keys(restored) as InventoryRestoreField[])
+    .filter((field) => INVENTORY_RESTORE_FIELDS.includes(field))
+    .map((field) => ({
+      field,
+      label: INVENTORY_RESTORE_FIELD_NAMES[field],
+      restoreValue: restored[field],
+      currentValue: inventory ? inventoryRestoreValue(inventory, field) : null,
+    }));
+}
+
+const FULL_RESTORE_SNAPSHOT_MARKER = "__FULL_RESTORE_SNAPSHOT_V1__:";
+const FULL_RESTORE_SNAPSHOT_CHANGE_TYPE = "restore_snapshot";
+
+type FullRestoreLabelSnapshot = Partial<LocalInventoryItemLabelRow & LocalPurchaseItemLabelRow>;
+type FullRestoreInventorySnapshot = Partial<InsertLocalInventory> & {
+  id?: number | null;
+  zaicoId?: number | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  itemLabels?: FullRestoreLabelSnapshot[];
+};
+type FullRestorePurchaseSnapshot = Partial<InsertLocalPurchase> & {
+  id?: number | null;
+  zaicoId?: number | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  itemLabels?: FullRestoreLabelSnapshot[];
+};
+type FullRestoreSnapshot = {
+  version: 1;
+  capturedAt: string;
+  source: string;
+  reason: string;
+  operatorName?: string | null;
+  inventory: FullRestoreInventorySnapshot | null;
+  purchases: FullRestorePurchaseSnapshot[];
+  labels?: FullRestoreLabelSnapshot[];
+};
+
+function jsonSnapshotClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
+function parseFullRestoreSnapshotMemo(memo: string | null | undefined): FullRestoreSnapshot | null {
+  const text = String(memo ?? "");
+  if (!text.startsWith(FULL_RESTORE_SNAPSHOT_MARKER)) return null;
+  try {
+    const parsed = JSON.parse(text.slice(FULL_RESTORE_SNAPSHOT_MARKER.length)) as FullRestoreSnapshot;
+    return parsed?.version === 1 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function fullRestoreSnapshotHaystack(memo: InventoryMemoRow, snapshot: FullRestoreSnapshot): string {
+  const inventory = snapshot.inventory;
+  const purchaseText = snapshot.purchases
+    .map((purchase) => [
+      purchase.id,
+      purchase.zaicoId,
+      purchase.title,
+      purchase.managementNo,
+      purchase.purchaseNum,
+      purchase.trackingNumber,
+      purchase.carrier,
+      purchase.supplierName,
+      purchase.supplierUrl,
+      ...(purchase.itemLabels ?? []).map((label) => label.labelId),
+    ].filter(Boolean).join(" "))
+    .join(" ");
+  return normalizeRestoreSearchText([
+    memo.id,
+    memo.zaicoInventoryId,
+    memo.title,
+    memo.operatorName,
+    snapshot.source,
+    snapshot.reason,
+    inventory?.id,
+    inventory?.zaicoId,
+    inventory?.title,
+    inventory?.etc,
+    inventory ? getInventoryManagementNo(inventory.etc) : null,
+    inventory?.supplierName,
+    inventory?.supplierUrl,
+    ...(inventory?.itemLabels ?? []).map((label) => label.labelId),
+    purchaseText,
+  ].filter(Boolean).join(" "));
+}
+
+function localPurchasePrimaryManagementNo(row: Pick<LocalPurchaseRow, "managementNo" | "itemsJson">): string {
+  const direct = getInventoryManagementNo(row.managementNo);
+  if (direct) return direct;
+  for (const item of parseLocalPurchaseItems(row as LocalPurchaseRow)) {
+    const itemManagementNo = getInventoryManagementNo(String(item.etc ?? ""));
+    if (itemManagementNo) return itemManagementNo;
+  }
+  return "";
+}
+
+function localPurchaseMatchesInventoryForRestore(
+  row: LocalPurchaseRow,
+  localInventoryId: number | null,
+  managementNo: string,
+): boolean {
+  if (localInventoryId != null && Number(row.localInventoryId) === Number(localInventoryId)) return true;
+  if (managementNo && localPurchasePrimaryManagementNo(row) === managementNo) return true;
+  return parseLocalPurchaseItems(row).some((item) => {
+    const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? 0);
+    if (localInventoryId != null && itemInventoryId === Number(localInventoryId)) return true;
+    const itemManagementNo = getInventoryManagementNo(String(item.etc ?? item.managementNo ?? ""));
+    return Boolean(managementNo && itemManagementNo === managementNo);
+  });
+}
+
+async function getRelatedLocalPurchasesForFullRestore(inventory: { id: number; etc?: string | null }): Promise<LocalPurchaseRow[]> {
+  const managementNo = getInventoryManagementNo(inventory.etc);
+  const rows = await getLocalPurchases();
+  return rows.filter((row) => localPurchaseMatchesInventoryForRestore(row, inventory.id, managementNo));
+}
+
+async function enrichInventoryForFullRestore(
+  inventory: (Partial<LocalInventoryRow> & { id: number }) | null | undefined,
+): Promise<FullRestoreInventorySnapshot | null> {
+  if (!inventory) return null;
+  const labelMap = await getInventoryItemLabelsByInventoryIds([inventory.id]).catch(() => new Map<number, LocalInventoryItemLabelRow[]>());
+  const itemLabels = (inventory.itemLabels ?? labelMap.get(inventory.id) ?? []) as FullRestoreLabelSnapshot[];
+  return jsonSnapshotClone({
+    ...inventory,
+    itemLabels,
+  } satisfies FullRestoreInventorySnapshot);
+}
+
+async function enrichPurchasesForFullRestore(
+  purchases: Array<Partial<LocalPurchaseRow> & { id?: number | null }>,
+): Promise<FullRestorePurchaseSnapshot[]> {
+  if (purchases.length === 0) return [];
+  const allPurchases = await getLocalPurchases().catch(() => [] as LocalPurchaseRow[]);
+  return purchases.map((purchase) => {
+    const enriched = purchase.id ? allPurchases.find((row) => row.id === purchase.id) ?? purchase : purchase;
+    return jsonSnapshotClone(enriched as FullRestorePurchaseSnapshot);
+  });
+}
+
+function uniqueFullRestoreLabels(snapshot: FullRestoreSnapshot): FullRestoreLabelSnapshot[] {
+  const byLabelId = new Map<string, FullRestoreLabelSnapshot>();
+  const add = (label: FullRestoreLabelSnapshot | null | undefined) => {
+    const labelId = String(label?.labelId ?? "").trim().toUpperCase();
+    if (!labelId) return;
+    byLabelId.set(labelId, { ...label, labelId });
+  };
+  (snapshot.labels ?? []).forEach(add);
+  (snapshot.inventory?.itemLabels ?? []).forEach(add);
+  for (const purchase of snapshot.purchases) {
+    (purchase.itemLabels ?? []).forEach(add);
+  }
+  return [...byLabelId.values()];
+}
+
+async function recordFullRestoreSnapshot(input: {
+  inventory?: (Partial<LocalInventoryRow> & { id: number }) | null;
+  purchases?: Array<Partial<LocalPurchaseRow> & { id?: number | null }>;
+  source: string;
+  reason: string;
+  operatorName?: string | null;
+}) {
+  try {
+    const inventory = await enrichInventoryForFullRestore(input.inventory ?? null);
+    const purchases = input.purchases
+      ? await enrichPurchasesForFullRestore(input.purchases)
+      : inventory?.id
+        ? await enrichPurchasesForFullRestore(await getRelatedLocalPurchasesForFullRestore({ id: inventory.id, etc: inventory.etc ?? null }))
+        : [];
+    if (!inventory && purchases.length === 0) return;
+
+    const snapshot: FullRestoreSnapshot = {
+      version: 1,
+      capturedAt: new Date().toISOString(),
+      source: input.source,
+      reason: input.reason,
+      operatorName: input.operatorName ?? null,
+      inventory,
+      purchases,
+      labels: uniqueFullRestoreLabels({ version: 1, capturedAt: "", source: input.source, reason: input.reason, inventory, purchases }),
+    };
+    const memoInventoryId = Number(inventory?.zaicoId ?? inventory?.id ?? purchases[0]?.localInventoryId ?? purchases[0]?.id ?? 0);
+    if (!Number.isFinite(memoInventoryId) || memoInventoryId <= 0) return;
+    await createInventoryMemo({
+      zaicoInventoryId: memoInventoryId,
+      title: String(inventory?.title ?? purchases[0]?.title ?? "復元スナップショット"),
+      changeType: FULL_RESTORE_SNAPSHOT_CHANGE_TYPE,
+      quantityBefore: inventory?.quantity == null ? null : Math.round(Number(inventory.quantity) || 0),
+      quantityAfter: inventory?.quantity == null ? null : Math.round(Number(inventory.quantity) || 0),
+      quantityDelta: 0,
+      memo: `${FULL_RESTORE_SNAPSHOT_MARKER}${JSON.stringify(snapshot)}`,
+      operatorName: input.operatorName ?? null,
+    });
+  } catch (error) {
+    console.warn("[restore-management] failed to record full restore snapshot", error);
+  }
+}
+
+function fullRestoreInventoryValues(snapshot: FullRestoreInventorySnapshot): InsertLocalInventory {
+  return {
+    zaicoId: snapshot.zaicoId == null ? null : Number(snapshot.zaicoId),
+    title: String(snapshot.title ?? "").trim() || "名称未設定",
+    category: snapshot.category ?? null,
+    place: snapshot.place ?? null,
+    quantity: Math.max(0, Math.round(Number(snapshot.quantity) || 0)),
+    unit: snapshot.unit ?? "個",
+    unitPrice: snapshot.unitPrice == null ? null : String(snapshot.unitPrice),
+    etc: snapshot.etc ?? null,
+    supplierUrl: snapshot.supplierUrl ?? null,
+    supplierName: snapshot.supplierName ?? null,
+    ebayListingUrl: snapshot.ebayListingUrl ?? null,
+    ebayOrderUrl: snapshot.ebayOrderUrl ?? null,
+    ebayOrderStatus: normalizeEbayOrderStatus(snapshot.ebayOrderStatus ?? "normal"),
+    isDeleted: Number(snapshot.isDeleted ?? 0),
+  };
+}
+
+function snapshotDateValue(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function updatePurchaseItemsInventoryId(itemsJson: unknown, previousInventoryId: number | null, nextInventoryId: number | null): string {
+  if (!itemsJson) return "[]";
+  try {
+    const items = JSON.parse(String(itemsJson));
+    if (!Array.isArray(items)) return String(itemsJson);
+    return JSON.stringify(items.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const currentInventoryId = Number((item as Record<string, unknown>).inventory_id ?? (item as Record<string, unknown>).inventoryId ?? 0);
+      if (previousInventoryId != null && currentInventoryId === previousInventoryId && nextInventoryId != null) {
+        return { ...item, inventory_id: nextInventoryId, inventoryId: nextInventoryId };
+      }
+      return item;
+    }));
+  } catch {
+    return String(itemsJson);
+  }
+}
+
+function fullRestorePurchaseValues(
+  snapshot: FullRestorePurchaseSnapshot,
+  previousInventoryId: number | null,
+  restoredInventoryId: number | null,
+): InsertLocalPurchase {
+  const linkedInventoryId = snapshot.localInventoryId == null
+    ? null
+    : Number(snapshot.localInventoryId) === Number(previousInventoryId)
+      ? restoredInventoryId
+      : Number(snapshot.localInventoryId);
+  return {
+    zaicoId: snapshot.zaicoId == null ? null : Number(snapshot.zaicoId),
+    purchaseNum: snapshot.purchaseNum ?? null,
+    status: snapshot.status ?? "ordered",
+    itemsJson: updatePurchaseItemsInventoryId(snapshot.itemsJson, previousInventoryId, restoredInventoryId),
+    localInventoryId: linkedInventoryId,
+    title: snapshot.title ?? null,
+    category: snapshot.category ?? null,
+    quantity: Math.max(1, Math.round(Number(snapshot.quantity) || 1)),
+    unitPrice: snapshot.unitPrice == null ? null : String(snapshot.unitPrice),
+    managementNo: snapshot.managementNo ?? null,
+    purchaseDate: snapshot.purchaseDate ?? null,
+    receivedDate: snapshot.receivedDate ?? null,
+    shipDate: snapshot.shipDate ?? null,
+    trackingNumber: snapshot.trackingNumber ?? null,
+    carrier: snapshot.carrier ?? null,
+    note: snapshot.note ?? null,
+    supplierUrl: snapshot.supplierUrl ?? null,
+    supplierName: snapshot.supplierName ?? null,
+    inboundClass: snapshot.inboundClass ?? null,
+    classSource: snapshot.classSource ?? "auto",
+    stage: snapshot.stage ?? "received",
+    stageUpdatedBy: snapshot.stageUpdatedBy ?? null,
+    stageUpdatedAt: snapshotDateValue(snapshot.stageUpdatedAt),
+    shaftParentPurchaseId: snapshot.shaftParentPurchaseId ?? null,
+  };
+}
+
+async function restoreInventoryFromFullSnapshot(snapshot: FullRestoreInventorySnapshot | null): Promise<number | null> {
+  if (!snapshot) return null;
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { localInventories: inventoryTbl } = await import("../../drizzle/schema");
+  const values = fullRestoreInventoryValues(snapshot);
+  const snapshotId = Number(snapshot.id ?? 0);
+  const existingById = snapshotId > 0 ? await getLocalInventoryById(snapshotId) : null;
+  if (existingById) {
+    await updateLocalInventory(snapshotId, values);
+    return snapshotId;
+  }
+  const existingByZaico = values.zaicoId != null ? await getLocalInventoryByZaicoId(Number(values.zaicoId)) : null;
+  if (existingByZaico) {
+    await updateLocalInventory(existingByZaico.id, values);
+    return existingByZaico.id;
+  }
+  if (snapshotId > 0) {
+    await db.insert(inventoryTbl).values({ id: snapshotId, ...values } as typeof inventoryTbl.$inferInsert);
+    return snapshotId;
+  }
+  const insertedId = await upsertLocalInventory(values);
+  if (insertedId > 0) return insertedId;
+  const managementNo = getInventoryManagementNo(values.etc);
+  const restored = (await getLocalInventories(true)).find((inventory) =>
+    (values.zaicoId != null && inventory.zaicoId === values.zaicoId) ||
+    (managementNo && getInventoryManagementNo(inventory.etc) === managementNo)
+  );
+  return restored?.id ?? null;
+}
+
+async function restorePurchasesFromFullSnapshot(
+  snapshots: FullRestorePurchaseSnapshot[],
+  previousInventoryId: number | null,
+  restoredInventoryId: number | null,
+): Promise<Map<number, number>> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { localPurchases: purchaseTbl } = await import("../../drizzle/schema");
+  const purchaseIdMap = new Map<number, number>();
+  const currentPurchases = await getLocalPurchases();
+  for (const snapshot of snapshots) {
+    const values = fullRestorePurchaseValues(snapshot, previousInventoryId, restoredInventoryId);
+    const snapshotId = Number(snapshot.id ?? 0);
+    let target = snapshotId > 0 ? currentPurchases.find((row) => row.id === snapshotId) : null;
+    if (!target && values.zaicoId != null) {
+      target = currentPurchases.find((row) => row.zaicoId === values.zaicoId);
+    }
+    if (!target && values.managementNo) {
+      target = currentPurchases.find((row) => localPurchasePrimaryManagementNo(row) === getInventoryManagementNo(values.managementNo));
+    }
+    if (target) {
+      await updateLocalPurchase(target.id, values);
+      if (snapshotId > 0) purchaseIdMap.set(snapshotId, target.id);
+      continue;
+    }
+    if (snapshotId > 0) {
+      await db.insert(purchaseTbl).values({ id: snapshotId, ...values } as typeof purchaseTbl.$inferInsert);
+      purchaseIdMap.set(snapshotId, snapshotId);
+      continue;
+    }
+    const insertedId = await insertLocalPurchase(values);
+    if (insertedId > 0 && snapshotId > 0) purchaseIdMap.set(snapshotId, insertedId);
+  }
+  return purchaseIdMap;
+}
+
+function fullRestoreLabelValues(
+  label: FullRestoreLabelSnapshot,
+  previousInventoryId: number | null,
+  restoredInventoryId: number | null,
+  purchaseIdMap: Map<number, number>,
+) {
+  const previousPurchaseId = Number(label.purchaseId ?? 0);
+  const nextPurchaseId = previousPurchaseId > 0 ? purchaseIdMap.get(previousPurchaseId) ?? previousPurchaseId : null;
+  const previousLabelInventoryId = Number(label.localInventoryId ?? 0);
+  const nextInventoryId =
+    previousInventoryId != null &&
+    previousLabelInventoryId === previousInventoryId &&
+    restoredInventoryId != null
+      ? restoredInventoryId
+      : previousLabelInventoryId > 0 ? previousLabelInventoryId : null;
+  return {
+    labelId: String(label.labelId ?? "").trim().toUpperCase(),
+    purchaseId: nextPurchaseId,
+    localInventoryId: nextInventoryId,
+    legacyManagementNo: label.legacyManagementNo ?? null,
+    title: String(label.title ?? "").trim() || "名称未設定",
+    status: label.status ?? "ordered",
+    sourceKey: label.sourceKey ?? null,
+    outboundBoxId: label.outboundBoxId ?? null,
+    receivedAt: snapshotDateValue(label.receivedAt),
+    shippedAt: snapshotDateValue(label.shippedAt),
+    defectTags: label.defectTags ?? null,
+    defectNote: label.defectNote ?? null,
+    defectPhotosJson: label.defectPhotosJson ?? null,
+    defectRecordedAt: snapshotDateValue(label.defectRecordedAt),
+    yahooClosedPricesJson: label.yahooClosedPricesJson ?? null,
+    yahooPriceFetchedAt: snapshotDateValue(label.yahooPriceFetchedAt),
+    defectiveSheetSyncedAt: snapshotDateValue(label.defectiveSheetSyncedAt),
+    inspectionOutcome: label.inspectionOutcome ?? null,
+    replacementRequested: label.replacementRequested ?? null,
+    inspectionSourceInventoryId: label.inspectionSourceInventoryId ?? null,
+    inspectionInventoryId: label.inspectionInventoryId ?? null,
+    inspectionQuantityDelta: label.inspectionQuantityDelta ?? null,
+    inspectionPurchaseHistoryId: label.inspectionPurchaseHistoryId ?? null,
+    inspectionActionItemId: label.inspectionActionItemId ?? null,
+    inspectedAt: snapshotDateValue(label.inspectedAt),
+    inspectionCancelledAt: snapshotDateValue(label.inspectionCancelledAt),
+    inspectionCancelledBy: label.inspectionCancelledBy ?? null,
+  };
+}
+
+async function restoreLabelsFromFullSnapshot(
+  snapshot: FullRestoreSnapshot,
+  previousInventoryId: number | null,
+  restoredInventoryId: number | null,
+  purchaseIdMap: Map<number, number>,
+): Promise<number> {
+  const labels = uniqueFullRestoreLabels(snapshot);
+  if (labels.length === 0) return 0;
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+  let restoredCount = 0;
+  for (const label of labels) {
+    const values = fullRestoreLabelValues(label, previousInventoryId, restoredInventoryId, purchaseIdMap);
+    if (!values.labelId) continue;
+    const existing = await db
+      .select({ id: labelTbl.id })
+      .from(labelTbl)
+      .where(eq(labelTbl.labelId, values.labelId))
+      .limit(1);
+    if (existing[0]) {
+      await db.update(labelTbl).set(values).where(eq(labelTbl.id, existing[0].id));
+    } else {
+      await db.insert(labelTbl).values(values);
+    }
+    restoredCount++;
+  }
+  return restoredCount;
 }
 
 async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
@@ -2993,7 +3503,7 @@ export const inventoryRouter = router({
         name: z.string().max(200),
         replacement: z.string().max(200).nullable().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const name = normalizeCategoryName(input.name);
         const replacementName = normalizeCategoryName(input.replacement);
         const replacementCategory = replacementName && replacementName !== ALL_CATEGORY_LABEL && replacementName !== UNCATEGORIZED_LABEL
@@ -3474,7 +3984,7 @@ export const inventoryRouter = router({
         operatorKey: z.enum(["default", "A", "B"]).optional(),
         inventoryId: z.number().int().positive().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const operatorToken = resolveOperatorToken(input.operatorKey);
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
@@ -3484,6 +3994,24 @@ export const inventoryRouter = router({
           const { or, eq } = await import("drizzle-orm");
           const db = await getDb();
           if (db) {
+            const [lp] = await db
+              .select()
+              .from(lpTbl)
+              .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
+              .limit(1);
+            if (lp) {
+              const inventoryId = input.inventoryId ?? lp.localInventoryId ?? null;
+              const snapshotInventory = inventoryId ? await getLocalInventoryById(inventoryId) : null;
+              const snapshotPurchase = (await getLocalPurchases().catch(() => [] as LocalPurchaseRow[]))
+                .find((row) => row.id === lp.id) ?? lp;
+              await recordFullRestoreSnapshot({
+                inventory: snapshotInventory ?? null,
+                purchases: [snapshotPurchase],
+                source: "purchase",
+                reason: "入庫管理削除前",
+                operatorName: ctx.user.name ?? ctx.user.email ?? null,
+              });
+            }
             // local_purchasesを削除
             await db.delete(lpTbl).where(
               or(
@@ -3529,7 +4057,7 @@ export const inventoryRouter = router({
           category: z.string().max(200).nullable().optional(),
         })).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const zaicoEnabled = await isZaicoEnabled();
         const operatorToken = resolveOperatorToken(input.operatorKey);
 
@@ -3549,6 +4077,16 @@ export const inventoryRouter = router({
             // purchaseItemsの先頭要素からunitPrice・etcを取得
             const firstItem = input.purchaseItems?.[0];
             const firstInventoryId = firstItem?.inventoryId ?? lp.localInventoryId;
+            const snapshotInventory = firstInventoryId ? await getLocalInventoryById(firstInventoryId) : null;
+            const snapshotPurchase = (await getLocalPurchases().catch(() => [] as LocalPurchaseRow[]))
+              .find((row) => row.id === lp.id) ?? lp;
+            await recordFullRestoreSnapshot({
+              inventory: snapshotInventory ?? null,
+              purchases: [snapshotPurchase],
+              source: "purchase",
+              reason: "入庫管理編集前",
+              operatorName: ctx.user.name ?? ctx.user.email ?? null,
+            });
             const lpUpdateData: Partial<typeof lpTbl.$inferInsert> = {};
             if (firstInventoryId && lp.localInventoryId !== firstInventoryId) {
               lpUpdateData.localInventoryId = firstInventoryId;
@@ -3689,7 +4227,7 @@ export const inventoryRouter = router({
         operatorKey: z.enum(["default", "A", "B"]).optional(),
         alsoDeletePurchaseIds: z.array(z.number().int().positive()).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const zaicoEnabled = await isZaicoEnabled();
         const operatorToken = resolveOperatorToken(input.operatorKey);
 
@@ -3697,6 +4235,13 @@ export const inventoryRouter = router({
           // Zaico連携OFF: ローカルDBから削除（論理削除）
           const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
           if (localInv) {
+            await recordFullRestoreSnapshot({
+              inventory: localInv,
+              purchases: await getRelatedLocalPurchasesForFullRestore(localInv),
+              source: "ui",
+              reason: "在庫削除前",
+              operatorName: ctx.user.name ?? ctx.user.email ?? null,
+            });
             // 削除前に商品データをdeleted_inventoriesに保存
             await createDeletedInventory({
               zaicoId: localInv.zaicoId ?? localInv.id,
@@ -3798,7 +4343,7 @@ export const inventoryRouter = router({
           supplierName: z.string().max(200).optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await upsertInventoryExtra({
           zaicoInventoryId: input.zaicoInventoryId,
           supplierUrl: input.supplierUrl || null,
@@ -3929,7 +4474,7 @@ export const inventoryRouter = router({
           changeSource: z.enum(["ui", "api", "cron", "delivery", "purchase"]).optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const zaicoEnabled = await isZaicoEnabled();
         const { inventoryId, operatorKey, supplierUrl, supplierName, ebayListingUrl, ebayOrderUrl, ebayOrderStatus, skipChangeLog, changeSource, ...payload } = input;
 
@@ -3961,6 +4506,13 @@ export const inventoryRouter = router({
                 ? (ebayOrderStatus === undefined ? normalizeEbayOrderStatus(localInv.ebayOrderStatus) : normalizeEbayOrderStatus(ebayOrderStatus))
                 : "normal",
             };
+            await recordFullRestoreSnapshot({
+              inventory: localInv,
+              purchases: await getRelatedLocalPurchasesForFullRestore(localInv),
+              source: changeSource ?? "ui",
+              reason: "在庫更新前",
+              operatorName: ctx.user.name ?? ctx.user.email ?? null,
+            });
             await updateLocalInventory(localInv.id, nextValues);
             await ensureInventoryItemLabelsForInventory({
               localInventoryId: localInv.id,
@@ -6906,6 +7458,316 @@ export const inventoryRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await removeDeletedInventory(input.id);
+        return { success: true };
+    }),
+  }),
+
+  // 復元管理
+  restoreManagement: router({
+    search: protectedProcedure
+      .input(z.object({
+        query: z.string().max(200).optional(),
+        limit: z.number().int().positive().max(200).default(80),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "復元管理は管理者のみ利用できます" });
+        }
+
+        const q = normalizeRestoreSearchText(input.query);
+        const [inventories, deletedItems, memos] = await Promise.all([
+          getLocalInventories(true),
+          getDeletedInventories(500),
+          getAllInventoryMemos(1000),
+        ]);
+
+        const inventoryByMemoId = new Map<number, LocalInventoryRow>();
+        const inventorySummaries = inventories
+          .filter((inventory) => !q || restoreSearchInventoryHaystack(inventory).includes(q))
+          .slice(0, input.limit)
+          .map((inventory) => {
+            const memoInventoryId = inventory.zaicoId ?? inventory.id;
+            inventoryByMemoId.set(memoInventoryId, inventory);
+            return {
+              id: inventory.id,
+              zaicoId: inventory.zaicoId,
+              memoInventoryId,
+              title: inventory.title,
+              category: inventory.category,
+              quantity: inventory.quantity,
+              unit: inventory.unit,
+              unitPrice: inventory.unitPrice == null ? null : String(inventory.unitPrice),
+              etc: inventory.etc,
+              managementNo: getInventoryManagementNo(inventory.etc),
+              supplierName: inventory.supplierName,
+              supplierUrl: inventory.supplierUrl,
+              isDeleted: Number(inventory.isDeleted ?? 0) === 1,
+              itemLabels: (inventory.itemLabels ?? []).map((label) => ({
+                labelId: label.labelId,
+                status: label.status ?? null,
+                legacyManagementNo: label.legacyManagementNo ?? null,
+              })),
+              updatedAt: inventory.updatedAt,
+            };
+          });
+
+        for (const inventory of inventories) {
+          inventoryByMemoId.set(inventory.zaicoId ?? inventory.id, inventory);
+        }
+
+        const deletedSummaries = deletedItems
+          .filter((item) => !q || restoreSearchDeletedHaystack(item).includes(q))
+          .slice(0, input.limit)
+          .map((item) => ({
+            id: item.id,
+            zaicoId: item.zaicoId,
+            title: item.title,
+            category: item.category,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            etc: item.etc,
+            managementNo: getInventoryManagementNo(item.etc),
+            deletedBy: item.deletedBy,
+            createdAt: item.createdAt,
+          }));
+
+        const matchedInventoryIds = new Set(inventorySummaries.map((inventory) => inventory.memoInventoryId));
+        const fullSnapshotSummaries = memos
+          .map((memo) => {
+            const snapshot = parseFullRestoreSnapshotMemo(memo.memo);
+            if (!snapshot) return null;
+            const inventory = snapshot.inventory;
+            const managementNo = inventory
+              ? getInventoryManagementNo(inventory.etc)
+              : getInventoryManagementNo(snapshot.purchases[0]?.managementNo);
+            return {
+              id: memo.id,
+              zaicoInventoryId: memo.zaicoInventoryId,
+              title: String(inventory?.title ?? snapshot.purchases[0]?.title ?? memo.title ?? ""),
+              managementNo,
+              source: snapshot.source,
+              reason: snapshot.reason,
+              capturedAt: snapshot.capturedAt,
+              createdAt: memo.createdAt,
+              inventoryLocalId: inventory?.id ?? null,
+              hasInventory: Boolean(inventory),
+              purchaseCount: snapshot.purchases.length,
+              labelCount: uniqueFullRestoreLabels(snapshot).length,
+              canRestore: Boolean(inventory || snapshot.purchases.length > 0),
+              _matches: !q || fullRestoreSnapshotHaystack(memo, snapshot).includes(q),
+            };
+          })
+          .filter((row): row is NonNullable<typeof row> => Boolean(row?._matches))
+          .slice(0, input.limit)
+          .map(({ _matches, ...row }) => row);
+
+        const historySummaries = memos
+          .filter((memo) => !parseFullRestoreSnapshotMemo(memo.memo))
+          .map((memo) => {
+            const inventory = inventoryByMemoId.get(memo.zaicoInventoryId);
+            const fields = parsedRestoreFieldsForMemo(memo, inventory ?? null);
+            const haystack = normalizeRestoreSearchText([
+              memo.id,
+              memo.zaicoInventoryId,
+              memo.title,
+              memo.changeType,
+              memo.memo,
+              memo.operatorName,
+              inventory?.title,
+              inventory?.etc,
+              inventory ? getInventoryManagementNo(inventory.etc) : null,
+            ].filter(Boolean).join(" "));
+            return {
+              id: memo.id,
+              zaicoInventoryId: memo.zaicoInventoryId,
+              inventoryLocalId: inventory?.id ?? null,
+              title: inventory?.title ?? memo.title ?? "",
+              managementNo: inventory ? getInventoryManagementNo(inventory.etc) : "",
+              changeType: memo.changeType,
+              quantityBefore: memo.quantityBefore,
+              quantityAfter: memo.quantityAfter,
+              quantityDelta: memo.quantityDelta,
+              memo: memo.memo,
+              operatorName: memo.operatorName,
+              createdAt: memo.createdAt,
+              fields,
+              canRestore: Boolean(inventory && fields.length > 0),
+              _matches: !q || haystack.includes(q) || matchedInventoryIds.has(memo.zaicoInventoryId),
+            };
+          })
+          .filter((memo) => memo._matches)
+          .slice(0, input.limit)
+          .map(({ _matches, ...memo }) => memo);
+
+        return {
+          inventories: inventorySummaries,
+          deletedItems: deletedSummaries,
+          fullSnapshots: fullSnapshotSummaries,
+          histories: historySummaries,
+        };
+      }),
+
+    restoreDeleted: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "復元管理は管理者のみ利用できます" });
+        }
+
+        const records = await getDeletedInventories(1000);
+        const record = records.find((item) => item.id === input.id);
+        if (!record) throw new Error("削除済み商品が見つかりません");
+        const snapshot = JSON.parse(record.snapshotJson);
+        await upsertLocalInventory({
+          zaicoId: record.zaicoId ?? null,
+          title: String(snapshot.title ?? record.title),
+          quantity: Math.max(0, Math.round(parseFloat(String(snapshot.quantity ?? record.quantity ?? "0")) || 0)),
+          unit: snapshot.unit ?? record.unit ?? "個",
+          category: snapshot.category ?? record.category ?? null,
+          place: snapshot.place ?? record.place ?? null,
+          etc: snapshot.etc ?? record.etc ?? null,
+          unitPrice: snapshot.unit_price != null ? String(snapshot.unit_price) : record.unitPrice ?? null,
+          supplierUrl: snapshot.supplierUrl ?? snapshot.supplier_url ?? null,
+          supplierName: snapshot.supplierName ?? snapshot.supplier_name ?? null,
+          ebayListingUrl: snapshot.ebayListingUrl ?? null,
+          ebayOrderUrl: snapshot.ebayOrderUrl ?? null,
+          ebayOrderStatus: normalizeEbayOrderStatus(snapshot.ebayOrderStatus ?? "normal"),
+          isDeleted: 0,
+        });
+        await removeDeletedInventory(input.id);
+        return { success: true };
+      }),
+
+    restoreFullSnapshot: protectedProcedure
+      .input(z.object({ memoId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "復元管理は管理者のみ利用できます" });
+        }
+
+        const memo = (await getAllInventoryMemos(2000)).find((row) => row.id === input.memoId);
+        if (!memo) throw new Error("完全復元スナップショットが見つかりません");
+        const snapshot = parseFullRestoreSnapshotMemo(memo.memo);
+        if (!snapshot) throw new Error("この履歴は完全復元スナップショットではありません");
+
+        const previousInventoryId = snapshot.inventory?.id == null ? null : Number(snapshot.inventory.id);
+        const restoredInventoryId = await restoreInventoryFromFullSnapshot(snapshot.inventory);
+        const purchaseIdMap = await restorePurchasesFromFullSnapshot(
+          snapshot.purchases,
+          previousInventoryId,
+          restoredInventoryId,
+        );
+        const labelCount = await restoreLabelsFromFullSnapshot(
+          snapshot,
+          previousInventoryId,
+          restoredInventoryId,
+          purchaseIdMap,
+        );
+
+        if (labelCount === 0 && restoredInventoryId != null && snapshot.inventory) {
+          await ensureInventoryItemLabelsForInventory({
+            localInventoryId: restoredInventoryId,
+            legacyManagementNo: getInventoryManagementNo(snapshot.inventory.etc),
+            title: String(snapshot.inventory.title ?? ""),
+            quantity: inventoryLabelQuantity(snapshot.inventory.quantity),
+            status: inventoryInitialLabelStatus(snapshot.inventory.quantity),
+            sourceKey: `inventory:${restoredInventoryId}`,
+          }).catch(() => {});
+        }
+        if (labelCount === 0) {
+          for (const purchase of snapshot.purchases) {
+            const snapshotPurchaseId = Number(purchase.id ?? 0);
+            const restoredPurchaseId = snapshotPurchaseId > 0 ? purchaseIdMap.get(snapshotPurchaseId) ?? snapshotPurchaseId : null;
+            if (!restoredPurchaseId) continue;
+            await ensureInventoryItemLabels({
+              purchaseId: restoredPurchaseId,
+              localInventoryId: purchase.localInventoryId == null ? restoredInventoryId : Number(purchase.localInventoryId),
+              legacyManagementNo: getInventoryManagementNo(purchase.managementNo),
+              title: String(purchase.title ?? snapshot.inventory?.title ?? ""),
+              quantity: Math.max(1, Math.round(Number(purchase.quantity) || 1)),
+              status: purchase.status === "purchased" ? "received" : "ordered",
+              sourceKey: purchase.managementNo ? `management:${getInventoryManagementNo(purchase.managementNo)}` : null,
+            }).catch(() => {});
+          }
+        }
+
+        await recordInventoryChange({
+          inventoryId: restoredInventoryId ?? memo.zaicoInventoryId,
+          title: String(snapshot.inventory?.title ?? snapshot.purchases[0]?.title ?? memo.title ?? "完全復元"),
+          changeType: "updated",
+          source: "ui",
+          note: `復元管理から完全復元スナップショット #${memo.id} を復元（入庫管理 ${snapshot.purchases.length}件 / 商品ID ${labelCount}件）`,
+          operatorName: ctx.user.name ?? ctx.user.email ?? null,
+        });
+
+        return {
+          success: true,
+          restoredInventoryId,
+          purchaseCount: snapshot.purchases.length,
+          labelCount,
+        };
+      }),
+
+    restoreFromHistory: protectedProcedure
+      .input(z.object({
+        localInventoryId: z.number().int().positive(),
+        memoId: z.number().int().positive(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "復元管理は管理者のみ利用できます" });
+        }
+
+        const inventory = await getLocalInventoryById(input.localInventoryId);
+        if (!inventory) throw new Error("復元対象の商品が見つかりません");
+        const memoInventoryId = inventory.zaicoId ?? inventory.id;
+        const memo = (await getInventoryMemos(memoInventoryId, 200)).find((row) => row.id === input.memoId);
+        if (!memo) throw new Error("対象の変更履歴が見つかりません");
+
+        const restored = parseInventoryRestoreMemo(memo.memo);
+        const fields = (Object.keys(restored) as InventoryRestoreField[]).filter((field) =>
+          INVENTORY_RESTORE_FIELDS.includes(field)
+        );
+        if (fields.length === 0) throw new Error("この履歴には復元できる変更前データがありません");
+
+        const nextValues = {
+          title: restored.title ?? inventory.title,
+          quantity: restored.quantity == null
+            ? inventory.quantity
+            : Math.max(0, Math.round(Number(restored.quantity) || 0)),
+          unit: restored.unit ?? inventory.unit,
+          category: restored.category ?? inventory.category,
+          place: restored.place ?? inventory.place,
+          etc: restored.etc ?? inventory.etc,
+          unitPrice: restored.unitPrice ?? inventory.unitPrice,
+          supplierName: restored.supplierName ?? inventory.supplierName,
+          supplierUrl: restored.supplierUrl ?? inventory.supplierUrl,
+          ebayListingUrl: restored.ebayListingUrl ?? inventory.ebayListingUrl,
+          ebayOrderUrl: restored.ebayOrderUrl ?? inventory.ebayOrderUrl,
+          ebayOrderStatus: normalizeEbayOrderStatus(restored.ebayOrderStatus ?? inventory.ebayOrderStatus),
+        };
+
+        await updateLocalInventory(inventory.id, nextValues);
+        await ensureInventoryItemLabelsForInventory({
+          localInventoryId: inventory.id,
+          legacyManagementNo: getInventoryManagementNo(nextValues.etc),
+          title: nextValues.title,
+          quantity: inventoryLabelQuantity(nextValues.quantity),
+          status: inventoryInitialLabelStatus(nextValues.quantity),
+          sourceKey: `inventory:${inventory.id}`,
+        });
+        await recordInventoryChange({
+          inventoryId: memoInventoryId,
+          title: nextValues.title,
+          changeType: "updated",
+          source: "ui",
+          quantityBefore: inventory.quantity,
+          quantityAfter: nextValues.quantity,
+          note: `復元管理から変更履歴 #${memo.id} の変更前に復元`,
+          operatorName: ctx.user.name ?? ctx.user.email ?? null,
+        });
+
         return { success: true };
       }),
   }),

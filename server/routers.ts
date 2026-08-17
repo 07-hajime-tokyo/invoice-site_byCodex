@@ -329,6 +329,7 @@ function inferTradeCurrencyForPartner(partner: string | null | undefined, fallba
     text.includes("luca") ||
     text.includes("サイモン") ||
     text.includes("simon") ||
+    text.includes("hennes kamusien") ||
     text.includes("マキシム") ||
     text.includes("maxim") ||
     text.includes("ネレ") ||
@@ -428,6 +429,7 @@ function shouldRepairDisplayedEuroRate(row: TradeRow) {
       || invoiceNo === 387
       || partner.includes("サイモン")
       || partner.includes("simon")
+      || partner.includes("hennes kamusien")
       || partner.includes("マキシム")
       || partner.includes("maxim")
       || partner.includes("ネレ")

@@ -12,6 +12,7 @@ const PurchaseHistory = lazy(() => import("@/inventory/pages/PurchaseHistory"));
 const Settings = lazy(() => import("@/inventory/pages/Settings"));
 const OrderManagement = lazy(() => import("@/inventory/pages/OrderManagement"));
 const DeletedItems = lazy(() => import("@/inventory/pages/DeletedItems"));
+const RestoreManagement = lazy(() => import("@/inventory/pages/RestoreManagement"));
 const MonthlyReport = lazy(() => import("@/inventory/pages/MonthlyReport"));
 const InventoryTrend = lazy(() => import("@/inventory/pages/InventoryTrend"));
 const OverseasShipping = lazy(() => import("@/inventory/pages/OverseasShipping"));
@@ -43,6 +44,7 @@ const REMEMBERED_PATHS = [
   "/inventory/purchase-history",
   "/inventory/order-management",
   "/inventory/deleted-items",
+  "/inventory/restore-management",
   "/inventory/monthly-report",
   "/inventory/trend",
   "/inventory/settings",
@@ -104,6 +106,7 @@ export default function InventoryApp() {
           <Route path={"/inventory/purchase-history"} component={PurchaseHistory} />
           <Route path={"/inventory/order-management"} component={OrderManagement} />
           <Route path={"/inventory/deleted-items"} component={DeletedItems} />
+          <Route path={"/inventory/restore-management"} component={RestoreManagement} />
           <Route path={"/inventory/monthly-report"} component={MonthlyReport} />
           <Route path={"/inventory/trend"} component={InventoryTrend} />
           <Route path={"/inventory/settings"} component={Settings} />

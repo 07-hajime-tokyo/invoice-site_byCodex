@@ -319,6 +319,7 @@ function getDefaultCurrencyForClient(client: { name?: string | null; company?: s
     text.includes("ルカ") ||
     text.includes("simon") ||
     text.includes("サイモン") ||
+    text.includes("hennes kamusien") ||
     text.includes("maxim") ||
     text.includes("マキシム") ||
     text.includes("nele") ||
