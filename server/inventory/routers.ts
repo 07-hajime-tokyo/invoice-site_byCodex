@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { allocateShipmentItemsToCsvProducts, extractManagementHints, extractModel, extractPreferredModel, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
+import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -415,6 +415,7 @@ function deliveryProductNameMatchesOrderProduct(
   const deliveredModel = extractModel(delivered);
   const orderModel = extractModel(order);
   if (!deliveredModel || deliveredModel !== orderModel) return false;
+  if (isRandomColor(order) || isRandomColor(extractColor(order))) return true;
   const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === orderModel);
   return sameModelCandidates.length === 1 && productNameKey(sameModelCandidates[0].name) === productNameKey(order);
 }
@@ -6374,7 +6375,13 @@ export const inventoryRouter = router({
               String(item.managementNo ?? fallbackManagement),
               csvProducts,
             );
-            if (suggestion) addByProductName(suggestion.name, effectiveQuantity);
+            if (suggestion) {
+              addByProductName(suggestion.name, effectiveQuantity);
+              continue;
+            }
+
+            const rawTitle = String(item.title ?? "").trim();
+            if (rawTitle) addByProductName(rawTitle, effectiveQuantity);
           }
         }
 
