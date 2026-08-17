@@ -26,6 +26,9 @@ const HUMAN_HEADERS = ["開始価格", "出品ステータス", "出品URL", "�
 
 const ALL_HEADERS = [...SITE_HEADERS, ...HUMAN_HEADERS];
 
+/** Googleスプレッドシートの既定の行の高さ */
+const DEFAULT_ROW_HEIGHT_PX = 21;
+
 export function yahooListingSheetUrl() {
   return `https://docs.google.com/spreadsheets/d/${YAHOO_LISTING_SPREADSHEET_ID}/edit`;
 }
@@ -225,7 +228,8 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
       requestBody: { valueInputOption: "USER_ENTERED", data },
     });
 
-    // 折り返しを明示的に切る。説明文が長くても行の高さは既定のまま
+    // 説明文には改行が入るので、書いた直後にSheetsが行を自動で高くする。
+    // 折り返しを切るだけでは既に付いた高さは戻らないため、高さも既定値へ戻す。
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
       requestBody: {
@@ -241,6 +245,18 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
               },
               cell: { userEnteredFormat: { wrapStrategy: "CLIP" } },
               fields: "userEnteredFormat.wrapStrategy",
+            },
+          },
+          {
+            updateDimensionProperties: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: targetRow - 1,
+                endIndex: targetRow,
+              },
+              properties: { pixelSize: DEFAULT_ROW_HEIGHT_PX },
+              fields: "pixelSize",
             },
           },
         ],
