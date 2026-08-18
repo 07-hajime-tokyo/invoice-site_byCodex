@@ -3306,6 +3306,8 @@ function OrderDashboard({
 const LABEL_SCOPE_FROM_DATE = "2026-08-10";
 
 function isWithinLabelScope(label: LabelView): boolean {
+  // 在庫から作ったラベルは、現物にもう貼り終えている。既定では見ない
+  if (label.rowId < 0) return false;
   const purchaseDate = label.purchaseDate?.trim() ?? "";
   // 仕入日が空のものは、隠すと気づけなくなるので残す
   if (!purchaseDate) return true;
