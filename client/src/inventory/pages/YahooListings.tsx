@@ -7,6 +7,8 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  PackageCheck,
+  PencilLine,
   Search,
   Send,
   Unlink,
@@ -313,16 +315,146 @@ function AddStockDialog({
   );
 }
 
+/**
+ * 在庫に無いものを手で足すダイアログ。
+ * 空箱などの付属品は取引ハブに在庫登録されないので、ここから出品待ちへ入れる。
+ */
+function ManualListingDialog({
+  open,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => Promise<void> | void;
+}) {
+  const [title, setTitle] = useState("");
+  const [listingKind, setListingKind] = useState<ListingKind>("surplus");
+  const [note, setNote] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const create = trpc.inventory.inboundDesk.createManualListing.useMutation();
+  const busy = create.isPending;
+
+  async function submit() {
+    if (!title.trim()) {
+      toast.error("商品名を入れてください");
+      return;
+    }
+    try {
+      const parsedPrice = unitPrice.trim() ? Number(unitPrice.replace(/[^d]/g, "")) : undefined;
+      const result = await create.mutateAsync({
+        title: title.trim(),
+        listingKind,
+        note: note.trim() || undefined,
+        unitPrice: Number.isFinite(parsedPrice) ? parsedPrice : undefined,
+      });
+      toast.success(`${result.labelId} として出品待ちへ入れました`);
+      setTitle("");
+      setNote("");
+      setUnitPrice("");
+      await onDone();
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "追加できませんでした");
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={next => !next && !busy && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>在庫に無いものを手入力で追加</DialogTitle>
+          <DialogDescription>
+            空箱・説明書・ケーブルなど、取引ハブに在庫登録していないものを出品待ちへ入れます。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="manual-title" className="text-sm font-semibold">
+              商品名 <span className="text-destructive">（必須）</span>
+            </label>
+            <Input
+              id="manual-title"
+              value={title}
+              maxLength={500}
+              className="mt-2 min-h-12"
+              placeholder="例: ニンテンドー3DS LL 空箱のみ"
+              onChange={event => setTitle(event.target.value)}
+              disabled={busy}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              相場はこの商品名から検索語を組み立てます。機種名を入れてください。
+            </p>
+          </div>
+          <div>
+            <div className="text-sm font-semibold">区分</div>
+            <div className="mt-2 flex gap-2">
+              {(["surplus", "junk"] as const).map(kind => (
+                <Button
+                  key={kind}
+                  type="button"
+                  variant={listingKind === kind ? "default" : "outline"}
+                  className="min-h-12 flex-1 whitespace-normal"
+                  onClick={() => setListingKind(kind)}
+                  disabled={busy}
+                >
+                  {KIND_LABELS[kind]}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="manual-note" className="text-sm font-semibold">メモ（任意・1行）</label>
+            <Textarea
+              id="manual-note"
+              value={note}
+              maxLength={500}
+              rows={2}
+              className="mt-2 min-h-11"
+              placeholder="例: 角に潰れあり"
+              onChange={event => setNote(event.target.value.replace(/[\r\n]+/g, " "))}
+              disabled={busy}
+            />
+          </div>
+          <div>
+            <label htmlFor="manual-price" className="text-sm font-semibold">仕入単価（任意）</label>
+            <Input
+              id="manual-price"
+              value={unitPrice}
+              inputMode="numeric"
+              className="mt-2 min-h-12"
+              placeholder="0"
+              onChange={event => setUnitPrice(event.target.value)}
+              disabled={busy}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" className="min-h-12" onClick={onClose} disabled={busy}>
+            キャンセル
+          </Button>
+          <Button type="button" className="min-h-12" onClick={() => void submit()} disabled={busy || !title.trim()}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PencilLine className="mr-2 h-4 w-4" />}
+            出品待ちへ追加
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function YahooListings() {
   const [kindFilter, setKindFilter] = useState<"all" | ListingKind>("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [busyLabelId, setBusyLabelId] = useState<string | null>(null);
   const [sending, setSending] = useState<{ done: number; total: number } | null>(null);
 
   const utils = trpc.useUtils();
   const queue = trpc.inventory.inboundDesk.yahooListingQueue.useQuery();
   const attachPhotos = trpc.inventory.inboundDesk.attachListingPhotos.useMutation();
+  const markShipped = trpc.inventory.inboundDesk.markListingShipped.useMutation();
   const refreshListing = trpc.inventory.inboundDesk.refreshDefectiveListing.useMutation();
   const createGroup = trpc.inventory.inboundDesk.createDefectiveGroup.useMutation();
   const dissolveGroup = trpc.inventory.inboundDesk.dissolveDefectiveGroup.useMutation();
@@ -404,6 +536,24 @@ export default function YahooListings() {
     else toast.success(`${pending.length}件をシートへ反映しました`);
   }
 
+  /** ヤフオクで売れて発送したことを記録する。在庫を0にし、出庫履歴へ1行残す */
+  async function onMarkShipped(labelId: string, title: string) {
+    if (!window.confirm(`${title}（${labelId}）を発送済みにします。
+在庫が1減り、出庫履歴に「ヤフオク」の行が残ります。`)) {
+      return;
+    }
+    setBusyLabelId(labelId);
+    try {
+      await markShipped.mutateAsync({ labelId });
+      toast.success(`${labelId} を発送済みにしました`);
+      await reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "発送済みにできませんでした");
+    } finally {
+      setBusyLabelId(null);
+    }
+  }
+
   async function onGroup() {
     if (selected.length < 2) {
       toast.error("まとめ出品は2台以上選んでください");
@@ -457,6 +607,9 @@ export default function YahooListings() {
         ))}
         <Button type="button" size="sm" className="min-h-10" onClick={() => setAddOpen(true)}>
           <Plus className="mr-1 h-4 w-4" /> 在庫から追加
+        </Button>
+        <Button type="button" size="sm" variant="outline" className="min-h-10" onClick={() => setManualOpen(true)}>
+          <PencilLine className="mr-1 h-4 w-4" /> 手入力で追加
         </Button>
         {counts.pending > 0 && (
           <Button
@@ -669,6 +822,15 @@ export default function YahooListings() {
                   >
                     <Copy className="mr-2 h-4 w-4" /> 商品ID
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-12"
+                    onClick={() => void onMarkShipped(item.labelId, item.title)}
+                    disabled={busy}
+                  >
+                    <PackageCheck className="mr-2 h-4 w-4" /> 発送済みにする
+                  </Button>
                 </div>
 
                 <p className="text-xs text-muted-foreground">
@@ -706,6 +868,7 @@ export default function YahooListings() {
       )}
 
       <AddStockDialog open={addOpen} onClose={() => setAddOpen(false)} onDone={reload} />
+      <ManualListingDialog open={manualOpen} onClose={() => setManualOpen(false)} onDone={reload} />
     </div>
   );
 }

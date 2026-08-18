@@ -20,6 +20,8 @@ import {
   getLocalPurchaseById,
   updateLocalInventory,
   updateLocalPurchaseStatus,
+  createDeliveryHistory,
+  createStandaloneItemLabel,
 } from "./db";
 import { recordWorkLog } from "./workLogs";
 import {
@@ -709,6 +711,169 @@ async function moveStockToListing(
 
 export const inboundDeskRouter = router({
   defectiveGroups: protectedProcedure.query(() => listDefectiveGroups()),
+
+  /**
+   * 在庫に無いものを手入力で出品待ちへ入れる。
+   * 空箱などの付属品は取引ハブに在庫登録されないが、ヤフオクには出す。
+   * 個体ラベルを1つ発行して、写真・相場・シート・出庫の既存経路にそのまま乗せる。
+   */
+  createManualListing: protectedProcedure
+    .input(z.object({
+      title: z.string().min(1).max(500),
+      listingKind: z.enum(LISTING_KINDS).default("surplus"),
+      note: z.string().max(500).optional(),
+      unitPrice: z.number().int().min(0).max(10_000_000).optional(),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const workerName = operatorName(input.operatorName, ctx.user.name ?? ctx.user.email);
+      const db = await requireDb();
+      const now = new Date();
+      const title = input.title.trim();
+
+      const [inventoryResult] = await db.insert(localInventories).values({
+        zaicoId: null,
+        title,
+        category: input.listingKind === "junk" ? "ジャンク売り" : "国内販売",
+        place: null,
+        quantity: 1,
+        unit: null,
+        unitPrice: input.unitPrice == null ? null : String(input.unitPrice),
+        etc: null,
+        supplierUrl: null,
+        supplierName: null,
+        ebayListingUrl: null,
+        ebayOrderUrl: null,
+        ebayOrderStatus: "normal",
+        isDeleted: 0,
+      });
+      const inventoryId = Number((inventoryResult as { insertId?: number }).insertId ?? 0);
+      if (!inventoryId) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "在庫行を作成できませんでした" });
+      }
+
+      const label = await createStandaloneItemLabel({
+        purchaseId: null,
+        localInventoryId: inventoryId,
+        legacyManagementNo: null,
+        title,
+        status: "stocked",
+        sourceKey: "manual-listing",
+        receivedAt: now,
+        listingKind: input.listingKind,
+        defectTags: "",
+        defectNote: input.note?.trim() || null,
+        defectPhotosJson: JSON.stringify([]),
+        defectRecordedAt: now,
+      });
+
+      // 手入力と分かるように在庫の備考へラベルを書き戻す
+      await db.update(localInventories)
+        .set({ etc: `在庫_手入力_${label.labelId}` })
+        .where(eq(localInventories.id, inventoryId));
+
+      await recordWorkLog({
+        workerName,
+        category: "ヤフオク出品を手入力で追加",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: 1,
+        memo: `${label.labelId} / ${title}`,
+        createdBy: workerName,
+        sourceType: "manual-listing",
+        sourceId: label.labelId,
+        detailsJson: JSON.stringify({ labelId: label.labelId, inventoryId, listingKind: input.listingKind }),
+      });
+
+      const result = await syncDefectiveListingByLabelId(label.labelId);
+      return { labelId: label.labelId, inventoryId, sheet: result.sheet };
+    }),
+
+  /**
+   * ヤフオクで売れて発送したことを記録する。
+   * 在庫を0にし、出庫履歴へ1行残し、シートの発送状況を更新する。
+   * FedExの海外発送とは別経路なので、出庫Noは ヤフオクYYMMDD で分けている。
+   */
+  markListingShipped: protectedProcedure
+    .input(z.object({
+      labelId: z.string().min(1).max(80),
+      shippedOn: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const workerName = operatorName(input.operatorName, ctx.user.name ?? ctx.user.email);
+      const db = await requireDb();
+      const labelId = input.labelId.trim().toUpperCase();
+      const [label] = await db.select().from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.labelId, labelId)).limit(1);
+      if (!label) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `商品ID ${labelId} が見つかりません` });
+      }
+      if (!label.defectRecordedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} は出品待ちに入っていません` });
+      }
+      if (label.shippedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} は既に発送済みです` });
+      }
+      if (label.outboundBoxId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} は箱に入っています。箱から出してください` });
+      }
+
+      const shippedAt = input.shippedOn ? new Date(`${input.shippedOn}T00:00:00+09:00`) : new Date();
+      const [inventory] = label.localInventoryId
+        ? await db.select().from(localInventories).where(eq(localInventories.id, label.localInventoryId)).limit(1)
+        : [];
+
+      const claimed = await db.update(inventoryItemLabels)
+        .set({ status: "shipped", shippedAt })
+        .where(and(
+          eq(inventoryItemLabels.id, label.id),
+          isNull(inventoryItemLabels.shippedAt),
+        ));
+      if (Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) {
+        throw new TRPCError({ code: "CONFLICT", message: `${labelId} は既に発送済みです。画面を更新してください` });
+      }
+
+      if (inventory && Number(inventory.quantity ?? 0) > 0) {
+        await db.update(localInventories)
+          .set({ quantity: sql`GREATEST(${localInventories.quantity} - 1, 0)` })
+          .where(eq(localInventories.id, inventory.id));
+      }
+
+      const stamp = new Date(shippedAt.getTime() + 9 * 60 * 60 * 1_000)
+        .toISOString().slice(2, 10).replace(/-/g, "");
+      const deliveryHistoryId = await createDeliveryHistory({
+        deliveryNo: `ヤフオク${stamp}`,
+        zaicoDeliveryId: null,
+        itemsJson: JSON.stringify([{
+          inventoryId: inventory?.id ?? null,
+          title: label.title,
+          quantity: 1,
+          labelId,
+          channel: "yahoo-auction",
+          managementNo: inventory?.etc ?? null,
+        }]),
+        status: "success",
+      });
+
+      await recordWorkLog({
+        workerName,
+        category: "ヤフオク発送",
+        status: "done",
+        startedAt: shippedAt,
+        endedAt: shippedAt,
+        quantity: 1,
+        memo: `${labelId} / ${label.title}`,
+        createdBy: workerName,
+        sourceType: "yahoo-shipment",
+        sourceId: labelId,
+        detailsJson: JSON.stringify({ labelId, deliveryHistoryId, inventoryId: inventory?.id ?? null }),
+      });
+
+      const result = await syncDefectiveListingByLabelId(labelId, { reuseFreshMarket: true });
+      return { labelId, deliveryHistoryId, sheet: result.sheet };
+    }),
 
   /** ヤフオク出品画面が読む出品待ち一覧。荷受けの当日分に縛られない */
   yahooListingQueue: protectedProcedure.query(() => listYahooListingQueue()),

@@ -1139,6 +1139,20 @@ async function insertInventoryLabelWithRetry(
   throw new Error("Failed to generate unique item label ID");
 }
 
+/**
+ * 在庫の受け入れを通さずに個体ラベルを1つ作る。
+ * 空箱などの付属品は取引ハブに在庫登録されないが、ヤフオクには出す。
+ * 出品・写真・相場・出庫のどれも個体ラベルを軸に動いているので、
+ * 手入力分にもラベルを1つ発行して同じ線路に乗せる（村上さん指示・2026-08-18）。
+ */
+export async function createStandaloneItemLabel(
+  values: Omit<InsertInventoryItemLabel, "id" | "labelId" | "createdAt" | "updatedAt">,
+): Promise<InventoryItemLabel> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return insertInventoryLabelWithRetry(db, values);
+}
+
 async function attachInventoryItemLabelsToPurchases(
   rows: LocalPurchase[],
   db: AppDatabase | null,

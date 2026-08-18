@@ -309,6 +309,8 @@ export type DefectiveSheetPayload = {
   fetchedAt: string;
   listingTitle: string;
   listingDescription: string;
+  shipmentStatus: string;
+  shippedOn: string;
 };
 
 export function buildDefectiveSheetPayload(input: {
@@ -322,6 +324,8 @@ export function buildDefectiveSheetPayload(input: {
   market: YahooClosedPrices;
   quantity?: number;
   listingKind?: ListingKind;
+  shipmentStatus?: string;
+  shippedOn?: string | null;
 }): DefectiveSheetPayload {
   const listingKind = input.listingKind ?? "junk";
   const noMarket = input.market.adopted.count === 0;
@@ -361,6 +365,8 @@ export function buildDefectiveSheetPayload(input: {
       quantity: input.quantity,
       listingKind,
     }),
+    shipmentStatus: input.shipmentStatus ?? "出品準備",
+    shippedOn: input.shippedOn ?? "",
   };
 }
 

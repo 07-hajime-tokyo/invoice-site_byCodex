@@ -102,6 +102,12 @@ export async function syncDefectiveListingByLabelId(
     market,
     quantity: inventory?.quantity ?? 1,
     listingKind,
+    shipmentStatus: label.shippedAt ? "発送済み" : "出品準備",
+    shippedOn: label.shippedAt
+      ? new Date(label.shippedAt.getTime() + 9 * 60 * 60 * 1_000)
+          .toISOString()
+          .slice(0, 10)
+      : "",
   });
 
   await db

@@ -18,7 +18,7 @@ const SITE_HEADERS = [
   "写真1", "写真2", "写真3", "写真枚数", "仕入単価", "検索キーワード",
   "相場_採用件数", "相場_中央値", "相場_最安", "相場_最高",
   "落札実績1", "落札実績2", "落札実績3", "落札実績4", "落札実績5",
-  "相場取得日", "出品タイトル案", "出品説明案",
+  "相場取得日", "出品タイトル案", "出品説明案", "発送状況", "発送日",
 ] as const;
 
 /** 人が入れる列。サイトからは絶対に書かない */
@@ -112,6 +112,8 @@ function siteCells(payload: DefectiveSheetPayload): Record<string, string | numb
     相場取得日: japanDate(payload.fetchedAt, true),
     出品タイトル案: payload.listingTitle,
     出品説明案: payload.listingDescription,
+    発送状況: payload.shipmentStatus,
+    発送日: payload.shippedOn,
   };
 }
 
