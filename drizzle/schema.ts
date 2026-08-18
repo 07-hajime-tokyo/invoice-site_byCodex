@@ -1092,6 +1092,23 @@ export type InsertFedexShipment = typeof fedexShipments.$inferInsert;
  * A group combines multiple defective product IDs into one Yahoo listing row.
  * Members are snapshotted as JSON so dissolving a group never deletes evidence.
  */
+/**
+ * 出品写真の実体。サービスアカウントはGoogleドライブに保存容量を持てないため
+ * （共有ドライブはWorkspace限定）、DBへ置いて公開エンドポイントから配る。
+ */
+export const listingPhotos = mysqlTable("listing_photos", {
+  id: int("id").autoincrement().primaryKey(),
+  /** defective/ABC1234/01.jpg 形式のキー */
+  photoKey: varchar("photoKey", { length: 512 }).notNull().unique(),
+  labelId: varchar("labelId", { length: 32 }),
+  contentType: varchar("contentType", { length: 100 }).notNull(),
+  /** 画像本体をbase64で持つ */
+  dataBase64: text("dataBase64").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ListingPhoto = typeof listingPhotos.$inferSelect;
+
 export const defectiveListingGroups = mysqlTable("defective_listing_groups", {
   id: int("id").autoincrement().primaryKey(),
   groupCode: varchar("groupCode", { length: 32 }).notNull().unique(),

@@ -1,4 +1,5 @@
 import express from "express";
+import { readListingPhoto } from "../inventory/listingPhotoStorage";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerChatRoutes } from "./chat";
@@ -104,6 +105,25 @@ export async function createApiApp() {
         fetchedAt,
         error: "Failed to fetch shaft sales",
       });
+    }
+  });
+
+  // 出品写真の配信。スプレッドシートの =IMAGE() をGoogle側が取りに来るので認証は掛けない
+  app.get(/^\/api\/listing-photos\/(.+)$/, async (req, res) => {
+    try {
+      const key = decodeURIComponent(req.params[0] ?? "");
+      const photo = await readListingPhoto(key);
+      if (!photo) {
+        res.status(404).json({ error: "Photo not found" });
+        return;
+      }
+      res.setHeader("Content-Type", photo.contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.send(photo.body);
+    } catch (err) {
+      console.error("listing photo error:", err);
+      res.status(500).json({ error: "Failed to read photo" });
     }
   });
 
