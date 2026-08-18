@@ -7,6 +7,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  RotateCw,
   PackageCheck,
   PencilLine,
   Search,
@@ -455,6 +456,7 @@ export default function YahooListings() {
   const queue = trpc.inventory.inboundDesk.yahooListingQueue.useQuery();
   const attachPhotos = trpc.inventory.inboundDesk.attachListingPhotos.useMutation();
   const markShipped = trpc.inventory.inboundDesk.markListingShipped.useMutation();
+  const rotatePhoto = trpc.inventory.inboundDesk.rotateListingPhoto.useMutation();
   const refreshListing = trpc.inventory.inboundDesk.refreshDefectiveListing.useMutation();
   const createGroup = trpc.inventory.inboundDesk.createDefectiveGroup.useMutation();
   const dissolveGroup = trpc.inventory.inboundDesk.dissolveDefectiveGroup.useMutation();
@@ -537,6 +539,20 @@ export default function YahooListings() {
   }
 
   /** ヤフオクで売れて発送したことを記録する。在庫を0にし、出庫履歴へ1行残す */
+  /** 写真の向きはソフトから判断できないので、押すたび90度ずつ回す */
+  async function onRotatePhoto(labelId: string, photoKey: string) {
+    setBusyLabelId(labelId);
+    try {
+      await rotatePhoto.mutateAsync({ labelId, photoKey, degrees: 90 });
+      toast.success("写真を90度回しました");
+      await reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "写真を回せませんでした");
+    } finally {
+      setBusyLabelId(null);
+    }
+  }
+
   async function onMarkShipped(labelId: string, title: string) {
     if (!window.confirm(`${title}（${labelId}）を発送済みにします。
 在庫が1減り、出庫履歴に「ヤフオク」の行が残ります。`)) {
@@ -812,15 +828,26 @@ export default function YahooListings() {
                 </div>
 
                 {item.photos.length > 0 && (
-                  <div className="flex gap-2 overflow-x-auto">
+                  <div className="flex gap-3 overflow-x-auto">
                     {item.photos.map(photo => (
-                      <img
-                        key={photo.key}
-                        src={photo.url}
-                        alt=""
-                        className="h-20 w-20 flex-none rounded-md object-cover"
-                        loading="lazy"
-                      />
+                      <div key={photo.key} className="flex-none">
+                        <img
+                          src={`${photo.url}?v=${item.sheetSyncedAt ?? ""}`}
+                          alt=""
+                          className="h-24 w-24 rounded-md object-contain"
+                          loading="lazy"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1 h-9 w-24"
+                          onClick={() => void onRotatePhoto(item.labelId, photo.key)}
+                          disabled={busy}
+                        >
+                          <RotateCw className="mr-1 h-3 w-3" /> 回転
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 )}

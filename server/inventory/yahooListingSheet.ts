@@ -15,7 +15,9 @@ export const YAHOO_LISTING_SHEET_NAME = "出品待ち";
 /** サイトが毎回上書きする列 */
 const SITE_HEADERS = [
   "商品ID", "検品日", "商品名", "出品区分", "不良タグ", "不良メモ",
-  "写真1", "写真2", "写真3", "写真枚数", "仕入単価", "検索キーワード",
+  "写真1", "写真2", "写真3", "写真4", "写真5",
+  "写真6", "写真7", "写真8", "写真9", "写真10",
+  "写真枚数", "仕入単価", "検索キーワード", "落札相場リンク",
   "相場_採用件数", "相場_中央値", "相場_最安", "相場_最高",
   "落札実績1", "落札実績2", "落札実績3", "落札実績4", "落札実績5",
   "相場取得日", "出品タイトル案", "出品説明案", "発送状況", "発送日",
@@ -77,8 +79,23 @@ function sampleCell(sample: DefectiveSheetPayload["samples"][number] | undefined
     `${Number(sample.bids ?? 0)}入札`,
     endedAt,
   ].join(" / ");
-  if (!sample.url) return label;
-  return `=HYPERLINK("${formulaText(sample.url)}","${formulaText(label)}")`;
+  // 終了したオークションの個別ページはYahooが消すので、リンクしても404になる
+  // （2026-08-18に3つのURL形式で実測）。落札相場の検索結果へ飛ばすと後からでも見られる
+  const search = new URL("https://auctions.yahoo.co.jp/closedsearch/closedsearch");
+  search.searchParams.set("p", sample.title);
+  search.searchParams.set("va", sample.title);
+  return `=HYPERLINK("${formulaText(search.toString())}","${formulaText(label)}")`;
+}
+
+/** 検索語そのものの落札一覧へのリンク。実績5件だけでは判断できないときに開く */
+function closedSearchCell(keyword: string) {
+  if (!keyword) return "";
+  const search = new URL("https://auctions.yahoo.co.jp/closedsearch/closedsearch");
+  search.searchParams.set("p", keyword);
+  search.searchParams.set("va", keyword);
+  search.searchParams.set("b", "1");
+  search.searchParams.set("n", "100");
+  return `=HYPERLINK("${formulaText(search.toString())}","落札一覧を開く")`;
 }
 
 function japanDate(value: string | undefined, withTime = false) {
@@ -103,9 +120,17 @@ function siteCells(payload: DefectiveSheetPayload): Record<string, string | numb
     写真1: imageCell(photos[0]),
     写真2: imageCell(photos[1]),
     写真3: imageCell(photos[2]),
+    写真4: imageCell(photos[3]),
+    写真5: imageCell(photos[4]),
+    写真6: imageCell(photos[5]),
+    写真7: imageCell(photos[6]),
+    写真8: imageCell(photos[7]),
+    写真9: imageCell(photos[8]),
+    写真10: imageCell(photos[9]),
     写真枚数: payload.photoCount,
     仕入単価: payload.unitPrice ?? "",
     検索キーワード: payload.keyword,
+    落札相場リンク: closedSearchCell(payload.keyword),
     相場_採用件数: payload.adoptedCount,
     相場_中央値: payload.median,
     相場_最安: payload.marketMin,

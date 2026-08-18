@@ -35,6 +35,7 @@ import {
 } from "./defectiveListing";
 import { uploadDefectivePhotos } from "./defectivePhotos";
 import { syncDefectiveListingByLabelId } from "./defectiveSync";
+import { rotateListingPhoto } from "./listingPhotoStorage";
 import {
   actionItemUndoDisposition,
   missingUndoRejection,
@@ -873,6 +874,24 @@ export const inboundDeskRouter = router({
 
       const result = await syncDefectiveListingByLabelId(labelId, { reuseFreshMarket: true });
       return { labelId, deliveryHistoryId, sheet: result.sheet };
+    }),
+
+  /** 出品写真を回す。向きはソフトから判断できないので人が直す */
+  rotateListingPhoto: protectedProcedure
+    .input(z.object({
+      labelId: z.string().min(1).max(80),
+      photoKey: z.string().min(1).max(512),
+      degrees: z.union([z.literal(90), z.literal(180), z.literal(270)]).default(90),
+    }))
+    .mutation(async ({ input }) => {
+      const labelId = input.labelId.trim().toUpperCase();
+      if (!input.photoKey.startsWith(`defective/${labelId}/`)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "写真の商品IDが一致しません" });
+      }
+      await rotateListingPhoto(input.photoKey, input.degrees);
+      // Sheetsは同じURLをキャッシュするので、キャッシュ破棄のために書き直す
+      const result = await syncDefectiveListingByLabelId(labelId, { reuseFreshMarket: true });
+      return { photoKey: input.photoKey, sheet: result.sheet };
     }),
 
   /** ヤフオク出品画面が読む出品待ち一覧。荷受けの当日分に縛られない */

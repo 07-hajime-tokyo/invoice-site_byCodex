@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { listingPhotos } from "../../drizzle/schema";
 import { getDb } from "./db";
 
@@ -60,4 +61,30 @@ export async function readListingPhoto(key: string) {
     .limit(1);
   if (!row) return null;
   return { contentType: row.contentType, body: Buffer.from(row.dataBase64, "base64") };
+}
+
+/**
+ * 保存済みの写真を回す。
+ * iPhoneのEXIF回転は取り込み時に適用済みなので、撮影時の向きがそのまま入る。
+ * 被写体を横向きに置いて縦持ちで撮ると縦長になるが、これはソフトからは判断できない。
+ * 人が見て直せるようにする（村上さん指示・2026-08-18）。
+ */
+export async function rotateListingPhoto(key: string, degrees: 90 | 180 | 270) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db
+    .select()
+    .from(listingPhotos)
+    .where(eq(listingPhotos.photoKey, key))
+    .limit(1);
+  if (!row) throw new Error(`写真が見つかりません: ${key}`);
+  const rotated = await sharp(Buffer.from(row.dataBase64, "base64"))
+    .rotate(degrees)
+    .jpeg({ quality: 85, mozjpeg: true })
+    .toBuffer();
+  await db
+    .update(listingPhotos)
+    .set({ contentType: "image/jpeg", dataBase64: rotated.toString("base64") })
+    .where(eq(listingPhotos.id, row.id));
+  return { key, bytes: rotated.length };
 }

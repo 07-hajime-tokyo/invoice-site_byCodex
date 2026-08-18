@@ -67,6 +67,8 @@ const PHOTO_WARNING_PREFIX = "【写真未撮影】";
 const TITLE_LIMIT = 65;
 /** 動作品は不良タグを持たないので、タイトル末尾に状態を明示する */
 const SURPLUS_TITLE_SUFFIX = "動作確認済";
+/** 動作品の相場から外す状態語。これが混ざると中央値が下がる */
+const SURPLUS_EXCLUSIONS = "-ジャンク -部品取り -故障 -訳あり -不動";
 
 const FIXED_SINGLE = `状態
 ・ジャンク品です
@@ -262,9 +264,12 @@ export function generateYahooKeyword(
   )
     .slice(0, 6)
     .join(" ");
-  // 動作品はジャンク相場と混ざると中央値が下振れするので、状態語を足さずに引く
+  // 動作品の相場にジャンク出品が混ざると中央値が下振れする。
+  // Switch Lite の実測で 13,000円 → 14,200円 と1,200円ぶん違った（2026-08-18）
   const conditionWord =
-    listingKind === "surplus" ? "" : defectTags[0] || "ジャンク";
+    listingKind === "surplus"
+      ? SURPLUS_EXCLUSIONS
+      : defectTags[0] || "ジャンク";
   return [model ?? core ?? normalized, conditionWord].filter(Boolean).join(" ").trim();
 }
 

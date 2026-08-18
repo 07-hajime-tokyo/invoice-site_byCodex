@@ -146,13 +146,13 @@ describe("defective listing generation", () => {
   it("searches by model name, ignoring supplier prefixes and 対策済/未対策", () => {
     // どれも同じ「Switch 本体」の相場を見る。対策済かどうかで分けない
     for (const name of ["益子Switch対策済", "toy net Switch タブレット 対策済", "Switch 未対策 本体のみ", "デボン返品　スイッチ　対策済み"]) {
-      expect(generateYahooKeyword(name, [], "surplus")).toBe("Nintendo Switch 本体のみ");
+      expect(generateYahooKeyword(name, [], "surplus")).toBe("Nintendo Switch 本体のみ -ジャンク -部品取り -故障 -訳あり -不動");
     }
-    expect(generateYahooKeyword("Switch lite イエロー", [], "surplus")).toBe("Nintendo Switch Lite 本体");
-    expect(generateYahooKeyword("DS Lite メタリックロゼ", [], "surplus")).toBe("ニンテンドーDS Lite 本体");
-    expect(generateYahooKeyword("GBA 本体 ホワイト", [], "surplus")).toBe("ゲームボーイアドバンス 本体");
-    expect(generateYahooKeyword("New 3DS LL ランダムカラー", [], "surplus")).toBe("Newニンテンドー3DS LL 本体");
-    expect(generateYahooKeyword("3DS LL ホワイトベース", [], "surplus")).toBe("ニンテンドー3DS LL 本体 -New");
+    expect(generateYahooKeyword("Switch lite イエロー", [], "surplus")).toBe("Nintendo Switch Lite 本体 -ジャンク -部品取り -故障 -訳あり -不動");
+    expect(generateYahooKeyword("DS Lite メタリックロゼ", [], "surplus")).toBe("ニンテンドーDS Lite 本体 -ジャンク -部品取り -故障 -訳あり -不動");
+    expect(generateYahooKeyword("GBA 本体 ホワイト", [], "surplus")).toBe("ゲームボーイアドバンス 本体 -ジャンク -部品取り -故障 -訳あり -不動");
+    expect(generateYahooKeyword("New 3DS LL ランダムカラー", [], "surplus")).toBe("Newニンテンドー3DS LL 本体 -ジャンク -部品取り -故障 -訳あり -不動");
+    expect(generateYahooKeyword("3DS LL ホワイトベース", [], "surplus")).toBe("ニンテンドー3DS LL 本体 -New -ジャンク -部品取り -故障 -訳あり -不動");
     // ジャンクで出すものは検索語にもジャンクが付く
     expect(generateYahooKeyword("益子Switch対策済", ["起動しない"], "junk")).toBe("Nintendo Switch 本体のみ 起動しない");
     // 表に無い品名は従来どおりの組み立てに落ちる
@@ -165,11 +165,14 @@ describe("defective listing generation", () => {
     expect(shouldTreatAsJunk({ productName: "Switch 本体", listingKind: "junk" })).toBe(true);
   });
 
-  it("keeps the surplus keyword free of the junk word so the median is not dragged down", () => {
+  it("excludes junk listings from the surplus market instead of searching for them", () => {
+    // 動作品は「ジャンク」を除外語として付ける。検索語として足すのではない
     expect(generateYahooKeyword("Nintendo Switch 本体のみ 対策済", [], "surplus"))
-      .not.toContain("ジャンク");
-    expect(generateYahooKeyword("Nintendo Switch 本体のみ 対策済", []))
-      .toContain("ジャンク");
+      .toContain("-ジャンク");
+    // ジャンクで出すものは逆に「ジャンク」で引く（除外しない）
+    const junkKeyword = generateYahooKeyword("Nintendo Switch 本体のみ 対策済", []);
+    expect(junkKeyword).toContain("ジャンク");
+    expect(junkKeyword).not.toContain("-ジャンク");
   });
   it("keeps the warning, junk prefix, and defect tag within 65 characters", () => {
     const title = generateDefectiveTitle({
