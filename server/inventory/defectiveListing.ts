@@ -147,12 +147,61 @@ function productNameWithoutLeadingBrand(productName: string, brand: string) {
     .trim();
 }
 
+/**
+ * 品名からヤフオクの検索語を決める表。
+ *
+ * 在庫の品名には仕入先や社内メモが入っている（「益子Switch対策済」「toy net Switch タブレット 対策済」）。
+ * これをそのまま検索するとヤフオクの落札がほぼ0件になるので、機種の一般名へ寄せる。
+ * 対策済・未対策は相場を分けない（村上さん指示・2026-08-18）。
+ *
+ * match は品名を NFKC 正規化して小文字にしたものへ当てる。上から順に最初に当たったものを使う。
+ */
+/**
+ * ヤフオクの検索は部分一致なので「ニンテンドー3DS LL」は New 3DS LL の落札も拾う。
+ * 実測で中央値が 19,800円 → 14,300円 とズレたため、旧機種側は -New で除外する。
+ */
+const MODEL_KEYWORDS: Array<{ match: RegExp; keyword: string }> = [
+  { match: /switch\s*lite|スイッチ\s*ライト/u, keyword: "Nintendo Switch Lite 本体" },
+  { match: /switch|スイッチ/u, keyword: "Nintendo Switch 本体のみ" },
+  { match: /new\s*3ds\s*ll|new\s*ニンテンドー\s*3ds\s*ll/u, keyword: "Newニンテンドー3DS LL 本体" },
+  { match: /new\s*3ds/u, keyword: "Newニンテンドー3DS 本体" },
+  { match: /3ds\s*ll/u, keyword: "ニンテンドー3DS LL 本体 -New" },
+  { match: /3ds/u, keyword: "ニンテンドー3DS 本体 -New -LL" },
+  { match: /new\s*2ds\s*ll/u, keyword: "Newニンテンドー2DS LL 本体" },
+  { match: /2ds/u, keyword: "ニンテンドー2DS 本体 -New -LL" },
+  { match: /ds\s*lite|dslite/u, keyword: "ニンテンドーDS Lite 本体" },
+  { match: /gba\s*sp|アドバンス\s*sp|advance\s*sp/u, keyword: "ゲームボーイアドバンスSP 本体" },
+  { match: /gba|ゲームボーイ\s*アドバンス|game\s*boy\s*advance/u, keyword: "ゲームボーイアドバンス 本体" },
+  { match: /ゲームボーイ\s*カラー|game\s*boy\s*color/u, keyword: "ゲームボーイカラー 本体" },
+  { match: /psp\s*[-\s]?3000/u, keyword: "PSP-3000 本体" },
+  { match: /psp\s*[-\s]?2000/u, keyword: "PSP-2000 本体" },
+  { match: /psp\s*[-\s]?1000/u, keyword: "PSP-1000 本体" },
+  { match: /vita\s*2000|pch\s*[-\s]?2000/u, keyword: "PS Vita PCH-2000 本体" },
+  { match: /vita\s*1[01]00|pch\s*[-\s]?1[01]00|vita/u, keyword: "PS Vita PCH-1000 本体" },
+];
+
+/** 品名に当たる機種があればその一般名を返す。無ければ null */
+export function matchModelKeyword(productName: string) {
+  const normalized = productName.normalize("NFKC").toLowerCase();
+  return MODEL_KEYWORDS.find(entry => entry.match.test(normalized))?.keyword ?? null;
+}
+
+/** タイトルか区分がジャンクなら、相場もジャンクだけを見る */
+export function shouldTreatAsJunk(input: {
+  productName: string;
+  listingKind: ListingKind;
+}) {
+  return input.listingKind === "junk" || /ジャンク/u.test(input.productName);
+}
+
 export function generateYahooKeyword(
   productName: string,
   defectTags: readonly string[],
   listingKind: ListingKind = "junk"
 ) {
   const normalized = productName.normalize("NFKC").replace(/\s+/g, " ").trim();
+  // 機種が分かるものは一般名で引く。仕入先や「対策済」が混ざった社内名では落札を拾えない
+  const model = matchModelKeyword(normalized);
   const brand = extractBrand(normalized);
   const tokens = normalized.split(" ").filter(Boolean);
   const modelTokens = tokens.filter(token =>
@@ -171,7 +220,7 @@ export function generateYahooKeyword(
   // 動作品はジャンク相場と混ざると中央値が下振れするので、状態語を足さずに引く
   const conditionWord =
     listingKind === "surplus" ? "" : defectTags[0] || "ジャンク";
-  return [core || normalized, conditionWord].filter(Boolean).join(" ").trim();
+  return [model ?? core ?? normalized, conditionWord].filter(Boolean).join(" ").trim();
 }
 
 export function generateDefectiveTitle(input: {

@@ -6,6 +6,7 @@ import {
   generateDefectiveTitle,
   generateYahooKeyword,
   mergeSiteCellsWithoutHumanColumns,
+  shouldTreatAsJunk,
 } from "./defectiveListing";
 import {
   buildDefectivePhotoKey,
@@ -139,6 +140,28 @@ describe("defective listing generation", () => {
     expect(description).not.toContain("動作保証はありません");
     expect(description).toContain("返品・交換・返金はお受けできません");
   });
+  it("searches by model name, ignoring supplier prefixes and 対策済/未対策", () => {
+    // どれも同じ「Switch 本体」の相場を見る。対策済かどうかで分けない
+    for (const name of ["益子Switch対策済", "toy net Switch タブレット 対策済", "Switch 未対策 本体のみ", "デボン返品　スイッチ　対策済み"]) {
+      expect(generateYahooKeyword(name, [], "surplus")).toBe("Nintendo Switch 本体のみ");
+    }
+    expect(generateYahooKeyword("Switch lite イエロー", [], "surplus")).toBe("Nintendo Switch Lite 本体");
+    expect(generateYahooKeyword("DS Lite メタリックロゼ", [], "surplus")).toBe("ニンテンドーDS Lite 本体");
+    expect(generateYahooKeyword("GBA 本体 ホワイト", [], "surplus")).toBe("ゲームボーイアドバンス 本体");
+    expect(generateYahooKeyword("New 3DS LL ランダムカラー", [], "surplus")).toBe("Newニンテンドー3DS LL 本体");
+    expect(generateYahooKeyword("3DS LL ホワイトベース", [], "surplus")).toBe("ニンテンドー3DS LL 本体 -New");
+    // ジャンクで出すものは検索語にもジャンクが付く
+    expect(generateYahooKeyword("益子Switch対策済", ["起動しない"], "junk")).toBe("Nintendo Switch 本体のみ 起動しない");
+    // 表に無い品名は従来どおりの組み立てに落ちる
+    expect(generateYahooKeyword("Microsoft Surface Pro 1866", [], "surplus")).toContain("Microsoft");
+  });
+
+  it("treats a title containing ジャンク as junk even when the kind says surplus", () => {
+    expect(shouldTreatAsJunk({ productName: "Switch 本体 ジャンク", listingKind: "surplus" })).toBe(true);
+    expect(shouldTreatAsJunk({ productName: "Switch 本体", listingKind: "surplus" })).toBe(false);
+    expect(shouldTreatAsJunk({ productName: "Switch 本体", listingKind: "junk" })).toBe(true);
+  });
+
   it("keeps the surplus keyword free of the junk word so the median is not dragged down", () => {
     expect(generateYahooKeyword("Nintendo Switch 本体のみ 対策済", [], "surplus"))
       .not.toContain("ジャンク");
@@ -158,9 +181,10 @@ describe("defective listing generation", () => {
   });
 
   it("uses a deterministic keyword and the fixed single-item text", () => {
+    // 型番ではなく機種の一般名で引く。HAC-001 で絞ると落札が数件しか出ず中央値が当てにならない
     expect(
       generateYahooKeyword("Nintendo Switch HAC-001 本体", ["起動しない"])
-    ).toContain("Nintendo HAC-001");
+    ).toBe("Nintendo Switch 本体のみ 起動しない");
     const description = generateDefectiveDescription({
       productName: "Nintendo Switch HAC-001",
       defectTags: ["起動しない"],

@@ -4,6 +4,7 @@ import {
   buildDefectiveSheetPayload,
   generateYahooKeyword,
   normalizeListingKind,
+  shouldTreatAsJunk,
   type DefectPhoto,
 } from "./defectiveListing";
 import { writeYahooListingRow } from "./yahooListingSheet";
@@ -29,6 +30,26 @@ function parseMarket(value: string | null): YahooClosedPrices | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 落札実績の並べ方。
+ * - ジャンクとして出すもの（区分がジャンク／タイトルに「ジャンク」）は、5件ともジャンクの落札
+ * - それ以外は 1〜4件目を普通の状態の落札にし、5件目だけジャンクの落札を1件添える
+ *
+ * 中央値・最安・最高は「普通の状態」側の数字を採る。ジャンクを1件だけ並べるのは、
+ * 状態でいくら差が出るかを1行で見えるようにするため（村上さん指示・2026-08-18）。
+ */
+async function withJunkReference(keyword: string, treatAsJunk: boolean) {
+  if (treatAsJunk) return fetchYahooClosedPrices(keyword);
+  const normal = await fetchYahooClosedPrices(keyword);
+  const junk = await fetchYahooClosedPrices(`${keyword} ジャンク`);
+  return {
+    ...normal,
+    samples: [...normal.samples.slice(0, 4), junk.samples[0]].filter(
+      (sample): sample is (typeof normal.samples)[number] => Boolean(sample)
+    ),
+  };
 }
 
 export async function syncDefectiveListingByLabelId(
@@ -65,7 +86,10 @@ export async function syncDefectiveListingByLabelId(
   const market =
     options.reuseFreshMarket && existingMarket?.keyword === keyword
       ? existingMarket
-      : await fetchYahooClosedPrices(keyword);
+      : await withJunkReference(
+          keyword,
+          shouldTreatAsJunk({ productName: label.title, listingKind })
+        );
   const photos = parsePhotos(label.defectPhotosJson);
   const payload = buildDefectiveSheetPayload({
     productId: normalizedId,
