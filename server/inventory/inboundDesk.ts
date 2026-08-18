@@ -1035,6 +1035,67 @@ export const inboundDeskRouter = router({
     }),
 
   /**
+   * 指定日に荷受けしたラベルそのもの。ラベル印刷が「画面にどこまで読み込まれているか」に
+   * 左右されないよう、IDだけでなく印刷に要る項目まで返す。在庫用（インボイス紐付けなし）や、
+   * 発注一覧のページから外れたものを取りこぼさないため。
+   */
+  receivedLabelsOn: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^d{4}-d{2}-d{2}$/) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const start = new Date(`${input.date}T00:00:00+09:00`);
+      if (Number.isNaN(start.getTime())) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "日付の形式が不正です",
+        });
+      }
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const [rows, purchases, inventories] = await Promise.all([
+        db
+          .select()
+          .from(inventoryItemLabels)
+          .where(
+            and(
+              gte(inventoryItemLabels.receivedAt, start),
+              lt(inventoryItemLabels.receivedAt, end)
+            )
+          ),
+        db.select().from(localPurchases),
+        db.select().from(localInventories),
+      ]);
+      const purchaseById = new Map(purchases.map(row => [row.id, row]));
+      const inventoryById = new Map(inventories.map(row => [row.id, row]));
+      return {
+        date: input.date,
+        labels: rows
+          .filter(row => Boolean(row.labelId?.trim()))
+          .map(row => {
+            const purchase = row.purchaseId
+              ? (purchaseById.get(row.purchaseId) ?? null)
+              : null;
+            const inventory = row.localInventoryId
+              ? (inventoryById.get(row.localInventoryId) ?? null)
+              : null;
+            return {
+              labelId: row.labelId.trim().toUpperCase(),
+              status: String(row.status ?? ""),
+              title: row.title || inventory?.title || purchase?.title || "",
+              legacyManagementNo:
+                row.legacyManagementNo || purchase?.managementNo || "",
+              category: inventory?.category || purchase?.category || "",
+              receivedAt: row.receivedAt?.toISOString() ?? null,
+            };
+          })
+          .sort((a, b) =>
+            a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", {
+              numeric: true,
+            })
+          ),
+      };
+    }),
+
+  /**
    * 指定日に何をしたかの一覧。荷受けと動作確認を作業ログから拾う。
    * 充足状況（一覧）は「今」の状態から毎回計算しているので過去日を再現できない。
    * 「その日に何を触ったか」はここで出す。日付の区切りは Asia/Tokyo。

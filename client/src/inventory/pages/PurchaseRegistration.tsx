@@ -3418,24 +3418,46 @@ function LabelPrintPanel({
   // 「今日の荷受分」。荷受日＝配送伝票のバーコードを読んだ時点で、入庫日とは別物。
   const [receivedDate, setReceivedDate] = useState<string>(() => todayInTokyo());
   const [excludeAccessories, setExcludeAccessories] = useState(true);
-  const receivedQuery = trpc.inventory.inboundDesk.receivedLabelIdsOn.useQuery(
+  const receivedQuery = trpc.inventory.inboundDesk.receivedLabelsOn.useQuery(
     { date: receivedDate },
     { enabled: /^\d{4}-\d{2}-\d{2}$/.test(receivedDate), staleTime: 30_000 },
   );
-  const receivedLabelIdSet = useMemo(
-    () => new Set(receivedQuery.data?.labelIds ?? []),
-    [receivedQuery.data],
-  );
+  // その日に届いたものは引当先をまたぐうえ、在庫用や、発注一覧のページから外れたものも混ざる。
+  // 画面が持っているラベルから引き直すと取りこぼすので、サーバーが返した行から組み立てる。
   const receivedDateLabels = useMemo(() => {
-    if (receivedLabelIdSet.size === 0) return [];
-    // その日に届いたものは引当先をまたぐ。選んでいるグループではなく全体から拾う。
-    return editableAllLabels.filter((label) => {
-      if (!receivedLabelIdSet.has(label.labelId.trim().toUpperCase())) return false;
+    const rows = receivedQuery.data?.labels ?? [];
+    if (rows.length === 0) return [];
+    const knownByLabelId = new Map(
+      editableAllLabels.map((label) => [label.labelId.trim().toUpperCase(), label]),
+    );
+    return rows.flatMap((row) => {
       // 消耗品（ケーブル・バッテリー等）はラベルを貼らない方針のため既定で外す
-      if (excludeAccessories && isStockProposalAccessory(label.title, label.category)) return false;
-      return true;
+      if (excludeAccessories && isStockProposalAccessory(row.title, row.category)) return [];
+      const known = knownByLabelId.get(row.labelId);
+      if (known) return [known];
+      // 画面に無いものは、印刷に要る項目だけを組み立てて出す
+      const fallback: LabelView = {
+        key: `received-${row.labelId}`,
+        labelId: row.labelId,
+        rawStatus: row.status,
+        status: labelStatusLabel(row.status),
+        title: row.title,
+        printTitle: formatLabelPrintTitle(row.title),
+        category: row.category || stockModelName(row.title),
+        legacyManagementNo: row.legacyManagementNo || "-",
+        allocationLabel: labelAllocationLabel(row.legacyManagementNo || ""),
+        unitPrice: 0,
+        supplier: { name: "", url: "" },
+        purchaseDate: "",
+        rowId: 0,
+        itemId: 0,
+        inventoryId: null,
+        trackingNumber: null,
+        carrier: null,
+      };
+      return [applyLabelTitleOverride(fallback, labelTitleOverrides)];
     });
-  }, [editableAllLabels, excludeAccessories, receivedLabelIdSet]);
+  }, [editableAllLabels, excludeAccessories, labelTitleOverrides, receivedQuery.data]);
 
   const toggleGroupOpen = (name: string) => {
     setOpenGroupNames((current) =>
