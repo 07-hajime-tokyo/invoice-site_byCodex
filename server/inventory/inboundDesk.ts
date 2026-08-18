@@ -799,7 +799,7 @@ export const inboundDeskRouter = router({
   markListingShipped: protectedProcedure
     .input(z.object({
       labelId: z.string().min(1).max(80),
-      shippedOn: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(),
+      shippedOn: z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/).optional(),
       operatorName: z.string().max(200).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -1040,7 +1040,7 @@ export const inboundDeskRouter = router({
    * 発注一覧のページから外れたものを取りこぼさないため。
    */
   receivedLabelsOn: protectedProcedure
-    .input(z.object({ date: z.string().regex(/^d{4}-d{2}-d{2}$/) }))
+    .input(z.object({ date: z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) }))
     .query(async ({ input }) => {
       const db = await requireDb();
       const start = new Date(`${input.date}T00:00:00+09:00`);
