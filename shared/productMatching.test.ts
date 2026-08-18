@@ -205,6 +205,35 @@ describe("productMatching", () => {
     ]);
   });
 
+  it("403の実色出庫をランダムカラー注文行へ機種別に割り当てる", () => {
+    const result = allocateShipmentItemsToCsvProducts([
+      { productNameJa: "New 3DS LL メタリックブルー", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "New 3DS LL メタリックブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "New 3DS LL メタリックブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "New 2DS LL ブラック×ターコイズ", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL ピンク×ホワイト", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL ブルー×ブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL シルバー×ブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL レッド×ブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "New 2DS LL ブラック×ライム", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL ミント×ホワイト", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL ミント×ホワイト", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL レッド×ブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "3DS LL シルバー×ブラック", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+      { productNameJa: "New 3DS LL メタリックレッド", productNameEn: "", quantity: 1, managementNo: "403_B000002" },
+    ], [
+      { name: "3DS LL ランダムカラー", qty: 10 },
+      { name: "New 3DS LL ランダムカラー", qty: 4 },
+      { name: "New 2DS LL ランダムカラー", qty: 2 },
+    ]);
+
+    expect(result).toEqual([
+      { productNameJa: "New 3DS LL ランダムカラー", productNameEn: "New 3DS LL ランダムカラー", quantity: 4 },
+      { productNameJa: "New 2DS LL ランダムカラー", productNameEn: "New 2DS LL ランダムカラー", quantity: 2 },
+      { productNameJa: "3DS LL ランダムカラー", productNameEn: "3DS LL ランダムカラー", quantity: 8 },
+    ]);
+  });
+
   it("shipment allocation fills specific color rows before random rows", () => {
     const result = allocateShipmentItemsToCsvProducts([
       { productNameJa: "New 3DS LL ブラック", productNameEn: "New 3DS LL Black", quantity: 3 },

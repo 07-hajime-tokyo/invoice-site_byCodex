@@ -6315,6 +6315,7 @@ export const inventoryRouter = router({
           }
 
           const cancelledByInventoryId = new Map<number, number>();
+          const allocationItems: ShipmentGasItem[] = [];
           for (const item of cancelledItems) {
             const inventoryId = Number(item.inventoryId ?? 0);
             const quantity = Number(item.quantity ?? 0);
@@ -6338,40 +6339,28 @@ export const inventoryRouter = router({
 
             const fallbackManagement = inventoryId ? (inventoryManagementMap.get(inventoryId) ?? "") : "";
             const storedCsvProductName = typeof item.csvProductName === "string" ? item.csvProductName.trim() : "";
-            const managementHints = extractManagementHints(
+            const title = String(item.title ?? "").trim();
+            const managementText = Array.from(new Set(extractManagementHints(
               item.managementNo,
               fallbackManagement.split(",")[0],
               fallbackManagement,
               delivery.deliveryNo,
-            );
-            const suggestionName =
-              suggestCsvProductNameFromHints("", managementHints, csvProducts) ??
-              suggestCsvProductNameFromHints(String(item.title ?? ""), managementHints, csvProducts) ??
-              (storedCsvProductName
-                ? suggestCsvProductNameFromHints(storedCsvProductName, managementHints, csvProducts)
-                : null) ??
-              (storedCsvProductName
-                ? suggestCsvProductNameWithFallback(storedCsvProductName, managementHints.join(" "), csvProducts)
-                : null);
-
-            if (item.csvProductName !== undefined) {
-              if (suggestionName) {
-                addByProductName(suggestionName, effectiveQuantity);
-                continue;
-              }
-              if (storedCsvProductName) {
-                addByProductName(storedCsvProductName, effectiveQuantity);
-                continue;
-              }
-            }
-
-            if (suggestionName) {
-              addByProductName(suggestionName, effectiveQuantity);
+              title,
+              storedCsvProductName,
+            ))).join(" ");
+            const allocationName = storedCsvProductName || title;
+            if (allocationName) {
+              allocationItems.push({
+                productNameJa: allocationName,
+                productNameEn: allocationName,
+                quantity: effectiveQuantity,
+                managementNo: managementText || null,
+              });
               continue;
             }
 
             const suggestion = suggestCsvProduct(
-              String(item.title ?? ""),
+              title,
               String(item.managementNo ?? fallbackManagement),
               csvProducts,
             );
@@ -6382,6 +6371,13 @@ export const inventoryRouter = router({
 
             const rawTitle = String(item.title ?? "").trim();
             if (rawTitle) addByProductName(rawTitle, effectiveQuantity);
+          }
+
+          const allocatedItems = allocationItems.length > 0 && csvProducts.length > 0
+            ? allocateShipmentItemsToCsvProducts(allocationItems, csvProducts)
+            : allocationItems;
+          for (const item of allocatedItems) {
+            addByProductName(item.productNameJa, item.quantity);
           }
         }
 
