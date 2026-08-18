@@ -33,6 +33,14 @@ import { fileAsBase64 } from "@/inventory/components/DefectiveInspectionDialog";
 import { trpc } from "@/lib/trpc";
 
 type ListingKind = "junk" | "surplus";
+type TopEdge = "top" | "right" | "bottom" | "left";
+
+const TOP_EDGE_LABELS: Record<TopEdge, string> = {
+  top: "そのまま",
+  right: "右を上へ",
+  bottom: "上下反転",
+  left: "左を上へ",
+};
 
 const DEFECT_TAG_OPTIONS = [
   "通電せず", "起動しない", "画面不良", "バッテリー不良", "充電不可",
@@ -451,12 +459,14 @@ export default function YahooListings() {
   const [manualOpen, setManualOpen] = useState(false);
   const [busyLabelId, setBusyLabelId] = useState<string | null>(null);
   const [sending, setSending] = useState<{ done: number; total: number } | null>(null);
+  /** 写真ごとに「どの辺を上にするか」。選び終えてから一括で適用する */
+  const [topEdges, setTopEdges] = useState<Record<string, TopEdge>>({});
 
   const utils = trpc.useUtils();
   const queue = trpc.inventory.inboundDesk.yahooListingQueue.useQuery();
   const attachPhotos = trpc.inventory.inboundDesk.attachListingPhotos.useMutation();
   const markShipped = trpc.inventory.inboundDesk.markListingShipped.useMutation();
-  const rotatePhoto = trpc.inventory.inboundDesk.rotateListingPhoto.useMutation();
+  const rotatePhotos = trpc.inventory.inboundDesk.rotateListingPhotos.useMutation();
   const refreshListing = trpc.inventory.inboundDesk.refreshDefectiveListing.useMutation();
   const createGroup = trpc.inventory.inboundDesk.createDefectiveGroup.useMutation();
   const dissolveGroup = trpc.inventory.inboundDesk.dissolveDefectiveGroup.useMutation();
@@ -539,15 +549,31 @@ export default function YahooListings() {
   }
 
   /** ヤフオクで売れて発送したことを記録する。在庫を0にし、出庫履歴へ1行残す */
-  /** 写真の向きはソフトから判断できないので、押すたび90度ずつ回す */
-  async function onRotatePhoto(labelId: string, photoKey: string) {
+  /** 選んだ向きを10枚まとめて適用する。1枚ずつ90度ずつ押すと時間がかかるため */
+  async function onApplyRotations(labelId: string, photoKeys: string[]) {
+    const rotations = photoKeys
+      .map(photoKey => ({ photoKey, topEdge: topEdges[photoKey] ?? ("top" as TopEdge) }))
+      .filter(entry => entry.topEdge !== "top");
+    if (rotations.length === 0) {
+      toast.error("向きを変える写真を選んでください");
+      return;
+    }
     setBusyLabelId(labelId);
     try {
-      await rotatePhoto.mutateAsync({ labelId, photoKey, degrees: 90 });
-      toast.success("写真を90度回しました");
+      const result = await rotatePhotos.mutateAsync({ labelId, rotations });
+      if (result.failed.length > 0) {
+        toast.warning(`${result.applied.length}枚を回転。${result.failed.length}枚は失敗`);
+      } else {
+        toast.success(`${result.applied.length}枚の向きを直しました`);
+      }
+      setTopEdges(current => {
+        const next = { ...current };
+        for (const key of photoKeys) delete next[key];
+        return next;
+      });
       await reload();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "写真を回せませんでした");
+      toast.error(error instanceof Error ? error.message : "向きを直せませんでした");
     } finally {
       setBusyLabelId(null);
     }
@@ -828,27 +854,71 @@ export default function YahooListings() {
                 </div>
 
                 {item.photos.length > 0 && (
-                  <div className="flex gap-3 overflow-x-auto">
-                    {item.photos.map(photo => (
-                      <div key={photo.key} className="flex-none">
-                        <img
-                          src={`${photo.url}?v=${item.sheetSyncedAt ?? ""}`}
-                          alt=""
-                          className="h-24 w-24 rounded-md object-contain"
-                          loading="lazy"
-                        />
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="mt-1 h-9 w-24"
-                          onClick={() => void onRotatePhoto(item.labelId, photo.key)}
-                          disabled={busy}
-                        >
-                          <RotateCw className="mr-1 h-3 w-3" /> 回転
-                        </Button>
-                      </div>
-                    ))}
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      上にしたい辺を選んで、まとめて直す
+                    </div>
+                    <div className="flex gap-4 overflow-x-auto pb-1">
+                      {item.photos.map(photo => {
+                        const edge = topEdges[photo.key] ?? "top";
+                        return (
+                          <div key={photo.key} className="flex-none">
+                            {/* 写真の4辺にボタンを置く。押した辺が上に来る */}
+                            <div className="relative h-28 w-28">
+                              <img
+                                src={photo.url}
+                                alt=""
+                                className="h-28 w-28 rounded-md border object-contain"
+                                loading="lazy"
+                              />
+                              {(["top", "right", "bottom", "left"] as const).map(side => (
+                                <button
+                                  key={side}
+                                  type="button"
+                                  aria-label={TOP_EDGE_LABELS[side]}
+                                  aria-pressed={edge === side}
+                                  disabled={busy}
+                                  onClick={() =>
+                                    setTopEdges(current => ({ ...current, [photo.key]: side }))
+                                  }
+                                  className={[
+                                    "absolute flex items-center justify-center rounded-sm border text-[10px] font-bold",
+                                    edge === side
+                                      ? "border-primary bg-primary text-primary-foreground"
+                                      : "border-muted-foreground/40 bg-background/85",
+                                    side === "top" ? "left-1/2 top-0 h-5 w-10 -translate-x-1/2" : "",
+                                    side === "bottom" ? "bottom-0 left-1/2 h-5 w-10 -translate-x-1/2" : "",
+                                    side === "left" ? "left-0 top-1/2 h-10 w-5 -translate-y-1/2" : "",
+                                    side === "right" ? "right-0 top-1/2 h-10 w-5 -translate-y-1/2" : "",
+                                  ].join(" ")}
+                                >
+                                  {edge === side ? "上" : ""}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="mt-1 w-28 text-center text-[11px] text-muted-foreground">
+                              {TOP_EDGE_LABELS[edge]}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() =>
+                        void onApplyRotations(item.labelId, item.photos.map(photo => photo.key))
+                      }
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCw className="mr-2 h-4 w-4" />
+                      )}
+                      選んだ向きをまとめて直す
+                    </Button>
                   </div>
                 )}
 

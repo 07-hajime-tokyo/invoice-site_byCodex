@@ -876,6 +876,72 @@ export const inboundDeskRouter = router({
       return { labelId, deliveryHistoryId, sheet: result.sheet };
     }),
 
+  /**
+   * 写真の向きをまとめて直す。
+   * 「どの辺を上にするか」で受け取る。1枚ずつ90度ずつ押していくと10枚で時間がかかるため、
+   * 選び終えてから一括で適用する（村上さん指示・2026-08-18）。
+   */
+  rotateListingPhotos: protectedProcedure
+    .input(z.object({
+      labelId: z.string().min(1).max(80),
+      rotations: z.array(z.object({
+        photoKey: z.string().min(1).max(512),
+        /** 上にしたい辺。top はそのまま */
+        topEdge: z.enum(["top", "right", "bottom", "left"]),
+      })).min(1).max(10),
+    }))
+    .mutation(async ({ input }) => {
+      const labelId = input.labelId.trim().toUpperCase();
+      // 「その辺を上へ」を時計回りの角度に直す。右辺を上へ持ち上げるには反時計回り90度＝270度
+      const degreesFor = { top: 0, right: 270, bottom: 180, left: 90 } as const;
+      const applied: string[] = [];
+      const failed: Array<{ photoKey: string; message: string }> = [];
+      const urlByKey = new Map<string, string>();
+      for (const rotation of input.rotations) {
+        const degrees = degreesFor[rotation.topEdge];
+        if (degrees === 0) continue;
+        if (!rotation.photoKey.startsWith(`defective/${labelId}/`)) {
+          failed.push({ photoKey: rotation.photoKey, message: "商品IDが一致しません" });
+          continue;
+        }
+        try {
+          const result = await rotateListingPhoto(rotation.photoKey, degrees as 90 | 180 | 270);
+          urlByKey.set(rotation.photoKey, result.url);
+          applied.push(rotation.photoKey);
+        } catch (error) {
+          failed.push({
+            photoKey: rotation.photoKey,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (applied.length > 0) {
+        // 回した写真だけURLを差し替える。Sheetsのキャッシュを外すため
+        const db = await requireDb();
+        const [label] = await db.select().from(inventoryItemLabels)
+          .where(eq(inventoryItemLabels.labelId, labelId)).limit(1);
+        if (label) {
+          let photos: DefectPhoto[] = [];
+          try {
+            const parsed = JSON.parse(label.defectPhotosJson ?? "[]");
+            photos = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            photos = [];
+          }
+          const next = photos.map(photo =>
+            urlByKey.has(photo.key) ? { ...photo, url: urlByKey.get(photo.key)! } : photo
+          );
+          await db.update(inventoryItemLabels)
+            .set({ defectPhotosJson: JSON.stringify(next) })
+            .where(eq(inventoryItemLabels.id, label.id));
+        }
+      }
+
+      const result = await syncDefectiveListingByLabelId(labelId, { reuseFreshMarket: true });
+      return { applied, failed, sheet: result.sheet };
+    }),
+
   /** 出品写真を回す。向きはソフトから判断できないので人が直す */
   rotateListingPhoto: protectedProcedure
     .input(z.object({

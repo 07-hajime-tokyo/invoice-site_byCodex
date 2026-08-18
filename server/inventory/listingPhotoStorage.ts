@@ -86,5 +86,6 @@ export async function rotateListingPhoto(key: string, degrees: 90 | 180 | 270) {
     .update(listingPhotos)
     .set({ contentType: "image/jpeg", dataBase64: rotated.toString("base64") })
     .where(eq(listingPhotos.id, row.id));
-  return { key, bytes: rotated.length };
+  // Sheetsの =IMAGE() はURL単位でキャッシュするので、回したらURLも変える
+  return { key, bytes: rotated.length, url: `${listingPhotoUrl(key)}?v=${row.id}-${Date.now()}` };
 }
