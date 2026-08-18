@@ -3300,6 +3300,18 @@ function OrderDashboard({
   );
 }
 
+// 既存の在庫はすべてラベルを発行して現物に貼り終えている。ラベル印刷と入庫スキャンで
+// 見るのは、この日以降の仕入れだけでよい（村上さん指示・2026-08-18）。
+// 貼り直しなど過去分が要るときは、画面のチェックを外すと全件に戻る。
+const LABEL_SCOPE_FROM_DATE = "2026-08-10";
+
+function isWithinLabelScope(label: LabelView): boolean {
+  const purchaseDate = label.purchaseDate?.trim() ?? "";
+  // 仕入日が空のものは、隠すと気づけなくなるので残す
+  if (!purchaseDate) return true;
+  return purchaseDate.slice(0, 10) >= LABEL_SCOPE_FROM_DATE;
+}
+
 function buildLabelPrintGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
   const map = new Map<string, LabelView[]>();
   for (const label of labels) {
@@ -6820,6 +6832,25 @@ export default function PurchaseRegistration() {
   const allScannableLabels = useMemo(() => mergeLabelViewsById(allLabels, inventoryLabels), [allLabels, inventoryLabels]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
+  const [narrowLabelScope, setNarrowLabelScope] = useState(true);
+  const scopeLabels = (labels: LabelView[]) =>
+    narrowLabelScope ? labels.filter(isWithinLabelScope) : labels;
+  const scopedLabelPrintLabels = useMemo(
+    () => scopeLabels(selectedLabelPrintLabels),
+    [narrowLabelScope, selectedLabelPrintLabels],
+  );
+  const scopedInvoiceLabels = useMemo(
+    () => scopeLabels(allInvoiceLabels),
+    [allInvoiceLabels, narrowLabelScope],
+  );
+  const scopedScannableLabels = useMemo(
+    () => scopeLabels(allScannableLabels),
+    [allScannableLabels, narrowLabelScope],
+  );
+  const scopedPrintableLabels = useMemo(
+    () => scopeLabels(allPrintableLabels),
+    [allPrintableLabels, narrowLabelScope],
+  );
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
   const selectedEbayStockItems = useMemo(
     () => selectedIsEbayGroup
@@ -6881,13 +6912,13 @@ export default function PurchaseRegistration() {
   const workflowCounts = useMemo(
     () => ({
       order: filteredRows.length,
-      labels: allPrintableLabels.length,
-      scan: allPrintableLabels.length,
+      labels: scopedPrintableLabels.length,
+      scan: scopedPrintableLabels.length,
       stock: allStockItems.length,
       shipping: buildShippingItemsFromLabels(selectedShippingLabels).length,
       returns: allPrintableLabels.length,
     }),
-    [allPrintableLabels.length, allStockItems.length, filteredRows.length, selectedShippingLabels],
+    [allPrintableLabels.length, allStockItems.length, filteredRows.length, scopedPrintableLabels.length, selectedShippingLabels],
   );
 
   const changeLabelStartPosition = (value: number) => {
@@ -7356,6 +7387,17 @@ export default function PurchaseRegistration() {
                     className="pl-9"
                   />
                 </div>
+                {isLabelWorkflow || isScanWorkflow ? (
+                  <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={narrowLabelScope}
+                      onChange={(event) => setNarrowLabelScope(event.target.checked)}
+                      className="h-3.5 w-3.5 accent-emerald-700"
+                    />
+                    {LABEL_SCOPE_FROM_DATE} 以降の仕入れだけ
+                  </label>
+                ) : null}
               </div>
             </div>
           </section>
@@ -7390,8 +7432,8 @@ export default function PurchaseRegistration() {
               </TabsContent>
               <TabsContent value="labels">
                 <LabelPrintPanel
-                  labels={selectedLabelPrintLabels}
-                  allLabels={allInvoiceLabels}
+                  labels={scopedLabelPrintLabels}
+                  allLabels={scopedInvoiceLabels}
                   onPrintChecklist={handlePrintChecklist}
                   onPrintLabels={handlePrintLabels}
                   startPosition={labelStartPosition}
@@ -7399,7 +7441,7 @@ export default function PurchaseRegistration() {
                 />
               </TabsContent>
               <TabsContent value="scan">
-                <ScanPanel labels={allScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
+                <ScanPanel labels={scopedScannableLabels} onReceivedLabel={handleReceivedLabelForShipping} />
               </TabsContent>
               <TabsContent value="stock">
                 <StockPanel
