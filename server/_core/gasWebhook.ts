@@ -405,13 +405,20 @@ async function findDuplicateManagementNoRows(managementNoInput: string) {
       .orderBy(desc(inventoryItemLabels.updatedAt))
       .limit(20),
   ]);
+  const activeInventoryIds = new Set(inventories.map((inventory) => inventory.id));
+  const activePurchaseIds = new Set(purchases.map((purchase) => purchase.id));
+  const activeLabels = labels.filter((label) => {
+    const linkedToActiveInventory = label.localInventoryId != null && activeInventoryIds.has(label.localInventoryId);
+    const linkedToActivePurchase = label.purchaseId != null && activePurchaseIds.has(label.purchaseId);
+    return linkedToActiveInventory || linkedToActivePurchase;
+  });
 
   return {
     managementNo,
-    duplicate: inventories.length > 0 || purchases.length > 0 || labels.length > 0,
+    duplicate: inventories.length > 0 || purchases.length > 0 || activeLabels.length > 0,
     inventories,
     purchases,
-    labels,
+    labels: activeLabels,
   };
 }
 
