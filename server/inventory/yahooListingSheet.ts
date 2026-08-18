@@ -28,6 +28,12 @@ const ALL_HEADERS = [...SITE_HEADERS, ...HUMAN_HEADERS];
 
 /** Googleスプレッドシートの既定の行の高さ */
 const DEFAULT_ROW_HEIGHT_PX = 21;
+/**
+ * 写真がある行だけ少し高くする。
+ * 既定の21pxだと =IMAGE() が21px角のサムネイルになり、撮れているかを一覧で判別できない。
+ * 説明文は折り返さないので、伸びるのは写真のある行だけで済む（村上さん指示・2026-08-18）。
+ */
+const PHOTO_ROW_HEIGHT_PX = 60;
 
 export function yahooListingSheetUrl() {
   return `https://docs.google.com/spreadsheets/d/${YAHOO_LISTING_SPREADSHEET_ID}/edit`;
@@ -274,7 +280,12 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
                 startIndex: targetRow - 1,
                 endIndex: targetRow,
               },
-              properties: { pixelSize: DEFAULT_ROW_HEIGHT_PX },
+              properties: {
+                pixelSize:
+                  (payload.photos?.length ?? 0) > 0
+                    ? PHOTO_ROW_HEIGHT_PX
+                    : DEFAULT_ROW_HEIGHT_PX,
+              },
               fields: "pixelSize",
             },
           },
