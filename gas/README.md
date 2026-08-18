@@ -4,6 +4,11 @@
 production Apps Script is not stored in this repository, so deployment remains a
 manual step.
 
+`zaicoRegisterDuplicateGuard.gs` is a drop-in guard for the spreadsheet product
+registration script. It checks the same management number in the current sheet
+and in the site database before registration, then shows an Apps Script alert and
+stops the checkbox registration when a duplicate exists.
+
 In the existing authenticated `doPost(e)` action switch, add:
 
 ```javascript

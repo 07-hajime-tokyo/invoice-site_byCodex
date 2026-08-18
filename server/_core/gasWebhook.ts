@@ -321,6 +321,100 @@ function sendError(res: Response, status: number, message: string, extra: Record
   res.status(status).json({ success: false, ok: false, status, message, error: message, ...extra });
 }
 
+function primaryManagementNo(value: string | null | undefined) {
+  return String(value ?? "").split(",")[0]?.trim() ?? "";
+}
+
+function isDuplicateManagementNoCheck(payload: Record<string, unknown>) {
+  const action = textField(payload, ["action", "mode", "operation", "操作"])
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  return [
+    "checkduplicatemanagementno",
+    "duplicatemanagementnocheck",
+    "checkmanagementno",
+    "checkduplicate",
+    "preflight",
+    "管理番号重複確認",
+    "重複確認",
+  ].includes(action);
+}
+
+async function findDuplicateManagementNoRows(managementNoInput: string) {
+  const managementNo = primaryManagementNo(managementNoInput);
+  if (!managementNo) {
+    return {
+      managementNo,
+      duplicate: false,
+      inventories: [],
+      purchases: [],
+      labels: [],
+    };
+  }
+
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [inventories, purchases, labels] = await Promise.all([
+    db
+      .select({
+        id: localInventories.id,
+        title: localInventories.title,
+        quantity: localInventories.quantity,
+        etc: localInventories.etc,
+        supplierName: localInventories.supplierName,
+        updatedAt: localInventories.updatedAt,
+      })
+      .from(localInventories)
+      .where(and(
+        eq(localInventories.isDeleted, 0),
+        sql`substring_index(coalesce(${localInventories.etc}, ''), ',', 1) = ${managementNo}`,
+      ))
+      .orderBy(desc(localInventories.updatedAt))
+      .limit(10),
+    db
+      .select({
+        id: localPurchases.id,
+        purchaseNum: localPurchases.purchaseNum,
+        title: localPurchases.title,
+        quantity: localPurchases.quantity,
+        status: localPurchases.status,
+        managementNo: localPurchases.managementNo,
+        supplierName: localPurchases.supplierName,
+        updatedAt: localPurchases.updatedAt,
+      })
+      .from(localPurchases)
+      .where(sql`substring_index(coalesce(${localPurchases.managementNo}, ''), ',', 1) = ${managementNo}`)
+      .orderBy(desc(localPurchases.updatedAt))
+      .limit(10),
+    db
+      .select({
+        id: inventoryItemLabels.id,
+        labelId: inventoryItemLabels.labelId,
+        title: inventoryItemLabels.title,
+        status: inventoryItemLabels.status,
+        legacyManagementNo: inventoryItemLabels.legacyManagementNo,
+        purchaseId: inventoryItemLabels.purchaseId,
+        localInventoryId: inventoryItemLabels.localInventoryId,
+        updatedAt: inventoryItemLabels.updatedAt,
+      })
+      .from(inventoryItemLabels)
+      .where(sql`substring_index(coalesce(${inventoryItemLabels.legacyManagementNo}, ''), ',', 1) = ${managementNo}`)
+      .orderBy(desc(inventoryItemLabels.updatedAt))
+      .limit(20),
+  ]);
+
+  return {
+    managementNo,
+    duplicate: inventories.length > 0 || purchases.length > 0 || labels.length > 0,
+    inventories,
+    purchases,
+    labels,
+  };
+}
+
 export function registerGasWebhookRoutes(app: Express) {
   function sendHealth(res: Response, endpoint: string) {
     res.json({
@@ -341,6 +435,23 @@ export function registerGasWebhookRoutes(app: Express) {
 
     try {
       const payload = gasPayloadSchema.parse(req.body) as Record<string, unknown>;
+      if (isDuplicateManagementNoCheck(payload)) {
+        const managementNo = primaryManagementNo(textField(payload, stringKeys.managementNo));
+        if (!managementNo) {
+          sendError(res, 400, "管理番号が取得できませんでした。GAS payload の managementNo または srnNumber を確認してください。");
+          return;
+        }
+
+        const duplicateResult = await findDuplicateManagementNoRows(managementNo);
+        res.json({
+          success: true,
+          ok: true,
+          action: "checkDuplicateManagementNo",
+          ...duplicateResult,
+        });
+        return;
+      }
+
       const title = textField(payload, stringKeys.title);
       const rawQuantity = numberField(payload, numberKeys.quantity, null);
       const orderQuantity = numberField(payload, numberKeys.orderQuantity, null);
