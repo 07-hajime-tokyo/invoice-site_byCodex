@@ -554,6 +554,30 @@ export default function YahooListings() {
     }
   }
 
+  /**
+   * 検索語の作り方を変えたあとは、保存済みの相場が古い。
+   * 「GBA ミルキーブルー」のような社内名のまま保存された行は採用0件のまま残るので、
+   * 1件ずつ待って引き直す。
+   */
+  async function onRefreshStale() {
+    const stale = (queue.data?.items ?? []).filter(item => item.keywordStale);
+    if (stale.length === 0) return;
+    setSending({ done: 0, total: stale.length });
+    let failed = 0;
+    for (const [index, item] of stale.entries()) {
+      try {
+        await refreshListing.mutateAsync({ labelId: item.labelId });
+      } catch {
+        failed += 1;
+      }
+      setSending({ done: index + 1, total: stale.length });
+    }
+    setSending(null);
+    await reload();
+    if (failed > 0) toast.warning(`${stale.length - failed}件の相場を取り直し。${failed}件は失敗`);
+    else toast.success(`${stale.length}件の相場を取り直しました`);
+  }
+
   async function onGroup() {
     if (selected.length < 2) {
       toast.error("まとめ出品は2台以上選んでください");
@@ -576,6 +600,7 @@ export default function YahooListings() {
       junk: all.filter(item => item.listingKind === "junk").length,
       surplus: all.filter(item => item.listingKind === "surplus").length,
       pending: all.filter(item => !item.sheetSyncedAt).length,
+      stale: all.filter(item => item.keywordStale).length,
     };
   }, [queue.data]);
 
@@ -611,6 +636,27 @@ export default function YahooListings() {
         <Button type="button" size="sm" variant="outline" className="min-h-10" onClick={() => setManualOpen(true)}>
           <PencilLine className="mr-1 h-4 w-4" /> 手入力で追加
         </Button>
+        {counts.stale > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="min-h-10"
+            onClick={() => void onRefreshStale()}
+            disabled={Boolean(sending)}
+          >
+            {sending ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                取得中 {sending.done}/{sending.total}
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-1 h-4 w-4" /> 相場が古い {counts.stale}件を取り直す
+              </>
+            )}
+          </Button>
+        )}
         {counts.pending > 0 && (
           <Button
             type="button"
@@ -834,7 +880,7 @@ export default function YahooListings() {
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  出品タイトルと説明文はスプレッドシートの「不良在庫」シートに入ります。
+                  出品タイトルと説明文はスプレッドシート「ヤフオク出品」の「出品待ち」シートに入ります。
                   {item.keyword ? `検索キーワード: ${item.keyword}` : ""}
                 </p>
               </CardContent>

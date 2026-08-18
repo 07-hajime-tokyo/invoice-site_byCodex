@@ -7,6 +7,7 @@ import {
 } from "../../drizzle/schema";
 import {
   buildDefectiveSheetPayload,
+  generateYahooKeyword,
   normalizeListingKind,
   type DefectPhoto,
   type ListingKind,
@@ -188,6 +189,13 @@ export async function listYahooListingQueue() {
     items: queued
       .map(label => {
         const market = parseMarket(label.yahooClosedPricesJson);
+        // 検索語の作り方を変えたあとは、保存済みの相場が古い前提で引き直す必要がある。
+        // 「GBA ミルキーブルー」のような社内名のまま保存された行は採用0件のまま残るため
+        const expectedKeyword = generateYahooKeyword(
+          label.title,
+          String(label.defectTags ?? "").split(",").map(tag => tag.trim()).filter(Boolean),
+          normalizeListingKind(label.listingKind)
+        );
         const inventory = label.localInventoryId ? inventoryById.get(label.localInventoryId) : undefined;
         return {
           labelId: label.labelId,
@@ -197,6 +205,7 @@ export async function listYahooListingQueue() {
           defectNote: label.defectNote,
           photos: parseArray<DefectPhoto>(label.defectPhotosJson),
           keyword: market?.keyword ?? null,
+          keywordStale: !market || market.keyword !== expectedKeyword,
           marketMedian: market?.adopted.median ?? null,
           marketCount: market?.adopted.count ?? 0,
           priceFetchedAt: label.yahooPriceFetchedAt?.toISOString() ?? null,
