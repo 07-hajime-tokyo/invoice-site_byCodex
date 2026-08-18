@@ -160,30 +160,75 @@ function productNameWithoutLeadingBrand(productName: string, brand: string) {
  * ヤフオクの検索は部分一致なので「ニンテンドー3DS LL」は New 3DS LL の落札も拾う。
  * 実測で中央値が 19,800円 → 14,300円 とズレたため、旧機種側は -New で除外する。
  */
-const MODEL_KEYWORDS: Array<{ match: RegExp; keyword: string }> = [
-  { match: /switch\s*lite|スイッチ\s*ライト/u, keyword: "Nintendo Switch Lite 本体" },
-  { match: /switch|スイッチ/u, keyword: "Nintendo Switch 本体のみ" },
-  { match: /new\s*3ds\s*ll|new\s*ニンテンドー\s*3ds\s*ll/u, keyword: "Newニンテンドー3DS LL 本体" },
-  { match: /new\s*3ds/u, keyword: "Newニンテンドー3DS 本体" },
-  { match: /3ds\s*ll/u, keyword: "ニンテンドー3DS LL 本体 -New" },
-  { match: /3ds/u, keyword: "ニンテンドー3DS 本体 -New -LL" },
-  { match: /new\s*2ds\s*ll/u, keyword: "Newニンテンドー2DS LL 本体" },
-  { match: /2ds/u, keyword: "ニンテンドー2DS 本体 -New -LL" },
-  { match: /ds\s*lite|dslite/u, keyword: "ニンテンドーDS Lite 本体" },
-  { match: /gba\s*sp|アドバンス\s*sp|advance\s*sp/u, keyword: "ゲームボーイアドバンスSP 本体" },
-  { match: /gba|ゲームボーイ\s*アドバンス|game\s*boy\s*advance/u, keyword: "ゲームボーイアドバンス 本体" },
-  { match: /ゲームボーイ\s*カラー|game\s*boy\s*color/u, keyword: "ゲームボーイカラー 本体" },
-  { match: /psp\s*[-\s]?3000/u, keyword: "PSP-3000 本体" },
-  { match: /psp\s*[-\s]?2000/u, keyword: "PSP-2000 本体" },
-  { match: /psp\s*[-\s]?1000/u, keyword: "PSP-1000 本体" },
-  { match: /vita\s*2000|pch\s*[-\s]?2000/u, keyword: "PS Vita PCH-2000 本体" },
-  { match: /vita\s*1[01]00|pch\s*[-\s]?1[01]00|vita/u, keyword: "PS Vita PCH-1000 本体" },
+const MODEL_KEYWORDS: Array<{
+  match: RegExp;
+  /** ヤフオクの落札相場を引くための検索語 */
+  keyword: string;
+  /** 出品タイトルに使う日本語の一般名。社内の品名は使わない */
+  titleJa: string;
+  /** 海外バイヤー向けの英語表記。ヤフオクは海外からも見られる */
+  titleEn: string;
+}> = [
+  { match: /switch\s*lite|スイッチ\s*ライト/u, keyword: "Nintendo Switch Lite 本体", titleJa: "ニンテンドースイッチ ライト 本体", titleEn: "Nintendo Switch Lite" },
+  { match: /switch|スイッチ/u, keyword: "Nintendo Switch 本体のみ", titleJa: "ニンテンドースイッチ 本体のみ", titleEn: "Nintendo Switch" },
+  { match: /new\s*3ds\s*ll|new\s*ニンテンドー\s*3ds\s*ll/u, keyword: "Newニンテンドー3DS LL 本体", titleJa: "Newニンテンドー3DS LL 本体", titleEn: "New Nintendo 3DS LL" },
+  { match: /new\s*3ds/u, keyword: "Newニンテンドー3DS 本体", titleJa: "Newニンテンドー3DS 本体", titleEn: "New Nintendo 3DS" },
+  { match: /3ds\s*ll/u, keyword: "ニンテンドー3DS LL 本体 -New", titleJa: "ニンテンドー3DS LL 本体", titleEn: "Nintendo 3DS LL" },
+  { match: /3ds/u, keyword: "ニンテンドー3DS 本体 -New -LL", titleJa: "ニンテンドー3DS 本体", titleEn: "Nintendo 3DS" },
+  { match: /new\s*2ds\s*ll/u, keyword: "Newニンテンドー2DS LL 本体", titleJa: "Newニンテンドー2DS LL 本体", titleEn: "New Nintendo 2DS LL" },
+  { match: /2ds/u, keyword: "ニンテンドー2DS 本体 -New -LL", titleJa: "ニンテンドー2DS 本体", titleEn: "Nintendo 2DS" },
+  { match: /ds\s*lite|dslite/u, keyword: "ニンテンドーDS Lite 本体", titleJa: "ニンテンドーDS Lite 本体", titleEn: "Nintendo DS Lite" },
+  { match: /gba\s*sp|アドバンス\s*sp|advance\s*sp/u, keyword: "ゲームボーイアドバンスSP 本体", titleJa: "ゲームボーイアドバンスSP 本体", titleEn: "Game Boy Advance SP" },
+  { match: /gba|ゲームボーイ\s*アドバンス|game\s*boy\s*advance/u, keyword: "ゲームボーイアドバンス 本体", titleJa: "ゲームボーイアドバンス 本体", titleEn: "Game Boy Advance" },
+  { match: /ゲームボーイ\s*カラー|game\s*boy\s*color/u, keyword: "ゲームボーイカラー 本体", titleJa: "ゲームボーイカラー 本体", titleEn: "Game Boy Color" },
+  { match: /psp\s*[-\s]?3000/u, keyword: "PSP-3000 本体", titleJa: "PSP-3000 本体", titleEn: "Sony PSP-3000" },
+  { match: /psp\s*[-\s]?2000/u, keyword: "PSP-2000 本体", titleJa: "PSP-2000 本体", titleEn: "Sony PSP-2000" },
+  { match: /psp\s*[-\s]?1000/u, keyword: "PSP-1000 本体", titleJa: "PSP-1000 本体", titleEn: "Sony PSP-1000" },
+  { match: /vita\s*2000|pch\s*[-\s]?2000/u, keyword: "PS Vita PCH-2000 本体", titleJa: "PS Vita PCH-2000 本体", titleEn: "Sony PS Vita PCH-2000" },
+  { match: /vita\s*1[01]00|pch\s*[-\s]?1[01]00|vita/u, keyword: "PS Vita PCH-1000 本体", titleJa: "PS Vita PCH-1000 本体", titleEn: "Sony PS Vita PCH-1000" },
 ];
+
+/**
+ * 出品タイトルから外す社内語。仕入先・状態メモ・在庫管理用の言葉は買い手に意味がない。
+ * 色などの特徴語だけを残したいので、機種名そのものは match 側で落とす。
+ */
+const TITLE_NOISE = [
+  "益子", "toy net", "toynet", "Toynet", "デボン", "サミー", "サイモン", "like",
+  "返品", "対策済み", "対策済", "未対策", "登録漏れ", "在庫", "傷あり",
+  "本体のみ", "本体", "タブレット", "ジャンク", "中古", "美品", "動作未確認",
+  "ニンテンドー", "Nintendo", "nintendo", "任天堂",
+];
+
+function matchModelEntry(productName: string) {
+  const normalized = productName.normalize("NFKC").toLowerCase();
+  return MODEL_KEYWORDS.find(entry => entry.match.test(normalized)) ?? null;
+}
+
+/** 機種名と社内語を落として、色などの特徴語だけを残す */
+export function residualDescriptor(productName: string, entry: { match: RegExp } | null) {
+  let text = productName.normalize("NFKC");
+  if (entry) {
+    // 表の正規表現は小文字前提なので、消すときだけ i と g を足す
+    text = text.replace(new RegExp(entry.match.source, "giu"), " ");
+  }
+  for (const word of TITLE_NOISE) text = text.split(word).join(" ");
+  return text.replace(/[s　]+/gu, " ").replace(/[・/,、]+/gu, " ").trim();
+}
 
 /** 品名に当たる機種があればその一般名を返す。無ければ null */
 export function matchModelKeyword(productName: string) {
-  const normalized = productName.normalize("NFKC").toLowerCase();
-  return MODEL_KEYWORDS.find(entry => entry.match.test(normalized))?.keyword ?? null;
+  return matchModelEntry(productName)?.keyword ?? null;
+}
+
+/** 出品タイトルの頭。日本語の一般名と英語表記を並べる。表に無ければ null */
+export function modelTitleParts(productName: string) {
+  const entry = matchModelEntry(productName);
+  if (!entry) return null;
+  return {
+    titleJa: entry.titleJa,
+    titleEn: entry.titleEn,
+    descriptor: residualDescriptor(productName, entry),
+  };
 }
 
 /** タイトルか区分がジャンクなら、相場もジャンクだけを見る */
@@ -230,9 +275,28 @@ export function generateDefectiveTitle(input: {
   listingKind?: ListingKind;
 }) {
   const listingKind = input.listingKind ?? "junk";
+  const warning = input.photoCount === 0 ? PHOTO_WARNING_PREFIX : "";
+  const kindPrefixHead = listingKind === "surplus" ? "" : TITLE_PREFIX;
+  const suffixHead =
+    listingKind === "surplus"
+      ? ` ${SURPLUS_TITLE_SUFFIX}`
+      : ` ${input.defectTags[0] || "その他"}`;
+
+  // 機種が分かるものは社内の品名を出さない。買い手が探す一般名＋英語表記にする。
+  // ヤフオクは海外バイヤーも見るので Nintendo Switch のような表記を必ず入れる
+  const model = modelTitleParts(input.productName);
+  if (model) {
+    const head = `${warning}${kindPrefixHead}${model.titleJa} ${model.titleEn}`;
+    const available =
+      TITLE_LIMIT - codePoints(head).length - codePoints(suffixHead).length;
+    const descriptor = model.descriptor
+      ? ` ${takeCodePoints(model.descriptor, Math.max(0, available - 1))}`
+      : "";
+    return `${head}${descriptor}${suffixHead}`;
+  }
+
   const brand = extractBrand(input.productName);
   const productName = productNameWithoutLeadingBrand(input.productName, brand);
-  const warning = input.photoCount === 0 ? PHOTO_WARNING_PREFIX : "";
   const suffix =
     listingKind === "surplus"
       ? ` ${SURPLUS_TITLE_SUFFIX}`

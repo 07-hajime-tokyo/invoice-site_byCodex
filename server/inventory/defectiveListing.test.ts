@@ -123,7 +123,10 @@ describe("defective listing generation", () => {
       listingKind: "surplus",
     });
     expect(title.includes("【ジャンク】")).toBe(false);
-    expect(title.startsWith("Nintendo ")).toBe(true);
+    // 社内の品名ではなく、買い手が探す日本語の一般名で始める
+    expect(title.startsWith("ニンテンドースイッチ 本体のみ")).toBe(true);
+    // ヤフオクは海外バイヤーも見るので英語表記も入れる
+    expect(title).toContain("Nintendo Switch");
     expect(title.endsWith(" 動作確認済")).toBe(true);
     expect(Array.from(title).length).toBeLessThanOrEqual(65);
 
@@ -331,7 +334,7 @@ describe("photo preparation and GAS behavior", () => {
           contentType,
           format: (await sharp(body).metadata()).format,
         };
-        return { key, url: `https://storage.test/${key}` };
+        return `https://storage.test/${key}`;
       }
     );
     expect(captured).toEqual({

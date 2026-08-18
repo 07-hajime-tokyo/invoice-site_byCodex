@@ -213,7 +213,24 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
     const matchIndex = rows.findIndex(
       row => String(row[0] ?? "").trim() === String(payload.productId).trim()
     );
-    const targetRow = matchIndex >= 0 ? matchIndex + 2 : rows.length + 2;
+    // 新しく足したものは一番上に来てほしい（村上さん指示・2026-08-18）。
+    // 既存行は1つ下へずれるが、人が入れた4列も行ごと動くので対応関係は崩れない
+    if (matchIndex < 0 && rows.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+        requestBody: {
+          requests: [
+            {
+              insertDimension: {
+                range: { sheetId, dimension: "ROWS", startIndex: 1, endIndex: 2 },
+                inheritFromBefore: false,
+              },
+            },
+          ],
+        },
+      });
+    }
+    const targetRow = matchIndex >= 0 ? matchIndex + 2 : 2;
 
     // サイト側の列だけを1セルずつ狙って書く。人の列は範囲に含めない
     const cells = siteCells(payload);

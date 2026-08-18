@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { storagePut } from "../storage";
+import { putYahooListingPhoto } from "./drivePhotoStorage";
 import type { DefectPhoto, DefectPhotoKind } from "./defectiveListing";
 
 export type DefectPhotoUpload = {
@@ -35,7 +35,7 @@ export function buildDefectivePhotoKey(labelId: string, index: number) {
 export async function uploadDefectivePhotos(
   labelId: string,
   uploads: readonly DefectPhotoUpload[],
-  storagePutImpl: typeof storagePut = storagePut
+  storagePutImpl: typeof putYahooListingPhoto = putYahooListingPhoto
 ): Promise<DefectPhoto[]> {
   const normalizedId = labelId.trim().toUpperCase();
   const photos: DefectPhoto[] = [];
@@ -59,8 +59,8 @@ export async function uploadDefectivePhotos(
       );
     }
     const key = buildDefectivePhotoKey(normalizedId, index);
-    const stored = await storagePutImpl(key, body, contentType);
-    photos.push({ url: stored.url, key: stored.key, kind: upload.kind });
+    const url = await storagePutImpl(key, body, contentType);
+    photos.push({ url, key, kind: upload.kind });
   }
   return photos;
 }
