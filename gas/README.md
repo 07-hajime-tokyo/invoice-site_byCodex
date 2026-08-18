@@ -9,6 +9,10 @@ registration script. It checks the same management number in the current sheet
 and in the site database before registration, then shows an Apps Script alert and
 stops the checkbox registration when a duplicate exists.
 
+`zaicoInventoryRegistration.full.gs` is the full current registration script with
+the duplicate guard already inserted. Use it when replacing the whole Apps
+Script file instead of patching the existing one.
+
 In the existing authenticated `doPost(e)` action switch, add:
 
 ```javascript
