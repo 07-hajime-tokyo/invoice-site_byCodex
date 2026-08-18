@@ -3116,7 +3116,10 @@ function buildPurchasePageResponse<T extends PurchasePageRow>(rows: T[], input?:
     filteredRows = filteredRows.filter((row) => getEffectivePurchaseStatus(row) === status);
   }
   if (search) {
-    filteredRows = filteredRows.filter((row) => purchaseRowMatchesSearch(row, search));
+    // 商品ID・管理番号・追跡番号で探すときは、入庫済みや完了済みの発注も対象にする。
+    // 探しているものが一覧から落ちていて「検索しても出てこない」となるのを防ぐため。
+    const searchBase = rows.filter((row) => isPurchasePageInboundCutoffVisible(row));
+    filteredRows = searchBase.filter((row) => purchaseRowMatchesSearch(row, search));
   }
 
   // 未完了を上、完了を下に（作業対象を主役の位置へ）。同群内は元順維持。

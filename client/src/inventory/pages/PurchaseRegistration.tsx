@@ -3303,15 +3303,27 @@ function OrderDashboard({
 // 既存の在庫はすべてラベルを発行して現物に貼り終えている。ラベル印刷と入庫スキャンで
 // 見るのは、この日以降の仕入れだけでよい（村上さん指示・2026-08-18）。
 // 貼り直しなど過去分が要るときは、画面のチェックを外すと全件に戻る。
-const LABEL_SCOPE_FROM_DATE = "2026-08-10";
+const LABEL_SCOPE_FROM_DEFAULT = "2026-08-10";
+const LABEL_SCOPE_FROM_KEY = "inventory.labelScopeFrom";
+const ISO_DATE_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 
-function isWithinLabelScope(label: LabelView): boolean {
+function loadLabelScopeFrom(): string {
+  if (typeof window === "undefined") return LABEL_SCOPE_FROM_DEFAULT;
+  try {
+    const saved = window.localStorage.getItem(LABEL_SCOPE_FROM_KEY);
+    return saved && ISO_DATE_PATTERN.test(saved) ? saved : LABEL_SCOPE_FROM_DEFAULT;
+  } catch {
+    return LABEL_SCOPE_FROM_DEFAULT;
+  }
+}
+
+function isWithinLabelScope(label: LabelView, fromDate: string): boolean {
   // 在庫から作ったラベルは、現物にもう貼り終えている。既定では見ない
   if (label.rowId < 0) return false;
   const purchaseDate = label.purchaseDate?.trim() ?? "";
   // 仕入日が空のものは、隠すと気づけなくなるので残す
   if (!purchaseDate) return true;
-  return purchaseDate.slice(0, 10) >= LABEL_SCOPE_FROM_DATE;
+  return purchaseDate.slice(0, 10) >= fromDate;
 }
 
 function buildLabelPrintGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
@@ -6835,23 +6847,36 @@ export default function PurchaseRegistration() {
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
   const allPrintableLabels = useMemo(() => [...allInvoiceLabels, ...inventoryLabels], [allInvoiceLabels, inventoryLabels]);
   const [narrowLabelScope, setNarrowLabelScope] = useState(true);
+  const [labelScopeFrom, setLabelScopeFrom] = useState<string>(() => loadLabelScopeFrom());
+  const changeLabelScopeFrom = (value: string) => {
+    setLabelScopeFrom(value);
+    // 次に開いたときも同じ基準日で見たいので覚えておく
+    if (!ISO_DATE_PATTERN.test(value)) return;
+    try {
+      window.localStorage.setItem(LABEL_SCOPE_FROM_KEY, value);
+    } catch {
+      // 保存できなくても動作には影響しない
+    }
+  };
   const scopeLabels = (labels: LabelView[]) =>
-    narrowLabelScope ? labels.filter(isWithinLabelScope) : labels;
+    narrowLabelScope
+      ? labels.filter((label) => isWithinLabelScope(label, labelScopeFrom))
+      : labels;
   const scopedLabelPrintLabels = useMemo(
     () => scopeLabels(selectedLabelPrintLabels),
-    [narrowLabelScope, selectedLabelPrintLabels],
+    [labelScopeFrom, narrowLabelScope, selectedLabelPrintLabels],
   );
   const scopedInvoiceLabels = useMemo(
     () => scopeLabels(allInvoiceLabels),
-    [allInvoiceLabels, narrowLabelScope],
+    [allInvoiceLabels, labelScopeFrom, narrowLabelScope],
   );
   const scopedScannableLabels = useMemo(
     () => scopeLabels(allScannableLabels),
-    [allScannableLabels, narrowLabelScope],
+    [allScannableLabels, labelScopeFrom, narrowLabelScope],
   );
   const scopedPrintableLabels = useMemo(
     () => scopeLabels(allPrintableLabels),
-    [allPrintableLabels, narrowLabelScope],
+    [allPrintableLabels, labelScopeFrom, narrowLabelScope],
   );
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
   const selectedEbayStockItems = useMemo(
@@ -7397,8 +7422,17 @@ export default function PurchaseRegistration() {
                       onChange={(event) => setNarrowLabelScope(event.target.checked)}
                       className="h-3.5 w-3.5 accent-emerald-700"
                     />
-                    {LABEL_SCOPE_FROM_DATE} 以降の仕入れだけ
+                    この日以降の仕入れだけ
                   </label>
+                ) : null}
+                {(isLabelWorkflow || isScanWorkflow) && narrowLabelScope ? (
+                  <Input
+                    type="date"
+                    value={labelScopeFrom}
+                    onChange={(event) => changeLabelScopeFrom(event.target.value)}
+                    aria-label="ラベルを見る対象の開始日"
+                    className="h-8 w-36"
+                  />
                 ) : null}
               </div>
             </div>
