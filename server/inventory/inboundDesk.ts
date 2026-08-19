@@ -1908,10 +1908,20 @@ export const inboundDeskRouter = router({
               return [];
             }
           })();
+      // 既存枚数の続きから採番する。0から振り直すと1枚目を上書きしてしまう
       const uploaded = input.files.length
-        ? await uploadDefectivePhotos(labelId, input.files)
+        ? await uploadDefectivePhotos(
+            labelId,
+            input.files,
+            undefined,
+            existing.length
+          )
         : [];
-      const photos = [...existing, ...uploaded].slice(0, 10);
+      // 同じキーが二重に並ばないよう、キーで一意にしてから10枚で切る
+      const merged = [...existing, ...uploaded];
+      const photos = merged
+        .filter((photo, index) => merged.findIndex(other => other.key === photo.key) === index)
+        .slice(0, 10);
       await db.update(inventoryItemLabels).set({
         defectPhotosJson: JSON.stringify(photos),
         ...(input.defectNote === undefined

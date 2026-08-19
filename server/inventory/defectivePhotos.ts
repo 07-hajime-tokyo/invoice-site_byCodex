@@ -32,10 +32,18 @@ export function buildDefectivePhotoKey(labelId: string, index: number) {
   return `defective/${labelId.trim().toUpperCase()}/${String(index + 1).padStart(2, "0")}.jpg`;
 }
 
+/**
+ * 写真を保存してキーを返す。
+ *
+ * startIndex は「その個体に既に何枚あるか」。既存枚数を渡さないと 01.jpg から
+ * 採番し直してしまい、あとから足した1枚が既存の1枚目を上書きする。
+ * 2026-08-18にこれが起きて、同じ写真が2枚並んだ状態になった。
+ */
 export async function uploadDefectivePhotos(
   labelId: string,
   uploads: readonly DefectPhotoUpload[],
-  storagePutImpl: typeof putListingPhoto = putListingPhoto
+  storagePutImpl: typeof putListingPhoto = putListingPhoto,
+  startIndex = 0
 ): Promise<DefectPhoto[]> {
   const normalizedId = labelId.trim().toUpperCase();
   const photos: DefectPhoto[] = [];
@@ -58,7 +66,7 @@ export async function uploadDefectivePhotos(
         }
       );
     }
-    const key = buildDefectivePhotoKey(normalizedId, index);
+    const key = buildDefectivePhotoKey(normalizedId, startIndex + index);
     const url = await storagePutImpl(key, body, contentType);
     photos.push({ url, key, kind: upload.kind });
   }

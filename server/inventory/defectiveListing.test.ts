@@ -352,6 +352,33 @@ describe("photo preparation and GAS behavior", () => {
     });
   });
 
+  it("numbers added photos after the existing ones so the first is not overwritten", async () => {
+    const source = await sharp({
+      create: { width: 60, height: 40, channels: 3, background: "#0a0" },
+    }).png().toBuffer();
+    const upload = {
+      base64: source.toString("base64"),
+      mimeType: "image/png",
+      kind: "whole" as const,
+    };
+    const keys: string[] = [];
+    const stub = async (key: string) => {
+      keys.push(key);
+      return `https://storage.test/${key}`;
+    };
+    // 既に1枚ある個体へ2枚足す。02, 03 になること
+    const added = await uploadDefectivePhotos("abc1234", [upload, upload], stub, 1);
+    expect(keys).toEqual([
+      "defective/ABC1234/02.jpg",
+      "defective/ABC1234/03.jpg",
+    ]);
+    expect(added.map(photo => photo.key)).toEqual(keys);
+    // 既存が0枚なら従来どおり01から
+    keys.length = 0;
+    await uploadDefectivePhotos("abc1234", [upload], stub);
+    expect(keys).toEqual(["defective/ABC1234/01.jpg"]);
+  });
+
   it("retries and follows the Apps Script redirect", async () => {
     let calls = 0;
     const fetchImpl = async (
