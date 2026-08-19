@@ -258,6 +258,19 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_action_item_replies_created (createdAt)
       )
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_item_attachments (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        actionItemId int NOT NULL,
+        fileName varchar(255) NULL,
+        contentType varchar(100) NOT NULL,
+        dataBase64 mediumtext NOT NULL,
+        createdBy varchar(200) NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_action_item_attachments_item (actionItemId),
+        INDEX idx_action_item_attachments_created (createdAt)
+      )
+    `);
     const existingActionSourceKey = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'sourceKey'`);
     const actionSourceKeyRows = getRawRows(existingActionSourceKey);
     if (actionSourceKeyRows.length === 0) {

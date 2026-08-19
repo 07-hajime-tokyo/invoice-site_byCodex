@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  fileToActionItemAttachment,
+  toActionItemAttachmentPayloads,
+  type ActionItemAttachmentDraft,
+} from "@/inventory/lib/actionItemAttachments";
 import { trpc } from "@/lib/trpc";
 
 type ActionItemFormProps = {
@@ -41,6 +46,7 @@ export function ActionItemForm({
 }: ActionItemFormProps) {
   const utils = trpc.useUtils();
   const isEditing = mode === "edit";
+  const attachmentInputId = useId();
   const { data: options } = trpc.inventory.actionItems.options.useQuery();
   const assignees = options?.assignees ?? [];
   const titles = options?.titles ?? [];
@@ -55,6 +61,8 @@ export function ActionItemForm({
   const [showAssigneeAdd, setShowAssigneeAdd] = useState(false);
   const [showAuthorAdd, setShowAuthorAdd] = useState(false);
   const [saveTitlePreset, setSaveTitlePreset] = useState(false);
+  const [attachments, setAttachments] = useState<ActionItemAttachmentDraft[]>([]);
+  const [isReadingAttachments, setIsReadingAttachments] = useState(false);
   const selectedAssignee = assignees.find((item) => item.name === assignee);
   const canDeleteSelectedAssignee = Boolean(selectedAssignee && !DEFAULT_ASSIGNEES.has(selectedAssignee.name));
 
@@ -98,6 +106,7 @@ export function ActionItemForm({
       setTitle("");
       setCustomAssignee("");
       setDetail(defaultDetail);
+      setAttachments([]);
       setSaveTitlePreset(false);
       setShowAuthorAdd(false);
       await Promise.all([
@@ -173,6 +182,31 @@ export function ActionItemForm({
     setShowAuthorAdd(false);
   };
 
+  const handleAttachmentChange = async (files: FileList | null) => {
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length === 0) return;
+    setIsReadingAttachments(true);
+    try {
+      const drafts: ActionItemAttachmentDraft[] = [];
+      for (const file of selectedFiles) {
+        try {
+          drafts.push(await fileToActionItemAttachment(file));
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "画像の読み込みに失敗しました");
+        }
+      }
+      if (drafts.length > 0) {
+        setAttachments((current) => [...current, ...drafts]);
+      }
+    } finally {
+      setIsReadingAttachments(false);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  };
+
   const submit = () => {
     if (!title.trim()) {
       toast.error("タイトルを入力してください");
@@ -218,6 +252,7 @@ export function ActionItemForm({
       sourceQuestion,
       createdBy,
       saveTitlePreset,
+      attachments: toActionItemAttachmentPayloads(attachments),
     });
   };
 
@@ -374,13 +409,65 @@ export function ActionItemForm({
           className="min-h-[110px]"
         />
 
+        {!isEditing ? (
+          <div className="space-y-2 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id={attachmentInputId}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  void handleAttachmentChange(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => document.getElementById(attachmentInputId)?.click()}
+                disabled={isReadingAttachments}
+              >
+                <ImagePlus className="h-4 w-4" />
+                {isReadingAttachments ? "読み込み中" : "スクショ/写真を添付"}
+              </Button>
+              {attachments.length > 0 ? (
+                <Badge variant="outline" className="bg-white">
+                  添付 {attachments.length}件
+                </Badge>
+              ) : null}
+            </div>
+            {attachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((attachment) => (
+                  <div key={attachment.id} className="relative h-20 w-20 overflow-hidden rounded-md border bg-white">
+                    <img src={attachment.previewUrl} alt={attachment.fileName} className="h-full w-full object-cover" />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon-sm"
+                      className="absolute right-1 top-1 h-6 w-6 bg-white/90 text-slate-700 shadow"
+                      onClick={() => removeAttachment(attachment.id)}
+                      aria-label="添付を外す"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex justify-end">
           {isEditing && onCancel ? (
             <Button type="button" variant="outline" onClick={onCancel} className="mr-2">
               キャンセル
             </Button>
           ) : null}
-          <Button type="button" onClick={submit} disabled={createMutation.isPending || updateMutation.isPending}>
+          <Button type="button" onClick={submit} disabled={createMutation.isPending || updateMutation.isPending || isReadingAttachments}>
             <Save className="h-4 w-4 mr-2" />
             {isEditing ? "保存" : "登録"}
           </Button>

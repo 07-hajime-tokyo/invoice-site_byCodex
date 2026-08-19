@@ -1014,6 +1014,18 @@ export const actionItemReplies = mysqlTable("action_item_replies", {
 export type ActionItemReply = typeof actionItemReplies.$inferSelect;
 export type InsertActionItemReply = typeof actionItemReplies.$inferInsert;
 
+export const actionItemAttachments = mysqlTable("action_item_attachments", {
+  id: int("id").autoincrement().primaryKey(),
+  actionItemId: int("actionItemId").notNull(),
+  fileName: varchar("fileName", { length: 255 }),
+  contentType: varchar("contentType", { length: 100 }).notNull(),
+  dataBase64: mediumtext("dataBase64").notNull(),
+  createdBy: varchar("createdBy", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ActionItemAttachment = typeof actionItemAttachments.$inferSelect;
+export type InsertActionItemAttachment = typeof actionItemAttachments.$inferInsert;
+
 export const workLogWorkers = mysqlTable("work_log_workers", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
