@@ -414,7 +414,7 @@ export function ActionItemForm({
         <Textarea
           value={detail}
           onChange={(event) => setDetail(event.target.value)}
-          placeholder="詳細"
+          placeholder={"詳細\nCtrl+Vでスクショ貼り付けできます"}
           className="min-h-[110px]"
         />
 
@@ -440,7 +440,7 @@ export function ActionItemForm({
                 disabled={isReadingAttachments}
               >
                 <ImagePlus className="h-4 w-4" />
-                {isReadingAttachments ? "読み込み中" : "スクショ/写真を添付"}
+                {isReadingAttachments ? "読み込み中" : "写真を添付"}
               </Button>
               {attachments.length > 0 ? (
                 <Badge variant="outline" className="bg-white">
