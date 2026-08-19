@@ -13,8 +13,8 @@ import { actionItemAttachmentUrl } from "./actionItemAttachmentStorage";
 import { getDb } from "./db";
 
 const actionItemStatusSchema = z.enum(["open", "done"]);
-const defaultAssignees = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
-const reviewerNameSchema = z.enum(["鈴木さん", "藤本さん"]);
+const defaultAssignees = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
+const reviewerNameSchema = z.enum(["村上さん", "鈴木さん", "藤本さん", "野田さん"]);
 const MAX_ATTACHMENTS_PER_REQUEST = 10;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_BASE64_LENGTH = 12 * 1024 * 1024;
@@ -176,7 +176,7 @@ export const actionItemsRouter = router({
       db.select().from(actionItemTitlePresets).orderBy(asc(actionItemTitlePresets.sortOrder), asc(actionItemTitlePresets.title)),
       db.select().from(actionItemAuthors).orderBy(asc(actionItemAuthors.sortOrder), asc(actionItemAuthors.name)),
     ]);
-    return { assignees, titles, authors };
+    return { assignees: assignees.filter((assignee) => assignee.name !== "その他"), titles, authors };
   }),
 
   create: protectedProcedure

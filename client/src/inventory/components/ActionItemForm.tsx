@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ClipboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type ClipboardEvent } from "react";
 import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,8 @@ type ActionItemFormProps = {
   onCancel?: () => void;
 };
 
-const DEFAULT_ASSIGNEES = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
+const DEFAULT_ASSIGNEES = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
+const ASSIGNEE_ORDER = ["全員", "仕入れ担当", "荷受担当", "出荷担当"];
 const ADD_ASSIGNEE_VALUE = "__add_assignee__";
 const ADD_AUTHOR_VALUE = "__add_author__";
 
@@ -50,12 +51,28 @@ export function ActionItemForm({
   const attachmentInputId = useId();
   const { data: options } = trpc.inventory.actionItems.options.useQuery();
   const assignees = options?.assignees ?? [];
+  const visibleAssignees = useMemo(() => {
+    const merged = new Map<string, (typeof assignees)[number]>();
+    for (const item of assignees) {
+      if (item.name !== "その他") merged.set(item.name, item);
+    }
+    if (!merged.has("全員")) {
+      merged.set("全員", { id: -1, name: "全員", sortOrder: 0, createdAt: new Date(0), updatedAt: new Date(0) });
+    }
+    return Array.from(merged.values()).sort((a, b) => {
+      const aIndex = ASSIGNEE_ORDER.indexOf(a.name);
+      const bIndex = ASSIGNEE_ORDER.indexOf(b.name);
+      if (aIndex !== -1 || bIndex !== -1) {
+        return (aIndex === -1 ? ASSIGNEE_ORDER.length : aIndex) - (bIndex === -1 ? ASSIGNEE_ORDER.length : bIndex);
+      }
+      return a.name.localeCompare(b.name, "ja");
+    });
+  }, [assignees]);
   const titles = options?.titles ?? [];
   const authors = options?.authors ?? [];
   const [title, setTitle] = useState(initialItem?.title ?? "");
   const [assignee, setAssignee] = useState(initialItem?.assignee ?? "");
   const [createdBy, setCreatedBy] = useState(initialItem?.createdBy ?? "");
-  const [customAssignee, setCustomAssignee] = useState("");
   const [detail, setDetail] = useState(initialItem?.detail ?? defaultDetail);
   const [newAssignee, setNewAssignee] = useState("");
   const [newAuthor, setNewAuthor] = useState("");
@@ -64,7 +81,7 @@ export function ActionItemForm({
   const [saveTitlePreset, setSaveTitlePreset] = useState(false);
   const [attachments, setAttachments] = useState<ActionItemAttachmentDraft[]>([]);
   const [isReadingAttachments, setIsReadingAttachments] = useState(false);
-  const selectedAssignee = assignees.find((item) => item.name === assignee);
+  const selectedAssignee = visibleAssignees.find((item) => item.name === assignee);
   const canDeleteSelectedAssignee = Boolean(selectedAssignee && !DEFAULT_ASSIGNEES.has(selectedAssignee.name));
 
   useEffect(() => {
@@ -74,16 +91,15 @@ export function ActionItemForm({
     setCreatedBy(initialItem.createdBy ?? "");
     setDetail(initialItem.detail);
     setSaveTitlePreset(false);
-    setCustomAssignee("");
     setShowAssigneeAdd(false);
     setShowAuthorAdd(false);
   }, [initialItem?.id, isEditing]);
 
   useEffect(() => {
-    if (!assignee && assignees.length > 0) {
-      setAssignee(assignees.find((item) => item.name === "出荷担当")?.name ?? assignees[0].name);
+    if (!assignee && visibleAssignees.length > 0) {
+      setAssignee(visibleAssignees.find((item) => item.name === "全員")?.name ?? visibleAssignees[0].name);
     }
-  }, [assignee, assignees]);
+  }, [assignee, visibleAssignees]);
 
   useEffect(() => {
     if (!createdBy && authors.length > 0) {
@@ -95,17 +111,10 @@ export function ActionItemForm({
     if (!isEditing) setDetail(defaultDetail);
   }, [defaultDetail, isEditing]);
 
-  useEffect(() => {
-    if (assignee !== "その他") {
-      setCustomAssignee("");
-    }
-  }, [assignee]);
-
   const createMutation = trpc.inventory.actionItems.create.useMutation({
     onSuccess: async () => {
       toast.success("やることを登録しました");
       setTitle("");
-      setCustomAssignee("");
       setDetail(defaultDetail);
       setAttachments([]);
       setSaveTitlePreset(false);
@@ -159,7 +168,7 @@ export function ActionItemForm({
   const deleteAssigneeMutation = trpc.inventory.actionItems.deleteAssignee.useMutation({
     onSuccess: async () => {
       toast.success("宛先を削除しました");
-      setAssignee(assignees.find((item) => item.name === "出荷担当")?.name ?? assignees[0]?.name ?? "");
+      setAssignee(visibleAssignees.find((item) => item.name === "全員")?.name ?? visibleAssignees[0]?.name ?? "");
       await utils.inventory.actionItems.options.invalidate();
     },
     onError: (error) => toast.error(`削除失敗: ${error.message}`),
@@ -225,9 +234,9 @@ export function ActionItemForm({
       toast.error("宛先を選択してください");
       return;
     }
-    const resolvedAssignee = assignee === "その他" ? customAssignee.trim() : assignee.trim();
+    const resolvedAssignee = assignee.trim();
     if (!resolvedAssignee) {
-      toast.error("その他の宛先を入力してください");
+      toast.error("宛先を選択してください");
       return;
     }
     if (!detail.trim()) {
@@ -309,7 +318,7 @@ export function ActionItemForm({
                   <SelectValue placeholder="宛先" />
                 </SelectTrigger>
               <SelectContent>
-                {assignees.map((item) => (
+                {visibleAssignees.map((item) => (
                   <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
                 ))}
                 <SelectSeparator />
@@ -333,13 +342,6 @@ export function ActionItemForm({
                 </Button>
               ) : null}
             </div>
-            {assignee === "その他" ? (
-              <Input
-                value={customAssignee}
-                onChange={(event) => setCustomAssignee(event.target.value)}
-                placeholder="その他の宛先"
-              />
-            ) : null}
             {showAssigneeAdd ? (
               <div className="flex gap-2">
                 <Input

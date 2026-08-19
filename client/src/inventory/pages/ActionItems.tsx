@@ -23,8 +23,10 @@ type AttachmentPreview = {
   url: string;
   fileName?: string | null;
 };
-const ASSIGNEE_ORDER = ["仕入れ担当", "荷受担当", "出荷担当", "その他"];
-const SHIPPING_REVIEWERS = ["鈴木さん", "藤本さん"] as const;
+const ASSIGNEE_ORDER = ["全員", "仕入れ担当", "荷受担当", "出荷担当"];
+const ALL_REVIEWERS = ["村上さん", "鈴木さん", "藤本さん", "野田さん"] as const;
+type ReviewerName = (typeof ALL_REVIEWERS)[number];
+const SHIPPING_REVIEWERS: ReviewerName[] = ["鈴木さん", "藤本さん"];
 const INVENTORY_RECONCILIATION_URL = "https://inventory-reconciliation-2026-06.vercel.app/";
 const CUSTOM_ASSIGNEE_BADGE_CLASSES = [
   "border-slate-200 bg-slate-100 text-slate-700",
@@ -41,7 +43,7 @@ function getAssigneeBadgeClass(assignee: string | null | undefined, done: boolea
     仕入れ担当: "border-amber-200 bg-amber-50 text-amber-700",
     荷受担当: "border-sky-200 bg-sky-50 text-sky-700",
     出荷担当: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    その他: "border-violet-200 bg-violet-50 text-violet-700",
+    全員: "border-violet-200 bg-violet-50 text-violet-700",
     未設定: "border-slate-200 bg-slate-100 text-slate-600",
   };
   if (fixed[name]) return `${fixed[name]} ${base}`;
@@ -129,6 +131,17 @@ function formatDate(value: string | Date | null) {
 function formatAuthorName(value: string | null | undefined) {
   if (!value) return "未設定";
   return value === "cron" ? "自動" : value;
+}
+
+function normalizePersonName(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/[ 　]/g, "").replace(/さん$/, "").replace(/様$/, "");
+}
+
+function getCheckReviewers(item: { assignee?: string | null; createdBy?: string | null }): ReviewerName[] {
+  if (item.assignee === "出荷担当") return SHIPPING_REVIEWERS;
+  if (item.assignee !== "全員") return [];
+  const author = normalizePersonName(item.createdBy);
+  return ALL_REVIEWERS.filter((reviewer) => normalizePersonName(reviewer) !== author);
 }
 
 function getTimestamp(value: string | Date | null) {
@@ -233,7 +246,9 @@ export default function ActionItems() {
   }, [authorOptions]);
 
   const assigneeOptions = useMemo(() => {
-    const assignees = Array.from(new Set([...ASSIGNEE_ORDER, ...items.map((item) => item.assignee || "未設定")]));
+    const assignees = Array.from(
+      new Set([...ASSIGNEE_ORDER, ...items.map((item) => item.assignee || "未設定")]),
+    ).filter((assignee) => assignee !== "その他");
     return assignees.sort((a, b) => {
       const aIndex = ASSIGNEE_ORDER.indexOf(a);
       const bIndex = ASSIGNEE_ORDER.indexOf(b);
@@ -459,6 +474,7 @@ export default function ActionItems() {
             const replyFormOpen = Boolean(openReplyForms[item.id]);
             const replyListOpen = openReplyLists[item.id] ?? true;
             const attachmentInputId = `action-item-attachment-${item.id}`;
+            const checkReviewers = getCheckReviewers(item);
             return (
               <div key={item.id} className="space-y-2">
                 <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
@@ -499,9 +515,9 @@ export default function ActionItems() {
                                 ピン留め
                               </Badge>
                             ) : null}
-                            {item.assignee === "出荷担当" ? (
+                            {checkReviewers.length > 0 ? (
                               <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
-                                {SHIPPING_REVIEWERS.map((reviewer) => (
+                                {checkReviewers.map((reviewer) => (
                                   <label key={reviewer} className="inline-flex items-center gap-1.5 whitespace-nowrap">
                                     <span>{reviewer}</span>
                                     <Checkbox
