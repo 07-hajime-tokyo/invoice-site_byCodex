@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { FedexShipmentDialog, type HistoryItem } from "@/inventory/pages/DeliveryHistory";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import {
@@ -638,6 +638,29 @@ function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
   const kind = purchaseRowStatusKind(row);
   if (filter === "received") return kind === "received" || kind === "partial_shipped" || kind === "shipped";
   return kind === "ordered" || kind === "inbound_shipped";
+}
+
+type PurchaseRowCounts = {
+  all: number;
+  ordered: number;
+  received: number;
+  missingTracking: number;
+  quantity: number;
+};
+
+function countPurchaseRows(rows: PurchaseRow[]): PurchaseRowCounts {
+  return rows.reduce(
+    (acc, row) => {
+      acc.all += 1;
+      const statusKind = purchaseRowStatusKind(row);
+      if (statusKind === "ordered" || statusKind === "inbound_shipped") acc.ordered += 1;
+      else acc.received += 1;
+      if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
+      acc.quantity += sumQuantity(row.purchase_items);
+      return acc;
+    },
+    { all: 0, ordered: 0, received: 0, missingTracking: 0, quantity: 0 },
+  );
 }
 
 function visiblePurchaseItems(row: PurchaseRow): PurchaseItem[] {
@@ -7130,20 +7153,19 @@ export default function PurchaseRegistration() {
     [productDetailFilter, selectedEbayStockItems, selectedInvoiceStockItems, selectedIsEbayGroup],
   );
 
-  const counts = useMemo(() => {
-    return countableRows.reduce(
-      (acc, row) => {
-        acc.all += 1;
-        const statusKind = purchaseRowStatusKind(row);
-        if (statusKind === "ordered" || statusKind === "inbound_shipped") acc.ordered += 1;
-        else acc.received += 1;
-        if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
-        acc.quantity += sumQuantity(row.purchase_items);
-        return acc;
-      },
-      { all: 0, ordered: 0, received: 0, missingTracking: 0, quantity: 0 },
-    );
-  }, [countableRows]);
+  const counts = useMemo(() => countPurchaseRows(countableRows), [countableRows]);
+  const selectedStatusRows = useMemo(() => {
+    const currentGroupKey = selectedGroupKey || selectedGroup?.key;
+    if (!currentGroupKey) return countableRows;
+    return countableRows.filter((row) => getInvoiceInfo(row).key === currentGroupKey);
+  }, [countableRows, selectedGroup?.key, selectedGroupKey]);
+  const statusCounts = useMemo(() => countPurchaseRows(selectedStatusRows), [selectedStatusRows]);
+  const statusFilterOptions: Array<{ value: StatusFilter; label: string; count: number }> = [
+    { value: "all", label: "すべて", count: statusCounts.all },
+    { value: "ordered", label: "未入庫", count: statusCounts.ordered },
+    { value: "received", label: "入庫済み", count: statusCounts.received },
+    { value: "missing_tracking", label: "追跡番号未登録", count: statusCounts.missingTracking },
+  ];
 
   const trackingPreview = useMemo(() => {
     const trackingNumber = trackingForm.trackingNumber.trim();
@@ -7699,35 +7721,38 @@ export default function PurchaseRegistration() {
                     現在庫 {workflowCounts.stock.toLocaleString()}件
                   </Badge>
                 ) : (
-                  <Tabs
-                    value={statusFilter}
-                    onValueChange={(value) => {
-                      setStatusFilter(value as StatusFilter);
-                      setProductDetailFilter(null);
-                      setShowGlobalMissingTracking(false);
-                    }}
-                    className="max-w-full"
-                  >
-                    <TabsList className="h-auto flex-wrap justify-start gap-1">
-                      <TabsTrigger value="all">すべて {counts.all}</TabsTrigger>
-                      <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
-                      <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
-                      <TabsTrigger value="missing_tracking">追跡番号未登録 {counts.missingTracking}</TabsTrigger>
+                  <div className="flex w-full max-w-full flex-wrap items-center justify-start gap-1 rounded-md bg-muted p-1 xl:w-fit xl:justify-end">
+                    {statusFilterOptions.map((option) => (
                       <Button
+                        key={option.value}
                         type="button"
-                        variant={showGlobalMissingTracking ? "secondary" : "ghost"}
+                        variant={!showGlobalMissingTracking && statusFilter === option.value ? "secondary" : "ghost"}
                         size="sm"
-                        className="h-8 rounded-sm px-3 text-sm"
+                        className="h-8 whitespace-nowrap rounded-sm px-3 text-sm"
+                        aria-pressed={!showGlobalMissingTracking && statusFilter === option.value}
                         onClick={() => {
-                          setStatusFilter("missing_tracking");
+                          setStatusFilter(option.value);
                           setProductDetailFilter(null);
-                          setShowGlobalMissingTracking(true);
+                          setShowGlobalMissingTracking(false);
                         }}
                       >
-                        一覧 {globalMissingTrackingRows.length}
+                        {option.label} {option.count.toLocaleString()}
                       </Button>
-                    </TabsList>
-                  </Tabs>
+                    ))}
+                    <Button
+                      type="button"
+                      variant={showGlobalMissingTracking ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-8 whitespace-nowrap rounded-sm px-3 text-sm"
+                      aria-pressed={showGlobalMissingTracking}
+                      onClick={() => {
+                        setProductDetailFilter(null);
+                        setShowGlobalMissingTracking(true);
+                      }}
+                    >
+                      一覧 {globalMissingTrackingRows.length.toLocaleString()}
+                    </Button>
+                  </div>
                 )}
                 <div className="relative w-full xl:max-w-sm">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
