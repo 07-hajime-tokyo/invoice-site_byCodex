@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ClipboardEvent } from "react";
 import { CheckCircle2, ClipboardCheck, ExternalLink, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fileToActionItemAttachment,
+  getImageFilesFromClipboard,
   toActionItemAttachmentPayloads,
   type ActionItemAttachmentDraft,
 } from "@/inventory/lib/actionItemAttachments";
@@ -301,8 +302,7 @@ export default function ActionItems() {
     updateReplyMutation.mutate({ id: replyId, body, author });
   };
 
-  const uploadAttachments = async (itemId: number, files: FileList | null) => {
-    const selectedFiles = Array.from(files ?? []);
+  const uploadAttachments = async (itemId: number, selectedFiles: File[]) => {
     if (selectedFiles.length === 0) return;
     setUploadingAttachmentItemId(itemId);
     const drafts: ActionItemAttachmentDraft[] = [];
@@ -321,6 +321,13 @@ export default function ActionItems() {
       actionItemId: itemId,
       attachments: toActionItemAttachmentPayloads(drafts),
     });
+  };
+
+  const handleItemAttachmentPaste = (itemId: number, event: ClipboardEvent<HTMLDivElement>) => {
+    const files = getImageFilesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void uploadAttachments(itemId, files);
   };
 
   return (
@@ -455,7 +462,11 @@ export default function ActionItems() {
             return (
               <div key={item.id} className="space-y-2">
                 <Card className={`rounded-lg ${done ? "opacity-65" : ""}`}>
-                  <CardContent className="p-4">
+                  <CardContent
+                    className="p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    tabIndex={0}
+                    onPaste={(event) => handleItemAttachmentPaste(item.id, event)}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3 min-w-0">
                         <Button
@@ -746,7 +757,7 @@ export default function ActionItems() {
                             multiple
                             className="sr-only"
                             onChange={(event) => {
-                              void uploadAttachments(item.id, event.target.files);
+                              void uploadAttachments(item.id, Array.from(event.target.files ?? []));
                               event.currentTarget.value = "";
                             }}
                           />

@@ -14,6 +14,16 @@ export type ActionItemAttachmentDraft = ActionItemAttachmentPayload & {
   size: number;
 };
 
+export function getImageFilesFromClipboard(clipboardData: DataTransfer | null) {
+  const files: File[] = [];
+  for (const item of Array.from(clipboardData?.items ?? [])) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file) files.push(file);
+  }
+  return files;
+}
+
 function newDraftId(file: File) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

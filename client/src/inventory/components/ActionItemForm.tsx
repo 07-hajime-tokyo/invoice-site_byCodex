@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ClipboardEvent } from "react";
 import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { Textarea } from "@/components/ui/textarea";
 import {
   fileToActionItemAttachment,
+  getImageFilesFromClipboard,
   toActionItemAttachmentPayloads,
   type ActionItemAttachmentDraft,
 } from "@/inventory/lib/actionItemAttachments";
@@ -182,8 +183,7 @@ export function ActionItemForm({
     setShowAuthorAdd(false);
   };
 
-  const handleAttachmentChange = async (files: FileList | null) => {
-    const selectedFiles = Array.from(files ?? []);
+  const handleAttachmentFiles = async (selectedFiles: File[], successMessage?: string) => {
     if (selectedFiles.length === 0) return;
     setIsReadingAttachments(true);
     try {
@@ -197,10 +197,19 @@ export function ActionItemForm({
       }
       if (drafts.length > 0) {
         setAttachments((current) => [...current, ...drafts]);
+        toast.success(successMessage ?? `添付を${drafts.length}件追加しました`);
       }
     } finally {
       setIsReadingAttachments(false);
     }
+  };
+
+  const handleAttachmentPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (isEditing) return;
+    const files = getImageFilesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void handleAttachmentFiles(files, `スクショを${files.length}件添付しました`);
   };
 
   const removeAttachment = (id: string) => {
@@ -265,7 +274,7 @@ export function ActionItemForm({
           <Badge variant="outline" className="ml-auto">担当者宛</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3" onPaste={handleAttachmentPaste}>
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_190px]">
           <div className="space-y-2">
             <div className="flex gap-2">
@@ -419,7 +428,7 @@ export function ActionItemForm({
                 multiple
                 className="sr-only"
                 onChange={(event) => {
-                  void handleAttachmentChange(event.target.files);
+                  void handleAttachmentFiles(Array.from(event.target.files ?? []));
                   event.currentTarget.value = "";
                 }}
               />
