@@ -7675,7 +7675,7 @@ export default function PurchaseRegistration() {
           </div>
 
           <section className={cn("rounded-md border bg-background", isScanWorkflow && "hidden md:block")}>
-            <div className="grid gap-4 p-3 md:p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
+            <div className="grid gap-4 p-3 md:p-4 xl:grid-cols-[minmax(320px,1fr)_minmax(560px,max-content)]">
               {isStockWorkflow ? (
                 <div className="rounded-md border bg-slate-50 px-4 py-3">
                   <div className="flex items-center gap-2 text-sm font-semibold">
