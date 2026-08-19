@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
 import { classifyOutboundScan, normalizeOutboundScan } from "@shared/outboundBoxes";
+import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,7 +69,12 @@ interface PurchaseRow {
   id: number;
   num?: string | null;
   purchase_date?: string | null;
+  purchaseDate?: string | Date | null;
+  created_at?: string | null;
+  createdAt?: string | Date | null;
   status?: string | null;
+  inboundClass?: InboundClass | null;
+  stage?: string | null;
   csvSupplierName?: string | null;
   csvSupplierUrl?: string | null;
   extra?: { shipDate?: string | null; trackingNumber?: string | null; carrier?: string | null; note?: string | null } | null;
@@ -644,6 +650,51 @@ function withVisiblePurchaseItems(row: PurchaseRow): PurchaseRow | null {
   const purchaseItems = visiblePurchaseItems(row);
   if (purchaseItems.length === 0) return null;
   return purchaseItems.length === row.purchase_items.length ? row : { ...row, purchase_items: purchaseItems };
+}
+
+const PURCHASE_REGISTRATION_CUTOFF_DATE = "2026-06-20";
+
+function normalizePurchaseRegistrationDate(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
+function isPurchaseRegistrationCutoffVisible(row: PurchaseRow): boolean {
+  const filterDate =
+    normalizePurchaseRegistrationDate(row.purchaseDate) ??
+    normalizePurchaseRegistrationDate(row.purchase_date) ??
+    normalizePurchaseRegistrationDate(row.created_at) ??
+    normalizePurchaseRegistrationDate(row.createdAt);
+  return filterDate == null || filterDate >= PURCHASE_REGISTRATION_CUTOFF_DATE;
+}
+
+function isPurchaseRegistrationRowComplete(row: PurchaseRow): boolean {
+  return isInboundComplete(row.inboundClass ?? null, row.stage ?? "received");
+}
+
+function normalizePurchaseRegistrationRows(rows: PurchaseRow[]): PurchaseRow[] {
+  return rows.flatMap((row) => {
+    if (row.status === "purchased") return [];
+    if (!isPurchaseRegistrationCutoffVisible(row)) return [];
+    if (isPurchaseRegistrationRowComplete(row)) return [];
+    const visibleRow = withVisiblePurchaseItems(row);
+    return visibleRow ? [visibleRow] : [];
+  });
+}
+
+function purchaseRegistrationOrderValue(row: PurchaseRow): number {
+  const rawDate = row.createdAt ?? row.created_at ?? row.purchaseDate ?? row.purchase_date ?? null;
+  const time = rawDate ? new Date(rawDate).getTime() : Number.NaN;
+  return Number.isFinite(time) ? time : row.id;
+}
+
+function comparePurchaseRegistrationOrder(a: PurchaseRow, b: PurchaseRow): number {
+  const byDate = purchaseRegistrationOrderValue(b) - purchaseRegistrationOrderValue(a);
+  return byDate || b.id - a.id;
 }
 
 function productKey(title: string): string {
@@ -2532,6 +2583,8 @@ function PurchaseRegistrationCard({
   onOpenShippingHistory,
   onDeleteRow,
   isDeleting,
+  isSelected = false,
+  onSelectChange,
 }: {
   row: PurchaseRow;
   onPrintLabels: LabelPrintRequest;
@@ -2540,6 +2593,8 @@ function PurchaseRegistrationCard({
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   isDeleting?: boolean;
+  isSelected?: boolean;
+  onSelectChange?: (row: PurchaseRow, checked: boolean) => void;
 }) {
   const labels = getItemLabels(row.purchase_items);
   const managementNos = getManagementNos(row.purchase_items);
@@ -2556,10 +2611,19 @@ function PurchaseRegistrationCard({
   const deletableInventoryId = purchaseRowInventoryId(row);
 
   return (
-    <section className="rounded-lg border bg-background shadow-sm">
+    <section className={cn("rounded-lg border bg-background shadow-sm", isSelected && "border-emerald-400 ring-1 ring-emerald-300")}>
       <div className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 gap-3">
+          {onSelectChange ? (
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={(checked) => onSelectChange(row, checked === true)}
+              aria-label={`${actualProductTitle(firstItem) || firstItem?.title || "商品"}を選択`}
+              className="mt-1 shrink-0"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
             {labels.length > 0 ? (
               labels.slice(0, 8).map((label) => (
                 <span
@@ -2611,9 +2675,10 @@ function PurchaseRegistrationCard({
               </span>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
+            </div>
           </div>
         </div>
         <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -2723,6 +2788,113 @@ function PurchaseRegistrationCard({
       </div>
 
     </section>
+  );
+}
+
+function MissingTrackingOverview({
+  rows,
+  totalCount,
+  selectedRowIds,
+  onSelectRow,
+  onSelectAllRows,
+  onOpenBulkTracking,
+  onPrintLabels,
+  onOpenEdit,
+  onOpenTrackingDialog,
+  onOpenShippingHistory,
+  onDeleteRow,
+  deletingRowId,
+}: {
+  rows: PurchaseRow[];
+  totalCount: number;
+  selectedRowIds: Set<number>;
+  onSelectRow: (row: PurchaseRow, checked: boolean) => void;
+  onSelectAllRows: (rows: PurchaseRow[], checked: boolean) => void;
+  onOpenBulkTracking: () => void;
+  onPrintLabels: LabelPrintRequest;
+  onOpenEdit: (row: PurchaseRow) => void;
+  onOpenTrackingDialog: (row: PurchaseRow) => void;
+  onOpenShippingHistory: (row: PurchaseRow) => void;
+  onDeleteRow: (row: PurchaseRow) => void;
+  deletingRowId?: number | null;
+}) {
+  const selectedCount = rows.filter((row) => selectedRowIds.has(row.id)).length;
+  const allVisibleSelected = rows.length > 0 && selectedCount === rows.length;
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background">
+        <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              <Truck className="h-4 w-4 text-blue-700" />
+              追跡番号未登録一覧
+              <Badge variant="outline">表示 {rows.length.toLocaleString()}件</Badge>
+              <Badge variant="secondary">全体 {totalCount.toLocaleString()}件</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              インボイスに関係なく、サイト登録順で追跡番号未登録の商品を表示しています。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+              <Checkbox
+                checked={allVisibleSelected}
+                onCheckedChange={(checked) => onSelectAllRows(rows, checked === true)}
+                disabled={rows.length === 0}
+                aria-label="表示中の商品をすべて選択"
+              />
+              全選択
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={selectedCount === 0}
+              onClick={() => onSelectAllRows(rows, false)}
+            >
+              選択解除
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+              disabled={selectedCount === 0}
+              onClick={onOpenBulkTracking}
+            >
+              <Truck className="h-4 w-4" />
+              追跡番号を一括登録
+              <Badge className="bg-white/20 text-white hover:bg-white/20">{selectedCount}</Badge>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Truck}
+          title="追跡番号未登録の商品はありません"
+          description="検索条件を変えると、別の商品が見つかる場合があります。"
+        />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <PurchaseRegistrationCard
+              key={row.id}
+              row={row}
+              onPrintLabels={onPrintLabels}
+              onOpenEdit={onOpenEdit}
+              onOpenTrackingDialog={onOpenTrackingDialog}
+              onOpenShippingHistory={onOpenShippingHistory}
+              onDeleteRow={onDeleteRow}
+              isDeleting={deletingRowId === row.id}
+              isSelected={selectedRowIds.has(row.id)}
+              onSelectChange={onSelectRow}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4405,6 +4577,7 @@ function ScanPanel({
   async function refreshPurchaseRegistrationData() {
     await Promise.all([
       utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
       utils.inventory.zaico.getInventories.invalidate(),
       utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
     ]);
@@ -5719,6 +5892,7 @@ function ShippingPanel({
       void utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate();
       void utils.inventory.zaico.getInventories.invalidate();
       void utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate();
+      void utils.inventory.zaico.getPurchasesWithCategory.invalidate();
       void utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate();
       if (data.failCount > 0) {
         toast.warning(`出庫履歴を削除しました（在庫削除: ${data.successCount}件成功, ${data.failCount}件失敗）`);
@@ -5946,6 +6120,7 @@ function ShippingPanel({
       void Promise.all([
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
         utils.inventory.deliveryHistory.list.invalidate(),
         utils.inventory.deliveryHistory.listByInvoicePrefix.invalidate(),
@@ -6631,6 +6806,14 @@ export default function PurchaseRegistration() {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [showGlobalMissingTracking, setShowGlobalMissingTracking] = useState(false);
+  const [selectedMissingTrackingRowIds, setSelectedMissingTrackingRowIds] = useState<Set<number>>(() => new Set());
+  const [showBulkTrackingDialog, setShowBulkTrackingDialog] = useState(false);
+  const [bulkTrackingForm, setBulkTrackingForm] = useState<TrackingFormState>({
+    shipDate: todayInputDate(),
+    trackingNumber: "",
+    carrier: "auto",
+  });
   const [workflowTab, setWorkflowTab] = useState<WorkflowTab>(() => {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return "scan";
     return "order";
@@ -6683,6 +6866,7 @@ export default function PurchaseRegistration() {
   const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
   const updateSupplierNameOnlyMutation = trpc.inventory.zaico.updateSupplierNameOnly.useMutation();
   const upsertPurchaseExtraMutation = trpc.inventory.purchaseExtra.upsert.useMutation();
+  const upsertPurchaseExtraBulkMutation = trpc.inventory.purchaseExtra.upsertBulk.useMutation();
 
   const normalizedSearch = search.trim();
 
@@ -6704,6 +6888,16 @@ export default function PurchaseRegistration() {
     refetchOnWindowFocus: false,
   });
   const {
+    data: allPurchaseRegistrationData,
+    isLoading: isAllPurchaseRegistrationLoading,
+    isFetching: isAllPurchaseRegistrationFetching,
+    refetch: refetchAllPurchaseRegistrations,
+  } = trpc.inventory.zaico.getPurchasesWithCategory.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+  });
+  const {
     data: inventoryData,
     isLoading: isInventoryLoading,
     isFetching: isInventoryFetching,
@@ -6715,6 +6909,10 @@ export default function PurchaseRegistration() {
   });
 
   const rows = (data?.items ?? []) as PurchaseRow[];
+  const allPurchaseRows = useMemo(
+    () => (allPurchaseRegistrationData ?? rows) as PurchaseRow[],
+    [allPurchaseRegistrationData, rows],
+  );
   const searchText = normalizedSearch.toLowerCase();
   const { data: purchaseRegistrationInvoices } =
     trpc.inventory.orderManagement.getPurchaseRegistrationInvoices.useQuery(undefined, {
@@ -6730,6 +6928,22 @@ export default function PurchaseRegistration() {
       return visibleRow ? [visibleRow] : [];
     });
   }, [rows, searchText]);
+
+  const globalMissingTrackingRows = useMemo(() => {
+    return normalizePurchaseRegistrationRows(allPurchaseRows)
+      .filter((row) => !hasPurchaseTracking(row))
+      .sort(comparePurchaseRegistrationOrder);
+  }, [allPurchaseRows]);
+
+  const visibleGlobalMissingTrackingRows = useMemo(() => {
+    if (!searchText) return globalMissingTrackingRows;
+    return globalMissingTrackingRows.filter((row) => buildSearchText(row).includes(searchText));
+  }, [globalMissingTrackingRows, searchText]);
+
+  const selectedBulkTrackingRows = useMemo(
+    () => visibleGlobalMissingTrackingRows.filter((row) => selectedMissingTrackingRowIds.has(row.id)),
+    [selectedMissingTrackingRowIds, visibleGlobalMissingTrackingRows],
+  );
 
   const filteredRows = useMemo(() => {
     return countableRows.filter((row) => matchesStatus(row, statusFilter));
@@ -6936,6 +7150,20 @@ export default function PurchaseRegistration() {
     return trackingNumber ? getPurchaseTrackingMeta(trackingNumber, trackingForm.carrier) : null;
   }, [trackingForm.carrier, trackingForm.trackingNumber]);
 
+  const bulkTrackingPreview = useMemo(() => {
+    const trackingNumber = bulkTrackingForm.trackingNumber.trim();
+    return trackingNumber ? getPurchaseTrackingMeta(trackingNumber, bulkTrackingForm.carrier) : null;
+  }, [bulkTrackingForm.carrier, bulkTrackingForm.trackingNumber]);
+
+  useEffect(() => {
+    setSelectedMissingTrackingRowIds((current) => {
+      if (current.size === 0) return current;
+      const validIds = new Set(globalMissingTrackingRows.map((row) => row.id));
+      const next = new Set(Array.from(current).filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [globalMissingTrackingRows]);
+
   const workflowCounts = useMemo(
     () => ({
       order: filteredRows.length,
@@ -7123,11 +7351,13 @@ export default function PurchaseRegistration() {
       setEditingPurchaseRow(null);
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
         utils.inventory.purchaseHistory.list.invalidate(),
       ]);
       void refetch();
+      void refetchAllPurchaseRegistrations();
       void refetchInventories();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "商品情報の更新に失敗しました");
@@ -7191,10 +7421,12 @@ export default function PurchaseRegistration() {
       await Promise.all([
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
       ]);
       void refetchInventories();
       void refetch();
+      void refetchAllPurchaseRegistrations();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "在庫情報の更新に失敗しました");
     }
@@ -7222,11 +7454,85 @@ export default function PurchaseRegistration() {
       setTrackingDialogRow(null);
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
         utils.inventory.purchaseHistory.list.invalidate(),
       ]);
       void refetch();
+      void refetchAllPurchaseRegistrations();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "追跡番号の登録に失敗しました");
+    }
+  };
+
+  const handleSelectMissingTrackingRow = (row: PurchaseRow, checked: boolean) => {
+    setSelectedMissingTrackingRowIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(row.id);
+      else next.delete(row.id);
+      return next;
+    });
+  };
+
+  const handleSelectAllMissingTrackingRows = (targetRows: PurchaseRow[], checked: boolean) => {
+    const targetIds = new Set(targetRows.map((row) => row.id));
+    setSelectedMissingTrackingRowIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        for (const id of targetIds) next.add(id);
+      } else {
+        for (const id of targetIds) next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenBulkTrackingDialog = () => {
+    if (selectedBulkTrackingRows.length === 0) {
+      toast.error("追跡番号を登録する商品を選択してください");
+      return;
+    }
+    setBulkTrackingForm({
+      shipDate: todayInputDate(),
+      trackingNumber: "",
+      carrier: "auto",
+    });
+    setShowBulkTrackingDialog(true);
+  };
+
+  const handleSubmitBulkTracking = async () => {
+    if (upsertPurchaseExtraBulkMutation.isPending || selectedBulkTrackingRows.length === 0) return;
+    const trackingNumber = bulkTrackingForm.trackingNumber.trim();
+    if (!trackingNumber) {
+      toast.error("追跡番号を入力してください");
+      return;
+    }
+
+    try {
+      await upsertPurchaseExtraBulkMutation.mutateAsync({
+        zaicoIds: selectedBulkTrackingRows.map((row) => row.id),
+        shipDate: bulkTrackingForm.shipDate || undefined,
+        trackingNumber,
+        carrier: bulkTrackingForm.carrier === "auto" ? undefined : bulkTrackingForm.carrier,
+      });
+      toast.success(`${selectedBulkTrackingRows.length}件に追跡番号を登録しました`);
+      setShowBulkTrackingDialog(false);
+      setSelectedMissingTrackingRowIds(new Set());
+      setBulkTrackingForm({
+        shipDate: todayInputDate(),
+        trackingNumber: "",
+        carrier: "auto",
+      });
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.purchaseHistory.list.invalidate(),
+      ]);
+      void refetch();
+      void refetchAllPurchaseRegistrations();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "追跡番号の一括登録に失敗しました");
     }
   };
 
@@ -7247,11 +7553,13 @@ export default function PurchaseRegistration() {
       toast.success(`${title} を削除済み商品に移動しました`);
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
         utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
         utils.inventory.deletedItems.list.invalidate(),
       ]);
       void refetch();
+      void refetchAllPurchaseRegistrations();
       void refetchInventories();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "削除に失敗しました");
@@ -7280,14 +7588,15 @@ export default function PurchaseRegistration() {
   const groupedWorkflowUsesInventory = isLabelWorkflow || isShippingWorkflow || isReturnWorkflow;
   const groupSelectOptions = groupedWorkflowUsesInventory ? labelPrintGroups : invoiceGroups;
   const selectedGroupOption = groupSelectOptions.find((group) => group.key === selectedGroupKey) ?? groupSelectOptions[0] ?? null;
-  const hasWorkflowTargets = groupedWorkflowUsesInventory ? labelPrintGroups.length > 0 : groups.length > 0;
-  const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading);
-  const isRefreshing = isFetching || isInventoryFetching;
-  const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories()]);
+  const hasWorkflowTargets = showGlobalMissingTracking || (groupedWorkflowUsesInventory ? labelPrintGroups.length > 0 : groups.length > 0);
+  const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading) || (showGlobalMissingTracking && isAllPurchaseRegistrationLoading);
+  const isRefreshing = isFetching || isInventoryFetching || isAllPurchaseRegistrationFetching;
+  const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories(), refetchAllPurchaseRegistrations()]);
   const isPurchaseEditSaving =
     updatePurchaseDataMutation.isPending ||
     updateSupplierNameOnlyMutation.isPending ||
-    upsertPurchaseExtraMutation.isPending;
+    upsertPurchaseExtraMutation.isPending ||
+    upsertPurchaseExtraBulkMutation.isPending;
   const isStockEditSaving = updateInventoryMutation.isPending;
 
   return (
@@ -7367,6 +7676,7 @@ export default function PurchaseRegistration() {
                     onChange={(event) => {
                       setSelectedGroupKey(event.target.value);
                       setProductDetailFilter(null);
+                      setShowGlobalMissingTracking(false);
                     }}
                   >
                     {groupSelectOptions.length === 0 ? (
@@ -7394,6 +7704,7 @@ export default function PurchaseRegistration() {
                     onValueChange={(value) => {
                       setStatusFilter(value as StatusFilter);
                       setProductDetailFilter(null);
+                      setShowGlobalMissingTracking(false);
                     }}
                     className="max-w-full"
                   >
@@ -7402,6 +7713,19 @@ export default function PurchaseRegistration() {
                       <TabsTrigger value="ordered">未入庫 {counts.ordered}</TabsTrigger>
                       <TabsTrigger value="received">入庫済み {counts.received}</TabsTrigger>
                       <TabsTrigger value="missing_tracking">追跡番号未登録 {counts.missingTracking}</TabsTrigger>
+                      <Button
+                        type="button"
+                        variant={showGlobalMissingTracking ? "secondary" : "ghost"}
+                        size="sm"
+                        className="h-8 rounded-sm px-3 text-sm"
+                        onClick={() => {
+                          setStatusFilter("missing_tracking");
+                          setProductDetailFilter(null);
+                          setShowGlobalMissingTracking(true);
+                        }}
+                      >
+                        一覧 {globalMissingTrackingRows.length}
+                      </Button>
                     </TabsList>
                   </Tabs>
                 )}
@@ -7446,25 +7770,50 @@ export default function PurchaseRegistration() {
           ) : !isStockWorkflow && !isScanWorkflow && !hasWorkflowTargets ? (
             <EmptyState icon={PackageCheck} title="表示できる発注登録がありません" />
           ) : (
-            <Tabs value={workflowTab} onValueChange={(value) => setWorkflowTab(value as WorkflowTab)} className="gap-4">
+            <Tabs
+              value={workflowTab}
+              onValueChange={(value) => {
+                const nextWorkflow = value as WorkflowTab;
+                setWorkflowTab(nextWorkflow);
+                if (nextWorkflow !== "order") setShowGlobalMissingTracking(false);
+              }}
+              className="gap-4"
+            >
               <TabsContent value="order">
-                <OrderDashboard
-                  group={selectedGroup}
-                  rows={filteredRows}
-                  products={selectedProducts}
-                  detailRows={selectedDetailRows}
-                  stockDetailItems={selectedDetailStockItems}
-                  productFilter={productDetailFilter}
-                  onProductFilter={setProductDetailFilter}
-                  onClearProductFilter={() => setProductDetailFilter(null)}
-                  onPrintLabels={handlePrintLabels}
-                  onOpenEdit={handleOpenPurchaseEditDialog}
-                  onOpenStockEdit={handleOpenStockEditDialog}
-                  onOpenTrackingDialog={handleOpenTrackingDialog}
-                  onOpenShippingHistory={handleOpenShippingHistory}
-                  onDeleteRow={handleDeletePurchaseRow}
-                  deletingRowId={deletingRowId}
-                />
+                {showGlobalMissingTracking ? (
+                  <MissingTrackingOverview
+                    rows={visibleGlobalMissingTrackingRows}
+                    totalCount={globalMissingTrackingRows.length}
+                    selectedRowIds={selectedMissingTrackingRowIds}
+                    onSelectRow={handleSelectMissingTrackingRow}
+                    onSelectAllRows={handleSelectAllMissingTrackingRows}
+                    onOpenBulkTracking={handleOpenBulkTrackingDialog}
+                    onPrintLabels={handlePrintLabels}
+                    onOpenEdit={handleOpenPurchaseEditDialog}
+                    onOpenTrackingDialog={handleOpenTrackingDialog}
+                    onOpenShippingHistory={handleOpenShippingHistory}
+                    onDeleteRow={handleDeletePurchaseRow}
+                    deletingRowId={deletingRowId}
+                  />
+                ) : (
+                  <OrderDashboard
+                    group={selectedGroup}
+                    rows={filteredRows}
+                    products={selectedProducts}
+                    detailRows={selectedDetailRows}
+                    stockDetailItems={selectedDetailStockItems}
+                    productFilter={productDetailFilter}
+                    onProductFilter={setProductDetailFilter}
+                    onClearProductFilter={() => setProductDetailFilter(null)}
+                    onPrintLabels={handlePrintLabels}
+                    onOpenEdit={handleOpenPurchaseEditDialog}
+                    onOpenStockEdit={handleOpenStockEditDialog}
+                    onOpenTrackingDialog={handleOpenTrackingDialog}
+                    onOpenShippingHistory={handleOpenShippingHistory}
+                    onDeleteRow={handleDeletePurchaseRow}
+                    deletingRowId={deletingRowId}
+                  />
+                )}
               </TabsContent>
               <TabsContent value="labels">
                 <LabelPrintPanel
@@ -7831,6 +8180,135 @@ export default function PurchaseRegistration() {
           </DialogContent>
         </Dialog>
 
+        <Dialog
+          open={showBulkTrackingDialog}
+          onOpenChange={(open) => {
+            if (!open && !upsertPurchaseExtraBulkMutation.isPending) setShowBulkTrackingDialog(false);
+          }}
+        >
+          <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-blue-600" />
+                追跡番号を一括登録
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-md border bg-muted/30">
+                <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
+                  <span className="font-medium">登録対象</span>
+                  <Badge variant="outline">{selectedBulkTrackingRows.length.toLocaleString()}件</Badge>
+                </div>
+                <div className="max-h-48 overflow-y-auto p-3">
+                  {selectedBulkTrackingRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">商品が選択されていません。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedBulkTrackingRows.map((row) => {
+                        const firstItem = row.purchase_items[0];
+                        const labels = getItemLabels(row.purchase_items).map((label) => label.labelId).join(" / ");
+                        const managementNos = getManagementNos(row.purchase_items).join(" / ");
+                        return (
+                          <div key={row.id} className="rounded-md border bg-background p-2 text-sm">
+                            <div className="font-medium">{actualProductTitle(firstItem) || firstItem?.title || "商品"}</div>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span>商品ID: {labels || "未発行"}</span>
+                              <span>旧管理番号: {managementNos || "-"}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="space-y-1 text-sm">
+                  <span className="text-xs font-medium text-muted-foreground">発送日</span>
+                  <Input
+                    type="date"
+                    value={bulkTrackingForm.shipDate}
+                    onChange={(event) => setBulkTrackingForm((current) => ({ ...current, shipDate: event.target.value }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-xs font-medium text-muted-foreground">発送業者</span>
+                  <select
+                    className={fieldClass}
+                    value={bulkTrackingForm.carrier}
+                    onChange={(event) =>
+                      setBulkTrackingForm((current) => ({ ...current, carrier: event.target.value as TrackingFormState["carrier"] }))
+                    }
+                  >
+                    {TRACKING_CARRIER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm md:col-span-3">
+                  <span className="text-xs font-medium text-muted-foreground">追跡番号</span>
+                  <Input
+                    value={bulkTrackingForm.trackingNumber}
+                    onChange={(event) => setBulkTrackingForm((current) => ({ ...current, trackingNumber: event.target.value }))}
+                    placeholder="追跡番号を入力"
+                    autoFocus
+                  />
+                </label>
+              </div>
+
+              {bulkTrackingPreview ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+                  <span className={`rounded px-2 py-0.5 text-xs ${getCarrierColor(bulkTrackingPreview.carrier)}`}>
+                    {TRACKING_CARRIER_LABELS[bulkTrackingPreview.carrier]}
+                  </span>
+                  <span className="font-mono font-semibold">{bulkTrackingForm.trackingNumber.trim()}</span>
+                  {bulkTrackingPreview.isEcohai ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => openEcohaiTracking(bulkTrackingForm.trackingNumber)}>
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                      追跡を開く
+                    </Button>
+                  ) : bulkTrackingPreview.trackingUrl ? (
+                    <a
+                      href={bulkTrackingPreview.trackingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded border bg-background px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      追跡を開く
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowBulkTrackingDialog(false)}
+                disabled={upsertPurchaseExtraBulkMutation.isPending}
+              >
+                キャンセル
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmitBulkTracking}
+                disabled={
+                  upsertPurchaseExtraBulkMutation.isPending ||
+                  selectedBulkTrackingRows.length === 0 ||
+                  !bulkTrackingForm.trackingNumber.trim()
+                }
+              >
+                {upsertPurchaseExtraBulkMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+                {selectedBulkTrackingRows.length.toLocaleString()}件に登録
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-20 lg:z-30 lg:h-auto lg:w-[188px] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">
             {workflowTabs.map((tab) => {
@@ -7840,7 +8318,10 @@ export default function PurchaseRegistration() {
                 <button
                   key={tab.value}
                   type="button"
-                  onClick={() => setWorkflowTab(tab.value)}
+                  onClick={() => {
+                    setWorkflowTab(tab.value);
+                    if (tab.value !== "order") setShowGlobalMissingTracking(false);
+                  }}
                   className={cn(
                     "flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 text-center text-[11px] leading-tight transition-colors lg:h-11 lg:flex-row lg:justify-between lg:px-3 lg:text-left lg:text-sm",
                     active

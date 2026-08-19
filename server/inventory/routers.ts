@@ -2897,7 +2897,22 @@ type PurchaseTrackingSyncInput = {
   inventoryId?: number | null;
   managementNo?: string | null;
   labelId?: string | null;
+  operatorName?: string | null;
+  createdBy?: string | null;
 };
+
+type PurchaseTrackingAuditState = {
+  shipDate: string | null;
+  trackingNumber: string | null;
+  carrier: string | null;
+  note: string | null;
+  status: string | null;
+  stage: string | null;
+};
+
+type PurchaseTrackingAuditUpdate = Partial<
+  Pick<InsertLocalPurchase, "shipDate" | "trackingNumber" | "carrier" | "note" | "status" | "stage">
+>;
 
 function hasOwnPurchaseTrackingField(input: PurchaseTrackingSyncInput, key: keyof PurchaseTrackingSyncInput): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
@@ -2931,6 +2946,148 @@ function buildPurchaseTrackingUpdate(input: PurchaseTrackingSyncInput) {
     update.note = normalizePurchaseTrackingValue(input.note);
   }
   return update;
+}
+
+function purchaseTrackingAuditValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function getPurchaseTrackingAuditState(row: LocalPurchaseRow): PurchaseTrackingAuditState {
+  return {
+    shipDate: purchaseTrackingAuditValue(row.shipDate),
+    trackingNumber: purchaseTrackingAuditValue(row.trackingNumber),
+    carrier: purchaseTrackingAuditValue(row.carrier),
+    note: purchaseTrackingAuditValue(row.note),
+    status: purchaseTrackingAuditValue(row.status),
+    stage: purchaseTrackingAuditValue(row.stage),
+  };
+}
+
+function getNextPurchaseTrackingAuditState(
+  previous: PurchaseTrackingAuditState,
+  update: PurchaseTrackingAuditUpdate,
+): PurchaseTrackingAuditState {
+  return {
+    shipDate: Object.prototype.hasOwnProperty.call(update, "shipDate")
+      ? purchaseTrackingAuditValue(update.shipDate)
+      : previous.shipDate,
+    trackingNumber: Object.prototype.hasOwnProperty.call(update, "trackingNumber")
+      ? purchaseTrackingAuditValue(update.trackingNumber)
+      : previous.trackingNumber,
+    carrier: Object.prototype.hasOwnProperty.call(update, "carrier")
+      ? purchaseTrackingAuditValue(update.carrier)
+      : previous.carrier,
+    note: Object.prototype.hasOwnProperty.call(update, "note")
+      ? purchaseTrackingAuditValue(update.note)
+      : previous.note,
+    status: Object.prototype.hasOwnProperty.call(update, "status")
+      ? purchaseTrackingAuditValue(update.status)
+      : previous.status,
+    stage: Object.prototype.hasOwnProperty.call(update, "stage")
+      ? purchaseTrackingAuditValue(update.stage)
+      : previous.stage,
+  };
+}
+
+function getPurchaseTrackingChangedFields(
+  previous: PurchaseTrackingAuditState,
+  next: PurchaseTrackingAuditState,
+): Array<keyof PurchaseTrackingAuditState> {
+  const keys: Array<keyof PurchaseTrackingAuditState> = [
+    "shipDate",
+    "trackingNumber",
+    "carrier",
+    "note",
+    "status",
+    "stage",
+  ];
+  return keys.filter((key) => (previous[key] ?? null) !== (next[key] ?? null));
+}
+
+function getPurchaseTrackingAuditLabelIds(row: LocalPurchaseRow, input: PurchaseTrackingSyncInput): string[] {
+  const labels = new Set<string>();
+  const addLabel = (value: unknown) => {
+    const label = String(value ?? "").trim().toUpperCase();
+    if (label) labels.add(label);
+  };
+
+  addLabel(input.labelId);
+  for (const label of row.itemLabels ?? []) {
+    addLabel(label.labelId);
+  }
+  for (const item of parseLocalPurchaseItems(row)) {
+    const itemLabels = (item as { itemLabels?: Array<{ labelId?: unknown }> }).itemLabels;
+    for (const label of itemLabels ?? []) {
+      addLabel(label.labelId);
+    }
+  }
+
+  return Array.from(labels);
+}
+
+async function recordPurchaseTrackingAuditLog(
+  input: PurchaseTrackingSyncInput,
+  purchase: LocalPurchaseRow,
+  previous: PurchaseTrackingAuditState,
+  next: PurchaseTrackingAuditState,
+  changedFields: Array<keyof PurchaseTrackingAuditState>,
+) {
+  if (changedFields.length === 0) return;
+
+  const labelIds = getPurchaseTrackingAuditLabelIds(purchase, input);
+  const managementNo =
+    localPurchasePrimaryManagementNo(purchase) ||
+    String(input.managementNo ?? purchase.managementNo ?? "").trim() ||
+    null;
+  const workerName = resolveWorkOperatorName(input.operatorName, input.createdBy);
+  const trackingBefore = previous.trackingNumber ?? "未設定";
+  const trackingAfter = next.trackingNumber ?? "未設定";
+
+  try {
+    await recordWorkLog({
+      workerName,
+      category: "追跡番号登録",
+      status: "done",
+      startedAt: new Date(),
+      endedAt: new Date(),
+      quantity: 1,
+      memo: [
+        managementNo ? `管理番号: ${managementNo}` : null,
+        `追跡番号: ${trackingBefore} -> ${trackingAfter}`,
+        labelIds.length > 0 ? `商品ID: ${labelIds.join(", ")}` : null,
+      ].filter(Boolean).join(" / "),
+      createdBy: input.createdBy ?? workerName,
+      sourceType: "purchase-tracking-audit",
+      sourceId: `purchase:${purchase.id}`,
+      detailsJson: JSON.stringify({
+        version: 1,
+        action: "purchase_tracking_update",
+        target: {
+          purchaseId: purchase.id,
+          zaicoId: purchase.zaicoId ?? null,
+          localInventoryId: purchase.localInventoryId ?? input.inventoryId ?? null,
+          purchaseNum: purchase.purchaseNum ?? null,
+          title: purchase.title ?? null,
+          managementNo,
+          labelIds,
+        },
+        input: {
+          zaicoId: input.zaicoId,
+          inventoryId: input.inventoryId ?? null,
+          managementNo: input.managementNo ?? null,
+          labelId: input.labelId ?? null,
+        },
+        before: previous,
+        after: next,
+        changedFields,
+      }),
+    });
+  } catch (error) {
+    console.warn("[purchaseTrackingAudit] failed to record work log", error);
+  }
 }
 
 function requiresLocalPurchaseTrackingTarget(input: PurchaseTrackingSyncInput): boolean {
@@ -2992,10 +3149,14 @@ async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInp
         updateData.stage = "ordered";
       }
     }
+    const previousAuditState = getPurchaseTrackingAuditState(purchase);
+    const nextAuditState = getNextPurchaseTrackingAuditState(previousAuditState, updateData);
+    const changedFields = getPurchaseTrackingChangedFields(previousAuditState, nextAuditState);
     await db
       .update(lpTbl)
       .set(updateData)
       .where(eq(lpTbl.id, purchase.id));
+    await recordPurchaseTrackingAuditLog(input, purchase, previousAuditState, nextAuditState, changedFields);
   }
 
   return { updatedCount: uniqueTargets.length, targetIds: uniqueTargets.map((purchase) => purchase.id) };
@@ -3719,6 +3880,7 @@ export const inventoryRouter = router({
         localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
         localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
         localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
+        const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows
@@ -3728,15 +3890,16 @@ export const inventoryRouter = router({
         // localInventoryIdをキーのlocal_inventoriesのsupplierName・supplierUrlを取得
         const invIds = localPurchaseRows
           .map((p) => p.localInventoryId)
-          .filter((id): id is number => id != null);
+            .filter((id): id is number => id != null);
         const inventoryLabelMap = await getInventoryItemLabelsByInventoryIds(invIds);
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
-        const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null }>();
+        const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
         for (const inv of localInventoryRows) {
           invSupplierMap.set(inv.id, {
             supplierName: inv.supplierName ?? null,
             supplierUrl: inv.supplierUrl ?? null,
             ebayListingUrl: inv.ebayListingUrl ?? null,
+            quantity: inv.quantity ?? null,
           });
         }
         if (invIds.length > 0) {
@@ -3749,12 +3912,14 @@ export const inventoryRouter = router({
               supplierName: localInvTbl.supplierName,
               supplierUrl: localInvTbl.supplierUrl,
               ebayListingUrl: localInvTbl.ebayListingUrl,
+              quantity: localInvTbl.quantity,
             }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
             for (const row of rows) {
               invSupplierMap.set(row.id, {
                 supplierName: row.supplierName ?? null,
                 supplierUrl: row.supplierUrl ?? null,
                 ebayListingUrl: row.ebayListingUrl ?? null,
+                quantity: row.quantity ?? null,
               });
             }
           }
@@ -3762,6 +3927,7 @@ export const inventoryRouter = router({
         const rows = localPurchaseRows.map((p) => {
           const purchaseWithExtra = mergeLocalPurchaseStoredExtra(p, getLocalPurchaseStoredExtra(p, purchaseExtraMap));
           const inv = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
+          const inbound = inboundInfoMap.get(p.id);
           // local_purchasesのstatusがpurchased、またはpurchase_historiesに有効な入庫履歴があればpurchased
           const localId = purchaseWithExtra.zaicoId ?? purchaseWithExtra.id;
           const displayStatus = getLocalPurchaseDisplayStatus(purchaseWithExtra, inventoryLabelMap, purchasedZaicoIds);
@@ -3769,26 +3935,46 @@ export const inventoryRouter = router({
             id: localId,
             num: purchaseWithExtra.purchaseNum ?? "",
             purchase_date: purchaseWithExtra.purchaseDate ?? null,
+            createdAt: purchaseWithExtra.createdAt ?? null,
+            created_at: purchaseWithExtra.createdAt instanceof Date ? purchaseWithExtra.createdAt.toISOString() : (purchaseWithExtra.createdAt ? String(purchaseWithExtra.createdAt) : null),
             status: displayStatus,
             // local_purchases自体のsupplierName/Urlを優先、なければlocal_inventoriesから取得
             csvSupplierName: purchaseWithExtra.supplierName ?? inv?.supplierName ?? null,
             csvSupplierUrl: purchaseWithExtra.supplierUrl ?? inv?.supplierUrl ?? null,
-          extra: {
-            shipDate: purchaseWithExtra.shipDate ?? null,
-            trackingNumber: purchaseWithExtra.trackingNumber ?? null,
-            carrier: purchaseWithExtra.carrier ?? null,
-            note: purchaseWithExtra.note ?? null,
-          },
-          purchase_items: (() => {
+            inboundClass: inbound?.inboundClass ?? null,
+            classSource: inbound?.classSource ?? "auto",
+            stage: inbound?.stage ?? "received",
+            stageUpdatedBy: inbound?.stageUpdatedBy ?? null,
+            shaftParentPurchaseId: inbound?.shaftParentPurchaseId ?? null,
+            extra: {
+              shipDate: purchaseWithExtra.shipDate ?? null,
+              trackingNumber: purchaseWithExtra.trackingNumber ?? null,
+              carrier: purchaseWithExtra.carrier ?? null,
+              note: purchaseWithExtra.note ?? null,
+            },
+            purchase_items: (() => {
               try {
                 const items = JSON.parse(purchaseWithExtra.itemsJson ?? "[]");
-                return Array.isArray(items) ? items.map((item: Record<string, unknown>) => ({
-                  ...item,
-                  status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
-                  category: purchaseWithExtra.category ?? "未分類",
-                  itemLabels: labelsForPurchaseItem(purchaseWithExtra, item, inventoryLabelMap),
-                })) : [];
+                return Array.isArray(items) ? items.map((item: Record<string, unknown>) => {
+                  const parsedInventoryId = Number(item.inventory_id ?? item.inventoryId ?? purchaseWithExtra.localInventoryId);
+                  const inventoryId = Number.isFinite(parsedInventoryId) ? parsedInventoryId : null;
+                  const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
+                  const itemEtc =
+                    typeof item.etc === "string" && item.etc.trim()
+                      ? item.etc
+                      : purchaseWithExtra.managementNo ?? undefined;
+                  return {
+                    ...item,
+                    status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
+                    inventory_id: inventoryId,
+                    etc: itemEtc,
+                    category: purchaseWithExtra.category ?? "未分類",
+                    currentInventoryQuantity: invInfo?.quantity ?? null,
+                    itemLabels: labelsForPurchaseItem(purchaseWithExtra, item, inventoryLabelMap),
+                  };
+                }) : [];
               } catch {
+                const invInfo = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
                 return [{
                   id: purchaseWithExtra.id,
                   title: purchaseWithExtra.title,
@@ -3798,6 +3984,7 @@ export const inventoryRouter = router({
                   status: displayStatus,
                   inventory_id: purchaseWithExtra.localInventoryId ?? null,
                   category: purchaseWithExtra.category ?? "未分類",
+                  currentInventoryQuantity: invInfo?.quantity ?? null,
                   itemLabels: labelsForPurchaseItem(purchaseWithExtra, { inventory_id: purchaseWithExtra.localInventoryId }, inventoryLabelMap),
                 }];
               }
@@ -3809,6 +3996,7 @@ export const inventoryRouter = router({
             const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
             const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
             item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
+            item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
           }
         }
         return rows;
@@ -5601,21 +5789,27 @@ export const inventoryRouter = router({
           labelId: z.string().max(20).optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const operatorName = resolveWorkOperatorName(undefined, ctx.user?.name ?? ctx.user?.email ?? null);
+        const auditInput: PurchaseTrackingSyncInput = {
+          ...input,
+          operatorName,
+          createdBy: ctx.user?.email ?? operatorName,
+        };
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
-          const syncResult = await syncLocalPurchaseTrackingFromExtra(input);
-          assertLocalPurchaseTrackingSynced(input, syncResult.updatedCount);
+          const syncResult = await syncLocalPurchaseTrackingFromExtra(auditInput);
+          assertLocalPurchaseTrackingSynced(auditInput, syncResult.updatedCount);
           return { success: true, localUpdatedCount: syncResult.updatedCount };
         }
-        const trackingUpdate = buildPurchaseTrackingUpdate(input);
+        const trackingUpdate = buildPurchaseTrackingUpdate(auditInput);
         if (Object.keys(trackingUpdate).length > 0) {
           await upsertPurchaseExtra({ zaicoId: input.zaicoId, ...trackingUpdate });
           if (input.inventoryId && input.inventoryId !== input.zaicoId) {
             await upsertPurchaseExtra({ zaicoId: input.inventoryId, ...trackingUpdate });
           }
         }
-        const syncResult = await syncLocalPurchaseTrackingFromExtra(input);
+        const syncResult = await syncLocalPurchaseTrackingFromExtra(auditInput);
         return { success: true, localUpdatedCount: syncResult.updatedCount };
       }),
     upsertBulk: publicProcedure
@@ -5628,13 +5822,22 @@ export const inventoryRouter = router({
           note: z.string().nullable().optional(),
         })
       )
-      .mutation(async ({ input }) => {
-        const trackingUpdate = buildPurchaseTrackingUpdate({ zaicoId: input.zaicoIds[0], ...input });
+      .mutation(async ({ input, ctx }) => {
+        const operatorName = resolveWorkOperatorName(undefined, ctx.user?.name ?? ctx.user?.email ?? null);
+        const auditBase: Omit<PurchaseTrackingSyncInput, "zaicoId"> = {
+          operatorName,
+          createdBy: ctx.user?.email ?? operatorName,
+        };
+        if (Object.prototype.hasOwnProperty.call(input, "shipDate")) auditBase.shipDate = input.shipDate;
+        if (Object.prototype.hasOwnProperty.call(input, "trackingNumber")) auditBase.trackingNumber = input.trackingNumber;
+        if (Object.prototype.hasOwnProperty.call(input, "carrier")) auditBase.carrier = input.carrier;
+        if (Object.prototype.hasOwnProperty.call(input, "note")) auditBase.note = input.note;
+        const trackingUpdate = buildPurchaseTrackingUpdate({ zaicoId: input.zaicoIds[0], ...auditBase });
         const zaicoEnabled = await isZaicoEnabled();
         if (!zaicoEnabled) {
-          const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
+          const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...auditBase, zaicoId })));
           const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
-          assertLocalPurchaseTrackingSynced({ ...input, zaicoId: input.zaicoIds[0] }, localUpdatedCount);
+          assertLocalPurchaseTrackingSynced({ ...auditBase, zaicoId: input.zaicoIds[0] }, localUpdatedCount);
           return { success: true, count: input.zaicoIds.length, localUpdatedCount };
         }
         await Promise.all(
@@ -5644,7 +5847,7 @@ export const inventoryRouter = router({
               )
             : []
         );
-        const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...input, zaicoId })));
+        const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...auditBase, zaicoId })));
         const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
         return { success: true, count: input.zaicoIds.length, localUpdatedCount };
       }),
