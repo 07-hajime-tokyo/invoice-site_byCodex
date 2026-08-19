@@ -1859,16 +1859,22 @@ function isExcludedStockProposalManagementNo(managementNo?: string | null): bool
   return STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
+function isUnfinishedInvoiceManagementNo(managementNo: string | null | undefined, unfinishedInvoiceNos: Set<string>): boolean {
+  const parsed = parseInvoiceFromManagementNo(cleanLegacyManagementNo(managementNo ?? ""));
+  return parsed ? unfinishedInvoiceNos.has(parsed.invoiceNo) : false;
+}
+
 function isStockProposalAccessory(title: string, category?: string | null): boolean {
   const text = `${title} ${category ?? ""}`;
   return hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS);
 }
 
-function isStockWaitingPurchaseRow(row: PurchaseRow): boolean {
+function isStockWaitingPurchaseRow(row: PurchaseRow, unfinishedInvoiceNos: Set<string>): boolean {
   const kind = purchaseRowStatusKind(row);
   if (kind !== "ordered" && kind !== "inbound_shipped") return false;
   return getManagementNos(row.purchase_items).some((managementNo) => {
     const normalized = managementNo.trim();
+    if (isUnfinishedInvoiceManagementNo(normalized, unfinishedInvoiceNos)) return false;
     return normalized.startsWith("在庫") && !isExcludedStockProposalManagementNo(normalized);
   });
 }
@@ -1925,10 +1931,13 @@ function buildStockProposalGroups(
   stockItems: StockItemView[],
   purchaseRows: PurchaseRow[],
   searchText: string,
+  unfinishedInvoices: PurchaseRegistrationInvoice[] = [],
 ): StockProposalGroup[] {
   const productMap = new Map<string, StockProposalProduct>();
+  const unfinishedInvoiceNos = new Set(unfinishedInvoices.map((invoice) => invoice.invoiceNo.trim()).filter(Boolean));
 
   for (const item of stockItems) {
+    if (isUnfinishedInvoiceManagementNo(item.legacyManagementNo, unfinishedInvoiceNos)) continue;
     if (isExcludedStockProposalManagementNo(item.legacyManagementNo)) continue;
     if (isStockProposalAccessory(item.title, item.category)) continue;
     const model = stockProposalModelName(item.title, item.category);
@@ -1949,7 +1958,7 @@ function buildStockProposalGroups(
   }
 
   for (const row of purchaseRows) {
-    if (!isStockWaitingPurchaseRow(row)) continue;
+    if (!isStockWaitingPurchaseRow(row, unfinishedInvoiceNos)) continue;
     const supplier = getSupplier(row);
     const rowStatus = statusLabel(row);
     for (const item of row.purchase_items) {
@@ -1957,6 +1966,7 @@ function buildStockProposalGroups(
       if (quantity <= 0) continue;
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || getManagementNos(row.purchase_items)[0] || "-";
       const title = actualProductTitle(item);
+      if (isUnfinishedInvoiceManagementNo(managementNo, unfinishedInvoiceNos)) continue;
       if (isExcludedStockProposalManagementNo(managementNo)) continue;
       if (isStockProposalAccessory(title, item.category)) continue;
       const model = stockProposalModelName(title, item.category);
@@ -5219,12 +5229,14 @@ function StockProposalProductMobile({ product }: { product: StockProposalProduct
 function StockPanel({
   inventories,
   purchaseRows,
+  unfinishedInvoices,
   searchText,
   viewMode,
   onOpenEdit,
 }: {
   inventories: InventoryItem[];
   purchaseRows: PurchaseRow[];
+  unfinishedInvoices?: PurchaseRegistrationInvoice[];
   searchText: string;
   viewMode: StockViewMode;
   onOpenEdit: (inventoryId: number) => void;
@@ -5234,7 +5246,7 @@ function StockPanel({
     ? allStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
     : allStockItems;
   const stockGroups = buildStockItemGroups(stockItems);
-  const proposalGroups = buildStockProposalGroups(allStockItems, purchaseRows, searchText);
+  const proposalGroups = buildStockProposalGroups(allStockItems, purchaseRows, searchText, unfinishedInvoices);
   const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
 
   if (viewMode === "proposal") {
@@ -7857,6 +7869,7 @@ export default function PurchaseRegistration() {
                 <StockPanel
                   inventories={inventoryItems}
                   purchaseRows={countableRows}
+                  unfinishedInvoices={purchaseRegistrationInvoices}
                   searchText={searchText}
                   viewMode={stockViewMode}
                   onOpenEdit={handleOpenStockEditDialog}
