@@ -2851,7 +2851,8 @@ function MissingTrackingOverview({
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
 }) {
-  const selectedCount = rows.filter((row) => selectedRowIds.has(row.id)).length;
+  const selectedRows = rows.filter((row) => selectedRowIds.has(row.id));
+  const selectedCount = selectedRows.length;
   const allVisibleSelected = rows.length > 0 && selectedCount === rows.length;
 
   return (
@@ -2879,26 +2880,6 @@ function MissingTrackingOverview({
               />
               全選択
             </label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={selectedCount === 0}
-              onClick={() => onSelectAllRows(rows, false)}
-            >
-              選択解除
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
-              disabled={selectedCount === 0}
-              onClick={onOpenBulkTracking}
-            >
-              <Truck className="h-4 w-4" />
-              追跡番号を一括登録
-              <Badge className="bg-white/20 text-white hover:bg-white/20">{selectedCount}</Badge>
-            </Button>
           </div>
         </div>
       </section>
@@ -2927,6 +2908,48 @@ function MissingTrackingOverview({
           ))}
         </div>
       )}
+
+      {selectedCount > 0 ? (
+        <div className="fixed inset-x-0 bottom-[4.75rem] z-30 border-t bg-background/95 shadow-lg backdrop-blur lg:bottom-0 lg:right-[204px]">
+          <div className="mx-auto max-w-5xl px-4 py-3">
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {selectedRows.map((row) => {
+                const managementNos = getManagementNos(row.purchase_items).join(" / ");
+                const labelIds = getItemLabels(row.purchase_items).map((label) => label.labelId).join(" / ");
+                return (
+                  <Badge key={row.id} variant="secondary" className="max-w-[220px] truncate text-xs">
+                    {managementNos || labelIds || `#${row.id}`}
+                  </Badge>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-[140px] flex-1 text-sm text-muted-foreground">
+                <Truck className="mr-1.5 inline h-4 w-4 text-blue-600" />
+                {selectedCount.toLocaleString()}件選択中
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onSelectAllRows(rows, false)}
+              >
+                選択解除
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                onClick={onOpenBulkTracking}
+              >
+                <Truck className="h-4 w-4" />
+                追跡番号を一括登録
+                <Badge className="bg-white/20 text-white hover:bg-white/20">{selectedCount}</Badge>
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
