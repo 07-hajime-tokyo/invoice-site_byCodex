@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
+import { invoiceNoFromManagementNo } from "@shared/outboundBoxes";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -539,6 +540,17 @@ function compactShipmentName(value: string): string {
     .replace(/ニンテンドー|nintendo/g, "")
     .replace(/カラー/g, "color")
     .trim();
+}
+
+/** 取引データの通貨表記（ユーロ・ドル）を、送り状に書く3文字コードへ寄せる。 */
+function normalizeDeclarationCurrency(value: string | null | undefined): string {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  if (!text) return "—";
+  const lower = text.toLowerCase();
+  if (text.includes("ユーロ") || lower === "eur" || text.includes("€")) return "EUR";
+  if (text.includes("ドル") || lower === "usd" || text.includes("$")) return "USD";
+  if (text.includes("円") || lower === "jpy" || text.includes("¥")) return "JPY";
+  return text;
 }
 
 function isRandomShipmentName(value: string): boolean {
@@ -6143,6 +6155,156 @@ export const inventoryRouter = router({
   // 発注管理（管理番号キーで発注済み・出庫済み・在庫数を集計）
   // ============================================================
   orderManagement: router({
+    /**
+     * 箱の中身をFedEx送り状の申告明細にする。
+     *
+     * 単価と通貨は取引データ（trade_records）が持っている。箱→個体ラベル→旧管理番号→
+     * インボイスNo の経路は既にFedEx紐付けで通っているので、突き合わせて金額を出すだけ。
+     * 突き合わせは発送管理シート書き込みと同じ shipmentProductMatches を使う。
+     */
+    boxDeclaration: protectedProcedure
+      .input(z.object({ boxCode: z.string().min(1).max(20) }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const { outboundBoxes: boxTbl, inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+        const boxCode = input.boxCode.normalize("NFKC").trim().toUpperCase();
+        const [box] = await db.select().from(boxTbl).where(eq(boxTbl.boxCode, boxCode)).limit(1);
+        if (!box) throw new TRPCError({ code: "NOT_FOUND", message: `${boxCode} が見つかりません` });
+
+        const labels = await db
+          .select({
+            labelId: labelTbl.labelId,
+            title: labelTbl.title,
+            legacyManagementNo: labelTbl.legacyManagementNo,
+          })
+          .from(labelTbl)
+          .where(eq(labelTbl.outboundBoxId, box.id));
+
+        const orderRows = await getOrderRowsFromTradeRecords().catch(() => []);
+        const rowsByInvoice = new Map<string, OrderCsvRow[]>();
+        for (const row of orderRows) {
+          if (!row.productName.trim()) continue;
+          rowsByInvoice.set(row.invoiceNo, [...(rowsByInvoice.get(row.invoiceNo) ?? []), row]);
+        }
+
+        type DeclarationLine = {
+          key: string;
+          invoiceNo: string | null;
+          partner: string;
+          productName: string;
+          quantity: number;
+          /** 旧管理番号からインボイスNoを読めず、箱の中の他インボイスから推定した行 */
+          estimatedQuantity: number;
+          unitPrice: number | null;
+          currency: string;
+          subtotal: number | null;
+        };
+        const lineByKey = new Map<string, DeclarationLine>();
+        const unmatched: Array<{ labelId: string; title: string; managementNo: string | null; reason: string }> = [];
+
+        /** 色まで一致する行を優先し、無ければ「ランダムカラー」等の総称行に落とす。 */
+        function pickRow(candidates: OrderCsvRow[], title: string): OrderCsvRow | null {
+          const exact = candidates.find(
+            (row) => !isRandomShipmentName(row.productName) && shipmentProductMatches(row.productName, title),
+          );
+          return exact ?? candidates.find((row) => shipmentProductMatches(row.productName, title)) ?? null;
+        }
+
+        // 在庫から充当したぶんは旧管理番号にインボイスNoが無い。
+        // その場合は「この箱に入っている他のインボイス」だけを探索範囲にして推定する。
+        // 候補が1つに絞れないときは推定せず、未照合として人に返す。
+        const invoicesInBox = Array.from(
+          new Set(
+            labels
+              .map((row) => invoiceNoFromManagementNo(row.legacyManagementNo?.trim() || null))
+              .filter((value): value is string => Boolean(value)),
+          ),
+        );
+
+        for (const label of labels) {
+          const managementNo = label.legacyManagementNo?.trim() || null;
+          const invoiceNo = invoiceNoFromManagementNo(managementNo);
+          const title = String(label.title ?? "").trim();
+          let matched = invoiceNo ? pickRow(rowsByInvoice.get(invoiceNo) ?? [], title) : null;
+          let estimated = false;
+
+          if (!matched && !invoiceNo) {
+            const guesses = invoicesInBox
+              .map((candidateInvoiceNo) => pickRow(rowsByInvoice.get(candidateInvoiceNo) ?? [], title))
+              .filter((row): row is OrderCsvRow => Boolean(row));
+            const distinct = new Map(guesses.map((row) => [`${row.invoiceNo}::${row.productName}`, row]));
+            if (distinct.size === 1) {
+              matched = Array.from(distinct.values())[0];
+              estimated = true;
+            }
+          }
+
+          if (!matched) {
+            unmatched.push({
+              labelId: label.labelId,
+              title,
+              managementNo,
+              reason: !invoiceNo
+                ? "旧管理番号からインボイスNoを読めず、この箱のインボイスからも1つに絞れません"
+                : (rowsByInvoice.get(invoiceNo) ?? []).length === 0
+                  ? `取引データにNo.${invoiceNo}の明細がありません`
+                  : `No.${invoiceNo}の明細に一致する商品名が見つかりません`,
+            });
+            continue;
+          }
+
+          const key = `${matched.invoiceNo}::${matched.productName}`;
+          const current = lineByKey.get(key);
+          if (current) {
+            current.quantity += 1;
+            if (estimated) current.estimatedQuantity += 1;
+            current.subtotal = current.unitPrice == null ? null : current.unitPrice * current.quantity;
+            continue;
+          }
+          lineByKey.set(key, {
+            key,
+            invoiceNo: matched.invoiceNo,
+            partner: matched.partner,
+            productName: matched.productName,
+            quantity: 1,
+            estimatedQuantity: estimated ? 1 : 0,
+            unitPrice: matched.sellingPrice,
+            currency: normalizeDeclarationCurrency(matched.currency),
+            subtotal: matched.sellingPrice,
+          });
+        }
+
+        const lines = Array.from(lineByKey.values()).sort((a, b) => {
+          const invoiceDiff = Number(a.invoiceNo ?? 0) - Number(b.invoiceNo ?? 0);
+          return invoiceDiff !== 0 ? invoiceDiff : a.productName.localeCompare(b.productName, "ja");
+        });
+
+        const totalsByCurrency = new Map<string, { currency: string; quantity: number; amount: number; incomplete: boolean }>();
+        for (const line of lines) {
+          const current = totalsByCurrency.get(line.currency) ?? {
+            currency: line.currency,
+            quantity: 0,
+            amount: 0,
+            incomplete: false,
+          };
+          current.quantity += line.quantity;
+          if (line.subtotal == null) current.incomplete = true;
+          else current.amount += line.subtotal;
+          totalsByCurrency.set(line.currency, current);
+        }
+
+        return {
+          boxCode: box.boxCode,
+          status: box.status,
+          trackingNumber: box.trackingNumber ?? null,
+          itemCount: labels.length,
+          lines,
+          totals: Array.from(totalsByCurrency.values()),
+          unmatched,
+        };
+      }),
+
     /**
      * GitHub Raw URLからCSVを取得してインボイスNo・取引先・発注数をパースする
      */
