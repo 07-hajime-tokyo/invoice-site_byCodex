@@ -1338,6 +1338,7 @@ export const inboundDeskRouter = router({
       countedLogs,
       inspectionLogs,
       replacementTasks,
+      receivedHistoryRows,
     ] = await Promise.all([
       db
         .select()
@@ -1362,7 +1363,17 @@ export const inboundDeskRouter = router({
         .where(eq(actionItems.source, "inbound-inspection"))
         .orderBy(desc(actionItems.createdAt), desc(actionItems.id))
         .limit(30),
+      // 入庫履歴が1件でもあれば、その在庫はもう届いている。
+      db
+        .select({ inventoryId: purchaseHistories.inventoryId })
+        .from(purchaseHistories)
+        .where(eq(purchaseHistories.cancelled, 0)),
     ]);
+    const receivedInventoryIds = new Set(
+      receivedHistoryRows
+        .map(row => Number(row.inventoryId))
+        .filter(value => Number.isFinite(value) && value > 0)
+    );
 
     const purchaseById = new Map(
       purchases.map(purchase => [purchase.id, purchase])
@@ -1441,6 +1452,27 @@ export const inboundDeskRouter = router({
           purchase?.trackingNumber?.trim() ||
           purchaseExtra?.trackingNumber?.trim() ||
           "",
+        /**
+         * 仕入れ行として入庫済みか。
+         *
+         * ラベルの status="ordered" は「発注済み・未着」ではなく
+         * 「この個体はまだ荷受けスキャンを通っていない」という意味しかない。
+         * ゴルフ系のように荷受け画面を通さない運用だと、入庫しても売れても ordered のまま残る。
+         * 到着予定の判定には使えないので、仕入れ行の入庫状態を別に持たせる。
+         * 判定は発注登録の「未入庫／入庫済み」と同じ基準にそろえてある。
+         */
+        purchaseReceived:
+          purchase?.status === "purchased" ||
+          Boolean(purchase?.receivedDate) ||
+          (label.localInventoryId != null &&
+            receivedInventoryIds.has(Number(label.localInventoryId))),
+        /**
+         * 発注として存在するか。
+         *
+         * 2026-08-07 に既存在庫へ一括でラベルを発行したぶんは、対応する仕入れ行が無い。
+         * 発注していないのだから届くこともない。到着予定にも未登録一覧にも出さない。
+         */
+        purchaseLinked: Boolean(purchase),
         carrier:
           purchase?.carrier?.trim() || purchaseExtra?.carrier?.trim() || "",
         supplierName: purchase?.supplierName ?? inventory?.supplierName ?? "",

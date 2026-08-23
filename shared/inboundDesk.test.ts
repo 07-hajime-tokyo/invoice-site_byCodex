@@ -189,3 +189,42 @@ describe("summarizeIncoming", () => {
     expect(result.untrackedLabels.map(row => row.labelId)).toEqual(["CCCCCCC"]);
   });
 });
+
+describe("summarizeIncoming が入庫済みを外す", () => {
+  it("仕入れ行が入庫済みなら、ラベルが ordered でも到着予定に出さない", () => {
+    // ゴルフ系は荷受け画面を通さないので、売れたあともラベルは ordered のまま残る。
+    // これを到着予定に数えていたため 47台のうち34台が過去の取引だった。
+    const result = summarizeIncoming([
+      label({ labelId: "AAAAAAA", status: "ordered", trackingNumber: "490449489611", purchaseReceived: true }),
+      label({ labelId: "BBBBBBB", status: "ordered", trackingNumber: "390871041595", purchaseReceived: false }),
+    ]);
+    expect(result.labelCount).toBe(1);
+    expect(result.boxes[0].labels[0].labelId).toBe("BBBBBBB");
+  });
+
+  it("入庫済みなら追跡番号が未登録でも一覧に出さない", () => {
+    const result = summarizeIncoming([
+      label({ labelId: "CCCCCCC", status: "ordered", trackingNumber: "", purchaseReceived: true }),
+      label({ labelId: "DDDDDDD", status: "ordered", trackingNumber: "", purchaseReceived: false }),
+    ]);
+    expect(result.untrackedLabels.map(row => row.labelId)).toEqual(["DDDDDDD"]);
+  });
+});
+
+describe("発注の無いラベルは到着予定に出さない", () => {
+  it("既存在庫へ後から貼ったラベル（仕入れ行なし）は除く", () => {
+    // 2026-08-07 に一括発行したぶん。発注していないので届くこともない。
+    const result = summarizeIncoming([
+      label({ labelId: "AAAAAAA", status: "ordered", trackingNumber: "", purchaseLinked: false }),
+      label({ labelId: "BBBBBBB", status: "ordered", trackingNumber: "", purchaseLinked: true }),
+      label({ labelId: "CCCCCCC", status: "ordered", trackingNumber: "390871041595", purchaseLinked: false }),
+    ]);
+    expect(result.untrackedLabels.map(row => row.labelId)).toEqual(["BBBBBBB"]);
+    expect(result.labelCount).toBe(0);
+  });
+
+  it("purchaseLinked が無い古いデータは従来どおり数える", () => {
+    const result = summarizeIncoming([label({ labelId: "DDDDDDD", status: "ordered", trackingNumber: "" })]);
+    expect(result.untrackedLabels).toHaveLength(1);
+  });
+});
