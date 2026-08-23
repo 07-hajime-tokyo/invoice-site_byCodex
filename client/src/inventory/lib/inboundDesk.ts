@@ -16,6 +16,10 @@ export type InboundLabel = {
   purchaseReceived?: boolean;
   /** 発注として存在するか。既存在庫へ後から貼ったラベルは仕入れ行を持たない。 */
   purchaseLinked?: boolean;
+  /** 仕入先が発送した日（YYYY-MM-DD など）。 */
+  shipDate?: string;
+  /** 追跡番号を登録した日時（ISO）。 */
+  trackingRegisteredAt?: string | null;
   defectTags?: string[];
   defectNote?: string;
   defectPhotoCount?: number;
@@ -91,6 +95,25 @@ export type InboundBox = {
   receivedAt: string | null;
   labels: InboundLabel[];
 };
+
+/**
+ * その荷物がいつ動いたか。仕入先の発送日を優先し、無ければ追跡番号を登録した日時。
+ * 古いまま到着予定に残っている行を見分けるために出す。
+ */
+export function boxShippedLabel(box: InboundBox): { text: string; ageDays: number | null } {
+  const shipDate = box.labels.map(label => label.shipDate ?? "").find(Boolean) ?? "";
+  const registeredAt = box.labels.map(label => label.trackingRegisteredAt ?? "").find(Boolean) ?? "";
+  const source = shipDate || registeredAt;
+  if (!source) return { text: "-", ageDays: null };
+  const parsed = Date.parse(shipDate ? `${shipDate.slice(0, 10)}T00:00:00+09:00` : registeredAt);
+  const ageDays = Number.isNaN(parsed)
+    ? null
+    : Math.floor((Date.now() - parsed) / (24 * 60 * 60 * 1000));
+  const text = shipDate
+    ? `${shipDate.slice(0, 10)} 発送`
+    : `${registeredAt.slice(0, 10)} 登録`;
+  return { text, ageDays };
+}
 
 export function groupInboundBoxes(labels: InboundLabel[]): InboundBox[] {
   const boxes = new Map<string, InboundBox>();

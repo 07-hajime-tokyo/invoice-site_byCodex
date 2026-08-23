@@ -1466,6 +1466,10 @@ export const inboundDeskRouter = router({
           Boolean(purchase?.receivedDate) ||
           (label.localInventoryId != null &&
             receivedInventoryIds.has(Number(label.localInventoryId))),
+        /** 仕入先が発送した日。古いまま残っている行を見分けるために出す。 */
+        shipDate: purchase?.shipDate?.trim() || purchaseExtra?.shipDate?.trim() || "",
+        /** 追跡番号を登録した日時。発送日が入っていないときの手掛かりにする。 */
+        trackingRegisteredAt: purchaseExtra?.updatedAt?.toISOString() ?? null,
         /**
          * 発注として存在するか。
          *

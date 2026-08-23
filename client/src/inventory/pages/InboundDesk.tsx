@@ -16,6 +16,7 @@ import {
   filterActiveInvoiceRollups,
   groupInboundBoxes,
   invoiceAllocation,
+  boxShippedLabel,
   matchInboundLabels,
   summarizeIncoming,
   type InboundBox,
@@ -681,9 +682,10 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
               <tr>
+                <th className="px-3 py-2">発送 / 登録</th>
                 <th className="px-3 py-2">追跡番号</th>
                 <th className="px-3 py-2">仕入先</th>
                 <th className="px-3 py-2 text-right">台数</th>
@@ -691,12 +693,23 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {boxes.map(box => {
+              {[...boxes]
+                .sort((a, b) => (boxShippedLabel(b).ageDays ?? -1) - (boxShippedLabel(a).ageDays ?? -1))
+                .map(box => {
                 const allocations = Array.from(
                   new Set(box.labels.map(label => allocationBadge(label)))
                 );
+                const shipped = boxShippedLabel(box);
                 return (
                   <tr key={box.key}>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={cn(shipped.ageDays !== null && shipped.ageDays >= 14 && "font-semibold text-amber-700")}>
+                        {shipped.text}
+                      </span>
+                      {shipped.ageDays !== null && shipped.ageDays >= 14 ? (
+                        <span className="ml-1 text-xs text-amber-700">{shipped.ageDays}日前</span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {box.trackingNumber}
                     </td>
