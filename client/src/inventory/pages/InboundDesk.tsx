@@ -634,8 +634,25 @@ function InboundBoxCard({
  * 到着予定＝追跡番号が登録済みで、まだ荷受けしていない荷物。
  * ここが見えないと「今日は何箱来るのか」「読んだのに当たらないのは何か」が分からない。
  */
-function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
+function IncomingSection({
+  incoming,
+  onRefresh,
+}: {
+  incoming: IncomingSummary;
+  onRefresh: () => Promise<void>;
+}) {
   const { boxes, labelCount, untrackedLabels } = incoming;
+  const utils = trpc.useUtils();
+  // 現物はもう届いていて棚卸しで在庫も合わせ済み、という記録だけが残ることがある。
+  // ここで入庫処理を通すと在庫が二重に増えるので、記録だけ閉じる。
+  const closeBacklog = trpc.inventory.inboundDesk.closeArrivingBacklog.useMutation({
+    onSuccess: async result => {
+      toast.success(`${result.closedPurchases}件の記録を閉じました（在庫は動かしていません）`);
+      await utils.inventory.inboundDesk.snapshot.invalidate();
+      await onRefresh();
+    },
+    onError: error => toast.error(`閉じられませんでした: ${error.message}`),
+  });
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -682,7 +699,7 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[940px] text-sm">
             <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2">発送 / 登録</th>
@@ -690,6 +707,7 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
                 <th className="px-3 py-2">仕入先</th>
                 <th className="px-3 py-2 text-right">台数</th>
                 <th className="px-3 py-2">引当先</th>
+                <th className="px-3 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -725,6 +743,33 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
                           </Badge>
                         ))}
                       </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={closeBacklog.isPending}
+                        title="現物はもう届いていて在庫も合っている場合に、この記録だけを閉じます。在庫と入庫履歴は動かしません"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `${box.trackingNumber} の記録を閉じます。
+対象 ${box.labels.length}台
+在庫と入庫履歴は動かしません。`
+                            )
+                          )
+                            return;
+                          closeBacklog.mutate({
+                            trackingNumber: box.trackingNumber,
+                            labelIds: box.labels.map(label => label.labelId),
+                            reason: `到着予定の取り残し（${shipped.text}）`,
+                            operatorName: getCurrentWorkWorkerName("荷受担当"),
+                          });
+                        }}
+                      >
+                        届いている
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -1096,7 +1141,7 @@ function ReceivePhase({
         ) : null}
       </section>
 
-      <IncomingSection incoming={incoming} />
+      <IncomingSection incoming={incoming} onRefresh={onRefresh} />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
