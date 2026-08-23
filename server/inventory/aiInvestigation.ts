@@ -8,6 +8,10 @@ import {
   localPurchases,
   tradeRecords,
 } from "../../drizzle/schema";
+import {
+  invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
+  invoiceNoFromManagementNo,
+} from "@shared/invoiceKey";
 import { getDb } from "./db";
 
 type EvidenceRow = Record<string, string | number | boolean | null>;
@@ -225,7 +229,33 @@ function extractIdentifiers(question: string) {
 }
 
 function invoiceNoFromDeliveryNo(deliveryNo: string | null | undefined) {
-  return String(deliveryNo ?? "").match(/^(\d+)/)?.[1] ?? "";
+  return invoiceNoFromDeliveryNoStrict(deliveryNo) ?? "";
+}
+
+/**
+ * この出庫が関わるインボイスNoを全部返す。
+ * 箱ID（B000002）の出庫Noは数字で始まらないので、明細の管理番号から拾わないと
+ * インボイスNoで検索したときに出てこない。
+ */
+function deliveryInvoiceNos(
+  deliveryNo: string | null | undefined,
+  itemsJson: string | null | undefined
+): Set<string> {
+  const result = new Set<string>();
+  const fromDeliveryNo = invoiceNoFromDeliveryNoStrict(deliveryNo);
+  if (fromDeliveryNo) result.add(fromDeliveryNo);
+  for (const item of parseJsonArray(itemsJson)) {
+    const fromItem = invoiceNoFromManagementNo(getItemManagementNo(item));
+    if (fromItem) result.add(fromItem);
+  }
+  return result;
+}
+
+function hasAnyInvoice(invoiceSet: Set<string>, candidates: Set<string>): boolean {
+  for (const value of candidates) {
+    if (invoiceSet.has(value)) return true;
+  }
+  return false;
 }
 
 function getItemTitle(item: Record<string, unknown>) {
@@ -1231,8 +1261,8 @@ async function collectInvestigationContext(
 
   const invoiceSet = new Set(identifiers.invoiceNos);
   const matchesDeliveryTarget = (history: typeof deliveryRows[number]) => {
-    const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
-    return invoiceSet.has(invoiceNo) ||
+    // 箱ID出庫は出庫Noから読めないので、明細の管理番号まで見る。
+    return hasAnyInvoice(invoiceSet, deliveryInvoiceNos(history.deliveryNo, history.itemsJson)) ||
       matcher.matches(history.deliveryNo) ||
       matcher.matches(history.itemsJson);
   };
@@ -1337,7 +1367,7 @@ async function collectInvestigationContext(
 
   const deliveryEvidence: EvidenceRow[] = [];
   for (const row of filterOrRecent(deliveryRows, (history) => {
-    const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
+    const historyInvoiceNos = deliveryInvoiceNos(history.deliveryNo, history.itemsJson);
     const dateMatches = isDateInRange(getDeliveryHistoryDate(history), dateRange);
     const deliveryItems = parseJsonArray(history.itemsJson);
     const productMatches = hasProductTarget
@@ -1353,11 +1383,11 @@ async function collectInvestigationContext(
       return dateMatches && (!hasSpecificTarget || matchesDeliveryTarget(history));
     }
     if (hasProductTarget) {
-      const invoiceMatches = invoiceSet.size === 0 || invoiceSet.has(invoiceNo);
+      const invoiceMatches = invoiceSet.size === 0 || hasAnyInvoice(invoiceSet, historyInvoiceNos);
       const dateOk = !dateRange || dateMatches;
       return invoiceMatches && dateOk && managementMatches && productMatches;
     }
-    return invoiceSet.has(invoiceNo) ||
+    return hasAnyInvoice(invoiceSet, historyInvoiceNos) ||
       dateMatches ||
       matcher.matches(history.deliveryNo) ||
       matcher.matches(history.itemsJson);
@@ -1431,7 +1461,7 @@ async function collectInvestigationContext(
   );
   const fedexEvidence: EvidenceRow[] = [];
   for (const row of filterOrRecent(fedexRows, (shipment) => {
-    const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
+    const shipmentInvoiceNos = deliveryInvoiceNos(shipment.deliveryNo, shipment.itemsJson);
     const deliveryNo = String(shipment.deliveryNo ?? "").trim();
     const historyId = Number(shipment.historyId);
     const selectedDelivery = (Number.isFinite(historyId) && selectedHistoryIds.has(historyId)) ||
@@ -1440,7 +1470,7 @@ async function collectInvestigationContext(
     if (hasProductTarget) {
       return selectedDelivery || productQuery.matches(shipment.itemsJson);
     }
-    return invoiceSet.has(invoiceNo) ||
+    return hasAnyInvoice(invoiceSet, shipmentInvoiceNos) ||
       selectedDelivery ||
       isDateInRange(shipment.shippingDate, dateRange) ||
       isDateInRange(getDeliveryHistoryDate(shipment), dateRange) ||

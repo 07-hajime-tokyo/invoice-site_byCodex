@@ -22,9 +22,9 @@ export function formatOutboundBoxCode(sequence: number): string {
   return `B${String(sequence).padStart(6, "0")}`;
 }
 
-export function invoiceNoFromManagementNo(value: string | null | undefined): string | null {
-  return String(value ?? "").normalize("NFKC").trim().match(/^(\d{3,4})(?:_|$)/)?.[1] ?? null;
-}
+// インボイスNoの読み取りは shared/invoiceKey.ts が正本。ここは既存の呼び出し元向けの再輸出。
+import { invoiceNoFromManagementNo } from "./invoiceKey";
+export { invoiceNoFromManagementNo };
 
 export type OutboundFedexItem = {
   labelId: string;

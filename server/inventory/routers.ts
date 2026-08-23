@@ -2,7 +2,12 @@ import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
-import { invoiceNoFromManagementNo } from "@shared/outboundBoxes";
+import {
+  invoiceGroupKeyFromDeliveryNo,
+  invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
+  invoiceNoFromManagementNo,
+  resolveDeliveryItemInvoiceNo,
+} from "@shared/invoiceKey";
 import { isClosedTradeYear } from "@shared/tradeStatus";
 import {
   classifyInbound,
@@ -520,18 +525,9 @@ function mergeShipmentGasItems(items: ShipmentGasItem[]): ShipmentGasItem[] {
   return Array.from(grouped.values()).filter((item) => item.quantity > 0);
 }
 
-function invoiceNoPrefixFromDeliveryNo(deliveryNo: string | null | undefined): string | null {
-  const text = deliveryNo?.normalize("NFKC").trim();
-  if (!text) return null;
-  const direct = text.match(/^(?:No\.?\s*)?(\d{1,5})(?=$|[_\s,/-])/i);
-  if (direct) return direct[1];
-  const embedded = text.match(/(?:^|[^\d])(?:No\.?\s*)?(\d{1,5})(?=_)/i);
-  return embedded?.[1] ?? null;
-}
-
-function invoiceNoFromDeliveryNo(deliveryNo: string): string {
-  return invoiceNoPrefixFromDeliveryNo(deliveryNo) ?? deliveryNo;
-}
+// 読み取りの正本は shared/invoiceKey.ts。従来の呼び出し名だけ残す。
+const invoiceNoPrefixFromDeliveryNo = invoiceNoFromDeliveryNoStrict;
+const invoiceNoFromDeliveryNo = invoiceGroupKeyFromDeliveryNo;
 
 function compactShipmentName(value: string): string {
   return value
@@ -6558,11 +6554,15 @@ export const inventoryRouter = router({
           invoiceMap.set(row.invoiceNo, current);
         }
 
+        // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
+        // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
+        // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
+        const inventoryManagementNoMap = await buildInventoryManagementNoMap().catch(
+          () => new Map<number, string>(),
+        );
         const deliveredQtyByInvoiceNo = new Map<string, number>();
         for (const history of histories) {
           if (history.status !== "success") continue;
-          const invoiceNo = invoiceNoFromDeliveryNo(history.deliveryNo);
-          if (!invoiceMap.has(invoiceNo)) continue;
 
           type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
           const items = parseDeliveryItemsJson(history.itemsJson);
@@ -6583,7 +6583,6 @@ export const inventoryRouter = router({
             }
           }
 
-          let deliveredQty = 0;
           for (const item of items) {
             const quantity = Number(item.quantity ?? 0);
             if (quantity <= 0) continue;
@@ -6593,10 +6592,15 @@ export const inventoryRouter = router({
             if (inventoryId && usedCancelledQty > 0) {
               cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
             }
-            deliveredQty += Math.max(0, quantity - usedCancelledQty);
-          }
+            const deliveredQty = Math.max(0, quantity - usedCancelledQty);
+            if (deliveredQty <= 0) continue;
 
-          if (deliveredQty > 0) {
+            const invoiceNo = resolveDeliveryItemInvoiceNo(
+              item,
+              history.deliveryNo,
+              inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
+            );
+            if (!invoiceNo || !invoiceMap.has(invoiceNo)) continue;
             deliveredQtyByInvoiceNo.set(
               invoiceNo,
               (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
@@ -6643,8 +6647,19 @@ export const inventoryRouter = router({
         const deliveredByTradeRecordId = new Map<number, number>();
         const deliveredByProductName = new Map<string, number>();
         const inventoryManagementMap = await buildInventoryManagementNoMap();
-        const deliveries = (await getAllDeliveryHistories())
-          .filter((history) => history.status === "success" && invoiceNoFromDeliveryNo(history.deliveryNo) === invoiceNo);
+        // 出庫Noの接頭辞ではなく明細の管理番号で判定する。1箱に複数インボイスが
+        // 混ざっていても、このインボイスの明細を持つ出庫は拾う（明細側でも再度絞る）。
+        const deliveryItemInvoiceNo = (item: StoredDeliveryItem, deliveryNo: string) =>
+          resolveDeliveryItemInvoiceNo(
+            item,
+            deliveryNo,
+            item.inventoryId ? inventoryManagementMap.get(Number(item.inventoryId)) : null,
+          );
+        const deliveries = (await getAllDeliveryHistories()).filter((history) => {
+          if (history.status !== "success") return false;
+          const items = parseDeliveryItemsJson(history.itemsJson) as StoredDeliveryItem[];
+          return items.some((item) => deliveryItemInvoiceNo(item, history.deliveryNo) === invoiceNo);
+        });
 
         const addByTradeRecordId = (tradeRecordId: number, quantity: number) => {
           deliveredByTradeRecordId.set(tradeRecordId, (deliveredByTradeRecordId.get(tradeRecordId) ?? 0) + quantity);
@@ -6695,6 +6710,8 @@ export const inventoryRouter = router({
           for (const item of items) {
             const quantity = Number(item.quantity ?? 0);
             if (quantity <= 0) continue;
+            // 他インボイス宛の明細が同じ箱に入っていることがある。ここで落とす。
+            if (deliveryItemInvoiceNo(item, delivery.deliveryNo) !== invoiceNo) continue;
             const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
             const effectiveQuantity = quantity - consumeCancelledQuantity(cancelledByInventoryId, inventoryId, quantity);
             if (effectiveQuantity <= 0) continue;
@@ -7635,9 +7652,8 @@ export const inventoryRouter = router({
       for (const delivery of deliveries) {
         if (delivery.status !== "success") continue;
 
-        const key = extractKeyFromDeliveryNo(delivery.deliveryNo);
-        if (!key) continue;
-        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number; tradeRecordId?: number | null; csvProductName?: string | null }>;
+        const deliveryKey = extractKeyFromDeliveryNo(delivery.deliveryNo);
+        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number; managementNo?: string | null; tradeRecordId?: number | null; csvProductName?: string | null }>;
         const cancelledItems = delivery.cancelledItemsJson
           ? (JSON.parse(delivery.cancelledItemsJson) as Array<{ inventoryId: number; quantity: number; cancelledAt: string }>)
           : [];
@@ -7657,10 +7673,15 @@ export const inventoryRouter = router({
           const activeQuantity = item.quantity - cancelledQty;
           if (activeQuantity <= 0) continue;
 
-          const g = getOrCreate(key);
-          g.deliveredCount += activeQuantity;
           const etc = inventoryEtcMap.get(item.inventoryId) ?? "";
           const rawMgmt = etc.split(",")[0]?.trim() ?? "";
+          // 出庫Noから読めない箱ID出庫（B000002 など）は、明細ごとの管理番号で振り分ける。
+          // 出庫Noに宛先が書いてあるときはそちらが優先（在庫を別インボイスへ充てる運用があるため）。
+          const key = deliveryKey ?? resolveDeliveryItemInvoiceNo(item, delivery.deliveryNo, rawMgmt);
+          if (!key) continue;
+
+          const g = getOrCreate(key);
+          g.deliveredCount += activeQuantity;
           // 管理番号として有効な形式: 「在庫」始まり、または3、4桁の数字始まり（例: 371_ルカ_1/5、在庫0408_1）
           const isValidMgmt = /^在庫/.test(rawMgmt) || /^ebay/i.test(rawMgmt) || /^\d{3,4}[^\d]/.test(rawMgmt) || /^\d{3,4}$/.test(rawMgmt);
           const managementNo = isValidMgmt ? rawMgmt : "";

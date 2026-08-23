@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Bot, ChevronDown, ChevronRight, Database, ExternalLink, History, Loader2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { invoiceGroupKeyFromDeliveryNo } from "@shared/invoiceKey";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,7 @@ function toNumber(value: unknown) {
 }
 
 function invoiceNoFromDeliveryNo(value: unknown) {
-  return String(value ?? "").match(/^(\d+)/)?.[1] ?? "-";
+  return invoiceGroupKeyFromDeliveryNo(String(value ?? "")) || "-";
 }
 
 function displayDate(value: unknown) {
