@@ -65,6 +65,11 @@ const OutboundBoxIssuer = lazy(async () => {
   return { default: module.OutboundBoxIssuer };
 });
 
+const ReceivedDateLabelPrint = lazy(async () => {
+  const module = await import("@/inventory/pages/PurchaseRegistration");
+  return { default: module.ReceivedDateLabelPrint };
+});
+
 /**
  * 数字は3本とも別の母数を数える。
  * 以前は①も②も status="received" を数えていたため、荷受けボタンを押す前の荷物が
@@ -719,6 +724,125 @@ function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
   );
 }
 
+/**
+ * 荷受けの場で追跡番号を登録する。
+ *
+ * 仕入れ側の追跡番号登録が追いついていないと、伝票を読んでも当たらず荷受けに進めない。
+ * 現物は目の前にあるので、開封して商品IDを読み、その場で番号を結び付けられるようにする。
+ * 登録すると到着予定に出てきて、伝票スキャンが当たるようになる。
+ */
+function TrackingRegisterForm({
+  trackingNumber,
+  labels,
+  onDone,
+}: {
+  trackingNumber: string;
+  labels: InboundLabel[];
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [scanValue, setScanValue] = useState("");
+  const [picked, setPicked] = useState<InboundLabel[]>([]);
+  const [busy, setBusy] = useState(false);
+  const upsert = trpc.inventory.purchaseExtra.upsert.useMutation();
+
+  const byLabelId = useMemo(
+    () => new Map(labels.map(label => [label.labelId.trim().toUpperCase(), label])),
+    [labels]
+  );
+
+  function add(raw: string) {
+    const labelId = raw.normalize("NFKC").trim().toUpperCase();
+    if (!labelId) return;
+    const label = byLabelId.get(labelId);
+    if (!label) {
+      toast.error(`${labelId} は追跡番号が未登録の一覧にありません`);
+      return;
+    }
+    setPicked(current => (current.some(row => row.labelId === label.labelId) ? current : [...current, label]));
+    setScanValue("");
+  }
+
+  async function submit() {
+    if (picked.length === 0 || busy) return;
+    setBusy(true);
+    let done = 0;
+    try {
+      for (const label of picked) {
+        if (!label.purchaseId) {
+          toast.error(`${label.labelId} は仕入れ行に紐付いていません。発注登録から登録してください`);
+          continue;
+        }
+        await upsert.mutateAsync({
+          zaicoId: label.purchaseId,
+          trackingNumber,
+          inventoryId: label.localInventoryId ?? undefined,
+          managementNo: label.legacyManagementNo || undefined,
+          labelId: label.labelId,
+        });
+        done += 1;
+      }
+      if (done > 0) {
+        toast.success(`${done}台に追跡番号 ${trackingNumber} を登録しました`);
+        setPicked([]);
+        setOpen(false);
+        await onDone();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "追跡番号の登録に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
+        この番号を商品IDに登録
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 w-full rounded border border-amber-400 bg-white p-2">
+      <p className="text-xs text-amber-950">
+        箱を開けて、中身の商品IDラベルを読んでください。複数まとめて登録できます。
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Input
+          value={scanValue}
+          onChange={event => setScanValue(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === "Enter") add(scanValue);
+          }}
+          placeholder="商品ID（英字7文字）をスキャン"
+          autoComplete="off"
+          className="h-9 w-64 font-mono"
+        />
+        <Button type="button" size="sm" variant="outline" onClick={() => add(scanValue)}>
+          追加
+        </Button>
+        <Button type="button" size="sm" disabled={picked.length === 0 || busy} onClick={() => void submit()}>
+          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {picked.length}台に登録
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => { setOpen(false); setPicked([]); }}>
+          やめる
+        </Button>
+      </div>
+      {picked.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {picked.map(label => (
+            <Badge key={label.labelId} variant="outline">
+              {label.labelId} / {label.legacyManagementNo || label.title}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** スキャン結果の区分。「0台」と「照合できなかった」を混ぜないために分ける。 */
 type ScanOutcome = "received" | "already" | "unregistered" | "not-a-tracking";
 
@@ -937,16 +1061,22 @@ function ReceivePhase({
               </Button>
             </div>
             <p className="mt-1 text-xs">
-              この番号の荷物は、追跡番号を登録するまで検品待ちに出てきません。
+              仕入れ側の登録が追いついていないだけのことがあります。箱を開けて中身の商品IDを読めば、
+              ここから追跡番号を登録できます。登録すると到着予定に出て、ラベルも印刷できるようになります。
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 space-y-2">
               {unmatchedScans.map(value => (
-                <code
-                  key={value}
-                  className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs"
-                >
-                  {value}
-                </code>
+                <div key={value} className="flex flex-wrap items-center gap-2">
+                  <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs">{value}</code>
+                  <TrackingRegisterForm
+                    trackingNumber={value}
+                    labels={incoming.untrackedLabels}
+                    onDone={async () => {
+                      setUnmatchedScans(current => current.filter(row => row !== value));
+                      await onRefresh();
+                    }}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -1920,6 +2050,18 @@ export default function InboundDesk() {
     return () => window.clearTimeout(timer);
   }, [printPackJobId, printPackMode]);
 
+  /**
+   * 印刷が終わったら一覧の印刷ルートを外す。
+   *
+   * 出したままにしておくと、そのあと「箱を作る・1枚印刷」を押したときに
+   * 箱シールではなく一覧が刷られる（印刷ルートが2つとも body に残るため）。
+   */
+  useEffect(() => {
+    const clear = () => setPrintPackMode(null);
+    window.addEventListener("afterprint", clear);
+    return () => window.removeEventListener("afterprint", clear);
+  }, []);
+
   if (snapshotQuery.isLoading || summaryQuery.isLoading) {
     return (
       <div className="flex min-h-[320px] items-center justify-center">
@@ -2037,6 +2179,10 @@ export default function InboundDesk() {
           </Suspense>
         </div>
       </section>
+
+      <Suspense fallback={<Loader2 className="h-5 w-5 animate-spin text-emerald-700" />}>
+        <ReceivedDateLabelPrint />
+      </Suspense>
 
       <PhaseNavigation
         phase={phase}
