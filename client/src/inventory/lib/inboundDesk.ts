@@ -12,6 +12,10 @@ export type InboundLabel = {
   receivedAt: string | null;
   updatedAt: string;
   inventoryCounted: boolean;
+  /** 仕入れ行として入庫済みか。ラベルの status だけでは未着かどうか分からない。 */
+  purchaseReceived?: boolean;
+  /** 発注として存在するか。既存在庫へ後から貼ったラベルは仕入れ行を持たない。 */
+  purchaseLinked?: boolean;
   defectTags?: string[];
   defectNote?: string;
   defectPhotoCount?: number;
@@ -257,7 +261,16 @@ export type IncomingSummary = {
  * 荷受けボタンを押す前の荷物が画面のどこにも出ていなかった。
  */
 export function summarizeIncoming(labels: InboundLabel[]): IncomingSummary {
-  const ordered = labels.filter(label => label.status === "ordered");
+  // status="ordered" は「まだ荷受けスキャンを通っていない」だけで、未着を意味しない。
+  // 仕入れ行として入庫済みのものは、荷受け画面を通さない運用（ゴルフ系など）で
+  // 永久に ordered のまま残るので、ここで落とす。
+  const ordered = labels.filter(
+    label =>
+      label.status === "ordered" &&
+      !label.purchaseReceived &&
+      // 発注が無いものは届かない。既存在庫へ後から貼ったラベルがこれに当たる。
+      label.purchaseLinked !== false
+  );
   const tracked = ordered.filter(
     label => normalizeTrackingNumber(label.trackingNumber).length >= 4
   );
