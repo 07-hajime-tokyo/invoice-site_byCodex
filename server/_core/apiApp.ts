@@ -1,4 +1,5 @@
 import express from "express";
+import { readActionItemAttachment } from "../inventory/actionItemAttachmentStorage";
 import { readListingPhoto } from "../inventory/listingPhotoStorage";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -9,6 +10,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { generateInvoicePdf } from "../pdfGenerator";
 import { getShaftSales } from "../inventory/db";
+import { sdk } from "./sdk";
+import { EMAIL_AUTH_LOGIN_METHOD, isAllowedLoginEmail } from "./emailAuth";
 
 type ShaftSalesResponseItem = {
   name: string;
@@ -60,6 +63,21 @@ function buildShaftSalesSummary(rows: Awaited<ReturnType<typeof getShaftSales>>)
       count: item.count,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ja-JP"));
+}
+
+async function canReadInternalAsset(req: express.Request) {
+  if (
+    process.env.LOCAL_AUTH_BYPASS === "true" ||
+    (process.env.NODE_ENV === "development" && process.env.LOCAL_AUTH_BYPASS !== "false")
+  ) {
+    return true;
+  }
+  try {
+    const user = await sdk.authenticateRequest(req);
+    return Boolean(user && user.loginMethod === EMAIL_AUTH_LOGIN_METHOD && isAllowedLoginEmail(user.email));
+  } catch {
+    return false;
+  }
 }
 
 export async function createApiApp() {
@@ -124,6 +142,31 @@ export async function createApiApp() {
     } catch (err) {
       console.error("listing photo error:", err);
       res.status(500).json({ error: "Failed to read photo" });
+    }
+  });
+
+  app.get("/api/action-item-attachments/:id", async (req, res) => {
+    try {
+      if (!(await canReadInternalAsset(req))) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: "Invalid attachment id" });
+        return;
+      }
+      const attachment = await readActionItemAttachment(id);
+      if (!attachment) {
+        res.status(404).json({ error: "Attachment not found" });
+        return;
+      }
+      res.setHeader("Content-Type", attachment.contentType);
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.send(attachment.body);
+    } catch (err) {
+      console.error("action item attachment error:", err);
+      res.status(500).json({ error: "Failed to read attachment" });
     }
   });
 

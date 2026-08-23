@@ -258,6 +258,19 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         INDEX idx_action_item_replies_created (createdAt)
       )
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS action_item_attachments (
+        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        actionItemId int NOT NULL,
+        fileName varchar(255) NULL,
+        contentType varchar(100) NOT NULL,
+        dataBase64 mediumtext NOT NULL,
+        createdBy varchar(200) NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_action_item_attachments_item (actionItemId),
+        INDEX idx_action_item_attachments_created (createdAt)
+      )
+    `);
     const existingActionSourceKey = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'sourceKey'`);
     const actionSourceKeyRows = getRawRows(existingActionSourceKey);
     if (actionSourceKeyRows.length === 0) {
@@ -280,7 +293,21 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     }
     await db.execute(sql`
       INSERT IGNORE INTO action_item_assignees (name, sortOrder)
-      VALUES ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3), ('その他', 4)
+      VALUES ('全員', 0), ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3)
+    `);
+    await db.execute(sql`
+      UPDATE action_item_assignees
+      SET sortOrder = CASE name
+        WHEN '全員' THEN 0
+        WHEN '仕入れ担当' THEN 1
+        WHEN '荷受担当' THEN 2
+        WHEN '出荷担当' THEN 3
+        ELSE sortOrder
+      END
+      WHERE name IN ('全員', '仕入れ担当', '荷受担当', '出荷担当')
+    `);
+    await db.execute(sql`
+      DELETE FROM action_item_assignees WHERE name = 'その他'
     `);
     await db.execute(sql`
       INSERT IGNORE INTO action_item_authors (name, sortOrder)

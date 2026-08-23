@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState, type ClipboardEvent } from "react";
+import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  fileToActionItemAttachment,
+  getImageFilesFromClipboard,
+  toActionItemAttachmentPayloads,
+  type ActionItemAttachmentDraft,
+} from "@/inventory/lib/actionItemAttachments";
 import { trpc } from "@/lib/trpc";
 
 type ActionItemFormProps = {
@@ -26,7 +32,8 @@ type ActionItemFormProps = {
   onCancel?: () => void;
 };
 
-const DEFAULT_ASSIGNEES = new Set(["仕入れ担当", "荷受担当", "出荷担当", "その他"]);
+const DEFAULT_ASSIGNEES = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
+const ASSIGNEE_ORDER = ["全員", "仕入れ担当", "荷受担当", "出荷担当"];
 const ADD_ASSIGNEE_VALUE = "__add_assignee__";
 const ADD_AUTHOR_VALUE = "__add_author__";
 
@@ -41,21 +48,40 @@ export function ActionItemForm({
 }: ActionItemFormProps) {
   const utils = trpc.useUtils();
   const isEditing = mode === "edit";
+  const attachmentInputId = useId();
   const { data: options } = trpc.inventory.actionItems.options.useQuery();
   const assignees = options?.assignees ?? [];
+  const visibleAssignees = useMemo(() => {
+    const merged = new Map<string, (typeof assignees)[number]>();
+    for (const item of assignees) {
+      if (item.name !== "その他") merged.set(item.name, item);
+    }
+    if (!merged.has("全員")) {
+      merged.set("全員", { id: -1, name: "全員", sortOrder: 0, createdAt: new Date(0), updatedAt: new Date(0) });
+    }
+    return Array.from(merged.values()).sort((a, b) => {
+      const aIndex = ASSIGNEE_ORDER.indexOf(a.name);
+      const bIndex = ASSIGNEE_ORDER.indexOf(b.name);
+      if (aIndex !== -1 || bIndex !== -1) {
+        return (aIndex === -1 ? ASSIGNEE_ORDER.length : aIndex) - (bIndex === -1 ? ASSIGNEE_ORDER.length : bIndex);
+      }
+      return a.name.localeCompare(b.name, "ja");
+    });
+  }, [assignees]);
   const titles = options?.titles ?? [];
   const authors = options?.authors ?? [];
   const [title, setTitle] = useState(initialItem?.title ?? "");
   const [assignee, setAssignee] = useState(initialItem?.assignee ?? "");
   const [createdBy, setCreatedBy] = useState(initialItem?.createdBy ?? "");
-  const [customAssignee, setCustomAssignee] = useState("");
   const [detail, setDetail] = useState(initialItem?.detail ?? defaultDetail);
   const [newAssignee, setNewAssignee] = useState("");
   const [newAuthor, setNewAuthor] = useState("");
   const [showAssigneeAdd, setShowAssigneeAdd] = useState(false);
   const [showAuthorAdd, setShowAuthorAdd] = useState(false);
   const [saveTitlePreset, setSaveTitlePreset] = useState(false);
-  const selectedAssignee = assignees.find((item) => item.name === assignee);
+  const [attachments, setAttachments] = useState<ActionItemAttachmentDraft[]>([]);
+  const [isReadingAttachments, setIsReadingAttachments] = useState(false);
+  const selectedAssignee = visibleAssignees.find((item) => item.name === assignee);
   const canDeleteSelectedAssignee = Boolean(selectedAssignee && !DEFAULT_ASSIGNEES.has(selectedAssignee.name));
 
   useEffect(() => {
@@ -65,16 +91,15 @@ export function ActionItemForm({
     setCreatedBy(initialItem.createdBy ?? "");
     setDetail(initialItem.detail);
     setSaveTitlePreset(false);
-    setCustomAssignee("");
     setShowAssigneeAdd(false);
     setShowAuthorAdd(false);
   }, [initialItem?.id, isEditing]);
 
   useEffect(() => {
-    if (!assignee && assignees.length > 0) {
-      setAssignee(assignees.find((item) => item.name === "出荷担当")?.name ?? assignees[0].name);
+    if (!assignee && visibleAssignees.length > 0) {
+      setAssignee(visibleAssignees.find((item) => item.name === "全員")?.name ?? visibleAssignees[0].name);
     }
-  }, [assignee, assignees]);
+  }, [assignee, visibleAssignees]);
 
   useEffect(() => {
     if (!createdBy && authors.length > 0) {
@@ -86,18 +111,12 @@ export function ActionItemForm({
     if (!isEditing) setDetail(defaultDetail);
   }, [defaultDetail, isEditing]);
 
-  useEffect(() => {
-    if (assignee !== "その他") {
-      setCustomAssignee("");
-    }
-  }, [assignee]);
-
   const createMutation = trpc.inventory.actionItems.create.useMutation({
     onSuccess: async () => {
       toast.success("やることを登録しました");
       setTitle("");
-      setCustomAssignee("");
       setDetail(defaultDetail);
+      setAttachments([]);
       setSaveTitlePreset(false);
       setShowAuthorAdd(false);
       await Promise.all([
@@ -149,7 +168,7 @@ export function ActionItemForm({
   const deleteAssigneeMutation = trpc.inventory.actionItems.deleteAssignee.useMutation({
     onSuccess: async () => {
       toast.success("宛先を削除しました");
-      setAssignee(assignees.find((item) => item.name === "出荷担当")?.name ?? assignees[0]?.name ?? "");
+      setAssignee(visibleAssignees.find((item) => item.name === "全員")?.name ?? visibleAssignees[0]?.name ?? "");
       await utils.inventory.actionItems.options.invalidate();
     },
     onError: (error) => toast.error(`削除失敗: ${error.message}`),
@@ -173,6 +192,39 @@ export function ActionItemForm({
     setShowAuthorAdd(false);
   };
 
+  const handleAttachmentFiles = async (selectedFiles: File[], successMessage?: string) => {
+    if (selectedFiles.length === 0) return;
+    setIsReadingAttachments(true);
+    try {
+      const drafts: ActionItemAttachmentDraft[] = [];
+      for (const file of selectedFiles) {
+        try {
+          drafts.push(await fileToActionItemAttachment(file));
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "画像の読み込みに失敗しました");
+        }
+      }
+      if (drafts.length > 0) {
+        setAttachments((current) => [...current, ...drafts]);
+        toast.success(successMessage ?? `添付を${drafts.length}件追加しました`);
+      }
+    } finally {
+      setIsReadingAttachments(false);
+    }
+  };
+
+  const handleAttachmentPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (isEditing) return;
+    const files = getImageFilesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void handleAttachmentFiles(files, `スクショを${files.length}件添付しました`);
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  };
+
   const submit = () => {
     if (!title.trim()) {
       toast.error("タイトルを入力してください");
@@ -182,9 +234,9 @@ export function ActionItemForm({
       toast.error("宛先を選択してください");
       return;
     }
-    const resolvedAssignee = assignee === "その他" ? customAssignee.trim() : assignee.trim();
+    const resolvedAssignee = assignee.trim();
     if (!resolvedAssignee) {
-      toast.error("その他の宛先を入力してください");
+      toast.error("宛先を選択してください");
       return;
     }
     if (!detail.trim()) {
@@ -218,6 +270,7 @@ export function ActionItemForm({
       sourceQuestion,
       createdBy,
       saveTitlePreset,
+      attachments: toActionItemAttachmentPayloads(attachments),
     });
   };
 
@@ -230,7 +283,7 @@ export function ActionItemForm({
           <Badge variant="outline" className="ml-auto">担当者宛</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3" onPaste={handleAttachmentPaste}>
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_190px]">
           <div className="space-y-2">
             <div className="flex gap-2">
@@ -265,7 +318,7 @@ export function ActionItemForm({
                   <SelectValue placeholder="宛先" />
                 </SelectTrigger>
               <SelectContent>
-                {assignees.map((item) => (
+                {visibleAssignees.map((item) => (
                   <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
                 ))}
                 <SelectSeparator />
@@ -289,13 +342,6 @@ export function ActionItemForm({
                 </Button>
               ) : null}
             </div>
-            {assignee === "その他" ? (
-              <Input
-                value={customAssignee}
-                onChange={(event) => setCustomAssignee(event.target.value)}
-                placeholder="その他の宛先"
-              />
-            ) : null}
             {showAssigneeAdd ? (
               <div className="flex gap-2">
                 <Input
@@ -370,9 +416,61 @@ export function ActionItemForm({
         <Textarea
           value={detail}
           onChange={(event) => setDetail(event.target.value)}
-          placeholder="詳細"
+          placeholder={"詳細\nCtrl+Vでスクショ貼り付けできます"}
           className="min-h-[110px]"
         />
+
+        {!isEditing ? (
+          <div className="space-y-2 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id={attachmentInputId}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  void handleAttachmentFiles(Array.from(event.target.files ?? []));
+                  event.currentTarget.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => document.getElementById(attachmentInputId)?.click()}
+                disabled={isReadingAttachments}
+              >
+                <ImagePlus className="h-4 w-4" />
+                {isReadingAttachments ? "読み込み中" : "写真を添付"}
+              </Button>
+              {attachments.length > 0 ? (
+                <Badge variant="outline" className="bg-white">
+                  添付 {attachments.length}件
+                </Badge>
+              ) : null}
+            </div>
+            {attachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((attachment) => (
+                  <div key={attachment.id} className="relative h-20 w-20 overflow-hidden rounded-md border bg-white">
+                    <img src={attachment.previewUrl} alt={attachment.fileName} className="h-full w-full object-cover" />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon-sm"
+                      className="absolute right-1 top-1 h-6 w-6 bg-white/90 text-slate-700 shadow"
+                      onClick={() => removeAttachment(attachment.id)}
+                      aria-label="添付を外す"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex justify-end">
           {isEditing && onCancel ? (
@@ -380,7 +478,7 @@ export function ActionItemForm({
               キャンセル
             </Button>
           ) : null}
-          <Button type="button" onClick={submit} disabled={createMutation.isPending || updateMutation.isPending}>
+          <Button type="button" onClick={submit} disabled={createMutation.isPending || updateMutation.isPending || isReadingAttachments}>
             <Save className="h-4 w-4 mr-2" />
             {isEditing ? "保存" : "登録"}
           </Button>
