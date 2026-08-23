@@ -13,13 +13,16 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   buildInboundInvoiceRollups,
+  filterActiveInvoiceRollups,
   groupInboundBoxes,
   invoiceAllocation,
   matchInboundLabels,
+  summarizeIncoming,
   type InboundBox,
   type InboundInvoiceRollup,
   type InboundInvoiceSummary,
   type InboundLabel,
+  type IncomingSummary,
 } from "@/inventory/lib/inboundDesk";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -62,10 +65,15 @@ const OutboundBoxIssuer = lazy(async () => {
   return { default: module.OutboundBoxIssuer };
 });
 
+/**
+ * 数字は3本とも別の母数を数える。
+ * 以前は①も②も status="received" を数えていたため、荷受けボタンを押す前の荷物が
+ * 画面のどこにも出ず、「検品待ちの数字が出ない」状態になっていた。
+ */
 const PHASES: Array<{ value: Phase; number: string; label: string }> = [
-  { value: "receive", number: "①", label: "受け取り" },
-  { value: "inspect", number: "②", label: "動作確認" },
-  { value: "review", number: "③", label: "確認" },
+  { value: "receive", number: "①", label: "到着予定" },
+  { value: "inspect", number: "②", label: "動作確認待ち" },
+  { value: "review", number: "③", label: "検品済み" },
 ];
 
 const OUTCOME_LABELS: Record<InspectionOutcome, string> = {
@@ -174,18 +182,20 @@ function allocationBadge(label: InboundLabel) {
 function PhaseNavigation({
   phase,
   onChange,
-  boxCount,
+  incomingBoxCount,
+  incomingLabelCount,
   pendingCount,
   recentCount,
 }: {
   phase: Phase;
   onChange: (phase: Phase) => void;
-  boxCount: number;
+  incomingBoxCount: number;
+  incomingLabelCount: number;
   pendingCount: number;
   recentCount: number;
 }) {
   const counts: Record<Phase, string> = {
-    receive: `${boxCount.toLocaleString()}箱`,
+    receive: `${incomingBoxCount.toLocaleString()}箱 ${incomingLabelCount.toLocaleString()}台`,
     inspect: `${pendingCount.toLocaleString()}台`,
     review: `${recentCount.toLocaleString()}件`,
   };
@@ -614,26 +624,132 @@ function InboundBoxCard({
   );
 }
 
+/**
+ * 到着予定＝追跡番号が登録済みで、まだ荷受けしていない荷物。
+ * ここが見えないと「今日は何箱来るのか」「読んだのに当たらないのは何か」が分からない。
+ */
+function IncomingSection({ incoming }: { incoming: IncomingSummary }) {
+  const { boxes, labelCount, untrackedLabels } = incoming;
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-semibold">到着予定</h2>
+        <Badge variant="secondary">
+          {boxes.length.toLocaleString()}箱 / {labelCount.toLocaleString()}台
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          追跡番号が登録済みで、まだ荷受けしていないぶん
+        </span>
+      </div>
+
+      {untrackedLabels.length > 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950">
+          <div className="flex items-start gap-2">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">
+                追跡番号が未登録：{untrackedLabels.length.toLocaleString()}台
+              </div>
+              <p className="mt-1 text-xs">
+                この個体は伝票を読んでも当たりません。発注登録の「追跡番号を編集」で登録すると、到着予定に出てきます。
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {untrackedLabels.slice(0, 12).map(label => (
+                  <Badge key={label.labelId} variant="outline">
+                    {label.labelId} / {label.legacyManagementNo || label.title}
+                  </Badge>
+                ))}
+                {untrackedLabels.length > 12 ? (
+                  <span className="text-xs">
+                    ほか {untrackedLabels.length - 12}台
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {boxes.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          到着予定はありません
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[680px] text-sm">
+            <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2">追跡番号</th>
+                <th className="px-3 py-2">仕入先</th>
+                <th className="px-3 py-2 text-right">台数</th>
+                <th className="px-3 py-2">引当先</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {boxes.map(box => {
+                const allocations = Array.from(
+                  new Set(box.labels.map(label => allocationBadge(label)))
+                );
+                return (
+                  <tr key={box.key}>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {box.trackingNumber}
+                    </td>
+                    <td className="px-3 py-2">{box.supplierName || "-"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {box.labels.length}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1">
+                        {allocations.map(value => (
+                          <Badge key={value} variant="outline">
+                            {value}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** スキャン結果の区分。「0台」と「照合できなかった」を混ぜないために分ける。 */
+type ScanOutcome = "received" | "already" | "unregistered" | "not-a-tracking";
+
+type ScanResult = {
+  raw: string;
+  outcome: ScanOutcome;
+  matches: InboundLabel[];
+  message: string;
+  hint?: string;
+};
+
 function ReceivePhase({
   labels,
   boxes,
+  incoming,
   rollups,
   isRefreshing,
   onRefresh,
 }: {
   labels: InboundLabel[];
   boxes: InboundBox[];
+  incoming: IncomingSummary;
   rollups: InboundInvoiceRollup[];
   isRefreshing: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [scanValue, setScanValue] = useState("");
-  const [lastScan, setLastScan] = useState<{
-    raw: string;
-    matches: InboundLabel[];
-    message: string;
-  } | null>(null);
+  const [lastScan, setLastScan] = useState<ScanResult | null>(null);
+  // 当たらなかった読み取りは消さずに積む。あとで発注登録側を直すときの手掛かりになる。
+  const [unmatchedScans, setUnmatchedScans] = useState<string[]>([]);
   const receiveMutation = trpc.inventory.inboundDesk.receive.useMutation();
   const utils = trpc.useUtils();
 
@@ -651,11 +767,31 @@ function ReceivePhase({
     if (!raw || receiveMutation.isPending) return;
     const matches = matchInboundLabels(raw, labels);
     if (matches.length === 0) {
-      setLastScan({
-        raw,
-        matches: [],
-        message: "該当なし（作業は継続できます）",
-      });
+      // 「0台」ではなく「照合できなかった」と言い切る。
+      // 追跡番号が発注登録に入っていないと、何度スキャンしても永久に当たらない。
+      const looksLikeLabelId = /^[A-Za-z]{7}$/.test(raw);
+      setLastScan(
+        looksLikeLabelId
+          ? {
+              raw,
+              outcome: "not-a-tracking",
+              matches: [],
+              message: "これは商品IDです。この画面は配送伝票の追跡番号を読みます",
+              hint: "商品IDを読むのは「② 動作確認待ち」の画面です。",
+            }
+          : {
+              raw,
+              outcome: "unregistered",
+              matches: [],
+              message: "この追跡番号は取引ハブに登録されていません",
+              hint: "発注登録 → 該当行の「追跡番号を編集」で登録してから、もう一度スキャンしてください。登録するまで何度読んでも当たりません。",
+            }
+      );
+      if (!looksLikeLabelId) {
+        setUnmatchedScans(current =>
+          current.includes(raw) ? current : [raw, ...current].slice(0, 20)
+        );
+      }
       setScanValue("");
       focusScanInput();
       return;
@@ -664,6 +800,7 @@ function ReceivePhase({
     if (receivable.length === 0) {
       setLastScan({
         raw,
+        outcome: "already",
         matches,
         message: "すでに荷受け済み、または処理済みです",
       });
@@ -677,6 +814,7 @@ function ReceivePhase({
       });
       setLastScan({
         raw,
+        outcome: "received",
         matches,
         message: `${result.received.length.toLocaleString()}台を荷受け済みにしました`,
       });
@@ -752,13 +890,26 @@ function ReceivePhase({
           <div
             className={cn(
               "mt-3 rounded-lg border p-3 text-sm",
-              lastScan.matches.length > 0
-                ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-                : "bg-muted/40"
+              lastScan.outcome === "received" &&
+                "border-emerald-300 bg-emerald-50 text-emerald-950",
+              lastScan.outcome === "already" &&
+                "border-slate-300 bg-muted/40",
+              lastScan.outcome === "unregistered" &&
+                "border-amber-400 bg-amber-50 text-amber-950",
+              lastScan.outcome === "not-a-tracking" &&
+                "border-sky-300 bg-sky-50 text-sky-950"
             )}
           >
             <div className="font-mono text-xs">読取: {lastScan.raw}</div>
-            <div className="mt-1 font-semibold">{lastScan.message}</div>
+            <div className="mt-1 flex items-start gap-2 font-semibold">
+              {lastScan.outcome === "unregistered" ? (
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : null}
+              <span>{lastScan.message}</span>
+            </div>
+            {lastScan.hint ? (
+              <p className="mt-1 text-xs opacity-90">{lastScan.hint}</p>
+            ) : null}
             {lastScan.matches.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {lastScan.matches.map(label => (
@@ -770,7 +921,39 @@ function ReceivePhase({
             ) : null}
           </div>
         ) : null}
+        {unmatchedScans.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold">
+                登録されていなかった読取 {unmatchedScans.length}件
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setUnmatchedScans([])}
+              >
+                消す
+              </Button>
+            </div>
+            <p className="mt-1 text-xs">
+              この番号の荷物は、追跡番号を登録するまで検品待ちに出てきません。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {unmatchedScans.map(value => (
+                <code
+                  key={value}
+                  className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs"
+                >
+                  {value}
+                </code>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
+
+      <IncomingSection incoming={incoming} />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -1643,7 +1826,7 @@ export default function InboundDesk() {
     () => groupInboundBoxes(pendingLabels),
     [pendingLabels]
   );
-  const rollups = useMemo(
+  const rollupsAll = useMemo(
     () =>
       buildInboundInvoiceRollups(
         (summaryQuery.data ?? []) as InboundInvoiceSummary[],
@@ -1651,6 +1834,13 @@ export default function InboundDesk() {
       ),
     [pendingLabels, summaryQuery.data]
   );
+  // 画面も紙と同じ基準で終わった取引を隠す。
+  // 以前は画面だけフィルタが無く、No.123まで200件以上が並んでいた。
+  const rollups = useMemo(
+    () => filterActiveInvoiceRollups(rollupsAll),
+    [rollupsAll]
+  );
+  const incoming = useMemo(() => summarizeIncoming(labels), [labels]);
 
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Tokyo",
@@ -1675,21 +1865,11 @@ export default function InboundDesk() {
 
   // 過去日は保存済みの記録だけを使う。今の状態で代用すると別物の数字が紙に出る。
   const packRollupsAll = isToday
-    ? rollups
+    ? rollupsAll
     : ((savedSnapshotQuery.data?.rollups ?? []) as InboundInvoiceRollup[]);
-  // 紙に出すのは進行中の取引だけにする。終わった取引まで刷ると紙が読みにくくなる。
-  // 1) 399以下は完了扱い（shared/tradeStatus.ts と同じ基準）
-  // 2) 400以降でも、受注数まで出庫し終えたものは完了扱いにする（2026-08-16 村上さん指示）
+  // 紙も画面も、進行中の取引だけを出す。判定は lib/inboundDesk.ts に集約した。
   const packRollups = useMemo(
-    () =>
-      packRollupsAll.filter(rollup => {
-        const invoiceNo = Number(rollup.key);
-        if (!Number.isFinite(invoiceNo) || invoiceNo <= 399) return false;
-        const ordered = Number(rollup.csvOrderQty) || 0;
-        const delivered = Number(rollup.deliveredCount) || 0;
-        if (ordered > 0 && delivered >= ordered) return false;
-        return true;
-      }),
+    () => filterActiveInvoiceRollups(packRollupsAll),
     [packRollupsAll]
   );
   const hiddenCompletedCount = packRollupsAll.length - packRollups.length;
@@ -1822,8 +2002,8 @@ export default function InboundDesk() {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  disabled={saveSnapshot.isPending || rollups.length === 0}
-                  onClick={() => saveSnapshot.mutate({ date: today, rollups: rollups as unknown as Record<string, unknown>[] })}
+                  disabled={saveSnapshot.isPending || rollupsAll.length === 0}
+                  onClick={() => saveSnapshot.mutate({ date: today, rollups: rollupsAll as unknown as Record<string, unknown>[] })}
                 >
                   今日の充足状況を保存
                 </Button>
@@ -1831,7 +2011,7 @@ export default function InboundDesk() {
             </div>
             {hiddenCompletedCount > 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                紙に出すのは進行中の取引だけです（完了済み {hiddenCompletedCount} 件は載せません。
+                進行中の取引だけを出しています（完了済み {hiddenCompletedCount} 件は紙にも画面にも出しません。
                 No.399以下と、受注数まで出庫し終えたもの）。
               </p>
             ) : null}
@@ -1861,7 +2041,8 @@ export default function InboundDesk() {
       <PhaseNavigation
         phase={phase}
         onChange={setPhase}
-        boxCount={boxes.length}
+        incomingBoxCount={incoming.boxes.length}
+        incomingLabelCount={incoming.labelCount}
         pendingCount={pendingLabels.length}
         recentCount={snapshotQuery.data?.recent.length ?? 0}
       />
@@ -1877,6 +2058,7 @@ export default function InboundDesk() {
         <ReceivePhase
           labels={labels}
           boxes={boxes}
+          incoming={incoming}
           rollups={rollups}
           isRefreshing={snapshotQuery.isFetching || summaryQuery.isFetching}
           onRefresh={refresh}

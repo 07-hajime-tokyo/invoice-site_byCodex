@@ -19,9 +19,11 @@ import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import {
   Boxes,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
+  ClipboardCopy,
   ClipboardList,
   ExternalLink,
   FileText,
@@ -5499,13 +5501,161 @@ export function OutboundBoxIssuer({
         <Printer className="h-4 w-4" />
         発番済みの空箱 {unusedBoxes.length}枚を刷り直す
       </Button>
+      {/* 箱番号の羅列は毎回読む必要がないので出さない。番号ごとの刷り直しは「開いたままの箱」から行える。 */}
       {unusedBoxes.length > 0 ? (
         <span className="w-full text-xs text-muted-foreground">
-          刷り直せる箱: {unusedBoxes.map(box => box.boxCode).join("・")}
-          （印刷が失敗しても番号は戻りません。新しく作らず、ここから刷り直してください）
+          印刷が失敗しても番号は戻りません。新しく作らず、ここから刷り直してください。
         </span>
       ) : null}
     </div>
+  );
+}
+
+function formatDeclarationAmount(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * FedExの送り状に手打ちする申告内容を、箱の中身から組み立てて出す。
+ * 品名・数量・単価・通貨は取引データ（インボイス）の値をそのまま使う。
+ */
+function BoxDeclarationPanel({ boxCode }: { boxCode: string }) {
+  const [copied, setCopied] = useState(false);
+  const declaration = trpc.inventory.orderManagement.boxDeclaration.useQuery(
+    { boxCode },
+    { enabled: Boolean(boxCode), staleTime: 5_000 },
+  );
+
+  const copyText = useMemo(() => {
+    const data = declaration.data;
+    if (!data) return "";
+    const lines: string[] = [`${data.boxCode}${data.trackingNumber ? ` / ${data.trackingNumber}` : ""}`];
+    let currentInvoice: string | null | undefined;
+    for (const line of data.lines) {
+      if (line.invoiceNo !== currentInvoice) {
+        currentInvoice = line.invoiceNo;
+        lines.push("", `[No.${line.invoiceNo} ${line.partner}]`);
+      }
+      const unit = line.unitPrice == null ? "単価なし" : `${line.currency} ${formatDeclarationAmount(line.unitPrice)}`;
+      const subtotal = line.subtotal == null ? "" : ` = ${line.currency} ${formatDeclarationAmount(line.subtotal)}`;
+      const estimated = line.estimatedQuantity > 0 ? `（うち${line.estimatedQuantity}点は推定）` : "";
+      lines.push(`${line.productName}\t${line.quantity}\t${unit}${subtotal}${estimated}`);
+    }
+    if (data.totals.length > 0) {
+      lines.push("");
+      for (const total of data.totals) {
+        lines.push(
+          `合計 ${total.quantity}点 ${total.currency} ${formatDeclarationAmount(total.amount)}${total.incomplete ? "（単価なしの行あり）" : ""}`,
+        );
+      }
+    }
+    return lines.join("\n");
+  }, [declaration.data]);
+
+  async function copyDeclaration() {
+    if (!copyText) return;
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("コピーできませんでした。テキストを選択して手動でコピーしてください");
+    }
+  }
+
+  if (declaration.isLoading) {
+    return <p className="mt-3 text-sm text-muted-foreground">申告明細を計算中…</p>;
+  }
+  if (declaration.error) {
+    return <p className="mt-3 text-sm text-destructive">申告明細を出せませんでした: {declaration.error.message}</p>;
+  }
+  const data = declaration.data;
+  if (!data) return null;
+
+  return (
+    <section className="mt-4 rounded-md border-2 border-slate-300 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold">FedEx申告明細</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            取引データの品名・単価・通貨をそのまま出しています。送り状の入力欄へ貼れます。
+            「推定」は旧管理番号にインボイスNoが無く、この箱の他インボイスから引き当てたぶんです。
+          </p>
+        </div>
+        <Button type="button" size="sm" variant="outline" disabled={!copyText} onClick={() => void copyDeclaration()}>
+          {copied ? <Check className="mr-2 h-4 w-4" /> : <ClipboardCopy className="mr-2 h-4 w-4" />}
+          {copied ? "コピーしました" : "コピー"}
+        </Button>
+      </div>
+
+      {data.lines.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">申告できる行がありません。</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto rounded border bg-white">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2">インボイス</th>
+                <th className="px-3 py-2">品名</th>
+                <th className="px-3 py-2 text-right">数量</th>
+                <th className="px-3 py-2 text-right">単価</th>
+                <th className="px-3 py-2 text-right">小計</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {data.lines.map((line) => (
+                <tr key={line.key}>
+                  <td className="px-3 py-2 whitespace-nowrap">No.{line.invoiceNo} {line.partner}</td>
+                  <td className="px-3 py-2">
+                    {line.productName}
+                    {line.estimatedQuantity > 0 ? (
+                      <Badge variant="outline" className="ml-2 border-amber-400 text-amber-700">
+                        うち{line.estimatedQuantity}点は推定
+                      </Badge>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{line.quantity}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {line.unitPrice == null ? <span className="text-destructive">単価なし</span> : `${line.currency} ${formatDeclarationAmount(line.unitPrice)}`}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                    {line.subtotal == null ? "—" : `${line.currency} ${formatDeclarationAmount(line.subtotal)}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t-2 bg-muted/40">
+              {data.totals.map((total) => (
+                <tr key={total.currency}>
+                  <td className="px-3 py-2 font-semibold" colSpan={2}>合計</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{total.quantity}</td>
+                  <td className="px-3 py-2" />
+                  <td className="px-3 py-2 text-right font-bold tabular-nums">
+                    {total.currency} {formatDeclarationAmount(total.amount)}
+                    {total.incomplete ? <span className="ml-1 text-xs font-normal text-destructive">※単価なしの行あり</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {data.unmatched.length > 0 ? (
+        <div className="mt-3 rounded border border-amber-400 bg-amber-50 p-2 text-sm text-amber-950">
+          <div className="font-semibold">取引データと照合できなかった個体 {data.unmatched.length}点</div>
+          <p className="mt-1 text-xs">この分は上の合計に入っていません。申告する前に確認してください。</p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {data.unmatched.map((item) => (
+              <li key={item.labelId}>
+                <span className="font-mono font-bold">{item.labelId}</span> {item.title}
+                <span className="ml-1 text-amber-800">— {item.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -5744,6 +5894,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
               </div>
             ))}
           </div>
+          <BoxDeclarationPanel boxCode={currentBox.boxCode} />
         </div>
       ) : null}
 
@@ -5770,6 +5921,9 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
             <Button type="button" className="bg-blue-700 text-white hover:bg-blue-800" disabled={!linkBoxCode || !trackingNumber.trim() || linkTracking.isPending} onClick={() => linkTracking.mutate({ boxCode: linkBoxCode, trackingNumber, shippingDate, operatorName: getCurrentWorkWorkerName("出荷担当") })}>{linkTracking.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}追跡番号を紐付け</Button>
           </div>
           <p className="mt-2 text-xs text-amber-900">送信先シートはインボイスNoの取引先から自動決定します。不明な取引先は登録を止めます。</p>
+          {linkBoxCode && sealedBoxes.some(box => box.boxCode === linkBoxCode) ? (
+            <BoxDeclarationPanel boxCode={linkBoxCode} />
+          ) : null}
         </div>
       ) : null}
 

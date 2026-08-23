@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildInboundInvoiceRollups,
+  filterActiveInvoiceRollups,
   groupInboundBoxes,
   invoiceAllocation,
   matchInboundLabels,
+  summarizeIncoming,
+  type InboundInvoiceRollup,
   type InboundLabel,
 } from "../client/src/inventory/lib/inboundDesk";
 
@@ -124,5 +127,65 @@ describe("inbound desk aggregation", () => {
       inboundCount: 2,
       stillShortAfterInbound: 13,
     });
+  });
+});
+
+describe("filterActiveInvoiceRollups", () => {
+  function rollup(overrides: Partial<InboundInvoiceRollup>): InboundInvoiceRollup {
+    return {
+      key: "405",
+      partner: "マキシム",
+      csvOrderQty: 10,
+      deliveredCount: 0,
+      stockCount: 0,
+      orderedCount: 0,
+      purchasedCount: 0,
+      csvProducts: [],
+      inboundCount: 0,
+      countedPendingCount: 0,
+      stockCountBeforeInspection: 0,
+      remainingBeforeInbound: 10,
+      stillShortAfterInbound: 10,
+      finalRemaining: 10,
+      ...overrides,
+    };
+  }
+
+  it("No.399以下は出庫登録が無くても隠す", () => {
+    // 出庫登録の仕組みができる前の取引。deliveredCount が 0 のままなので
+    // 「不足数 > 0」だけで判定すると永久に残ってしまう。
+    const rollups = [rollup({ key: "123", deliveredCount: 0 }), rollup({ key: "405" })];
+    expect(filterActiveInvoiceRollups(rollups).map(row => row.key)).toEqual(["405"]);
+  });
+
+  it("400番台でも受注数まで出庫し終えたものは隠す", () => {
+    const rollups = [
+      rollup({ key: "401", csvOrderQty: 29, deliveredCount: 29 }),
+      rollup({ key: "408", csvOrderQty: 25, deliveredCount: 1 }),
+    ];
+    expect(filterActiveInvoiceRollups(rollups).map(row => row.key)).toEqual(["408"]);
+  });
+
+  it("受注数0の取引は残す（数量未確定のため完了と判断しない）", () => {
+    const rollups = [rollup({ key: "409", csvOrderQty: 0, deliveredCount: 0 })];
+    expect(filterActiveInvoiceRollups(rollups)).toHaveLength(1);
+  });
+});
+
+describe("summarizeIncoming", () => {
+  it("追跡番号ありの未荷受けを箱にまとめ、未登録は別に出す", () => {
+    const result = summarizeIncoming([
+      label({ labelId: "AAAAAAA", status: "ordered", trackingNumber: "390849156143" }),
+      label({ labelId: "BBBBBBB", status: "ordered", trackingNumber: "3908-4915-6143" }),
+      label({ labelId: "CCCCCCC", status: "ordered", trackingNumber: "" }),
+      label({ labelId: "DDDDDDD", status: "received", trackingNumber: "659008376073" }),
+    ]);
+
+    // ハイフン入りは同じ荷物として1箱にまとまる
+    expect(result.boxes).toHaveLength(1);
+    expect(result.boxes[0].labels.map(row => row.labelId)).toEqual(["AAAAAAA", "BBBBBBB"]);
+    expect(result.labelCount).toBe(2);
+    // 荷受け済み（received）は到着予定に含めない
+    expect(result.untrackedLabels.map(row => row.labelId)).toEqual(["CCCCCCC"]);
   });
 });
