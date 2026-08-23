@@ -21,6 +21,7 @@ import {
   type OutboundFedexItem,
   type ShipmentSheetName,
 } from "../../shared/outboundBoxes";
+import { normalizeAssignedInvoiceNo } from "../../shared/invoiceKey";
 import { protectedProcedure, router } from "../_core/trpc";
 import { createFedexShipment, getDb, getLocalInventoryById, updateFedexShipmentStatus } from "./db";
 import { processInventoryDelivery } from "./deliveryService";
@@ -296,6 +297,75 @@ export const outboundBoxesRouter = router({
       if (label.outboundBoxId && label.outboundBoxId !== box.id) throw new Error(`${labelId}は別の箱に入っています`);
       await db.update(inventoryItemLabels).set({ outboundBoxId: box.id }).where(eq(inventoryItemLabels.id, label.id));
       return getBoxDetail(boxCode);
+    }),
+
+  /**
+   * 個体の引当先インボイスを人が指定する。
+   *
+   * 在庫から充当した個体は旧管理番号（在庫0814_1 など）からインボイスを読めない。
+   * 別インボイス宛の在庫を回すこともある（実例: 401_マキシム_3DSLL_4/4 を408サイモン宛で発送）。
+   * 推測させず、ここで明示する。封をしたあと・発送したあとでも直せる。
+   */
+  assignInvoice: protectedProcedure
+    .input(
+      z.object({
+        labelId: z.string().min(1).max(80),
+        invoiceNo: z.string().max(10).nullable(),
+        operatorName: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const labelId = normalizeOutboundScan(input.labelId);
+      const nextInvoiceNo = normalizeAssignedInvoiceNo(input.invoiceNo);
+      if (input.invoiceNo != null && input.invoiceNo.trim() !== "" && !nextInvoiceNo) {
+        throw new Error("インボイスNoは数字で入力してください");
+      }
+      const [label] = await db
+        .select()
+        .from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.labelId, labelId))
+        .limit(1);
+      if (!label) throw new Error(`${labelId} は登録されていません`);
+
+      if (nextInvoiceNo) {
+        const rows = await db
+          .select({ no: tradeRecords.no })
+          .from(tradeRecords)
+          .where(eq(tradeRecords.no, Number(nextInvoiceNo)))
+          .limit(1);
+        if (rows.length === 0) throw new Error(`取引データにインボイスNo.${nextInvoiceNo} がありません`);
+      }
+
+      const before = label.assignedInvoiceNo ?? null;
+      if (before === nextInvoiceNo) return { labelId, invoiceNo: nextInvoiceNo, changed: false };
+
+      await db
+        .update(inventoryItemLabels)
+        .set({ assignedInvoiceNo: nextInvoiceNo })
+        .where(eq(inventoryItemLabels.id, label.id));
+
+      const workerName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
+      const now = new Date();
+      await recordWorkLog({
+        workerName,
+        category: "引当先インボイスの指定",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: 1,
+        memo: `商品ID: ${labelId} / ${before ?? "指定なし"} -> ${nextInvoiceNo ?? "指定なし"} / 旧管理番号: ${label.legacyManagementNo ?? "-"}`,
+        createdBy: workerName,
+        sourceType: "label-invoice-assign",
+        sourceId: labelId,
+        detailsJson: JSON.stringify({
+          labelId,
+          before,
+          after: nextInvoiceNo,
+          legacyManagementNo: label.legacyManagementNo ?? null,
+        }),
+      });
+      return { labelId, invoiceNo: nextInvoiceNo, changed: true };
     }),
 
   removeItem: protectedProcedure

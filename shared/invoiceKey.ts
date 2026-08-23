@@ -36,12 +36,22 @@ export function invoiceGroupKeyFromDeliveryNo(value: string | null | undefined):
 
 export type DeliveryItemInvoiceSource = {
   managementNo?: string | null;
+  /** 人が画面で指定した引当先。推測より常に優先する。 */
+  assignedInvoiceNo?: string | null;
 };
+
+/** 指定値を正規化する。空文字は「指定なし」。 */
+export function normalizeAssignedInvoiceNo(value: string | null | undefined): string | null {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  if (!text) return null;
+  return /^\d{1,5}$/.test(text) ? text : null;
+}
 
 /**
  * 出庫明細1点のインボイスNoを決める。
  *
- * 1) 出庫Noの接頭辞。人が「この出庫は400宛」と宣言しているので最優先。
+ * 0) 人が画面で指定した引当先（assignedInvoiceNo）。明示なので最優先。
+ * 1) 出庫Noの接頭辞。人が「この出庫は400宛」と宣言しているので次に強い。
  * 2) 明細に保存された管理番号（出庫時に在庫の etc から取っている）
  * 3) 在庫IDから引き直した管理番号
  *
@@ -59,6 +69,7 @@ export function resolveDeliveryItemInvoiceNo(
   fallbackManagementNo?: string | null
 ): string | null {
   return (
+    normalizeAssignedInvoiceNo(item.assignedInvoiceNo) ??
     invoiceNoFromDeliveryNo(deliveryNo) ??
     invoiceNoFromManagementNo(item.managementNo) ??
     invoiceNoFromManagementNo(fallbackManagementNo)

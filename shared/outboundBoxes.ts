@@ -23,7 +23,7 @@ export function formatOutboundBoxCode(sequence: number): string {
 }
 
 // インボイスNoの読み取りは shared/invoiceKey.ts が正本。ここは既存の呼び出し元向けの再輸出。
-import { invoiceNoFromManagementNo } from "./invoiceKey";
+import { invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "./invoiceKey";
 export { invoiceNoFromManagementNo };
 
 export type OutboundFedexItem = {
@@ -39,10 +39,14 @@ export function buildOutboundFedexItems(labels: Array<{
   labelId: string;
   title: string;
   legacyManagementNo?: string | null;
+  assignedInvoiceNo?: string | null;
 }>): OutboundFedexItem[] {
   return labels.map((label) => ({
     labelId: normalizeOutboundScan(label.labelId),
-    invoiceNo: invoiceNoFromManagementNo(label.legacyManagementNo),
+    // 人が指定した引当先があればそれを使う。在庫から充当したぶんは管理番号から読めない。
+    invoiceNo:
+      normalizeAssignedInvoiceNo(label.assignedInvoiceNo) ??
+      invoiceNoFromManagementNo(label.legacyManagementNo),
     productNameJa: label.title,
     productNameEn: label.title,
     quantity: 1,

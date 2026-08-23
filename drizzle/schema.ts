@@ -708,6 +708,12 @@ export const inventoryItemLabels = mysqlTable("inventory_item_labels", {
   purchaseId: int("purchaseId"),
   localInventoryId: int("localInventoryId"),
   legacyManagementNo: varchar("legacyManagementNo", { length: 200 }),
+  /**
+   * 人が指定した引当先インボイスNo。
+   * 在庫から充当した個体は旧管理番号（在庫0814_1 など）からインボイスを読めず、
+   * 別インボイス宛の在庫を回すこともある。推測させず、ここに明示的に持たせる。
+   */
+  assignedInvoiceNo: varchar("assignedInvoiceNo", { length: 10 }),
   title: varchar("title", { length: 500 }).notNull(),
   status: varchar("status", { length: 32 }).notNull().default("ordered"),
   sourceKey: varchar("sourceKey", { length: 255 }),
