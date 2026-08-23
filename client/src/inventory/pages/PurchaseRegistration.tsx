@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
+import { invoiceNoFromDeliveryNo } from "@shared/invoiceKey";
 import { classifyOutboundScan, normalizeOutboundScan } from "@shared/outboundBoxes";
 import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
 import { toast } from "sonner";
@@ -2186,9 +2187,7 @@ function generatePurchaseRegistrationDeliveryNo(group: AllocationGroup | null, i
   return invoiceNo ? `${invoiceNo}_${deliveryNo}` : `stock_${deliveryNo}`;
 }
 
-function invoiceNoFromDeliveryNo(value: string | null | undefined): string | null {
-  return value?.trim().match(/^(\d{3})_/)?.[1] ?? null;
-}
+
 
 function commonInvoiceNoFromShippingItems(items: Array<Pick<ShippingItemView, "legacyManagementNo">>): string | null {
   const invoiceNos = unique(
