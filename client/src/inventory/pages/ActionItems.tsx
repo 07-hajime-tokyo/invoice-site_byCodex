@@ -14,7 +14,6 @@ import { trpc } from "@/lib/trpc";
 type StatusFilter = "open" | "done" | "all";
 const ASSIGNEE_ORDER = ["仕入れ担当", "荷受担当", "出荷担当", "その他"];
 const SHIPPING_REVIEWERS = ["鈴木さん", "藤本さん"] as const;
-const INVENTORY_RECONCILIATION_URL = "https://inventory-reconciliation-2026-06.vercel.app/";
 const CUSTOM_ASSIGNEE_BADGE_CLASSES = [
   "border-slate-200 bg-slate-100 text-slate-700",
   "border-rose-200 bg-rose-50 text-rose-700",
@@ -285,44 +284,6 @@ export default function ActionItems() {
           更新
         </Button>
       </div>
-
-      <Card className="rounded-lg border-orange-200 bg-orange-50/60">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-orange-200 bg-white text-orange-700">
-                  6月末棚卸
-                </Badge>
-                <h2 className="text-base font-semibold">棚卸サイトの使い方</h2>
-              </div>
-              <div className="grid gap-2 text-sm leading-6 text-muted-foreground md:grid-cols-3">
-                <div>
-                  <span className="font-medium text-foreground">1. 税理士報告を見る</span>
-                  <p>合計、未着品、未完了注文、未入金インボイス0393を確認します。</p>
-                </div>
-                <div>
-                  <span className="font-medium text-foreground">2. スタッフ現物照合を使う</span>
-                  <p>付箋の管理番号と表の管理番号を見ながら、「表示中をすべてOK」後に異常行だけ外します。</p>
-                </div>
-                <div>
-                  <span className="font-medium text-foreground">3. CSVを残す</span>
-                  <p>途中は一時保存、終わったら棚卸完了にして、照合CSVを非公開レポートに回します。</p>
-                </div>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                棚卸サイトは一時公開です。レポート保存後、2026年7月15日頃を目安に公開終了する前提で扱います。
-              </p>
-            </div>
-            <Button asChild size="sm" className="shrink-0">
-              <a href={INVENTORY_RECONCILIATION_URL} target="_blank" rel="noreferrer">
-                棚卸サイトを開く
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       <ActionItemForm onCreated={() => refetch()} />
 
