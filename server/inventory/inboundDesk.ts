@@ -1196,6 +1196,122 @@ export const inboundDeskRouter = router({
    * 通常の inspect は在庫を増やす経路を通るので、ここでは絶対に使わない。
    * この処理は status を進めるだけで、在庫・入庫履歴・やることには一切触れない。
    */
+  /**
+   * 到着予定に取り残された仕入れ行を、在庫を動かさずに閉じる。
+   *
+   * 現物はとっくに届いていて、棚卸しで在庫数も合わせ済みなのに、
+   * 仕入れ行の入庫登録だけが入っていない、という記録が残る。
+   * （実データ: 追跡番号 490449489611 の6点のうち3点だけ入庫登録されていた）
+   *
+   * ここで入庫処理を通すと在庫が二重に増える。status と受領日だけ進めて、
+   * 在庫・入庫履歴・やることには一切触れない。closeInspectionBacklog と同じ考え方。
+   */
+  closeArrivingBacklog: protectedProcedure
+    .input(
+      z.object({
+        /** この追跡番号の荷物ごと閉じる。ラベルが無い行も一緒に片付くのでこちらを使う。 */
+        trackingNumber: z.string().max(200).optional(),
+        labelIds: z.array(z.string().min(1).max(80)).max(200).default([]),
+        receivedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        reason: z.string().max(200).optional(),
+        operatorName: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const workerName = operatorName(input.operatorName, ctx.user.name ?? ctx.user.email);
+      const labelIds = Array.from(new Set(input.labelIds.map(value => value.trim().toUpperCase())));
+      const [labelRows, purchaseRows] = await Promise.all([
+        db.select().from(inventoryItemLabels),
+        db.select().from(localPurchases),
+      ]);
+      const labelById = new Map(labelRows.map(row => [row.labelId.trim().toUpperCase(), row]));
+      const purchaseById = new Map(purchaseRows.map(row => [row.id, row]));
+
+      const resolvePurchase = (label: (typeof labelRows)[number]) => {
+        if (label.purchaseId && purchaseById.has(label.purchaseId)) return purchaseById.get(label.purchaseId)!;
+        if (!label.localInventoryId) return null;
+        const managementNo = String(label.legacyManagementNo ?? "").trim();
+        return (
+          purchaseRows.find(
+            row =>
+              row.localInventoryId === label.localInventoryId &&
+              (!managementNo || String(row.managementNo ?? "").trim() === managementNo)
+          ) ??
+          purchaseRows.find(row => row.localInventoryId === label.localInventoryId) ??
+          null
+        );
+      };
+
+      const receivedDate = input.receivedDate ?? new Date().toISOString().slice(0, 10);
+      const closedPurchaseIds = new Set<number>();
+      const closed: string[] = [];
+      const skipped: Array<{ labelId: string; reason: string }> = [];
+
+      // 追跡番号が分かっているなら、その荷物の仕入れ行をまとめて閉じる。
+      // ラベルが発行されていない行が同じ荷物に混ざっていることがあるため
+      // （実データ: 490449489611 は6行あるのにラベルは1つだけだった）。
+      const normalizeTracking = (value: unknown) =>
+        String(value ?? "").normalize("NFKC").trim().replace(/[\s-]/g, "").toLowerCase();
+      const targetTracking = normalizeTracking(input.trackingNumber);
+      if (targetTracking.length >= 4) {
+        for (const purchase of purchaseRows) {
+          if (normalizeTracking(purchase.trackingNumber) !== targetTracking) continue;
+          if (purchase.status === "purchased" || purchase.receivedDate) continue;
+          await updateLocalPurchaseStatus(purchase.id, "purchased", receivedDate);
+          closedPurchaseIds.add(purchase.id);
+        }
+      }
+
+      for (const labelId of labelIds) {
+        const label = labelById.get(labelId);
+        if (!label) {
+          skipped.push({ labelId, reason: "個体が見つかりません" });
+          continue;
+        }
+        const purchase = resolvePurchase(label);
+        if (!purchase) {
+          skipped.push({ labelId, reason: "仕入れ行が見つかりません" });
+          continue;
+        }
+        if (purchase.status === "purchased" || purchase.receivedDate) {
+          skipped.push({ labelId, reason: "すでに入庫済みです" });
+          continue;
+        }
+        if (closedPurchaseIds.has(purchase.id)) {
+          closed.push(labelId);
+          continue;
+        }
+        // 在庫と入庫履歴には触らない。棚卸しで合わせた数字を壊さないため。
+        await updateLocalPurchaseStatus(purchase.id, "purchased", receivedDate);
+        closedPurchaseIds.add(purchase.id);
+        closed.push(labelId);
+      }
+
+      const now = new Date();
+      await recordWorkLog({
+        workerName,
+        category: "到着予定のクローズ",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: closedPurchaseIds.size,
+        memo: `${closedPurchaseIds.size}件の仕入れ行を受領日 ${receivedDate} で閉じた（在庫は動かしていない）${input.reason ? ` / ${input.reason}` : ""}`,
+        createdBy: workerName,
+        sourceType: "arriving-backlog-close",
+        sourceId: labelIds.slice(0, 5).join(","),
+        detailsJson: JSON.stringify({
+          labelIds,
+          purchaseIds: Array.from(closedPurchaseIds),
+          receivedDate,
+          reason: input.reason ?? null,
+          skipped,
+        }),
+      });
+
+      return { closedPurchases: closedPurchaseIds.size, closed, skipped };
+    }),
+
   closeInspectionBacklog: protectedProcedure
     .input(
       z.object({
