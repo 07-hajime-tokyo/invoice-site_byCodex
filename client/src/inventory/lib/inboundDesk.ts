@@ -185,3 +185,87 @@ export function buildInboundInvoiceRollups(
     .filter(summary => summary.inboundCount > 0 || summary.finalRemaining > 0)
     .sort((a, b) => Number(b.key) - Number(a.key));
 }
+
+/**
+ * 表示から外してよい「終わった取引」の判定。
+ *
+ * 1) No.399以下は完了扱い（shared/tradeStatus.ts と同じ基準）
+ * 2) 400以降でも、受注数まで出庫し終えたものは完了扱い（2026-08-16 村上さん指示）
+ *
+ * 出庫登録の仕組みができる前の取引は出庫済が0のまま残るため、
+ * 「不足数 > 0」だけを条件にすると古い取引が永久に消えない。
+ * 紙（InvoicePrintPack）と画面で同じ判定を使う。
+ */
+export function isCompletedInvoiceRollup(rollup: InboundInvoiceRollup): boolean {
+  const invoiceNo = Number(rollup.key);
+  if (!Number.isFinite(invoiceNo) || invoiceNo <= 399) return true;
+  const ordered = Number(rollup.csvOrderQty) || 0;
+  const delivered = Number(rollup.deliveredCount) || 0;
+  return ordered > 0 && delivered >= ordered;
+}
+
+/** 進行中の取引だけを残す。 */
+export function filterActiveInvoiceRollups(
+  rollups: InboundInvoiceRollup[]
+): InboundInvoiceRollup[] {
+  return rollups.filter(rollup => !isCompletedInvoiceRollup(rollup));
+}
+
+/** 追跡番号ごとに束ねる。荷受け前後どちらの一覧にも使う。 */
+export function groupLabelsByTracking(labels: InboundLabel[]): InboundBox[] {
+  const boxes = new Map<string, InboundBox>();
+  for (const label of labels) {
+    const normalizedTracking = normalizeTrackingNumber(label.trackingNumber);
+    const key =
+      normalizedTracking || `no-tracking:${label.purchaseId ?? label.labelId}`;
+    const current = boxes.get(key);
+    if (current) {
+      current.labels.push(label);
+      if (
+        !current.receivedAt ||
+        (label.receivedAt && label.receivedAt < current.receivedAt)
+      ) {
+        current.receivedAt = label.receivedAt;
+      }
+      continue;
+    }
+    boxes.set(key, {
+      key,
+      trackingNumber: label.trackingNumber,
+      carrier: label.carrier,
+      supplierName: label.supplierName,
+      receivedAt: label.receivedAt,
+      labels: [label],
+    });
+  }
+  return Array.from(boxes.values());
+}
+
+export type IncomingSummary = {
+  /** 追跡番号が登録済みで、まだ荷受けしていない箱 */
+  boxes: InboundBox[];
+  /** 上記の台数 */
+  labelCount: number;
+  /** 発注済みだが追跡番号が未登録で、スキャンしても永久に当たらない個体 */
+  untrackedLabels: InboundLabel[];
+};
+
+/**
+ * 「到着予定」を出す。
+ *
+ * これまでの①受け取り／②動作確認はどちらも status="received" を数えていたため、
+ * 荷受けボタンを押す前の荷物が画面のどこにも出ていなかった。
+ */
+export function summarizeIncoming(labels: InboundLabel[]): IncomingSummary {
+  const ordered = labels.filter(label => label.status === "ordered");
+  const tracked = ordered.filter(
+    label => normalizeTrackingNumber(label.trackingNumber).length >= 4
+  );
+  const untrackedLabels = ordered.filter(
+    label => normalizeTrackingNumber(label.trackingNumber).length < 4
+  );
+  const boxes = groupLabelsByTracking(tracked).sort((a, b) =>
+    a.supplierName.localeCompare(b.supplierName, "ja")
+  );
+  return { boxes, labelCount: tracked.length, untrackedLabels };
+}
