@@ -179,6 +179,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
       )
     `);
     const defectiveLabelColumns = [
+      ["assignedInvoiceNo", "varchar(10) NULL"],
       ["defectTags", "varchar(255) NULL"],
       ["defectNote", "varchar(500) NULL"],
       ["defectPhotosJson", "text NULL"],

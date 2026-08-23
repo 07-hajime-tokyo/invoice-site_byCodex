@@ -3,6 +3,7 @@ import {
   invoiceGroupKeyFromDeliveryNo,
   invoiceNoFromDeliveryNo,
   invoiceNoFromManagementNo,
+  normalizeAssignedInvoiceNo,
   resolveDeliveryItemInvoiceNo,
 } from "./invoiceKey";
 
@@ -72,5 +73,40 @@ describe("resolveDeliveryItemInvoiceNo", () => {
   it("在庫から充当したぶんは推測せず null にする", () => {
     // どのインボイスの受注行に当たるかは機械的に決まらない。黙って寄せない。
     expect(resolveDeliveryItemInvoiceNo({ managementNo: "在庫0814_1" }, "B000002")).toBeNull();
+  });
+});
+
+describe("人が指定した引当先", () => {
+  it("推測より常に優先する", () => {
+    // 401宛で仕入れた在庫を408サイモン宛で発送した実例（B000002 の MLKYDLH）。
+    expect(
+      resolveDeliveryItemInvoiceNo(
+        { managementNo: "401_マキシム_3DSLL_4/4", assignedInvoiceNo: "408" },
+        "B000002"
+      )
+    ).toBe("408");
+    // 出庫Noに宛先が書いてあっても、明示指定が勝つ。
+    expect(
+      resolveDeliveryItemInvoiceNo(
+        { managementNo: "388_サミー_ブラック_5/5", assignedInvoiceNo: "392" },
+        "400_Maxim260811"
+      )
+    ).toBe("392");
+  });
+
+  it("在庫から充てたぶんも指定すれば数えられる", () => {
+    expect(
+      resolveDeliveryItemInvoiceNo({ managementNo: "在庫0722_4", assignedInvoiceNo: "403" }, "B000002")
+    ).toBe("403");
+  });
+
+  it("空・不正な指定は無視して従来の推測に落ちる", () => {
+    expect(normalizeAssignedInvoiceNo("")).toBeNull();
+    expect(normalizeAssignedInvoiceNo("  ")).toBeNull();
+    expect(normalizeAssignedInvoiceNo("403_サイモン")).toBeNull();
+    expect(normalizeAssignedInvoiceNo(" 403 ")).toBe("403");
+    expect(
+      resolveDeliveryItemInvoiceNo({ managementNo: "在庫0722_4", assignedInvoiceNo: "" }, "405_Maxim260807")
+    ).toBe("405");
   });
 });

@@ -5515,6 +5515,65 @@ function formatDeclarationAmount(value: number): string {
 }
 
 /**
+ * 在庫から充てた個体の引当先インボイスを指定する。
+ * 同じ箱に入っている他インボイスを候補に出しつつ、手入力も受ける
+ * （別インボイス宛の在庫を回したときは候補に無い番号になる）。
+ */
+function AssignInvoiceControl({
+  labelId,
+  candidates,
+  onDone,
+}: {
+  labelId: string;
+  candidates: string[];
+  onDone: () => void;
+}) {
+  const [manual, setManual] = useState("");
+  const utils = trpc.useUtils();
+  const assign = trpc.inventory.outboundBoxes.assignInvoice.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.labelId} を No.${result.invoiceNo} 宛にしました`);
+      setManual("");
+      void utils.inventory.outboundBoxes.list.invalidate();
+      onDone();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const submit = (invoiceNo: string) => {
+    if (!invoiceNo.trim() || assign.isPending) return;
+    assign.mutate({ labelId, invoiceNo: invoiceNo.trim(), operatorName: getCurrentWorkWorkerName("出荷担当") });
+  };
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {candidates.map((invoiceNo) => (
+        <Button
+          key={invoiceNo}
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2"
+          disabled={assign.isPending}
+          onClick={() => submit(invoiceNo)}
+        >
+          No.{invoiceNo} 宛にする
+        </Button>
+      ))}
+      <Input
+        className="h-7 w-24 font-mono"
+        placeholder="他のNo."
+        value={manual}
+        onChange={(event) => setManual(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") submit(manual);
+        }}
+      />
+    </span>
+  );
+}
+
+/**
  * FedExの送り状に手打ちする申告内容を、箱の中身から組み立てて出す。
  * 品名・数量・単価・通貨は取引データ（インボイス）の値をそのまま使う。
  */
@@ -5642,13 +5701,21 @@ function BoxDeclarationPanel({ boxCode }: { boxCode: string }) {
 
       {data.unmatched.length > 0 ? (
         <div className="mt-3 rounded border border-amber-400 bg-amber-50 p-2 text-sm text-amber-950">
-          <div className="font-semibold">取引データと照合できなかった個体 {data.unmatched.length}点</div>
-          <p className="mt-1 text-xs">この分は上の合計に入っていません。申告する前に確認してください。</p>
-          <ul className="mt-2 space-y-1 text-xs">
+          <div className="font-semibold">引当先が決まっていない個体 {data.unmatched.length}点</div>
+          <p className="mt-1 text-xs">
+            この分は上の合計に入っていません。在庫から充てたものは、どのインボイス宛かを選んでください。
+          </p>
+          <ul className="mt-2 space-y-2 text-xs">
             {data.unmatched.map((item) => (
-              <li key={item.labelId}>
-                <span className="font-mono font-bold">{item.labelId}</span> {item.title}
-                <span className="ml-1 text-amber-800">— {item.reason}</span>
+              <li key={item.labelId} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono font-bold">{item.labelId}</span>
+                <span>{item.title}</span>
+                <span className="text-amber-800">— {item.reason}</span>
+                <AssignInvoiceControl
+                  labelId={item.labelId}
+                  candidates={item.invoiceCandidates}
+                  onDone={() => void declaration.refetch()}
+                />
               </li>
             ))}
           </ul>

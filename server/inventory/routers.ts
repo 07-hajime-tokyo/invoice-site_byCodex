@@ -6,6 +6,7 @@ import {
   invoiceGroupKeyFromDeliveryNo,
   invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
   invoiceNoFromManagementNo,
+  normalizeAssignedInvoiceNo,
   resolveDeliveryItemInvoiceNo,
 } from "@shared/invoiceKey";
 import { isClosedTradeYear } from "@shared/tradeStatus";
@@ -464,12 +465,42 @@ async function getOrderRowsFromTradeRecords(): Promise<OrderCsvRow[]> {
 
 type StoredDeliveryItem = {
   inventoryId?: number;
+  labelId?: string | null;
   title?: string;
   quantity?: unknown;
   managementNo?: string | null;
   tradeRecordId?: number | null;
   csvProductName?: string | null;
 };
+
+/**
+ * 個体ID -> 人が指定した引当先インボイスNo。
+ * 在庫から充当したぶんや、別インボイスの在庫を回したぶんは推測できないので、
+ * 画面で指定した値をここから引いて集計に効かせる。
+ */
+async function buildAssignedInvoiceNoMap(): Promise<Map<string, string>> {
+  const db = await getDb();
+  if (!db) return new Map();
+  const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
+  const rows = await db
+    .select({ labelId: labelTbl.labelId, assignedInvoiceNo: labelTbl.assignedInvoiceNo })
+    .from(labelTbl);
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const invoiceNo = normalizeAssignedInvoiceNo(row.assignedInvoiceNo);
+    if (invoiceNo) map.set(String(row.labelId).trim().toUpperCase(), invoiceNo);
+  }
+  return map;
+}
+
+/** 出庫明細に、人が指定した引当先を載せて返す。 */
+function withAssignedInvoiceNo<T extends StoredDeliveryItem>(
+  item: T,
+  assignedMap: Map<string, string>,
+): T & { assignedInvoiceNo?: string | null } {
+  const labelId = String(item.labelId ?? "").trim().toUpperCase();
+  return labelId ? { ...item, assignedInvoiceNo: assignedMap.get(labelId) ?? null } : item;
+}
 
 function parseDeliveryItemsJson(value: string | null | undefined): StoredDeliveryItem[] {
   try {
@@ -6376,6 +6407,7 @@ export const inventoryRouter = router({
             labelId: labelTbl.labelId,
             title: labelTbl.title,
             legacyManagementNo: labelTbl.legacyManagementNo,
+            assignedInvoiceNo: labelTbl.assignedInvoiceNo,
           })
           .from(labelTbl)
           .where(eq(labelTbl.outboundBoxId, box.id));
@@ -6400,7 +6432,13 @@ export const inventoryRouter = router({
           subtotal: number | null;
         };
         const lineByKey = new Map<string, DeclarationLine>();
-        const unmatched: Array<{ labelId: string; title: string; managementNo: string | null; reason: string }> = [];
+        const unmatched: Array<{
+          labelId: string;
+          title: string;
+          managementNo: string | null;
+          invoiceCandidates: string[];
+          reason: string;
+        }> = [];
 
         /** 色まで一致する行を優先し、無ければ「ランダムカラー」等の総称行に落とす。 */
         function pickRow(candidates: OrderCsvRow[], title: string): OrderCsvRow | null {
@@ -6423,7 +6461,9 @@ export const inventoryRouter = router({
 
         for (const label of labels) {
           const managementNo = label.legacyManagementNo?.trim() || null;
-          const invoiceNo = invoiceNoFromManagementNo(managementNo);
+          // 人が指定した引当先があればそれが正。在庫充当や別インボイスからの振替はこれで解決する。
+          const invoiceNo =
+            normalizeAssignedInvoiceNo(label.assignedInvoiceNo) ?? invoiceNoFromManagementNo(managementNo);
           const title = String(label.title ?? "").trim();
           let matched = invoiceNo ? pickRow(rowsByInvoice.get(invoiceNo) ?? [], title) : null;
           let estimated = false;
@@ -6444,6 +6484,7 @@ export const inventoryRouter = router({
               labelId: label.labelId,
               title,
               managementNo,
+              invoiceCandidates: invoicesInBox,
               reason: !invoiceNo
                 ? "旧管理番号からインボイスNoを読めず、この箱のインボイスからも1つに絞れません"
                 : (rowsByInvoice.get(invoiceNo) ?? []).length === 0
@@ -6560,6 +6601,7 @@ export const inventoryRouter = router({
         const inventoryManagementNoMap = await buildInventoryManagementNoMap().catch(
           () => new Map<number, string>(),
         );
+        const assignedInvoiceNoMap = await buildAssignedInvoiceNoMap().catch(() => new Map<string, string>());
         const deliveredQtyByInvoiceNo = new Map<string, number>();
         for (const history of histories) {
           if (history.status !== "success") continue;
@@ -6596,7 +6638,7 @@ export const inventoryRouter = router({
             if (deliveredQty <= 0) continue;
 
             const invoiceNo = resolveDeliveryItemInvoiceNo(
-              item,
+              withAssignedInvoiceNo(item, assignedInvoiceNoMap),
               history.deliveryNo,
               inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
             );
@@ -6649,9 +6691,10 @@ export const inventoryRouter = router({
         const inventoryManagementMap = await buildInventoryManagementNoMap();
         // 出庫Noの接頭辞ではなく明細の管理番号で判定する。1箱に複数インボイスが
         // 混ざっていても、このインボイスの明細を持つ出庫は拾う（明細側でも再度絞る）。
+        const assignedInvoiceNoMap = await buildAssignedInvoiceNoMap().catch(() => new Map<string, string>());
         const deliveryItemInvoiceNo = (item: StoredDeliveryItem, deliveryNo: string) =>
           resolveDeliveryItemInvoiceNo(
-            item,
+            withAssignedInvoiceNo(item, assignedInvoiceNoMap),
             deliveryNo,
             item.inventoryId ? inventoryManagementMap.get(Number(item.inventoryId)) : null,
           );
@@ -7649,11 +7692,12 @@ export const inventoryRouter = router({
           inventoryEtcMap.set(ph.inventoryId, ph.kanriNo);
         }
       }
+      const assignedInvoiceNoMap = await buildAssignedInvoiceNoMap().catch(() => new Map<string, string>());
       for (const delivery of deliveries) {
         if (delivery.status !== "success") continue;
 
         const deliveryKey = extractKeyFromDeliveryNo(delivery.deliveryNo);
-        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; title: string; quantity: number; managementNo?: string | null; tradeRecordId?: number | null; csvProductName?: string | null }>;
+        const items = JSON.parse(delivery.itemsJson) as Array<{ inventoryId: number; labelId?: string | null; title: string; quantity: number; managementNo?: string | null; tradeRecordId?: number | null; csvProductName?: string | null }>;
         const cancelledItems = delivery.cancelledItemsJson
           ? (JSON.parse(delivery.cancelledItemsJson) as Array<{ inventoryId: number; quantity: number; cancelledAt: string }>)
           : [];
@@ -7677,7 +7721,10 @@ export const inventoryRouter = router({
           const rawMgmt = etc.split(",")[0]?.trim() ?? "";
           // 出庫Noから読めない箱ID出庫（B000002 など）は、明細ごとの管理番号で振り分ける。
           // 出庫Noに宛先が書いてあるときはそちらが優先（在庫を別インボイスへ充てる運用があるため）。
-          const key = deliveryKey ?? resolveDeliveryItemInvoiceNo(item, delivery.deliveryNo, rawMgmt);
+          const assigned = normalizeAssignedInvoiceNo(
+            assignedInvoiceNoMap.get(String(item.labelId ?? "").trim().toUpperCase()),
+          );
+          const key = assigned ?? deliveryKey ?? resolveDeliveryItemInvoiceNo(item, delivery.deliveryNo, rawMgmt);
           if (!key) continue;
 
           const g = getOrCreate(key);
