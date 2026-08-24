@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
-import { invoiceNoFromDeliveryNo } from "@shared/invoiceKey";
+import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
 import { classifyOutboundScan, normalizeOutboundScan, OUTBOUND_BOX_CODE_PATTERN } from "@shared/outboundBoxes";
 import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
 import { toast } from "sonner";
@@ -5406,6 +5406,7 @@ type OutboundBoxView = {
     status: string;
     legacyManagementNo: string | null;
     localInventoryId: number | null;
+    assignedInvoiceNo: string | null;
   }>;
 };
 
@@ -5721,6 +5722,89 @@ function AssignInvoiceControl({
 }
 
 /**
+ * 箱の中身一覧から、個体の引当先インボイスNoを直接直す。
+ *
+ * 別インボイス宛に仕入れた在庫を流用して発送することがあるため、
+ * 管理番号から番号が読めている個体でも人が上書きできる必要がある。
+ * 空にして確定すると指定が外れ、自動判定（出庫No→管理番号）へ戻る。
+ */
+function BoxItemInvoiceField({
+  labelId,
+  assignedInvoiceNo,
+  legacyManagementNo,
+}: {
+  labelId: string;
+  assignedInvoiceNo: string | null;
+  legacyManagementNo: string | null;
+}) {
+  const utils = trpc.useUtils();
+  const [value, setValue] = useState(assignedInvoiceNo ?? "");
+  // 申告明細側や別端末で変わったときに追従する
+  useEffect(() => setValue(assignedInvoiceNo ?? ""), [assignedInvoiceNo]);
+  const autoInvoiceNo = invoiceNoFromManagementNo(legacyManagementNo);
+  const assign = trpc.inventory.outboundBoxes.assignInvoice.useMutation({
+    onSuccess: (result) => {
+      if (result.changed) {
+        toast.success(
+          result.invoiceNo
+            ? `${result.labelId} を No.${result.invoiceNo} 宛にしました`
+            : `${result.labelId} の指定を外しました（管理番号からの自動判定に戻ります）`,
+        );
+      }
+      void utils.inventory.outboundBoxes.list.invalidate();
+      void utils.inventory.orderManagement.boxDeclaration.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      setValue(assignedInvoiceNo ?? "");
+    },
+  });
+
+  const commit = () => {
+    const next = value.trim();
+    if (assign.isPending || next === (assignedInvoiceNo ?? "")) return;
+    assign.mutate({
+      labelId,
+      invoiceNo: next === "" ? null : next,
+      operatorName: getCurrentWorkWorkerName("出荷担当"),
+    });
+  };
+
+  const effectiveInvoiceNo = assignedInvoiceNo ?? autoInvoiceNo;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span className="text-xs text-muted-foreground">宛先No.</span>
+      <Input
+        className="h-8 w-20 font-mono"
+        value={value}
+        placeholder={autoInvoiceNo ?? "未定"}
+        disabled={assign.isPending}
+        aria-label={`${labelId} の引当先インボイスNo`}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+        }}
+        onBlur={commit}
+      />
+      {assign.isPending ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : null}
+      {assignedInvoiceNo && assignedInvoiceNo !== autoInvoiceNo ? (
+        <span
+          className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-900"
+          title={`管理番号からは No.${autoInvoiceNo ?? "不明"}。人の指定で上書きしています`}
+        >
+          流用
+        </span>
+      ) : !effectiveInvoiceNo ? (
+        <span className="text-[10px] font-semibold text-destructive">未定</span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * FedExの送り状に手打ちする申告内容を、箱の中身から組み立てて出す。
  * 品名・数量・単価・通貨は取引データ（インボイス）の値をそのまま使う。
  */
@@ -5906,8 +5990,11 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
   const [traceLabelId, setTraceLabelId] = useState("");
   const currentBox = boxes.find((box) => box.boxCode === currentBoxCode) ?? null;
   const sealedBoxes = boxes.filter((box) => box.status === "sealed");
+  // 封をすると currentBox から外れるため、追跡番号を待っている箱の中身はここから見せる
+  // （宛先No.を直せる最後の機会。紐付けの時点で発送管理シートが取引先ごとに割れる）
   const shippedBoxes = boxes.filter((box) => box.status === "shipped");
   const openBoxes = boxes.filter((box) => box.status === "open");
+  const linkSelectedBox = sealedBoxes.find((box) => box.boxCode === linkBoxCode) ?? null;
   const normalizedTraceLabel = normalizeOutboundScan(traceLabelId);
   const traceQuery = trpc.inventory.outboundBoxes.traceByLabel.useQuery(
     { labelId: normalizedTraceLabel },
@@ -6107,9 +6194,12 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
           </div>
           <div className="mt-3 space-y-2">
             {currentBox.items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
-                <div><span className="font-mono font-bold">{item.labelId}</span><span className="ml-2">{item.title}</span><span className="ml-2 text-xs text-muted-foreground">{item.legacyManagementNo}</span></div>
-                <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => removeItem.mutate({ boxCode: currentBox.boxCode, labelId: item.labelId })}>取り消す</Button>
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
+                <div className="min-w-0"><span className="font-mono font-bold">{item.labelId}</span><span className="ml-2">{item.title}</span><span className="ml-2 text-xs text-muted-foreground">{item.legacyManagementNo}</span></div>
+                <div className="flex items-center gap-1">
+                  <BoxItemInvoiceField labelId={item.labelId} assignedInvoiceNo={item.assignedInvoiceNo} legacyManagementNo={item.legacyManagementNo} />
+                  <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => removeItem.mutate({ boxCode: currentBox.boxCode, labelId: item.labelId })}>取り消す</Button>
+                </div>
               </div>
             ))}
           </div>
@@ -6140,8 +6230,24 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
             <Button type="button" className="bg-blue-700 text-white hover:bg-blue-800" disabled={!linkBoxCode || !trackingNumber.trim() || linkTracking.isPending} onClick={() => linkTracking.mutate({ boxCode: linkBoxCode, trackingNumber, shippingDate, operatorName: getCurrentWorkWorkerName("出荷担当") })}>{linkTracking.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}追跡番号を紐付け</Button>
           </div>
           <p className="mt-2 text-xs text-amber-900">送信先シートはインボイスNoの取引先から自動決定します。不明な取引先は登録を止めます。</p>
-          {linkBoxCode && sealedBoxes.some(box => box.boxCode === linkBoxCode) ? (
-            <BoxDeclarationPanel boxCode={linkBoxCode} />
+          {linkSelectedBox ? (
+            <>
+              <div className="mt-3 rounded border border-amber-300 bg-white p-2">
+                <div className="text-sm font-semibold">{linkSelectedBox.boxCode} の中身（{linkSelectedBox.items.length}点）</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  別インボイス宛の在庫を流用した個体は、紐付ける前に宛先No.を直してください。
+                </p>
+                <div className="mt-2 space-y-1">
+                  {linkSelectedBox.items.map((item) => (
+                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
+                      <div className="min-w-0"><span className="font-mono font-bold">{item.labelId}</span><span className="ml-2">{item.title}</span><span className="ml-2 text-xs text-muted-foreground">{item.legacyManagementNo}</span></div>
+                      <BoxItemInvoiceField labelId={item.labelId} assignedInvoiceNo={item.assignedInvoiceNo} legacyManagementNo={item.legacyManagementNo} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <BoxDeclarationPanel boxCode={linkSelectedBox.boxCode} />
+            </>
           ) : null}
         </div>
       ) : null}
