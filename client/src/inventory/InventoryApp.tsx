@@ -49,7 +49,6 @@ const REMEMBERED_PATHS = [
   "/inventory/trend",
   "/inventory/settings",
   "/inventory/overseas-shipping",
-  "/inventory/ai-investigation",
   "/inventory/action-items",
   "/inventory/work-management",
   "/inventory/whatsapp-history",

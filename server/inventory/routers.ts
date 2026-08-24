@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
+import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
 import {
   invoiceGroupKeyFromDeliveryNo,
   invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
@@ -382,7 +382,11 @@ function suggestCsvProductNameWithFallback(
   const model = extractPreferredModel(title, managementNo);
   if (!model) return null;
 
-  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === model);
+  const targetText = `${title} ${managementNo}`;
+  const sameModelCandidates = candidates.filter((candidate) =>
+    extractModel(candidate.name) === model &&
+    productNamesCanMatch(targetText, candidate.name)
+  );
   return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
 }
 
@@ -412,18 +416,21 @@ function deliveryProductNameMatchesOrderProduct(
   const delivered = deliveredName.trim();
   const order = orderProductName.trim();
   if (!delivered || !order) return false;
+  if (!productNamesCanMatch(delivered, order)) return false;
   if (productNameKey(delivered) === productNameKey(order)) return true;
 
   const suggestion =
     suggestCsvProductNameWithFallback(delivered, "", candidates) ??
     suggestCsvProductNameFromHints(delivered, [delivered], candidates);
   if (suggestion && productNameKey(suggestion) === productNameKey(order)) return true;
-
   const deliveredModel = extractModel(delivered);
   const orderModel = extractModel(order);
   if (!deliveredModel || deliveredModel !== orderModel) return false;
   if (isRandomColor(order) || isRandomColor(extractColor(order))) return true;
-  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === orderModel);
+  const sameModelCandidates = candidates.filter((candidate) =>
+    extractModel(candidate.name) === orderModel &&
+    productNamesCanMatch(delivered, candidate.name)
+  );
   return sameModelCandidates.length === 1 && productNameKey(sameModelCandidates[0].name) === productNameKey(order);
 }
 
@@ -4119,6 +4126,13 @@ export const inventoryRouter = router({
         async function buildFromLocalDb() {
           const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
           if (!localInv) return null;
+          const labelMap: Awaited<ReturnType<typeof getInventoryItemLabelsByInventoryIds>> =
+            await getInventoryItemLabelsByInventoryIds([Number(localInv.id)]).catch(() => new Map());
+          const itemLabels = (labelMap.get(Number(localInv.id)) ?? []).map((label) => ({
+            labelId: label.labelId,
+            status: label.status,
+            legacyManagementNo: label.legacyManagementNo,
+          }));
           return {
             id: localInv.zaicoId ?? input.inventoryId,
             title: localInv.title,
@@ -4135,6 +4149,7 @@ export const inventoryRouter = router({
             ebayOrderStatus: normalizeEbayOrderStatus(localInv.ebayOrderStatus),
             code: undefined as string | undefined,
             optional_attributes: [] as Array<{ name: string; value: string | null }>,
+            itemLabels,
             item_image: undefined,
             created_at: localInv.createdAt instanceof Date ? localInv.createdAt.toISOString() : String(localInv.createdAt),
             updated_at: localInv.updatedAt instanceof Date ? localInv.updatedAt.toISOString() : String(localInv.updatedAt),

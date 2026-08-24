@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { PackageCheck, PackageMinus, PackageOpen, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe, Store, Sparkles, ListTodo, Timer, TrendingUp, MessageSquare, Gavel, RotateCcw } from "lucide-react";
+import { PackageCheck, PackageMinus, PackageOpen, History, ClipboardList, Settings, PanelLeft, LogOut, BarChart2, Trash2, CalendarDays, Globe, Store, ListTodo, Timer, TrendingUp, MessageSquare, Gavel, RotateCcw } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -46,10 +46,9 @@ menuItems.splice(1, 0, { icon: PackageOpen, label: "荷受け", path: "/inventor
 menuItems.splice(2, 0, { icon: ClipboardList, label: "発注登録", path: "/inventory/purchase-registration", color: "text-amber-500" });
 menuItems.splice(5, 0, { icon: Store, label: "eBay在庫", path: "/inventory/ebay-inventory", color: "text-cyan-500" });
 
-menuItems.splice(9, 0, { icon: Sparkles, label: "AI調査", path: "/inventory/ai-investigation", color: "text-emerald-500" });
-menuItems.splice(10, 0, { icon: ListTodo, label: "やること", path: "/inventory/action-items", color: "text-lime-600" });
-menuItems.splice(11, 0, { icon: Timer, label: "作業管理", path: "/inventory/work-management", color: "text-indigo-500" });
-menuItems.splice(12, 0, { icon: MessageSquare, label: "WhatsApp会話履歴", path: "/inventory/whatsapp-history", color: "text-green-600" });
+menuItems.splice(9, 0, { icon: ListTodo, label: "やること", path: "/inventory/action-items", color: "text-lime-600" });
+menuItems.splice(10, 0, { icon: Timer, label: "作業管理", path: "/inventory/work-management", color: "text-indigo-500" });
+menuItems.splice(11, 0, { icon: MessageSquare, label: "WhatsApp会話履歴", path: "/inventory/whatsapp-history", color: "text-green-600" });
 menuItems.splice(6, 0, { icon: Gavel, label: "ヤフオク出品", path: "/inventory/yahoo-listings", color: "text-amber-600" });
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

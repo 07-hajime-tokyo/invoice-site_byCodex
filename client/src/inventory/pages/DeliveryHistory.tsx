@@ -60,6 +60,7 @@ export interface HistoryItem {
   title: string;
   quantity: number;
   managementNo?: string;
+  labelId?: string;
 }
 
 type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
@@ -135,6 +136,7 @@ interface InventoryDetail {
   unit_price?: number;
   purchase_unit_price?: number;
   optional_attributes?: Array<{ name: string; value: string | null }>;
+  itemLabels?: Array<{ labelId: string }>;
   item_image?: { url: string | null };
   created_at: string;
   updated_at: string;
@@ -365,6 +367,7 @@ function InventoryDetailToggle({
   title,
   quantity,
   unit,
+  labelId,
   isOpen,
   onToggle,
   onDeleted,
@@ -384,6 +387,7 @@ function InventoryDetailToggle({
   title: string;
   quantity: number;
   unit: string;
+  labelId?: string;
   isOpen: boolean;
   onToggle: () => void;
   onDeleted?: (historyId: number, id: number) => void;
@@ -413,6 +417,7 @@ function InventoryDetailToggle({
   const supplierSite = getSupplierSite(inv?.etc);
   const unitPrice = inv?.purchase_unit_price ?? inv?.unit_price;
   const displayCategory = inv?.categories?.[0] ?? inv?.category ?? "-";
+  const displayLabelId = labelId?.trim().toUpperCase() || inv?.itemLabels?.map((item) => item.labelId).filter(Boolean).join(" / ");
 
   if (isDeletedProp) {
     return (
@@ -443,6 +448,12 @@ function InventoryDetailToggle({
               </div>
             ) : inv ? (
               <>
+                {displayLabelId && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground flex-shrink-0">商品ID</span>
+                    <span className="font-mono font-bold text-right">{displayLabelId}</span>
+                  </div>
+                )}
                 {managementNo && (
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground flex-shrink-0">管理番号</span>
@@ -488,6 +499,12 @@ function InventoryDetailToggle({
                   <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="text-xs font-medium">削除済み（DB情報）</span>
                 </div>
+                {displayLabelId && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground flex-shrink-0">商品ID</span>
+                    <span className="font-mono font-bold text-right">{displayLabelId}</span>
+                  </div>
+                )}
                 {managementNo && (
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground flex-shrink-0">管理番号</span>
@@ -569,6 +586,12 @@ function InventoryDetailToggle({
                 {inv.item_image?.url && (
                   <div className="flex justify-center pb-1">
                     <img src={inv.item_image.url} alt={inv.title} loading="lazy" decoding="async" className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
+                  </div>
+                )}
+                {displayLabelId && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground flex-shrink-0">商品ID</span>
+                    <span className="font-mono font-bold text-right">{displayLabelId}</span>
                   </div>
                 )}
                 {managementNo && (
@@ -682,6 +705,12 @@ function InventoryDetailToggle({
               {inv.item_image?.url && (
                 <div className="flex justify-center pb-1">
                   <img src={inv.item_image.url} alt={inv.title} loading="lazy" decoding="async" className="h-24 w-24 object-contain rounded-lg border bg-muted/20" />
+                </div>
+              )}
+              {displayLabelId && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground flex-shrink-0">商品ID</span>
+                  <span className="font-mono font-bold text-right">{displayLabelId}</span>
                 </div>
               )}
               {managementNo && (
@@ -2800,6 +2829,7 @@ export default function DeliveryHistory() {
                               title={item.title}
                               quantity={item.quantity}
                               unit=""
+                              labelId={item.labelId}
                               isOpen={!!openItems[itemKey]}
                               onToggle={() => toggleItem(history.id, item.inventoryId)}
                               onDeleted={handleDeleted}

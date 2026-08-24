@@ -154,6 +154,17 @@ const MODEL_PREFIX_PATTERNS = [
   /^ps4\s*/i,
 ];
 
+const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
+  ["monster-ball", ["モンスターボール", "monster ball", "monsterball"]],
+  ["animal-crossing", ["どうぶつの森", "animal crossing", "animalcrossing"]],
+  ["pikachu", ["ピカチュウ", "pikachu"]],
+  ["pokemon", ["ポケモン", "pokemon"]],
+  ["mario", ["マリオ", "mario"]],
+  ["luigi", ["ルイージ", "luigi"]],
+  ["zelda", ["ゼルダ", "ハイラル", "zelda", "hyrule"]],
+  ["limited", ["限定版", "限定", "limited edition", "limited", "special edition"]],
+];
+
 export function normalizeText(value: string): string {
   return value
     .normalize("NFKC")
@@ -244,9 +255,22 @@ function isBaseColorProduct(colorName: string): boolean {
   return normalized.includes("base") || normalized.includes("ベース");
 }
 
-function hasLimitedEditionMarker(value: string): boolean {
-  const normalized = normalizeText(value).toLowerCase();
-  return normalized.includes("限定版") || normalized.includes("limited") || normalized.includes("special edition");
+function limitedEditionProductKey(value: string): string | null {
+  const normalized = normalizeLooseText(value);
+  for (const [key, keywords] of LIMITED_EDITION_PRODUCT_KEYWORDS) {
+    if (keywords.some((keyword) => normalized.includes(normalizeLooseText(keyword)))) return key;
+  }
+  return null;
+}
+
+function limitedEditionKeysCompatible(a: string | null, b: string | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a === b || a === "limited" || b === "limited";
+}
+
+export function productNamesCanMatch(itemText: string, csvProductName: string): boolean {
+  return limitedEditionKeysCompatible(limitedEditionProductKey(itemText), limitedEditionProductKey(csvProductName));
 }
 
 function normalizeColorToken(value: string): string {
@@ -336,10 +360,10 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
   const csvModel = extractModel(csvProductName);
   if (csvModel && (!itemModel || itemModel !== csvModel)) return -1;
 
-  const csvLimited = hasLimitedEditionMarker(csvProductName);
-  const targetLimited = hasLimitedEditionMarker(targetText);
-  if (csvLimited) return targetLimited ? 90 : -1;
-  if (targetLimited) return -1;
+  const csvLimitedKey = limitedEditionProductKey(csvProductName);
+  const targetLimitedKey = limitedEditionProductKey(targetText);
+  if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return -1;
+  if (csvLimitedKey && targetLimitedKey) return csvLimitedKey === targetLimitedKey ? 95 : 90;
 
   const csvColor = extractColor(csvProductName);
   const managementText = normalizeLooseText(managementNo);
@@ -399,7 +423,11 @@ export function suggestCsvProduct(
   if (!best || tie) {
     const model = extractPreferredModel(itemTitle, managementNo);
     if (!model) return null;
-    const sameModelCandidates = csvProducts.filter((product) => extractModel(product.name) === model);
+    const targetText = `${itemTitle} ${managementNo}`;
+    const sameModelCandidates = csvProducts.filter((product) =>
+      extractModel(product.name) === model &&
+      productNamesCanMatch(targetText, product.name)
+    );
     if (sameModelCandidates.length === 1) {
       return { name: sameModelCandidates[0].name, score: 1 };
     }
@@ -454,7 +482,11 @@ function suggestShipmentCsvProductName(
   const model = extractPreferredModel(itemTitle, managementText);
   if (!model) return null;
 
-  const sameModelCandidates = csvProducts.filter((product) => extractModel(product.name) === model);
+  const targetText = `${itemTitle} ${managementText}`;
+  const sameModelCandidates = csvProducts.filter((product) =>
+    extractModel(product.name) === model &&
+    productNamesCanMatch(targetText, product.name)
+  );
   return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
 }
 
@@ -539,8 +571,9 @@ export function allocateShipmentItemsToCsvProducts(
     if (!itemName || quantity <= 0) continue;
 
     const managementText = Array.from(new Set(extractManagementHints(item.managementNo, itemName))).join(" ");
+    const itemMatchText = `${itemName} ${managementText}`;
     const itemModel = extractPreferredModel(itemName, managementText);
-    const itemTokens = colorTokens(`${itemName} ${managementText}`);
+    const itemTokens = colorTokens(itemMatchText);
     const suggestionName =
       (managementText ? suggestShipmentCsvProductName("", managementText, products) : null) ??
       suggestShipmentCsvProductName(itemName, managementText, products);
@@ -555,6 +588,7 @@ export function allocateShipmentItemsToCsvProducts(
       const specificRows = rows
         .filter((row) =>
           row.model === itemModel &&
+          productNamesCanMatch(itemMatchText, row.name) &&
           !row.wildcard &&
           !seen.has(row.index) &&
           row.colorTokens.size > 0 &&
@@ -564,7 +598,12 @@ export function allocateShipmentItemsToCsvProducts(
         .sort((a, b) => b.colorTokens.size - a.colorTokens.size || a.index - b.index);
       for (const row of specificRows) addUniqueRow(candidateRows, seen, row);
 
-      const wildcardRows = rows.filter((row) => row.model === itemModel && row.wildcard && !seen.has(row.index));
+      const wildcardRows = rows.filter((row) =>
+        row.model === itemModel &&
+        productNamesCanMatch(itemMatchText, row.name) &&
+        row.wildcard &&
+        !seen.has(row.index)
+      );
       for (const row of wildcardRows) addUniqueRow(candidateRows, seen, row);
     }
 

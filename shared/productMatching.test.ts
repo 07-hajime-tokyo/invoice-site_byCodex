@@ -93,6 +93,21 @@ describe("productMatching", () => {
     expect(extractModel("2DS クリアブラック")).toBe("2DS");
   });
 
+  it("New 2DS LL モンスターボールをランダムカラーに混ぜない", () => {
+    const products = [
+      { name: "New 2DS LL モンスターボール", qty: 1 },
+      { name: "New 2DS LL ランダムカラー", qty: 1 },
+    ];
+
+    expect(suggestCsvProduct("New 2DS LL モンスターボール", "409_マキシム_モンスターボール_1/1", products)?.name)
+      .toBe("New 2DS LL モンスターボール");
+    expect(suggestCsvProduct("New 2DS LL ホワイト×オレンジ", "409_マキシム_New2DSLL_1/1", products)?.name)
+      .toBe("New 2DS LL ランダムカラー");
+    expect(suggestCsvProduct("New 2DS LL モンスターボール", "409_マキシム_モンスターボール_1/1", [
+      { name: "New 2DS LL ランダムカラー", qty: 1 },
+    ])).toBeNull();
+  });
+
   it("No.393のNew 3DS系を別々の注文行へ分類する", () => {
     const products = [
       { name: "New 3DS LL ランダムカラー", qty: 10 },
@@ -171,7 +186,7 @@ describe("productMatching", () => {
 
     expect(suggestCsvProduct("2DS クリアブラック", "393_ルカ_2DS_4/5", products)?.name).toBe("2DS");
     expect(suggestCsvProduct("New 2DS LL ブラック×ターコイズ", "393_ルカ_New2DSLL_1/5", products)?.name).toBe("New 2DS LL");
-    expect(suggestCsvProduct("New 2DS LL モンスターボール", "393_ルカ_2DS_5/5", products)?.name).toBe("2DS");
+    expect(suggestCsvProduct("New 2DS LL モンスターボール", "393_ルカ_2DS_5/5", products)).toBeNull();
   });
 
   it("3DS LLホワイトベースだけが注文行にある場合は3DS LL仕入れをそこへ寄せる", () => {
@@ -231,6 +246,21 @@ describe("productMatching", () => {
       { productNameJa: "New 3DS LL ランダムカラー", productNameEn: "New 3DS LL ランダムカラー", quantity: 4 },
       { productNameJa: "New 2DS LL ランダムカラー", productNameEn: "New 2DS LL ランダムカラー", quantity: 2 },
       { productNameJa: "3DS LL ランダムカラー", productNameEn: "3DS LL ランダムカラー", quantity: 8 },
+    ]);
+  });
+
+  it("shipment allocation keeps New 2DS LL monster ball out of random color rows", () => {
+    const result = allocateShipmentItemsToCsvProducts([
+      { productNameJa: "New 2DS LL モンスターボール", productNameEn: "", quantity: 1, managementNo: "409_マキシム_モンスターボール_1/1" },
+      { productNameJa: "New 2DS LL ホワイト×オレンジ", productNameEn: "", quantity: 1, managementNo: "409_マキシム_New2DSLL_1/1" },
+    ], [
+      { name: "New 2DS LL モンスターボール", qty: 1 },
+      { name: "New 2DS LL ランダムカラー", qty: 1 },
+    ]);
+
+    expect(result).toEqual([
+      { productNameJa: "New 2DS LL モンスターボール", productNameEn: "New 2DS LL モンスターボール", quantity: 1 },
+      { productNameJa: "New 2DS LL ランダムカラー", productNameEn: "New 2DS LL ランダムカラー", quantity: 1 },
     ]);
   });
 

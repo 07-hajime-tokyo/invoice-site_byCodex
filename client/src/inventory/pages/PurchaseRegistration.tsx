@@ -736,10 +736,55 @@ function hasAnyProductText(value: string, keywords: string[]): boolean {
   return keywords.some((keyword) => compact.includes(compactProductText(keyword)));
 }
 
+const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
+  ["monster-ball", ["モンスターボール", "monster ball", "monsterball"]],
+  ["animal-crossing", ["どうぶつの森", "animal crossing", "animalcrossing"]],
+  ["pikachu", ["ピカチュウ", "pikachu"]],
+  ["pokemon", ["ポケモン", "pokemon"]],
+  ["mario", ["マリオ", "mario"]],
+  ["luigi", ["ルイージ", "luigi"]],
+  ["zelda", ["ゼルダ", "ハイラル", "zelda", "hyrule"]],
+  ["limited", ["限定版", "限定", "limited edition", "limited"]],
+];
+
+function limitedEditionProductKey(value: string): string | null {
+  const compact = compactProductText(value);
+  for (const [key, keywords] of LIMITED_EDITION_PRODUCT_KEYWORDS) {
+    if (keywords.some((keyword) => compact.includes(compactProductText(keyword)))) return key;
+  }
+  return null;
+}
+
+function isRandomColorProductTitle(value: string): boolean {
+  return hasAnyProductText(value, ["ランダムカラー", "random color", "randomcolor"]);
+}
+
+function limitedEditionKeysCompatible(a: string | null, b: string | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a === b || a === "limited" || b === "limited";
+}
+
+function canMatchTargetProduct(candidateText: string, targetTitle?: string): boolean {
+  if (!targetTitle) return true;
+  const targetLimitedKey = limitedEditionProductKey(targetTitle);
+  const candidateLimitedKey = limitedEditionProductKey(candidateText);
+  if (targetLimitedKey || candidateLimitedKey) return limitedEditionKeysCompatible(targetLimitedKey, candidateLimitedKey);
+  if (isRandomColorProductTitle(targetTitle) && candidateLimitedKey) return false;
+  return true;
+}
+
 function displayProductTitle(item: PurchaseItem): string {
   const title = item.title?.trim() || "-";
   const managementNo = parseEtc(item.etc).managementNo;
   const text = `${managementNo} ${title}`;
+
+  if (hasAnyProductText(text, ["モンスターボール", "monster ball", "monsterball"])) {
+    if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) {
+      return "New 2DS LL モンスターボール";
+    }
+    return title;
+  }
 
   if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) {
     if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL どうぶつの森";
@@ -860,6 +905,8 @@ function purchaseItemMatchTexts(item: PurchaseItem): string[] {
 
 function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targetTitle?: string): boolean {
   const title = displayProductTitle(item);
+  const candidateText = purchaseItemMatchTexts(item).join(" ");
+  if (!canMatchTargetProduct(candidateText, targetTitle)) return false;
   if (productKey(title) === targetKey) return true;
   if (!targetTitle) return false;
   const managementNo = parseEtc(item.etc).managementNo;
@@ -870,19 +917,15 @@ function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targe
   ) {
     return true;
   }
-  const matchText = purchaseItemMatchTexts(item).join(" ");
   const rawTitle = item.title?.trim() || title;
   return (
     suggestInvoiceProductNameFromHints(rawTitle, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
     suggestInvoiceProductNameFromHints(title, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
-    suggestInvoiceProductName(matchText, managementHints.join(" "), [{ name: targetTitle, qty: 1 }]) === targetTitle
+    suggestInvoiceProductName(candidateText, managementHints.join(" "), [{ name: targetTitle, qty: 1 }]) === targetTitle
   );
 }
 
 function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetTitle?: string): boolean {
-  if (productKey(item.title) === targetKey) return true;
-  if (!targetTitle) return false;
-
   const managementHints = extractManagementHints(item.legacyManagementNo, item.allocationLabel);
   const matchText = unique([
     item.title,
@@ -892,6 +935,10 @@ function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetT
     item.supplier.name,
     ...managementHints,
   ]).join(" ");
+
+  if (!canMatchTargetProduct(matchText, targetTitle)) return false;
+  if (productKey(item.title) === targetKey) return true;
+  if (!targetTitle) return false;
 
   return (
     suggestInvoiceProductNameFromHints(item.title, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
@@ -1029,6 +1076,7 @@ function labelOrderTitleFromManagementNo(managementNo: string): string {
 function formatLabelOrderTitle(value: string): string {
   const compact = compactProductText(value);
   if (compact.includes("ホワイトベース") || compact.includes("whitebase")) return "3DSLL White base";
+  if (compact.includes("モンスターボール") || compact.includes("monsterball")) return "New2DSLL Monster Ball";
   if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New3DSLL Random color";
   if (compact.includes("new3ds")) return "New3DS Random color";
   if (compact.includes("new2dsll") || compact.includes("new2dsxl")) return "New2DSLL Random color";
@@ -2425,7 +2473,7 @@ function withInvoiceProductCounts(
       ...(product.managementNos ?? []),
       ...(product.matchTexts ?? []),
     );
-    const matchText = unique([...(product.matchTexts ?? []), ...managementHints]).join(" ");
+    const matchText = unique([product.title, ...(product.matchTexts ?? []), ...managementHints]).join(" ");
     const titleSuggestion =
       suggestInvoiceProductNameFromHints(product.title, managementHints, candidates) ??
       (product.title.trim() ? suggestInvoiceProductName(product.title, managementHints.join(" "), candidates) : null);
@@ -2433,11 +2481,12 @@ function withInvoiceProductCounts(
       suggestInvoiceProductNameFromHints("", managementHints, candidates) ??
       titleSuggestion ??
       (matchText.trim() ? suggestInvoiceProductName(matchText, managementHints.join(" "), candidates) : null);
-    const suggestedKey = suggestedName ? productKey(suggestedName) : "";
+    const suggestedKey = suggestedName && canMatchTargetProduct(matchText, suggestedName) ? productKey(suggestedName) : "";
+    const directMatchesTarget = direct ? canMatchTargetProduct(matchText, direct.productName) : false;
     const matchedKey =
       suggestedKey && summariesByInvoiceKey.has(suggestedKey)
         ? suggestedKey
-        : direct
+        : direct && directMatchesTarget
           ? product.key
           : "";
     const target = matchedKey ? summariesByInvoiceKey.get(matchedKey) : undefined;
