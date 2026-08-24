@@ -7538,13 +7538,26 @@ export default function PurchaseRegistration() {
   );
   const selectedLabelPrintLabels = selectedLabelPrintGroup?.labels ?? [];
   const selectedReturnLabels = selectedReturnGroup?.labels ?? [];
+  const selectedShippingInventoryLabels = useMemo(
+    () => {
+      if (!selectedInvoiceNo) return [];
+      return inventoryLabels.filter((label) => {
+        if (!label.inventoryId || selectedRowInventoryIds.has(label.inventoryId)) return false;
+        return parseInvoiceFromManagementNo(label.legacyManagementNo)?.invoiceNo === selectedInvoiceNo;
+      });
+    },
+    [inventoryLabels, selectedInvoiceNo, selectedRowInventoryIds],
+  );
   const selectedShippingLabels = useMemo(() => {
     const selectedKey = selectedShippingGroup?.key;
     const receivedForGroup = selectedKey
       ? receivedShippingLabels.filter((label) => groupKeyFromLabel(label) === selectedKey)
       : receivedShippingLabels;
-    return mergeLabelViewsById(receivedForGroup, selectedShippingGroup?.labels ?? []);
-  }, [receivedShippingLabels, selectedShippingGroup]);
+    return mergeLabelViewsById(
+      mergeLabelViewsById(receivedForGroup, selectedShippingGroup?.labels ?? []),
+      selectedShippingInventoryLabels,
+    );
+  }, [receivedShippingLabels, selectedShippingGroup, selectedShippingInventoryLabels]);
   const allLabels = useMemo(() => buildLabelViews(rows), [rows]);
   const allScannableLabels = useMemo(() => mergeLabelViewsById(allLabels, inventoryLabels), [allLabels, inventoryLabels]);
   const allInvoiceLabels = useMemo(() => invoiceGroups.flatMap((group) => group.labels), [invoiceGroups]);
@@ -7614,7 +7627,9 @@ export default function PurchaseRegistration() {
           ? filterStockItemsByProductDetail(selectedEbayStockItems, productDetailFilter)
           : selectedEbayStockItems;
       }
-      return filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter);
+      return productDetailFilter
+        ? filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter)
+        : selectedInvoiceStockItems;
     },
     [productDetailFilter, selectedEbayStockItems, selectedInvoiceStockItems, selectedIsEbayGroup],
   );
