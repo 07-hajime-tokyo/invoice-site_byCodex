@@ -5331,6 +5331,19 @@ function StockPanel({
   const stockGroups = buildStockItemGroups(stockItems);
   const proposalGroups = buildStockProposalGroups(allStockItems, purchaseRows, searchText, unfinishedInvoices);
   const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
+  const [openStockGroupNames, setOpenStockGroupNames] = useState<Set<string>>(() => new Set());
+
+  const toggleStockGroup = (groupName: string) => {
+    setOpenStockGroupNames((current) => {
+      const next = new Set(current);
+      if (next.has(groupName)) {
+        next.delete(groupName);
+      } else {
+        next.add(groupName);
+      }
+      return next;
+    });
+  };
 
   if (viewMode === "proposal") {
     return <StockProposalPanel groups={proposalGroups} />;
@@ -5369,11 +5382,26 @@ function StockPanel({
                 {stockGroups.map((group) => (
                   <Fragment key={group.name}>
                     <tr key={`${group.name}-header`} className="border-b bg-slate-50">
-                      <td colSpan={7} className="px-4 py-2 text-xs font-medium text-muted-foreground">
-                        棚 {group.name} - {group.quantity.toLocaleString()}点
+                      <td colSpan={7} className="p-0">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100"
+                          onClick={() => toggleStockGroup(group.name)}
+                        >
+                          <ChevronDown
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 transition-transform",
+                              !openStockGroupNames.has(group.name) && "-rotate-90",
+                            )}
+                          />
+                          <span>棚 {group.name}</span>
+                          <Badge variant="secondary" className="text-[11px]">
+                            {group.quantity.toLocaleString()}点
+                          </Badge>
+                        </button>
                       </td>
                     </tr>
-                    {group.items.map((item) => (
+                    {openStockGroupNames.has(group.name) ? group.items.map((item) => (
                       <tr key={item.key} className="border-b last:border-0">
                         <td className="px-4 py-3">
                           {item.labelId ? (
@@ -5426,7 +5454,7 @@ function StockPanel({
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                    )) : null}
                   </Fragment>
                 ))}
               </tbody>
