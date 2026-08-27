@@ -28,12 +28,17 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 
+// 発注管理タブは一時非表示。戻す場合は true にするだけで復帰できます。
+const SHOW_ORDER_MANAGEMENT_TAB = false;
+
 const menuItems = [
   { icon: PackageCheck, label: "入庫管理", path: "/inventory/purchases", color: "text-emerald-500" },
   { icon: ClipboardList, label: "入庫履歴", path: "/inventory/purchase-history", color: "text-teal-500" },
   { icon: PackageMinus, label: "在庫一覧", path: "/inventory/deliveries", color: "text-blue-500" },
   { icon: History, label: "出庫履歴", path: "/inventory/history", color: "text-violet-500" },
-  { icon: BarChart2, label: "発注管理", path: "/inventory/order-management", color: "text-orange-500" },
+  ...(SHOW_ORDER_MANAGEMENT_TAB
+    ? [{ icon: BarChart2, label: "発注管理", path: "/inventory/order-management", color: "text-orange-500" }]
+    : []),
   { icon: Globe, label: "海外発送", path: "/inventory/overseas-shipping", color: "text-sky-500" },
   { icon: Trash2, label: "削除済み商品", path: "/inventory/deleted-items", color: "text-rose-400" },
   { icon: RotateCcw, label: "復元管理", path: "/inventory/restore-management", color: "text-rose-500" },
