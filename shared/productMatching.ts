@@ -156,6 +156,7 @@ const MODEL_PREFIX_PATTERNS = [
 
 const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
   ["monster-ball", ["モンスターボール", "monster ball", "monsterball"]],
+  ["minecraft", ["マインクラフト", "minecraft"]],
   ["animal-crossing", ["どうぶつの森", "animal crossing", "animalcrossing"]],
   ["pikachu", ["ピカチュウ", "pikachu"]],
   ["pokemon", ["ポケモン", "pokemon"]],
@@ -323,7 +324,7 @@ function colorTokens(value: string): Set<string> {
 function splitColorParts(colorName: string): string[] {
   const normalized = normalizeText(colorName);
   return normalized
-    .split(/[&、,／/]/)
+    .split(/[&、,／/×xXｘＸ]/)
     .map((part) => part.trim())
     .filter(Boolean);
 }

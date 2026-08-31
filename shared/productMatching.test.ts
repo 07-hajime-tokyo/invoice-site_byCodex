@@ -108,6 +108,35 @@ describe("productMatching", () => {
     ])).toBeNull();
   });
 
+  it("色付きの発注商品は管理番号の色も使って該当インボイス商品へ分類する", () => {
+    const products = [
+      { name: "New 2DS LL ホワイト×オレンジ", qty: 3 },
+      { name: "New 2DS LL ホワイト×ラベンダー", qty: 1 },
+      { name: "New 2DS LL マインクラフト", qty: 1 },
+      { name: "3DS ブルー", qty: 2 },
+      { name: "3DS レッド", qty: 1 },
+    ];
+
+    expect(suggestCsvProduct("New 2DS LL", "410_マキシム_New2DSLL_オレンジ_1/2", products)?.name)
+      .toBe("New 2DS LL ホワイト×オレンジ");
+    expect(suggestCsvProduct("New 2DS LL ホワイト×ラベンダー", "410_マキシム_New2DSLL_ラベンダー_1/1", products)?.name)
+      .toBe("New 2DS LL ホワイト×ラベンダー");
+    expect(suggestCsvProduct("3DS コバルトブルー", "410_マキシム_3DS_ブルー_1/2", products)?.name)
+      .toBe("3DS ブルー");
+    expect(suggestCsvProduct("3DS フレアレッド", "410_マキシム_3DS_レッド_1/1", products)?.name)
+      .toBe("3DS レッド");
+  });
+
+  it("New 2DS LL マインクラフトをランダムカラーに混ぜない", () => {
+    expect(suggestCsvProduct("New 2DS LL マインクラフト", "410_マキシム_New2DSLL_マインクラフト_1/1", [
+      { name: "New 2DS LL ランダムカラー", qty: 1 },
+    ])).toBeNull();
+    expect(suggestCsvProduct("New 2DS LL マインクラフト", "410_マキシム_New2DSLL_マインクラフト_1/1", [
+      { name: "New 2DS LL ホワイト×オレンジ", qty: 1 },
+      { name: "New 2DS LL マインクラフト", qty: 1 },
+    ])?.name).toBe("New 2DS LL マインクラフト");
+  });
+
   it("No.393のNew 3DS系を別々の注文行へ分類する", () => {
     const products = [
       { name: "New 3DS LL ランダムカラー", qty: 10 },

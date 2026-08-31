@@ -738,6 +738,7 @@ function hasAnyProductText(value: string, keywords: string[]): boolean {
 
 const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
   ["monster-ball", ["モンスターボール", "monster ball", "monsterball"]],
+  ["minecraft", ["マインクラフト", "minecraft"]],
   ["animal-crossing", ["どうぶつの森", "animal crossing", "animalcrossing"]],
   ["pikachu", ["ピカチュウ", "pikachu"]],
   ["pokemon", ["ポケモン", "pokemon"]],
@@ -833,6 +834,36 @@ function displayProductTitle(item: PurchaseItem): string {
 
 function actualProductTitle(item: PurchaseItem): string {
   return item.title?.trim() || displayProductTitle(item);
+}
+
+function invoiceAlignedProductTitle(
+  item: PurchaseItem,
+  invoiceProducts: InvoiceProductSummary[],
+): string {
+  const fallbackTitle = displayProductTitle(item);
+  if (invoiceProducts.length === 0) return fallbackTitle;
+
+  const candidates = invoiceProducts.map((product) => ({
+    name: product.productName,
+    qty: product.orderQty,
+  }));
+  const managementNo = parseEtc(item.etc).managementNo;
+  const managementHints = extractManagementHints(item.etc, managementNo);
+  const rawTitle = actualProductTitle(item);
+  const matchText = unique([
+    rawTitle,
+    item.title?.trim() ?? "",
+    item.etc?.trim() ?? "",
+    managementNo,
+    ...managementHints,
+  ]).join(" ");
+  const suggestedName =
+    suggestInvoiceProductNameFromHints(rawTitle, [item.etc, managementNo, ...managementHints], candidates) ??
+    suggestInvoiceProductName(matchText, managementHints.join(" "), candidates);
+
+  return suggestedName && canMatchTargetProduct(matchText, suggestedName)
+    ? suggestedName
+    : fallbackTitle;
 }
 
 type CsvProductCandidate = { name: string; qty: number };
@@ -2088,11 +2119,14 @@ function buildStockSearchText(item: StockItemView): string {
     .toLowerCase();
 }
 
-function buildProductSummaries(rows: PurchaseRow[]): ProductSummary[] {
+function buildProductSummaries(
+  rows: PurchaseRow[],
+  invoiceProducts: InvoiceProductSummary[] = [],
+): ProductSummary[] {
   const map = new Map<string, ProductSummary>();
   for (const row of rows) {
     for (const item of row.purchase_items) {
-      const title = displayProductTitle(item);
+      const title = invoiceAlignedProductTitle(item, invoiceProducts);
       const key = productKey(title);
       const current = map.get(key) ?? {
         key,
@@ -7600,8 +7634,11 @@ export default function PurchaseRegistration() {
     [selectedInvoiceNo, selectedInvoiceStockItems, selectedRowInventoryIds],
   );
   const selectedBaseProducts = useMemo(
-    () => [...(selectedGroup?.products ?? buildProductSummaries(selectedRows)), ...selectedInvoiceStockProducts],
-    [selectedGroup?.products, selectedInvoiceStockProducts, selectedRows],
+    () => [
+      ...buildProductSummaries(selectedRows, selectedInvoiceProducts?.products ?? []),
+      ...selectedInvoiceStockProducts,
+    ],
+    [selectedInvoiceProducts?.products, selectedInvoiceStockProducts, selectedRows],
   );
   const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? [])
     .filter((product) => !selectedInvoiceNo || product.invoiceOrdered != null);
