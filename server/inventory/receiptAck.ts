@@ -407,8 +407,8 @@ export async function ingestReceiptAckCrawlResult(rawPayload: unknown) {
   }
 
   await ensureReceiptAckAssignee(db);
-  const crawledAt = asCrawledAt(payload.crawledAt);
-  await setSystemSetting(LAST_CRAWLED_SETTING_KEY, crawledAt.toISOString());
+  const receivedAt = new Date();
+  await setSystemSetting(LAST_CRAWLED_SETTING_KEY, receivedAt.toISOString());
   const rows = await listReceiptAckCandidatePurchases(db, startDate);
   const maps = buildSiteResultMaps(payload);
   let matched = 0;
