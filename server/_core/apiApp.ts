@@ -5,6 +5,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerChatRoutes } from "./chat";
 import { registerGasWebhookRoutes } from "./gasWebhook";
+import { registerReceiptAckIngestRoutes } from "./receiptAckIngest";
 import { registerCronRoutes } from "./cron";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -89,6 +90,7 @@ export async function createApiApp() {
   registerOAuthRoutes(app);
   registerChatRoutes(app);
   registerGasWebhookRoutes(app);
+  registerReceiptAckIngestRoutes(app);
   registerCronRoutes(app);
 
   const setShaftSalesHeaders = (res: express.Response) => {

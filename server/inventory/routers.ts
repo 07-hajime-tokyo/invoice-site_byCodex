@@ -33,6 +33,7 @@ import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
 import { inboundDeskRouter } from "./inboundDesk";
 import { outboundBoxesRouter } from "./outboundBoxes";
+import { getReceiptAckSummary, markReceiptAckDone } from "./receiptAck";
 import { processInventoryDelivery } from "./deliveryService";
 import { recordWorkLog, workLogsRouter } from "./workLogs";
 import { diffInventoryFields, recordInventoryChange } from "./changeLog";
@@ -1119,6 +1120,11 @@ function enrichPurchaseHistoryRow(
     supplierName: nonEmptyPurchaseHistoryText(row.supplierName) ?? nonEmptyPurchaseHistoryText(purchase.supplierName),
     trackingNumber: nonEmptyPurchaseHistoryText(row.trackingNumber) ?? nonEmptyPurchaseHistoryText(purchase.trackingNumber),
     carrier: nonEmptyPurchaseHistoryText(row.carrier) ?? nonEmptyPurchaseHistoryText(purchase.carrier),
+    receiptAckPurchaseId: purchase.id,
+    receiptAckStatus: nonEmptyPurchaseHistoryText(purchase.receiptAckStatus),
+    receiptAckSource: nonEmptyPurchaseHistoryText(purchase.receiptAckSource),
+    receiptAckAt: purchase.receiptAckAt ?? null,
+    receiptAckNote: nonEmptyPurchaseHistoryText(purchase.receiptAckNote),
   };
 }
 
@@ -1173,6 +1179,11 @@ function mergePurchaseHistoryRows(a: PurchaseHistoryRow, b: PurchaseHistoryRow):
     supplierName: nonEmptyPurchaseHistoryText(primary.supplierName) ?? nonEmptyPurchaseHistoryText(secondary.supplierName),
     trackingNumber: nonEmptyPurchaseHistoryText(primary.trackingNumber) ?? nonEmptyPurchaseHistoryText(secondary.trackingNumber),
     carrier: nonEmptyPurchaseHistoryText(primary.carrier) ?? nonEmptyPurchaseHistoryText(secondary.carrier),
+    receiptAckPurchaseId: primary.receiptAckPurchaseId ?? secondary.receiptAckPurchaseId,
+    receiptAckStatus: nonEmptyPurchaseHistoryText(primary.receiptAckStatus) ?? nonEmptyPurchaseHistoryText(secondary.receiptAckStatus),
+    receiptAckSource: nonEmptyPurchaseHistoryText(primary.receiptAckSource) ?? nonEmptyPurchaseHistoryText(secondary.receiptAckSource),
+    receiptAckAt: primary.receiptAckAt ?? secondary.receiptAckAt,
+    receiptAckNote: nonEmptyPurchaseHistoryText(primary.receiptAckNote) ?? nonEmptyPurchaseHistoryText(secondary.receiptAckNote),
   };
 }
 
@@ -1226,6 +1237,11 @@ async function getRecoveredPurchaseHistoriesFromLabels(
         supplierName: inventory.supplierName ?? null,
         trackingNumber: null,
         carrier: null,
+        receiptAckPurchaseId: null,
+        receiptAckStatus: null,
+        receiptAckSource: null,
+        receiptAckAt: null,
+        receiptAckNote: null,
       });
       existingKeys.add(key);
       if (recovered.length >= limit) return recovered;
@@ -5823,6 +5839,21 @@ export const inventoryRouter = router({
         // Step4: DBの履歴を取り消し済みに更新
         await cancelPurchaseHistory(input.id);
         return { success: true };
+      }),
+  }),
+
+  // ============================================================
+  // 受取連絡チェック
+  // ============================================================
+  receiptAck: router({
+    summary: publicProcedure.query(async () => {
+      return getReceiptAckSummary();
+    }),
+
+    markDone: publicProcedure
+      .input(z.object({ purchaseId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        return markReceiptAckDone(input.purchaseId);
       }),
   }),
 

@@ -630,6 +630,14 @@ export const localPurchases = mysqlTable("local_purchases", {
   supplierUrl: varchar("supplierUrl", { length: 500 }),
   /** 仕入先名（「Amazon モノモロストア」等「サイト名+出品者名」） */
   supplierName: varchar("supplierName", { length: 500 }),
+  /** 受取連絡状態: done / pending / not_required / unknown / unavailable */
+  receiptAckStatus: varchar("receiptAckStatus", { length: 20 }),
+  /** 受取連絡状態の更新元: crawl / manual */
+  receiptAckSource: varchar("receiptAckSource", { length: 20 }),
+  /** 受取連絡状態の最終確認日時 */
+  receiptAckAt: timestamp("receiptAckAt"),
+  /** 巡回エラーや判定理由のメモ */
+  receiptAckNote: varchar("receiptAckNote", { length: 255 }),
   /**
    * 入庫分類（T22）: ebay / oregon / direct / domestic。NULL=未仕訳。
    * 追跡番号到着時に classifyInbound() で自動判定、または人間が上書き。
