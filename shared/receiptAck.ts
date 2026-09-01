@@ -26,10 +26,7 @@ export type ReceiptAckTarget = {
   itemId: string;
 };
 
-export type ReceiptAckUrlClassification =
-  | { status: "target"; target: ReceiptAckTarget }
-  | { status: "not_required" }
-  | { status: "unknown" };
+export type ReceiptAckUrlClassification = { status: "target"; target: ReceiptAckTarget } | { status: "not_required" } | { status: "unknown" };
 
 export type ReceiptAckCrawlItem = {
   itemId: string;
@@ -40,7 +37,9 @@ export type ReceiptAckCrawlItem = {
 const URLISH_RE = /^(?:https?:\/\/|\/\/|[a-z0-9.-]+\.[a-z]{2,}(?:[/?#:].*)?$)/i;
 
 function cleanText(value: unknown): string {
-  return String(value ?? "").normalize("NFKC").trim();
+  return String(value ?? "")
+    .normalize("NFKC")
+    .trim();
 }
 
 function normalizeUrlCandidate(value: unknown): string {
@@ -76,11 +75,11 @@ export function parseReceiptAckTarget(supplierUrl: unknown): ReceiptAckTarget | 
   }
 
   const yahooFleaMatch = url.match(/\/item\/([a-z]?\d+)(?:[/?#]|$)/i);
-  if (
-    yahooFleaMatch?.[1] &&
-    /(?:^|\/\/|\.)(?:paypayfleamarket(?:-sec)?|paypayfleamarket\.yahoo|fleamarket\.yahoo)\./i.test(url)
-  ) {
-    return { site: "yahoo_fleamarket", itemId: normalizeItemId(yahooFleaMatch[1]) };
+  if (yahooFleaMatch?.[1] && /(?:^|\/\/|\.)(?:paypayfleamarket(?:-sec)?|paypayfleamarket\.yahoo|fleamarket\.yahoo)\./i.test(url)) {
+    return {
+      site: "yahoo_fleamarket",
+      itemId: normalizeItemId(yahooFleaMatch[1]),
+    };
   }
 
   return null;
@@ -92,6 +91,9 @@ export function classifyReceiptAckUrl(supplierUrl: unknown): ReceiptAckUrlClassi
 
   const target = parseReceiptAckTarget(raw);
   if (target) return { status: "target", target };
+
+  const url = normalizeUrlCandidate(raw);
+  if (/(?:^|\/\/|\.)mercari-shops\.com/i.test(url)) return { status: "unknown" };
 
   return URLISH_RE.test(raw) ? { status: "not_required" } : { status: "unknown" };
 }
@@ -105,11 +107,10 @@ export function resolveMissingReceiptAckTargetStatus(site: ReceiptAckSite, siteA
   return receiptAckSiteCompletesMissingItems(site) ? "done" : "unknown";
 }
 
-export function resolveReceiptAckStatusFromCrawlItem(
-  site: ReceiptAckSite,
-  item: ReceiptAckCrawlItem,
-): ReceiptAckStatus {
-  const status = cleanText(item.status).toLowerCase().replace(/[\s-]+/g, "_");
+export function resolveReceiptAckStatusFromCrawlItem(site: ReceiptAckSite, item: ReceiptAckCrawlItem): ReceiptAckStatus {
+  const status = cleanText(item.status)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   if (status === "bundled" || status === "not_required") return "not_required";
   if (site === "yahuoku" && item.isStore) return "not_required";
   if (["completed", "done", "receipt_done", "received_confirmed"].includes(status)) return "done";
