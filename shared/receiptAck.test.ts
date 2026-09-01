@@ -98,7 +98,7 @@ describe("receiptAck", () => {
 
   it("表示ラベルを返す", () => {
     expect(receiptAckLabel("done", "crawl")).toBe("済");
-    expect(receiptAckLabel("done", "manual")).toBe("済（未確認）");
+    expect(receiptAckLabel("done", "manual")).toBe("済（手動）");
     expect(receiptAckLabel("pending")).toBe("未");
   });
 
