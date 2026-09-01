@@ -41,16 +41,45 @@ describe("receiptAck", () => {
 
   it("対象外サイトとURL不明を分ける", () => {
     expect(classifyReceiptAckUrl("https://www.suruga-ya.jp/product/detail/123")).toEqual({ status: "not_required" });
-    expect(classifyReceiptAckUrl("追跡番号不明")).toEqual({ status: "unknown" });
+    expect(classifyReceiptAckUrl("https://mercari-shops.com/products/abc123")).toEqual({ status: "unknown" });
+    expect(classifyReceiptAckUrl("追跡番号不明")).toEqual({
+      status: "unknown",
+    });
     expect(classifyReceiptAckUrl("")).toEqual({ status: "unknown" });
   });
 
   it("クロール結果を受取連絡状態に変換する", () => {
-    expect(resolveReceiptAckStatusFromCrawlItem("yahuoku", { itemId: "n1", status: "shipped" })).toBe("pending");
-    expect(resolveReceiptAckStatusFromCrawlItem("yahuoku", { itemId: "n1", status: "shipped", isStore: true })).toBe("not_required");
-    expect(resolveReceiptAckStatusFromCrawlItem("mercari", { itemId: "m1", status: "awaiting_review" })).toBe("pending");
-    expect(resolveReceiptAckStatusFromCrawlItem("yahoo_fleamarket", { itemId: "z1", status: "completed" })).toBe("done");
-    expect(resolveReceiptAckStatusFromCrawlItem("mercari", { itemId: "m1", status: "bundled" })).toBe("not_required");
+    expect(
+      resolveReceiptAckStatusFromCrawlItem("yahuoku", {
+        itemId: "n1",
+        status: "shipped",
+      })
+    ).toBe("pending");
+    expect(
+      resolveReceiptAckStatusFromCrawlItem("yahuoku", {
+        itemId: "n1",
+        status: "shipped",
+        isStore: true,
+      })
+    ).toBe("not_required");
+    expect(
+      resolveReceiptAckStatusFromCrawlItem("mercari", {
+        itemId: "m1",
+        status: "awaiting_review",
+      })
+    ).toBe("pending");
+    expect(
+      resolveReceiptAckStatusFromCrawlItem("yahoo_fleamarket", {
+        itemId: "z1",
+        status: "completed",
+      })
+    ).toBe("done");
+    expect(
+      resolveReceiptAckStatusFromCrawlItem("mercari", {
+        itemId: "m1",
+        status: "bundled",
+      })
+    ).toBe("not_required");
   });
 
   it("一覧に無い場合に完了扱いできるサイトを限定する", () => {
