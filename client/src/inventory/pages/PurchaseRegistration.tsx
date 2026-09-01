@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { FedexShipmentDialog, type HistoryItem } from "@/inventory/pages/DeliveryHistory";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
+import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import {
   Boxes,
   CalendarDays,
@@ -2891,7 +2892,7 @@ function PurchaseRegistrationCard({
             <span className="truncate font-medium">{supplier.name}</span>
             {supplier.url ? (
               <a
-                href={supplier.url}
+                href={normalizeExternalUrl(supplier.url)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline"
@@ -3105,7 +3106,7 @@ function StockDetailCard({
             <span className="truncate font-medium">{item.supplier.name}</span>
             {item.supplier.url ? (
               <a
-                href={item.supplier.url}
+                href={normalizeExternalUrl(item.supplier.url)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
@@ -5457,7 +5458,7 @@ function StockPanel({
                         <td className="px-4 py-3">
                           {item.supplier.url ? (
                             <a
-                              href={item.supplier.url}
+                              href={normalizeExternalUrl(item.supplier.url)}
                               target="_blank"
                               rel="noreferrer"
                               className="text-emerald-700 hover:underline"

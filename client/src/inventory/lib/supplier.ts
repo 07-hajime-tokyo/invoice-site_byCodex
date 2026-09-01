@@ -86,6 +86,15 @@ export function getSiteNameFromUrl(url: string | null | undefined): string {
   }
 }
 
+export function normalizeExternalUrl(url: string | null | undefined): string {
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return "";
+  if (/^[a-z][a-z\d+\-.]*:/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^[\w.-]+\.[a-z]{2,}(?:[/?#:].*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
 function compactSupplierText(value: string): string {
   return value.toLowerCase().replace(/[!！\s　・･_\-ー]/g, "");
 }
