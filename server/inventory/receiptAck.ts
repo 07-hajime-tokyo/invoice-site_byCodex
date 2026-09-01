@@ -215,11 +215,14 @@ function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngest
 
   const item = maps.itemsBySite.get(target.site)?.get(receiptAckItemKey(target.site, target.itemId));
   if (item) {
+    const status = resolveReceiptAckStatusFromCrawlItem(target.site, item);
     return {
-      status: resolveReceiptAckStatusFromCrawlItem(target.site, item),
+      status,
       source: "crawl",
       at: crawledAt,
-      note: cleanNote(item.status),
+      note: target.site === "yahuoku" && item.isStore && status === "not_required"
+        ? "ヤフオクのストア出品のため受取評価不要"
+        : cleanNote(item.status),
     };
   }
 

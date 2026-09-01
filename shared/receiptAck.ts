@@ -119,7 +119,7 @@ export function resolveReceiptAckStatusFromCrawlItem(site: ReceiptAckSite, item:
 }
 
 export function receiptAckLabel(status: ReceiptAckStatus | null | undefined, source?: ReceiptAckSource | string | null) {
-  if (status === "done") return source === "manual" ? "済（未確認）" : "済";
+  if (status === "done") return source === "manual" ? "済（手動）" : "済";
   if (status === "pending") return "未";
   if (status === "not_required") return "対象外";
   if (status === "unknown") return "判定不可";

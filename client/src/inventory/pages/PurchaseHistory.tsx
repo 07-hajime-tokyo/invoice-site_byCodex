@@ -73,7 +73,6 @@ type ReceiptAckCellProps = {
 function ReceiptAckCell({ history, isUpdating, onMarkDone }: ReceiptAckCellProps) {
   const status = normalizeReceiptAckStatus(history.receiptAckStatus);
   const label = getReceiptAckLabel(history);
-  const supplierHref = normalizeExternalUrl(history.supplierUrl);
 
   if (!status) {
     return <span className="text-muted-foreground">—</span>;
@@ -83,18 +82,6 @@ function ReceiptAckCell({ history, isUpdating, onMarkDone }: ReceiptAckCellProps
     return (
       <div className="flex items-center gap-1.5">
         <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">未</Badge>
-        {supplierHref ? (
-          <a
-            href={supplierHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-          >
-            <ExternalLink className="h-3 w-3" />
-            取引
-          </a>
-        ) : null}
         <Button
           size="sm"
           variant="outline"
@@ -118,7 +105,7 @@ function ReceiptAckCell({ history, isUpdating, onMarkDone }: ReceiptAckCellProps
   }
 
   if (status === "not_required") {
-    return <Badge variant="secondary" className="text-xs">対象外</Badge>;
+    return <Badge variant="secondary" className="text-xs" title={receiptAckTitle(history)}>対象外</Badge>;
   }
 
   if (status === "unavailable") {
