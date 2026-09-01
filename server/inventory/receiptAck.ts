@@ -1,6 +1,6 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
-import { actionItemAssignees, actionItems, localPurchases } from "../../drizzle/schema";
+import { actionItemAssignees, actionItems, inventoryItemLabels, localPurchases } from "../../drizzle/schema";
 import type { AppDatabase } from "../_core/database";
 import { getDb, getSystemSetting, setSystemSetting } from "./db";
 import {
@@ -19,7 +19,8 @@ const PENDING_TASK_SOURCE_KEY = "receipt-ack-pending";
 const CRAWL_FAILED_TASK_SOURCE_KEY = "receipt-ack-crawl-failed";
 const STALE_TASK_SOURCE_KEY = "receipt-ack-stale";
 const LAST_CRAWLED_SETTING_KEY = "receiptAckLastCrawledAt";
-const RECEIPT_ACK_ASSIGNEE = "野田さん";
+const RECEIPT_ACK_OPERATIONS_ASSIGNEE = "野田さん";
+const RECEIPT_ACK_PENDING_ASSIGNEE = "荷受担当";
 const DEFAULT_RECEIPT_ACK_STALE_HOURS = 36;
 
 const receiptAckCrawlItemSchema = z
@@ -53,7 +54,9 @@ type ReceiptAckSource = "crawl" | "manual";
 type ReceiptAckTaskRow = Pick<
   LocalPurchaseRow,
   "id" | "title" | "managementNo" | "supplierName" | "supplierUrl" | "receivedDate" | "receiptAckSource" | "receiptAckNote"
->;
+> & {
+  labelLegacyManagementNo?: string | null;
+};
 
 type ReceiptAckUpdate = {
   status: ReceiptAckStatus;
@@ -134,11 +137,26 @@ async function requireDb() {
   return db;
 }
 
+export function shouldRecheckReceiptAckCandidate(row: { receiptAckStatus?: string | null; receiptAckSource?: string | null }) {
+  return !(cleanText(row.receiptAckStatus) === "done" && cleanText(row.receiptAckSource) === "crawl");
+}
+
 async function listReceiptAckCandidatePurchases(db: AppDatabase, startDate: string) {
   return db
     .select()
     .from(localPurchases)
-    .where(and(eq(localPurchases.status, "purchased"), gte(localPurchases.receivedDate, startDate)))
+    .where(
+      and(
+        eq(localPurchases.status, "purchased"),
+        gte(localPurchases.receivedDate, startDate),
+        or(
+          isNull(localPurchases.receiptAckStatus),
+          isNull(localPurchases.receiptAckSource),
+          ne(localPurchases.receiptAckStatus, "done"),
+          ne(localPurchases.receiptAckSource, "crawl")
+        )
+      )
+    )
     .orderBy(desc(localPurchases.receivedDate), desc(localPurchases.createdAt))
     .limit(5000);
 }
@@ -215,11 +233,12 @@ function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngest
 
   const item = maps.itemsBySite.get(target.site)?.get(receiptAckItemKey(target.site, target.itemId));
   if (item) {
+    const status = resolveReceiptAckStatusFromCrawlItem(target.site, item);
     return {
-      status: resolveReceiptAckStatusFromCrawlItem(target.site, item),
+      status,
       source: "crawl",
       at: crawledAt,
-      note: cleanNote(item.status),
+      note: resolveReceiptAckNoteFromCrawlItem(target.site, item, status),
     };
   }
 
@@ -240,15 +259,37 @@ function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngest
   };
 }
 
-function purchaseLine(row: ReceiptAckTaskRow, prefix = "-") {
-  const managementNo = cleanText(row.managementNo) || "管理番号なし";
-  const title = cleanText(row.title) || "商品名不明";
-  const supplier = cleanText(row.supplierName) || "仕入先不明";
-  const receivedDate = cleanText(row.receivedDate) || "入庫日不明";
-  return `${prefix} ${receivedDate} ${managementNo} ${title} / ${supplier}`;
+export function resolveReceiptAckNoteFromCrawlItem(
+  site: ReceiptAckSite,
+  item: Pick<z.infer<typeof receiptAckCrawlItemSchema>, "status" | "isStore">,
+  status: ReceiptAckStatus
+) {
+  return site === "yahuoku" && item.isStore && status === "not_required"
+    ? "ヤフオクのストア出品のため受取評価不要"
+    : cleanNote(item.status);
 }
 
-function buildPendingTaskDetail(rows: ReceiptAckTaskRow[]) {
+function purchaseLine(row: ReceiptAckTaskRow, prefix = "-") {
+  // 旧管理番号は現場が個体ラベルで見る inventory_item_labels.legacyManagementNo を優先する。
+  // ラベル未作成などで取れない場合だけ local_purchases.managementNo にフォールバックする。
+  const managementNo = cleanText(row.labelLegacyManagementNo) || cleanText(row.managementNo) || "旧管理番号なし";
+  const title = cleanText(row.title) || "商品名不明";
+  // buildSupplierDisplay は client 配下の表示用ヘルパーなので、サーバ生成タスクでは保存済みの supplierName を使う。
+  const supplier = cleanText(row.supplierName) || "仕入先不明";
+  const target = parseReceiptAckTarget(row.supplierUrl);
+  const itemId = target?.itemId ?? "商品ID不明";
+  const supplierUrl = cleanText(row.supplierUrl);
+  const supplierLine = supplierUrl ? `${supplier} [開く](${supplierUrl})` : supplier;
+
+  return [
+    `${prefix} 商品ID: ${itemId}`,
+    `  旧管理番号: ${managementNo}`,
+    `  商品名: ${title}`,
+    `  仕入先: ${supplierLine}`,
+  ].join("\n");
+}
+
+export function buildPendingTaskDetail(rows: ReceiptAckTaskRow[]) {
   const manualRevoked = rows.filter(row => row.receiptAckSource === "manual" || cleanText(row.receiptAckNote).includes("手動済み取消"));
   const lines = rows.slice(0, 80).map(row => {
     const marker = row.receiptAckSource === "manual" || cleanText(row.receiptAckNote).includes("手動済み取消") ? "- [手動済み取消]" : "-";
@@ -256,16 +297,44 @@ function buildPendingTaskDetail(rows: ReceiptAckTaskRow[]) {
   });
 
   return [
-    `受取連絡が未実施の可能性がある入庫商品が ${rows.length} 件あります。`,
+    `入庫済みですが受取連絡がまだです。（${rows.length}件）`,
     manualRevoked.length > 0 ? `手動で済にした後、巡回で未実施に戻った商品が ${manualRevoked.length} 件あります。` : "",
     "",
     ...lines,
     rows.length > lines.length ? `- ほか ${rows.length - lines.length} 件` : "",
     "",
-    "入庫履歴の受取連絡列から取引ページを開き、完了後に「済にする」を押してください。",
+    "入庫履歴の仕入先列から取引ページを開き、完了後に受取連絡列の「済にする」を押してください。",
   ]
     .filter(line => line !== "")
     .join("\n");
+}
+
+async function attachReceiptAckTaskLegacyManagementNos(db: AppDatabase, rows: LocalPurchaseRow[]): Promise<ReceiptAckTaskRow[]> {
+  const purchaseIds = rows.map(row => row.id).filter(id => Number.isFinite(id));
+  if (purchaseIds.length === 0) return rows;
+
+  const labels = await db
+    .select({
+      purchaseId: inventoryItemLabels.purchaseId,
+      legacyManagementNo: inventoryItemLabels.legacyManagementNo,
+    })
+    .from(inventoryItemLabels)
+    .where(inArray(inventoryItemLabels.purchaseId, purchaseIds))
+    .orderBy(asc(inventoryItemLabels.id));
+
+  const legacyByPurchaseId = new Map<number, string>();
+  for (const label of labels) {
+    const purchaseId = Number(label.purchaseId);
+    const legacyManagementNo = cleanText(label.legacyManagementNo);
+    if (purchaseId > 0 && legacyManagementNo && !legacyByPurchaseId.has(purchaseId)) {
+      legacyByPurchaseId.set(purchaseId, legacyManagementNo);
+    }
+  }
+
+  return rows.map(row => ({
+    ...row,
+    labelLegacyManagementNo: legacyByPurchaseId.get(row.id) ?? null,
+  }));
 }
 
 export function buildCrawlFailedTaskDetail(failedSites: ReceiptAckFailedSite[]) {
@@ -294,10 +363,18 @@ export function buildStaleTaskDetail(lastCrawledAt: string | null, staleHours: n
 }
 
 async function ensureReceiptAckAssignee(db: AppDatabase) {
-  await db.insert(actionItemAssignees).ignore().values({ name: RECEIPT_ACK_ASSIGNEE, sortOrder: 4 });
+  await db.insert(actionItemAssignees).ignore().values({ name: RECEIPT_ACK_OPERATIONS_ASSIGNEE, sortOrder: 4 });
+  await db.insert(actionItemAssignees).ignore().values({ name: RECEIPT_ACK_PENDING_ASSIGNEE, sortOrder: 2 });
 }
 
-async function upsertAggregateActionItem(db: AppDatabase, sourceKey: string, title: string, detail: string, shouldOpen: boolean) {
+async function upsertAggregateActionItem(
+  db: AppDatabase,
+  sourceKey: string,
+  title: string,
+  detail: string,
+  shouldOpen: boolean,
+  assignee = RECEIPT_ACK_OPERATIONS_ASSIGNEE
+) {
   const existing = await db.select().from(actionItems).where(eq(actionItems.sourceKey, sourceKey));
   const openTasks = existing.filter(task => task.status === "open");
 
@@ -317,7 +394,7 @@ async function upsertAggregateActionItem(db: AppDatabase, sourceKey: string, tit
       .update(actionItems)
       .set({
         title,
-        assignee: RECEIPT_ACK_ASSIGNEE,
+        assignee,
         detail,
         status: "open",
         source: "receipt-ack",
@@ -334,7 +411,7 @@ async function upsertAggregateActionItem(db: AppDatabase, sourceKey: string, tit
 
   await db.insert(actionItems).values({
     title,
-    assignee: RECEIPT_ACK_ASSIGNEE,
+    assignee,
     detail,
     status: "open",
     source: "receipt-ack",
@@ -357,7 +434,15 @@ async function syncPendingReceiptAckActionItem(db: AppDatabase) {
     .orderBy(desc(localPurchases.receivedDate), desc(localPurchases.createdAt))
     .limit(500);
 
-  return upsertAggregateActionItem(db, PENDING_TASK_SOURCE_KEY, "受取連絡が未実施です", buildPendingTaskDetail(rows), rows.length > 0);
+  const taskRows = await attachReceiptAckTaskLegacyManagementNos(db, rows);
+  return upsertAggregateActionItem(
+    db,
+    PENDING_TASK_SOURCE_KEY,
+    "受取連絡が未実施です",
+    buildPendingTaskDetail(taskRows),
+    rows.length > 0,
+    RECEIPT_ACK_PENDING_ASSIGNEE
+  );
 }
 
 async function syncCrawlFailedReceiptAckActionItem(db: AppDatabase, failedSites: ReceiptAckFailedSite[]) {

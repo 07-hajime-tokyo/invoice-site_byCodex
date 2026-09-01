@@ -1,4 +1,4 @@
-import { useMemo, useState, type ClipboardEvent } from "react";
+import { useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
 import { CheckCircle2, ClipboardCheck, ExternalLink, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -16,6 +16,7 @@ import {
   toActionItemAttachmentPayloads,
   type ActionItemAttachmentDraft,
 } from "@/inventory/lib/actionItemAttachments";
+import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
@@ -77,6 +78,48 @@ function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | nul
   };
 }
 
+const DETAIL_EXTERNAL_LINK_RE = /\[([^\]\n]{1,40})\]\((https?:\/\/[^\s)]+)\)/g;
+
+function normalizeSafeDetailUrl(url: string) {
+  const normalized = normalizeExternalUrl(url);
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function renderDetailLine(line: string) {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of line.matchAll(DETAIL_EXTERNAL_LINK_RE)) {
+    const [raw, label, rawUrl] = match;
+    const index = match.index ?? 0;
+    const url = normalizeSafeDetailUrl(rawUrl);
+    if (!url) continue;
+
+    if (index > lastIndex) parts.push(line.slice(lastIndex, index));
+    parts.push(
+      <Button
+        key={`${index}-${url}`}
+        type="button"
+        variant="link"
+        className="h-auto p-0 align-baseline text-sm"
+        onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
+      >
+        {label}
+        <ExternalLink className="ml-1 h-3 w-3" />
+      </Button>
+    );
+    lastIndex = index + raw.length;
+  }
+
+  if (lastIndex < line.length) parts.push(line.slice(lastIndex));
+  return parts.length > 0 ? parts : line || "\u00a0";
+}
+
 function ActionItemDetail({
   detail,
   deliveryLink,
@@ -106,7 +149,7 @@ function ActionItemDetail({
                 </Button>
               </span>
             ) : (
-              line || "\u00a0"
+              renderDetailLine(line)
             )}
           </div>
         );
