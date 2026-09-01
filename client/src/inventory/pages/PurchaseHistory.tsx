@@ -14,16 +14,132 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Search, X, PackageCheck, RotateCcw, Loader2, Calendar, Download } from "lucide-react";
-import { buildSupplierDisplay } from "@/inventory/lib/supplier";
+import { RefreshCw, Search, X, PackageCheck, RotateCcw, Loader2, Calendar, Download, ExternalLink } from "lucide-react";
+import { buildSupplierDisplay, normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { toast } from "sonner";
 import { usePagination } from "@/inventory/hooks/usePagination";
 import { PaginationBar } from "@/inventory/components/PaginationBar";
+import {
+  RECEIPT_ACK_STATUSES,
+  receiptAckLabel,
+  type ReceiptAckSource,
+  type ReceiptAckStatus,
+} from "@shared/receiptAck";
+
+const receiptAckStatusSet = new Set<string>(RECEIPT_ACK_STATUSES);
+
+function normalizeReceiptAckStatus(value: string | null | undefined): ReceiptAckStatus | null {
+  const status = (value ?? "").trim();
+  return receiptAckStatusSet.has(status) ? (status as ReceiptAckStatus) : null;
+}
+
+function normalizeReceiptAckSource(value: string | null | undefined): ReceiptAckSource | null {
+  return value === "crawl" || value === "manual" ? value : null;
+}
+
+function getReceiptAckLabel(item: Pick<PurchaseHistoryItem, "receiptAckStatus" | "receiptAckSource">) {
+  return receiptAckLabel(
+    normalizeReceiptAckStatus(item.receiptAckStatus),
+    normalizeReceiptAckSource(item.receiptAckSource),
+  );
+}
+
+function formatReceiptAckAt(value: string | Date | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function receiptAckTitle(item: PurchaseHistoryItem) {
+  return [
+    item.receiptAckNote,
+    item.receiptAckAt ? `最終確認: ${formatReceiptAckAt(item.receiptAckAt)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+type ReceiptAckCellProps = {
+  history: PurchaseHistoryItem;
+  isUpdating: boolean;
+  onMarkDone: (history: PurchaseHistoryItem) => void;
+};
+
+function ReceiptAckCell({ history, isUpdating, onMarkDone }: ReceiptAckCellProps) {
+  const status = normalizeReceiptAckStatus(history.receiptAckStatus);
+  const label = getReceiptAckLabel(history);
+  const supplierHref = normalizeExternalUrl(history.supplierUrl);
+
+  if (!status) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
+  if (status === "pending") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">未</Badge>
+        {supplierHref ? (
+          <a
+            href={supplierHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <ExternalLink className="h-3 w-3" />
+            取引
+          </a>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isUpdating || history.cancelled !== 0 || !history.receiptAckPurchaseId}
+          onClick={() => onMarkDone(history)}
+          className="h-7 px-2 text-xs"
+        >
+          {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          済にする
+        </Button>
+      </div>
+    );
+  }
+
+  if (status === "done") {
+    return (
+      <Badge variant={history.receiptAckSource === "manual" ? "outline" : "default"} className={history.receiptAckSource === "manual" ? "text-xs" : "bg-green-600 text-xs"}>
+        {label}
+      </Badge>
+    );
+  }
+
+  if (status === "not_required") {
+    return <Badge variant="secondary" className="text-xs">対象外</Badge>;
+  }
+
+  if (status === "unavailable") {
+    return (
+      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700" title={receiptAckTitle(history)}>
+        確認不可
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="outline" className="text-xs" title={receiptAckTitle(history)}>
+      判定不可
+    </Badge>
+  );
+}
 
 /** 入庫履歴CSVエクスポート */
 function exportPurchaseHistoryCSV(items: PurchaseHistoryItem[]) {
   const rows: string[][] = [
-    ["管理番号", "商品名", "カテゴリ", "仕入先", "入庫日", "数量", "入庫単価", "入庫金額", "追跡番号", "担当者", "ステータス"],
+    ["管理番号", "商品名", "カテゴリ", "仕入先", "入庫日", "数量", "入庫単価", "入庫金額", "追跡番号", "受取連絡", "担当者", "ステータス"],
   ];
   for (const h of items) {
     const qty = parseFloat(h.quantity ?? "0");
@@ -39,6 +155,7 @@ function exportPurchaseHistoryCSV(items: PurchaseHistoryItem[]) {
       unitPrice != null ? String(unitPrice) : "-",
       totalValue != null ? String(totalValue) : "-",
       h.trackingNumber ?? "",
+      getReceiptAckLabel(h) || "",
       h.operatorName ?? "",
       h.cancelled ? "取り消し済み" : "入庫済み",
     ]);
@@ -72,11 +189,17 @@ type PurchaseHistoryItem = {
   supplierName?: string | null;
   trackingNumber?: string | null;
   carrier?: string | null;
+  receiptAckPurchaseId?: number | null;
+  receiptAckStatus?: string | null;
+  receiptAckSource?: string | null;
+  receiptAckAt?: string | Date | null;
+  receiptAckNote?: string | null;
 };
 
 export default function PurchaseHistory() {
   const { data: histories, isLoading, refetch } = trpc.inventory.purchaseHistory.list.useQuery({ limit: 200 });
   const cancelMutation = trpc.inventory.purchaseHistory.cancel.useMutation();
+  const markReceiptAckMutation = trpc.inventory.receiptAck.markDone.useMutation();
   const { data: currentUser } = trpc.auth.me.useQuery();
   const { data: operators } = trpc.inventory.zaico.getOperators.useQuery();
 
@@ -96,7 +219,8 @@ export default function PurchaseHistory() {
         (h.category ?? "").toLowerCase().includes(q) ||
         (h.supplier ?? "").toLowerCase().includes(q) ||
         (h.supplierName ?? "").toLowerCase().includes(q) ||
-        (h.trackingNumber ?? "").toLowerCase().includes(q);
+        (h.trackingNumber ?? "").toLowerCase().includes(q) ||
+        getReceiptAckLabel(h).toLowerCase().includes(q);
       if (!textMatch) return false;
     }
 
@@ -169,6 +293,22 @@ export default function PurchaseHistory() {
         next.delete(history.id);
         return next;
       });
+    }
+  }
+
+  async function handleMarkReceiptAckDone(history: PurchaseHistoryItem) {
+    const purchaseId = history.receiptAckPurchaseId;
+    if (!purchaseId) {
+      toast.error("受取連絡を更新できる発注データが見つかりません");
+      return;
+    }
+    try {
+      await markReceiptAckMutation.mutateAsync({ purchaseId });
+      toast.success(`「${history.kanriNo || history.title}」を受取連絡済みにしました`);
+      refetch();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "受取連絡の更新に失敗しました";
+      toast.error(msg);
     }
   }
 
@@ -291,6 +431,7 @@ export default function PurchaseHistory() {
                   <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">数量</th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">ステータス</th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">追跡番号</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">受取連絡</th>
                   <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">操作</th>
                 </tr>
               </thead>
@@ -322,15 +463,17 @@ export default function PurchaseHistory() {
                       {(() => {
                         const displayText = buildSupplierDisplay(h.supplierUrl, h.supplierName, h.supplier);
                         if (h.supplierUrl) {
+                          const supplierHref = normalizeExternalUrl(h.supplierUrl);
                           return (
                             <a
-                              href={h.supplierUrl}
+                              href={supplierHref}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
                               className="text-primary hover:underline flex items-center gap-1"
                             >
-                              🔗 {displayText}
+                              <ExternalLink className="h-3 w-3" />
+                              {displayText}
                             </a>
                           );
                         }
@@ -356,6 +499,13 @@ export default function PurchaseHistory() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                      <ReceiptAckCell
+                        history={h}
+                        isUpdating={markReceiptAckMutation.isPending}
+                        onMarkDone={handleMarkReceiptAckDone}
+                      />
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {canCancel ? (

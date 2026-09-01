@@ -294,7 +294,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     }
     await db.execute(sql`
       INSERT IGNORE INTO action_item_assignees (name, sortOrder)
-      VALUES ('全員', 0), ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3)
+      VALUES ('全員', 0), ('仕入れ担当', 1), ('荷受担当', 2), ('出荷担当', 3), ('野田さん', 4)
     `);
     await db.execute(sql`
       UPDATE action_item_assignees
@@ -303,9 +303,10 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         WHEN '仕入れ担当' THEN 1
         WHEN '荷受担当' THEN 2
         WHEN '出荷担当' THEN 3
+        WHEN '野田さん' THEN 4
         ELSE sortOrder
       END
-      WHERE name IN ('全員', '仕入れ担当', '荷受担当', '出荷担当')
+      WHERE name IN ('全員', '仕入れ担当', '荷受担当', '出荷担当', '野田さん')
     `);
     await db.execute(sql`
       DELETE FROM action_item_assignees WHERE name = 'その他'
@@ -393,6 +394,30 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     if (getRawRows(existingShaftParent).length === 0) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN shaftParentPurchaseId int NULL`);
     }
+    const existingReceiptAckStatus = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckStatus'`);
+    if (getRawRows(existingReceiptAckStatus).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckStatus varchar(20) NULL`);
+    }
+    const existingReceiptAckSource = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckSource'`);
+    if (getRawRows(existingReceiptAckSource).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckSource varchar(20) NULL`);
+    }
+    const existingReceiptAckAt = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckAt'`);
+    if (getRawRows(existingReceiptAckAt).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckAt timestamp NULL`);
+    }
+    const existingReceiptAckNote = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckNote'`);
+    if (getRawRows(existingReceiptAckNote).length === 0) {
+      await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckNote varchar(255) NULL`);
+    }
+    const existingReceiptAckIndex = await db.execute(sql`
+      SHOW INDEX FROM local_purchases WHERE Key_name = 'idx_local_purchases_receipt_ack'
+    `);
+    if (getRawRows(existingReceiptAckIndex).length === 0) {
+      await db.execute(sql`
+        ALTER TABLE local_purchases ADD INDEX idx_local_purchases_receipt_ack (receiptAckStatus, receivedDate)
+      `);
+    }
     await db.execute(sql`
       INSERT IGNORE INTO work_log_workers (name, sortOrder)
       VALUES ('鈴木', 1), ('藤本', 2), ('野田', 3)
@@ -448,6 +473,11 @@ type PurchaseHistoryWithDetails = PurchaseHistory & {
   supplierName: string | null;
   trackingNumber: string | null;
   carrier: string | null;
+  receiptAckPurchaseId: number | null;
+  receiptAckStatus: string | null;
+  receiptAckSource: string | null;
+  receiptAckAt: Date | string | null;
+  receiptAckNote: string | null;
 };
 
 async function getDumpRows<T extends DumpRow = DumpRow>(tableName: string): Promise<T[]> {
@@ -791,6 +821,11 @@ export async function getPurchaseHistories(limit = 200): Promise<PurchaseHistory
         supplierName: invExtra?.supplierName ?? null,
         trackingNumber: purchExtra?.trackingNumber ?? null,
         carrier: purchExtra?.carrier ?? null,
+        receiptAckPurchaseId: null,
+        receiptAckStatus: null,
+        receiptAckSource: null,
+        receiptAckAt: null,
+        receiptAckNote: null,
       };
     });
   }
@@ -825,7 +860,14 @@ export async function getPurchaseHistories(limit = 200): Promise<PurchaseHistory
     )
     .orderBy(desc(purchaseHistories.createdAt))
     .limit(limit);
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    receiptAckPurchaseId: null,
+    receiptAckStatus: null,
+    receiptAckSource: null,
+    receiptAckAt: null,
+    receiptAckNote: null,
+  }));
 }
 
 /**
@@ -1647,6 +1689,10 @@ export async function upsertLocalPurchase(data: InsertLocalPurchase) {
   if (data.stageUpdatedBy !== undefined) updateSet.stageUpdatedBy = data.stageUpdatedBy;
   if (data.stageUpdatedAt !== undefined) updateSet.stageUpdatedAt = data.stageUpdatedAt;
   if (data.shaftParentPurchaseId !== undefined) updateSet.shaftParentPurchaseId = data.shaftParentPurchaseId;
+  if (data.receiptAckStatus !== undefined) updateSet.receiptAckStatus = data.receiptAckStatus;
+  if (data.receiptAckSource !== undefined) updateSet.receiptAckSource = data.receiptAckSource;
+  if (data.receiptAckAt !== undefined) updateSet.receiptAckAt = data.receiptAckAt;
+  if (data.receiptAckNote !== undefined) updateSet.receiptAckNote = data.receiptAckNote;
   await db.insert(localPurchases).values(data).onDuplicateKeyUpdate({ set: updateSet });
 }
 
