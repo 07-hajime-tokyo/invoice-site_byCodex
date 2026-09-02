@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { google } from "googleapis";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
@@ -10,6 +11,13 @@ import {
   resolveDeliveryItemInvoiceNo,
 } from "@shared/invoiceKey";
 import { isClosedTradeYear } from "@shared/tradeStatus";
+import {
+  allocateShipmentProgressToProducts,
+  buildShipmentProgressProductTotals,
+  parseShipmentProgressSheetRows,
+  summarizeShipmentProgress,
+  type TradeShipmentProgressEntry,
+} from "@shared/tradeSheetStatus";
 import {
   classifyInbound,
   nextStage,
@@ -190,6 +198,109 @@ import {
 
 const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"]);
 type ShipmentSheetName = z.infer<typeof shipmentSheetNameSchema>;
+
+const TRADE_SHIPMENT_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
+const TRADE_SHIPMENT_SHEET_NAME_KEYWORD = "発送管理";
+
+let orderManagementShipmentProgressCache: {
+  expiresAt: number;
+  data: Map<string, TradeShipmentProgressEntry[]>;
+} | null = null;
+
+function fixGoogleServiceAccountJson(raw: string) {
+  const credentials = JSON.parse(raw);
+  if (credentials.private_key) {
+    credentials.private_key = credentials.private_key
+      .replace(/-----BEGINPRIVATEKEY-----/g, "-----BEGIN PRIVATE KEY-----")
+      .replace(/-----ENDPRIVATEKEY-----/g, "-----END PRIVATE KEY-----")
+      .replace(/-----BEGINRSAPRIVATEKEY-----/g, "-----BEGIN RSA PRIVATE KEY-----")
+      .replace(/-----ENDRSAPRIVATEKEY-----/g, "-----END RSA PRIVATE KEY-----")
+      .replace(/\\n/g, "\n");
+  }
+  return credentials;
+}
+
+function getInventorySheetsClient() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  const auth = new google.auth.GoogleAuth({
+    credentials: fixGoogleServiceAccountJson(raw),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  return google.sheets({ version: "v4", auth });
+}
+
+function getShipmentSheetAccessError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+
+  if (status === "403" || message.toLowerCase().includes("permission")) {
+    return new Error(
+      `Google Sheetsの権限がありません。スプシID ${TRADE_SHIPMENT_SPREADSHEET_ID} をサービスアカウントに共有してください。詳細: ${message}`,
+    );
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
+function quoteShipmentSheetName(sheetName: string) {
+  return `'${sheetName.replace(/'/g, "''")}'`;
+}
+
+function isShipmentProgressSheet(sheet: { title: string; hidden?: boolean }) {
+  return Boolean(sheet.title) && !sheet.hidden && sheet.title.includes(TRADE_SHIPMENT_SHEET_NAME_KEYWORD);
+}
+
+async function getOrderManagementShipmentProgressByInvoice() {
+  const sheets = getInventorySheetsClient();
+  if (!sheets) return new Map<string, TradeShipmentProgressEntry[]>();
+
+  const now = Date.now();
+  if (orderManagementShipmentProgressCache && orderManagementShipmentProgressCache.expiresAt > now) {
+    return orderManagementShipmentProgressCache.data;
+  }
+
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: TRADE_SHIPMENT_SPREADSHEET_ID,
+    fields: "sheets.properties(title,index,hidden)",
+  }).catch((error) => {
+    throw getShipmentSheetAccessError(error);
+  });
+
+  const tabs = (metadata.data.sheets ?? [])
+    .map((sheet) => ({
+      title: sheet.properties?.title ?? "",
+      index: sheet.properties?.index ?? 0,
+      hidden: sheet.properties?.hidden ?? false,
+    }))
+    .filter(isShipmentProgressSheet)
+    .sort((a, b) => a.index - b.index);
+
+  if (tabs.length === 0) {
+    const empty = new Map<string, TradeShipmentProgressEntry[]>();
+    orderManagementShipmentProgressCache = { expiresAt: now + 20_000, data: empty };
+    return empty;
+  }
+
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: TRADE_SHIPMENT_SPREADSHEET_ID,
+    ranges: tabs.map((tab) => `${quoteShipmentSheetName(tab.title)}!B:G`),
+    valueRenderOption: "FORMATTED_VALUE",
+  }).catch((error) => {
+    throw getShipmentSheetAccessError(error);
+  });
+
+  const progressByInvoice = parseShipmentProgressSheetRows(
+    (response.data.valueRanges ?? []).map((valueRange) => valueRange.values ?? []),
+  );
+  orderManagementShipmentProgressCache = {
+    expiresAt: now + 20_000,
+    data: progressByInvoice,
+  };
+  return progressByInvoice;
+}
 
 function detectShipmentSheetNameInText(text: string | null | undefined): ShipmentSheetName | null {
   const haystack = text?.toLowerCase() ?? "";
@@ -6690,10 +6801,14 @@ export const inventoryRouter = router({
 
     getPurchaseRegistrationInvoices: publicProcedure.query(async () => {
       try {
-        const [orderRows, histories, allMemos] = await Promise.all([
+        const [orderRows, histories, allMemos, shipmentProgressByInvoice] = await Promise.all([
           getOrderRowsFromTradeRecords(),
           getAllDeliveryHistories().catch(() => []),
           getAllInvoiceMemos().catch(() => []),
+          getOrderManagementShipmentProgressByInvoice().catch((error) => {
+            console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
+            return new Map<string, TradeShipmentProgressEntry[]>();
+          }),
         ]);
 
         const manualCompleteSet = new Set<string>(
@@ -6724,6 +6839,12 @@ export const inventoryRouter = router({
           current.totalOrderQty += Number(row.orderQty ?? 0) || 0;
           if (!current.partner && row.partner) current.partner = row.partner;
           invoiceMap.set(row.invoiceNo, current);
+        }
+
+        const sheetDeliveredQtyByInvoiceNo = new Map<string, number>();
+        for (const [invoiceNo, entries] of shipmentProgressByInvoice.entries()) {
+          if (!invoiceMap.has(invoiceNo)) continue;
+          sheetDeliveredQtyByInvoiceNo.set(invoiceNo, summarizeShipmentProgress(entries).shippedQty);
         }
 
         // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
@@ -6783,7 +6904,9 @@ export const inventoryRouter = router({
 
         return Array.from(invoiceMap.values())
           .map((invoice) => {
-            const totalDeliveredQty = deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
+            const totalDeliveredQty = sheetDeliveredQtyByInvoiceNo.has(invoice.invoiceNo)
+              ? sheetDeliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0
+              : deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
             const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
             return {
               ...invoice,
@@ -6806,6 +6929,10 @@ export const inventoryRouter = router({
         const orderRows = (await getOrderRowsFromTradeRecords())
           .filter((row) => row.invoiceNo === invoiceNo);
         const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
+        const shipmentEntries = (await getOrderManagementShipmentProgressByInvoice().catch((error) => {
+          console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
+          return new Map<string, TradeShipmentProgressEntry[]>();
+        })).get(invoiceNo);
 
         type StoredDeliveryItem = {
           inventoryId?: number;
@@ -6965,10 +7092,17 @@ export const inventoryRouter = router({
           }
           return allocated;
         };
-        const products = orderRows.map((row) => {
-          const byId = row.tradeRecordId ? (deliveredByTradeRecordId.get(row.tradeRecordId) ?? 0) : 0;
-          const allocatedByName = consumeDeliveredByProductName(row.productName, Math.max(0, row.orderQty - byId));
-          const deliveredQty = byId + allocatedByName;
+        const sheetAllocations = shipmentEntries?.length
+          ? allocateShipmentProgressToProducts(orderRows, shipmentEntries)
+          : null;
+        const products = orderRows.map((row, index) => {
+          const deliveredQty = sheetAllocations
+            ? (sheetAllocations[index]?.shippedQty ?? 0)
+            : (() => {
+                const byId = row.tradeRecordId ? (deliveredByTradeRecordId.get(row.tradeRecordId) ?? 0) : 0;
+                const allocatedByName = consumeDeliveredByProductName(row.productName, Math.max(0, row.orderQty - byId));
+                return byId + allocatedByName;
+              })();
           return {
             tradeRecordId: row.tradeRecordId,
             productName: row.productName,
@@ -7368,6 +7502,10 @@ export const inventoryRouter = router({
       type CsvRow = { partner: string; invoiceNo: string; productName: string; orderQty: number; status: string; paymentDate: string };
       const deliveriesPromise = getDeliveryHistories(1000);
       const allMemosPromise = getAllInvoiceMemos();
+      const shipmentProgressPromise = getOrderManagementShipmentProgressByInvoice().catch((error) => {
+        console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
+        return new Map<string, TradeShipmentProgressEntry[]>();
+      });
       const csvRowsPromise: Promise<CsvRow[]> = getOrderRowsFromTradeRecords().catch((e) => {
         console.error("Trade order data error:", e);
         return [];
@@ -7436,6 +7574,7 @@ export const inventoryRouter = router({
       }
       // 3. 出庫履歴を全件取得
       const deliveries = await deliveriesPromise;
+      const shipmentProgressByInvoice = await shipmentProgressPromise;
       // 5. 全インボイスの手動完了フラグを取得
       const allMemos = await allMemosPromise;
       const manualCompleteSet = new Set<string>(
@@ -7490,9 +7629,11 @@ export const inventoryRouter = router({
         purchasedCount: number;   // 入庫済み数（purchased）
         deliveredCount: number;   // 出庫済み数
         stockCount: number;       // 在庫数
+        shipmentProgressSource: "sheet" | "delivery_history";
         purchaseItems: Array<{ purchaseId: number; num: string; title: string; quantity: number; status: string; managementNo: string }>;
         inventoryItems: Array<{ inventoryId: number; title: string; quantity: number; managementNo: string; etc: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string }>;
         deliveryItems: Array<{ deliveryNo: string; title: string; quantity: number; deliveredAt: string; managementNo: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string; tradeRecordId?: number | null; csvProductName?: string | null }>;
+        sheetShipmentItems: Array<{ deliveryNo: string; title: string; quantity: number; deliveredAt: string; managementNo: string; unitPrice: string; trackingNumber: string; supplierUrl: string; supplierName: string; tradeRecordId?: number | null; csvProductName?: string | null }>;
       };
 
       const groups = new Map<string, GroupData>();
@@ -7516,9 +7657,11 @@ export const inventoryRouter = router({
             purchasedCount: 0,
             deliveredCount: 0,
             stockCount: 0,
+            shipmentProgressSource: "delivery_history",
             purchaseItems: [],
             inventoryItems: [],
             deliveryItems: [],
+            sheetShipmentItems: [],
           });
         }
         return groups.get(key)!;
@@ -7527,6 +7670,36 @@ export const inventoryRouter = router({
       // CSVインボイスマップにあるキーを先に登録（CSVのインボイスNoが存在するキーを必ず表示）
       for (const invoiceNo of Array.from(csvInvoiceMap.keys())) {
         getOrCreate(invoiceNo);
+      }
+
+      const invoiceNosWithShipmentSheetRows = new Set<string>();
+      for (const [invoiceNo, entries] of shipmentProgressByInvoice.entries()) {
+        const groupData = groups.get(invoiceNo);
+        if (!groupData || entries.length === 0) continue;
+
+        invoiceNosWithShipmentSheetRows.add(invoiceNo);
+        groupData.deliveredCount = summarizeShipmentProgress(entries).shippedQty;
+        groupData.shipmentProgressSource = "sheet";
+
+        const productTotals = buildShipmentProgressProductTotals(
+          groupData.csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
+          entries,
+        );
+        groupData.sheetShipmentItems = Array.from(productTotals.entries())
+          .filter(([, total]) => total.shippedQty > 0)
+          .map(([productName, total]) => ({
+            deliveryNo: "スプシ発送管理",
+            title: productName,
+            quantity: total.shippedQty,
+            deliveredAt: "",
+            managementNo: "",
+            unitPrice: "",
+            trackingNumber: "",
+            supplierUrl: "",
+            supplierName: "",
+            tradeRecordId: null,
+            csvProductName: productName,
+          }));
       }
 
       // 発注データを集計
@@ -7859,7 +8032,9 @@ export const inventoryRouter = router({
           if (!key) continue;
 
           const g = getOrCreate(key);
-          g.deliveredCount += activeQuantity;
+          if (!invoiceNosWithShipmentSheetRows.has(key)) {
+            g.deliveredCount += activeQuantity;
+          }
           // 管理番号として有効な形式: 「在庫」始まり、または3、4桁の数字始まり（例: 371_ルカ_1/5、在庫0408_1）
           const isValidMgmt = /^在庫/.test(rawMgmt) || /^ebay/i.test(rawMgmt) || /^\d{3,4}[^\d]/.test(rawMgmt) || /^\d{3,4}$/.test(rawMgmt);
           const managementNo = isValidMgmt ? rawMgmt : "";
@@ -7881,7 +8056,7 @@ export const inventoryRouter = router({
       }
 
       const summaries = Array.from(groups.values()).map((g) => {
-        const isAutoComplete = g.csvOrderQty > 0 && g.deliveredCount === g.csvOrderQty;
+        const isAutoComplete = g.csvOrderQty > 0 && g.deliveredCount >= g.csvOrderQty;
         const isComplete = g.manualComplete || g.csvStatus === "complete" || isAutoComplete;
         if (!isComplete) return g;
         return {

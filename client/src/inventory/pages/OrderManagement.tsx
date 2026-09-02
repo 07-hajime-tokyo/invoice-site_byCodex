@@ -10,6 +10,16 @@ import {
 import { toast } from "sonner";
 import { extractModel, suggestCsvProduct } from "@shared/productMatching";
 
+type SummaryDeliveryItem = {
+  deliveryNo: string;
+  title: string;
+  quantity: number;
+  deliveredAt: string;
+  managementNo: string;
+  tradeRecordId?: number | null;
+  csvProductName?: string | null;
+};
+
 type SummaryItem = {
   key: string;
   partner: string;
@@ -21,6 +31,7 @@ type SummaryItem = {
   purchasedCount: number;
   deliveredCount: number;
   stockCount: number;
+  shipmentProgressSource?: "sheet" | "delivery_history";
   purchaseItems: Array<{
     purchaseId: number;
     num: string;
@@ -36,15 +47,8 @@ type SummaryItem = {
     managementNo: string;
     etc: string;
   }>;
-  deliveryItems: Array<{
-    deliveryNo: string;
-    title: string;
-    quantity: number;
-    deliveredAt: string;
-    managementNo: string;
-    tradeRecordId?: number | null;
-    csvProductName?: string | null;
-  }>;
+  deliveryItems: SummaryDeliveryItem[];
+  sheetShipmentItems?: SummaryDeliveryItem[];
 };
 
 type CsvProductSummary = SummaryItem["csvProducts"][number];
@@ -642,8 +646,11 @@ function buildColorSummary(item: SummaryItem): ColorSummary[] {
     if (bestEntry && bestScore >= 0) bestEntry.stockCount += inv.quantity;
   }
 
-  // 出庫履歴からグループ別に出庫数を集計
-  for (const d of item.deliveryItems) {
+  // 発注進捗の出庫数はスプシ発送管理の shipped を優先する。
+  const shipmentItemsForProgress = item.shipmentProgressSource === "sheet"
+    ? item.sheetShipmentItems ?? []
+    : item.deliveryItems;
+  for (const d of shipmentItemsForProgress) {
     const csvProd = findDeliveryCsvProduct(item, d);
     if (csvProd) {
       const entry = colorMap.get(csvProductGroupKey(csvProd.name));
