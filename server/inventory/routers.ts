@@ -1013,6 +1013,54 @@ function positiveHistoryNumber(value: unknown): number | null {
   return Number.isFinite(num) && num > 0 ? num : null;
 }
 
+function localPurchaseItemQuantity(item: Record<string, unknown>): number {
+  return positiveHistoryNumber(item.quantity ?? item.qty) ?? 0;
+}
+
+function localPurchaseItemMatchesHistory(
+  row: PurchaseHistoryRow,
+  item: Record<string, unknown>,
+): boolean {
+  const historyManagementNo = firstPurchaseHistoryEtcPart(row.kanriNo);
+  const itemManagementNo = firstPurchaseHistoryEtcPart(
+    item.etc ?? item.managementNo ?? item.kanriNo,
+  );
+  if (historyManagementNo && itemManagementNo && historyManagementNo === itemManagementNo) return true;
+
+  const itemInventoryId = positiveHistoryNumber(item.inventory_id ?? item.inventoryId ?? item.zaicoId);
+  const historyInventoryIds = [
+    positiveHistoryNumber(row.inventoryId),
+    positiveHistoryNumber(row.zaicoId),
+  ].filter((id): id is number => id != null);
+  if (itemInventoryId != null && historyInventoryIds.includes(itemInventoryId)) return true;
+
+  const historyTitle = normalizePurchaseHistoryText(row.title);
+  const itemTitle = normalizePurchaseHistoryText(item.title);
+  return Boolean(historyTitle && itemTitle && historyTitle === itemTitle);
+}
+
+function localPurchaseQuantityForHistory(row: PurchaseHistoryRow, purchase: LocalPurchaseRow): number | null {
+  const directQuantity = positiveHistoryNumber(purchase.quantity);
+  const items = parseLocalPurchaseItems(purchase);
+  const matchingItems = items.filter((item) => localPurchaseItemMatchesHistory(row, item));
+  const quantityItems = matchingItems.length > 0
+    ? matchingItems
+    : items.length === 1
+      ? items
+      : [];
+  const itemQuantity = quantityItems.reduce((sum, item) => sum + localPurchaseItemQuantity(item), 0);
+
+  if (items.length === 1) return Math.max(itemQuantity, directQuantity ?? 0) || null;
+  if (matchingItems.length > 0 && itemQuantity > 0) return itemQuantity;
+  return items.length === 0 ? directQuantity : null;
+}
+
+function purchaseHistoryQuantityWithPurchase(row: PurchaseHistoryRow, purchase: LocalPurchaseRow): string {
+  const purchaseQuantity = localPurchaseQuantityForHistory(row, purchase);
+  if (purchaseQuantity == null) return row.quantity;
+  return maxPurchaseHistoryQuantity(row.quantity, String(purchaseQuantity));
+}
+
 function historyRowCreatedMs(row: Pick<PurchaseHistoryRow, "createdAt">): number {
   const ms = new Date(row.createdAt).getTime();
   return Number.isFinite(ms) ? ms : 0;
@@ -1114,6 +1162,7 @@ function enrichPurchaseHistoryRow(
     ...row,
     category: row.category ?? purchase.category ?? null,
     supplier: nonEmptyPurchaseHistoryText(row.supplier) ?? nonEmptyPurchaseHistoryText(purchase.supplierName),
+    quantity: purchaseHistoryQuantityWithPurchase(row, purchase),
     unitPrice: row.unitPrice ?? (purchase.unitPrice == null ? null : String(purchase.unitPrice)),
     inventoryId: row.inventoryId ?? purchase.localInventoryId ?? null,
     supplierUrl: nonEmptyPurchaseHistoryText(row.supplierUrl) ?? nonEmptyPurchaseHistoryText(purchase.supplierUrl),
