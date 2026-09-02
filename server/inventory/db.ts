@@ -129,6 +129,14 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         ALTER TABLE local_inventories ADD INDEX idx_local_inventories_deleted_updated (isDeleted, updatedAt)
       `);
     }
+    const existingPurchaseHistoriesInventoryIndex = await db.execute(sql`
+      SHOW INDEX FROM purchase_histories WHERE Key_name = 'idx_purchase_histories_cancelled_inventory'
+    `);
+    if (getRawRows(existingPurchaseHistoriesInventoryIndex).length === 0) {
+      await db.execute(sql`
+        ALTER TABLE purchase_histories ADD INDEX idx_purchase_histories_cancelled_inventory (cancelled, inventoryId, purchaseDate)
+      `);
+    }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shaft_sales (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -900,18 +908,18 @@ export async function getLatestPurchaseDateMapFromDB(): Promise<Record<number, s
   const rows = await db
     .select({
       inventoryId: purchaseHistories.inventoryId,
-      purchaseDate: purchaseHistories.purchaseDate,
+      latest: sql<string>`MAX(${purchaseHistories.purchaseDate})`,
     })
     .from(purchaseHistories)
-    .where(eq(purchaseHistories.cancelled, 0));
+    .where(and(
+      eq(purchaseHistories.cancelled, 0),
+      isNotNull(purchaseHistories.inventoryId),
+    ))
+    .groupBy(purchaseHistories.inventoryId);
 
   const map: Record<number, string> = {};
   for (const row of rows) {
-    if (!row.inventoryId || !row.purchaseDate) continue;
-    // より新しい日付で上書き
-    if (!map[row.inventoryId] || row.purchaseDate > map[row.inventoryId]) {
-      map[row.inventoryId] = row.purchaseDate;
-    }
+    if (row.inventoryId && row.latest) map[row.inventoryId] = row.latest;
   }
   return map;
 }
