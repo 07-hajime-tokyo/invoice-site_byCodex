@@ -1322,6 +1322,7 @@ const EBAY_7696_SECOND_ORDER_SYNC_SETTING_KEY = "repair:inventory:ebay_7696_2:or
 const EBAY_7696_SECOND_CORRECTED_UNIT_PRICE = "14790";
 const EBAY_7696_SECOND_KNOWN_PURCHASE_DATE = "2026-08-12";
 const EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME = "駿河屋 名古屋栄店";
+let inventoryOneTimeRepairPromise: Promise<void> | null = null;
 
 const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
 const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
@@ -1929,7 +1930,9 @@ async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
     const alternateTarget = inventoriesWithDeleted.find(
       (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_ALTERNATE_MANAGEMENT_NO,
     );
-    if (alternateTarget) {
+    if (!alternateTarget) {
+      await setSystemSetting(EBAY_7696_SECOND_ALTERNATE_RESTORE_SETTING_KEY, "1");
+    } else {
       if (Number(alternateTarget.isDeleted ?? 0) !== 0) {
         await updateLocalInventory(alternateTarget.id, { isDeleted: 0 });
       }
@@ -1944,7 +1947,10 @@ async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
   const target = inventories.find(
     (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
   );
-  if (!target) return;
+  if (!target) {
+    await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+    return;
+  }
   if (Number(target.isDeleted ?? 0) === 0) {
     await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
     return;
@@ -1966,11 +1972,17 @@ async function repairEbay7696SecondInventoryOverwrite(): Promise<void> {
   const restoreCandidate = memoCandidates.find((candidate) =>
     restoreSnapshotDiffersFromInventory(candidate.restored, target),
   );
-  if (!restoreCandidate) return;
+  if (!restoreCandidate) {
+    await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+    return;
+  }
 
   const restored = restoreCandidate.restored;
   const restoredEtc = restored.etc ?? target.etc;
-  if (getInventoryManagementNo(restoredEtc) !== EBAY_7696_SECOND_MANAGEMENT_NO) return;
+  if (getInventoryManagementNo(restoredEtc) !== EBAY_7696_SECOND_MANAGEMENT_NO) {
+    await setSystemSetting(EBAY_7696_SECOND_RESTORE_SETTING_KEY, "1");
+    return;
+  }
 
   const nextValues = {
     title: restored.title ?? target.title,
@@ -2017,7 +2029,10 @@ async function repairEbay7696SecondKnownContent(): Promise<void> {
   const target = inventories.find(
     (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
   );
-  if (!target) return;
+  if (!target) {
+    await setSystemSetting(EBAY_7696_SECOND_KNOWN_CONTENT_SETTING_KEY, "1");
+    return;
+  }
 
   const nextEtc = `${EBAY_7696_SECOND_MANAGEMENT_NO}, ${EBAY_7696_SECOND_KNOWN_PURCHASE_DATE}, ${EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME}`;
   const currentSupplierUrl = String(target.supplierUrl ?? "").trim();
@@ -2047,7 +2062,10 @@ async function repairEbay7696SecondOrderSync(): Promise<void> {
   const target = inventories.find(
     (inventory) => getInventoryManagementNo(inventory.etc) === EBAY_7696_SECOND_MANAGEMENT_NO,
   );
-  if (!target) return;
+  if (!target) {
+    await setSystemSetting(EBAY_7696_SECOND_ORDER_SYNC_SETTING_KEY, "1");
+    return;
+  }
 
   const supplierName = String(target.supplierName ?? "").trim() || EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME;
   const supplierUrl = String(target.supplierUrl ?? "").trim() || null;
@@ -2179,6 +2197,24 @@ async function repairMaxim404PartialCancelLabel(): Promise<void> {
   }
 }
 
+function runInventoryOneTimeRepairsOnce(): Promise<void> {
+  if (!inventoryOneTimeRepairPromise) {
+    inventoryOneTimeRepairPromise = (async () => {
+      await repairEbay7696SecondInventoryOverwrite();
+      await repairEbay7696SecondKnownContent();
+      await repairEbay7696SecondOrderSync();
+      await repairMaxim404PartialCancelLabel();
+    })().catch((error) => {
+      console.warn("[inventory] Failed to run one-time repairs", error);
+    });
+  }
+  return inventoryOneTimeRepairPromise;
+}
+
+setTimeout(() => {
+  void runInventoryOneTimeRepairsOnce();
+}, 0);
+
 function isStockLabelView(label: InventoryItemLabelView): boolean {
   const status = String(label.status ?? "").trim().toLowerCase();
   return !status || status === "stocked" || status === "received";
@@ -2201,10 +2237,6 @@ async function ensureStockLabelsForInventories<T extends {
   etc?: string | null;
 }>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
   if (inventories.length === 0) return [];
-  await repairEbay7696SecondInventoryOverwrite();
-  await repairEbay7696SecondKnownContent();
-  await repairEbay7696SecondOrderSync();
-  await repairMaxim404PartialCancelLabel();
   const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
   return Promise.all(inventories.map(async (inventory) => {
     const inventoryId = Number(inventory.id);
@@ -2327,7 +2359,6 @@ function localPurchaseLabelViews(
 }
 
 async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
-  await repairMaxim404PartialCancelLabel();
   let changed = false;
 
   for (const row of rows) {
@@ -3675,9 +3706,6 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        await repairEbay7696SecondInventoryOverwrite();
-        await repairEbay7696SecondKnownContent();
-        await repairEbay7696SecondOrderSync();
         const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),

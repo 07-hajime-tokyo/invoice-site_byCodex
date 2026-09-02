@@ -121,6 +121,14 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     if (orderStatusRows.length === 0) {
       await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayOrderStatus varchar(20) NOT NULL DEFAULT 'normal'`);
     }
+    const existingLocalInventoriesActiveIndex = await db.execute(sql`
+      SHOW INDEX FROM local_inventories WHERE Key_name = 'idx_local_inventories_deleted_updated'
+    `);
+    if (getRawRows(existingLocalInventoriesActiveIndex).length === 0) {
+      await db.execute(sql`
+        ALTER TABLE local_inventories ADD INDEX idx_local_inventories_deleted_updated (isDeleted, updatedAt)
+      `);
+    }
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shaft_sales (
         id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -441,9 +449,11 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
     const message = errorText(error);
     if (
       message.includes("Duplicate column") ||
+      message.includes("Duplicate key name") ||
       message.includes("ER_DUP_FIELDNAME") ||
       message.includes("already exists") ||
-      message.includes("1060")
+      message.includes("1060") ||
+      message.includes("1061")
     ) {
       return;
     }
@@ -1475,9 +1485,12 @@ export async function getLocalInventories(includeDeleted = false): Promise<Local
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.isDeleted);
     return attachInventoryItemLabelsToInventories(filtered, null);
   }
-  const rows = await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt));
-  const filtered = includeDeleted ? rows : rows.filter((r) => !r.isDeleted);
-  return attachInventoryItemLabelsToInventories(filtered, db);
+  const rows = includeDeleted
+    ? await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt))
+    : await db.select().from(localInventories)
+        .where(eq(localInventories.isDeleted, 0))
+        .orderBy(desc(localInventories.updatedAt));
+  return attachInventoryItemLabelsToInventories(rows, db);
 }
 
 export async function getLocalInventoryById(id: number): Promise<LocalInventory | null> {
