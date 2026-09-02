@@ -70,6 +70,7 @@ import { getLocalDumpTable } from "./localDump";
 
 let _db: AppDatabase | null = null;
 let _inventorySchemaReady: Promise<void> | null = null;
+const SCHEMA_CHECK_TIMEOUT_MS = 5000;
 
 function errorText(error: unknown): string {
   const parts: string[] = [];
@@ -104,96 +105,227 @@ function getRawRows(result: unknown): unknown[] {
   return [];
 }
 
+type SchemaSnapshot = {
+  hasTable: (table: string) => boolean;
+  hasColumn: (table: string, column: string) => boolean;
+  hasIndex: (table: string, index: string) => boolean;
+  markTable: (table: string) => void;
+  markColumn: (table: string, column: string) => void;
+  markIndex: (table: string, index: string) => void;
+};
+
+function normalizeSchemaValue(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function schemaKey(...parts: string[]): string {
+  return parts.map((part) => normalizeSchemaValue(part)).join(".");
+}
+
+function getSchemaRowValue(row: unknown, names: readonly string[], tupleIndex: number): unknown {
+  if (Array.isArray(row)) return row[tupleIndex];
+  if (!row || typeof row !== "object") return null;
+
+  const record = row as Record<string, unknown>;
+  for (const name of names) {
+    if (name in record) return record[name];
+  }
+
+  const normalizedNames = new Set(names.map((name) => name.toLowerCase()));
+  for (const [key, value] of Object.entries(record)) {
+    if (normalizedNames.has(key.toLowerCase())) return value;
+  }
+  return null;
+}
+
+async function loadSchemaSnapshot(db: AppDatabase): Promise<SchemaSnapshot> {
+  const [tablesResult, columnsResult, indexesResult] = await Promise.all([
+    db.execute(sql`
+      SELECT TABLE_NAME AS tableName
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+    `),
+    db.execute(sql`
+      SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+    `),
+    db.execute(sql`
+      SELECT TABLE_NAME AS tableName, INDEX_NAME AS indexName
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+    `),
+  ]);
+
+  const tables = new Set<string>();
+  const columns = new Set<string>();
+  const indexes = new Set<string>();
+
+  for (const row of getRawRows(tablesResult)) {
+    const table = normalizeSchemaValue(getSchemaRowValue(row, ["tableName", "TABLE_NAME", "table_name"], 0));
+    if (table) tables.add(table);
+  }
+
+  for (const row of getRawRows(columnsResult)) {
+    const table = normalizeSchemaValue(getSchemaRowValue(row, ["tableName", "TABLE_NAME", "table_name"], 0));
+    const column = normalizeSchemaValue(getSchemaRowValue(row, ["columnName", "COLUMN_NAME", "column_name"], 1));
+    if (table && column) columns.add(schemaKey(table, column));
+  }
+
+  for (const row of getRawRows(indexesResult)) {
+    const table = normalizeSchemaValue(getSchemaRowValue(row, ["tableName", "TABLE_NAME", "table_name"], 0));
+    const index = normalizeSchemaValue(getSchemaRowValue(row, ["indexName", "INDEX_NAME", "index_name"], 1));
+    if (table && index) indexes.add(schemaKey(table, index));
+  }
+
+  return {
+    hasTable: (table) => tables.has(normalizeSchemaValue(table)),
+    hasColumn: (table, column) => columns.has(schemaKey(table, column)),
+    hasIndex: (table, index) => indexes.has(schemaKey(table, index)),
+    markTable: (table) => {
+      tables.add(normalizeSchemaValue(table));
+    },
+    markColumn: (table, column) => {
+      columns.add(schemaKey(table, column));
+    },
+    markIndex: (table, index) => {
+      indexes.add(schemaKey(table, index));
+    },
+  };
+}
+
+function markSchemaColumns(snapshot: SchemaSnapshot, table: string, columns: readonly string[]) {
+  for (const column of columns) {
+    snapshot.markColumn(table, column);
+  }
+}
+
+function markSchemaIndexes(snapshot: SchemaSnapshot, table: string, indexes: readonly string[]) {
+  for (const index of indexes) {
+    snapshot.markIndex(table, index);
+  }
+}
+
 async function ensureInventoryRuntimeSchema(db: AppDatabase) {
   try {
-    const existing = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayListingUrl'`);
-    const rows = getRawRows(existing);
-    if (rows.length === 0) {
+    const snapshot = await loadSchemaSnapshot(db);
+    if (!snapshot.hasColumn("local_inventories", "ebayListingUrl")) {
       await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayListingUrl text`);
+      snapshot.markColumn("local_inventories", "ebayListingUrl");
     }
-    const existingOrderUrl = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayOrderUrl'`);
-    const orderUrlRows = getRawRows(existingOrderUrl);
-    if (orderUrlRows.length === 0) {
+    if (!snapshot.hasColumn("local_inventories", "ebayOrderUrl")) {
       await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayOrderUrl text`);
+      snapshot.markColumn("local_inventories", "ebayOrderUrl");
     }
-    const existingOrderStatus = await db.execute(sql`SHOW COLUMNS FROM local_inventories LIKE 'ebayOrderStatus'`);
-    const orderStatusRows = getRawRows(existingOrderStatus);
-    if (orderStatusRows.length === 0) {
+    if (!snapshot.hasColumn("local_inventories", "ebayOrderStatus")) {
       await db.execute(sql`ALTER TABLE local_inventories ADD COLUMN ebayOrderStatus varchar(20) NOT NULL DEFAULT 'normal'`);
+      snapshot.markColumn("local_inventories", "ebayOrderStatus");
     }
-    const existingLocalInventoriesActiveIndex = await db.execute(sql`
-      SHOW INDEX FROM local_inventories WHERE Key_name = 'idx_local_inventories_deleted_updated'
-    `);
-    if (getRawRows(existingLocalInventoriesActiveIndex).length === 0) {
+    if (!snapshot.hasIndex("local_inventories", "idx_local_inventories_deleted_updated")) {
       await db.execute(sql`
         ALTER TABLE local_inventories ADD INDEX idx_local_inventories_deleted_updated (isDeleted, updatedAt)
       `);
+      snapshot.markIndex("local_inventories", "idx_local_inventories_deleted_updated");
     }
-    const existingPurchaseHistoriesInventoryIndex = await db.execute(sql`
-      SHOW INDEX FROM purchase_histories WHERE Key_name = 'idx_purchase_histories_cancelled_inventory'
-    `);
-    if (getRawRows(existingPurchaseHistoriesInventoryIndex).length === 0) {
+    if (!snapshot.hasIndex("purchase_histories", "idx_purchase_histories_cancelled_inventory")) {
       await db.execute(sql`
         ALTER TABLE purchase_histories ADD INDEX idx_purchase_histories_cancelled_inventory (cancelled, inventoryId, purchaseDate)
       `);
+      snapshot.markIndex("purchase_histories", "idx_purchase_histories_cancelled_inventory");
     }
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS shaft_sales (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        inventoryId int NULL,
-        managementNo varchar(200) NOT NULL,
-        title varchar(500) NOT NULL,
-        category varchar(200) NULL,
-        quantity int NOT NULL DEFAULT 1,
-        unitPrice decimal(10,2) NULL,
-        saleAmount decimal(12,2) NOT NULL,
-        saleUrl text NULL,
-        profitAmount decimal(12,2) NULL,
-        soldAt varchar(20) NULL,
-        supplierName varchar(200) NULL,
-        supplierUrl text NULL,
-        snapshotJson text NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_shaft_sales_inventory_id (inventoryId),
-        INDEX idx_shaft_sales_management_no (managementNo)
-      )
-    `);
-    const existingShaftProfit = await db.execute(sql`SHOW COLUMNS FROM shaft_sales LIKE 'profitAmount'`);
-    if (getRawRows(existingShaftProfit).length === 0) {
+    if (!snapshot.hasTable("shaft_sales")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS shaft_sales (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          inventoryId int NULL,
+          managementNo varchar(200) NOT NULL,
+          title varchar(500) NOT NULL,
+          category varchar(200) NULL,
+          quantity int NOT NULL DEFAULT 1,
+          unitPrice decimal(10,2) NULL,
+          saleAmount decimal(12,2) NOT NULL,
+          saleUrl text NULL,
+          profitAmount decimal(12,2) NULL,
+          soldAt varchar(20) NULL,
+          supplierName varchar(200) NULL,
+          supplierUrl text NULL,
+          snapshotJson text NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_shaft_sales_inventory_id (inventoryId),
+          INDEX idx_shaft_sales_management_no (managementNo)
+        )
+      `);
+      snapshot.markTable("shaft_sales");
+      markSchemaColumns(snapshot, "shaft_sales", ["profitAmount", "saleUrl"]);
+      markSchemaIndexes(snapshot, "shaft_sales", ["idx_shaft_sales_inventory_id", "idx_shaft_sales_management_no"]);
+    }
+    if (!snapshot.hasColumn("shaft_sales", "profitAmount")) {
       await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN profitAmount decimal(12,2) NULL AFTER saleAmount`);
+      snapshot.markColumn("shaft_sales", "profitAmount");
     }
-    const existingShaftSaleUrl = await db.execute(sql`SHOW COLUMNS FROM shaft_sales LIKE 'saleUrl'`);
-    if (getRawRows(existingShaftSaleUrl).length === 0) {
+    if (!snapshot.hasColumn("shaft_sales", "saleUrl")) {
       await db.execute(sql`ALTER TABLE shaft_sales ADD COLUMN saleUrl text NULL AFTER saleAmount`);
+      snapshot.markColumn("shaft_sales", "saleUrl");
     }
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS inventory_item_labels (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        labelId varchar(7) NOT NULL UNIQUE,
-        purchaseId int NULL,
-        localInventoryId int NULL,
-        legacyManagementNo varchar(200) NULL,
-        title varchar(500) NOT NULL,
-        status varchar(32) NOT NULL DEFAULT 'ordered',
-        sourceKey varchar(255) NULL,
-        receivedAt timestamp NULL,
-        shippedAt timestamp NULL,
-        defectTags varchar(255) NULL,
-        defectNote varchar(500) NULL,
-        defectPhotosJson text NULL,
-        defectRecordedAt timestamp NULL,
-        yahooClosedPricesJson text NULL,
-        yahooPriceFetchedAt timestamp NULL,
-        defectiveSheetSyncedAt timestamp NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_inventory_item_labels_purchase_id (purchaseId),
-        INDEX idx_inventory_item_labels_inventory_id (localInventoryId),
-        INDEX idx_inventory_item_labels_legacy_management_no (legacyManagementNo),
-        INDEX idx_inventory_item_labels_source_key (sourceKey)
-      )
-    `);
+    if (!snapshot.hasTable("inventory_item_labels")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS inventory_item_labels (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          labelId varchar(7) NOT NULL UNIQUE,
+          purchaseId int NULL,
+          localInventoryId int NULL,
+          legacyManagementNo varchar(200) NULL,
+          title varchar(500) NOT NULL,
+          status varchar(32) NOT NULL DEFAULT 'ordered',
+          sourceKey varchar(255) NULL,
+          receivedAt timestamp NULL,
+          shippedAt timestamp NULL,
+          defectTags varchar(255) NULL,
+          defectNote varchar(500) NULL,
+          defectPhotosJson text NULL,
+          defectRecordedAt timestamp NULL,
+          yahooClosedPricesJson text NULL,
+          yahooPriceFetchedAt timestamp NULL,
+          defectiveSheetSyncedAt timestamp NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_inventory_item_labels_purchase_id (purchaseId),
+          INDEX idx_inventory_item_labels_inventory_id (localInventoryId),
+          INDEX idx_inventory_item_labels_legacy_management_no (legacyManagementNo),
+          INDEX idx_inventory_item_labels_source_key (sourceKey)
+        )
+      `);
+      snapshot.markTable("inventory_item_labels");
+      markSchemaColumns(snapshot, "inventory_item_labels", [
+        "id",
+        "labelId",
+        "purchaseId",
+        "localInventoryId",
+        "legacyManagementNo",
+        "title",
+        "status",
+        "sourceKey",
+        "receivedAt",
+        "shippedAt",
+        "defectTags",
+        "defectNote",
+        "defectPhotosJson",
+        "defectRecordedAt",
+        "yahooClosedPricesJson",
+        "yahooPriceFetchedAt",
+        "defectiveSheetSyncedAt",
+        "createdAt",
+        "updatedAt",
+      ]);
+      markSchemaIndexes(snapshot, "inventory_item_labels", [
+        "labelId",
+        "idx_inventory_item_labels_purchase_id",
+        "idx_inventory_item_labels_inventory_id",
+        "idx_inventory_item_labels_legacy_management_no",
+        "idx_inventory_item_labels_source_key",
+      ]);
+    }
     const defectiveLabelColumns = [
       ["assignedInvoiceNo", "varchar(10) NULL"],
       ["defectTags", "varchar(255) NULL"],
@@ -205,108 +337,126 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
       ["defectiveSheetSyncedAt", "timestamp NULL"],
     ] as const;
     for (const [column, definition] of defectiveLabelColumns) {
-      const existingColumn = await db.execute(
-        sql.raw(`SHOW COLUMNS FROM inventory_item_labels LIKE '${column}'`)
-      );
-      if (getRawRows(existingColumn).length === 0) {
+      if (!snapshot.hasColumn("inventory_item_labels", column)) {
         await db.execute(
           sql.raw(
             `ALTER TABLE inventory_item_labels ADD COLUMN ${column} ${definition}`
           )
         );
+        snapshot.markColumn("inventory_item_labels", column);
       }
     }
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_item_assignees (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name varchar(100) NOT NULL UNIQUE,
-        sortOrder int NOT NULL DEFAULT 0,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_item_title_presets (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        title varchar(255) NOT NULL UNIQUE,
-        sortOrder int NOT NULL DEFAULT 0,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_item_authors (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name varchar(100) NOT NULL UNIQUE,
-        sortOrder int NOT NULL DEFAULT 0,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_items (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        title varchar(255) NOT NULL,
-        assignee varchar(100) NOT NULL,
-        detail text NOT NULL,
-        status varchar(20) NOT NULL DEFAULT 'open',
-        source varchar(50) NULL,
-        sourceKey varchar(255) NULL,
-        sourceQuestion text NULL,
-        reviewerChecksJson text NULL,
-        createdBy varchar(200) NULL,
-        isPinned boolean NOT NULL DEFAULT false,
-        completedAt timestamp NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_action_items_status (status),
-        INDEX idx_action_items_assignee (assignee),
-        INDEX idx_action_items_source_key (sourceKey)
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_item_replies (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        actionItemId int NOT NULL,
-        body text NOT NULL,
-        author varchar(200) NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_action_item_replies_item (actionItemId),
-        INDEX idx_action_item_replies_created (createdAt)
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS action_item_attachments (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        actionItemId int NOT NULL,
-        fileName varchar(255) NULL,
-        contentType varchar(100) NOT NULL,
-        dataBase64 mediumtext NOT NULL,
-        createdBy varchar(200) NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_action_item_attachments_item (actionItemId),
-        INDEX idx_action_item_attachments_created (createdAt)
-      )
-    `);
-    const existingActionSourceKey = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'sourceKey'`);
-    const actionSourceKeyRows = getRawRows(existingActionSourceKey);
-    if (actionSourceKeyRows.length === 0) {
+    if (!snapshot.hasTable("action_item_assignees")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_item_assignees (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          name varchar(100) NOT NULL UNIQUE,
+          sortOrder int NOT NULL DEFAULT 0,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      snapshot.markTable("action_item_assignees");
+    }
+    if (!snapshot.hasTable("action_item_title_presets")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_item_title_presets (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          title varchar(255) NOT NULL UNIQUE,
+          sortOrder int NOT NULL DEFAULT 0,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      snapshot.markTable("action_item_title_presets");
+    }
+    if (!snapshot.hasTable("action_item_authors")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_item_authors (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          name varchar(100) NOT NULL UNIQUE,
+          sortOrder int NOT NULL DEFAULT 0,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      snapshot.markTable("action_item_authors");
+    }
+    if (!snapshot.hasTable("action_items")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_items (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          title varchar(255) NOT NULL,
+          assignee varchar(100) NOT NULL,
+          detail text NOT NULL,
+          status varchar(20) NOT NULL DEFAULT 'open',
+          source varchar(50) NULL,
+          sourceKey varchar(255) NULL,
+          sourceQuestion text NULL,
+          reviewerChecksJson text NULL,
+          createdBy varchar(200) NULL,
+          isPinned boolean NOT NULL DEFAULT false,
+          completedAt timestamp NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_action_items_status (status),
+          INDEX idx_action_items_assignee (assignee),
+          INDEX idx_action_items_source_key (sourceKey)
+        )
+      `);
+      snapshot.markTable("action_items");
+      markSchemaColumns(snapshot, "action_items", ["sourceKey", "reviewerChecksJson", "isPinned"]);
+      markSchemaIndexes(snapshot, "action_items", [
+        "idx_action_items_status",
+        "idx_action_items_assignee",
+        "idx_action_items_source_key",
+      ]);
+    }
+    if (!snapshot.hasTable("action_item_replies")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_item_replies (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          actionItemId int NOT NULL,
+          body text NOT NULL,
+          author varchar(200) NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_action_item_replies_item (actionItemId),
+          INDEX idx_action_item_replies_created (createdAt)
+        )
+      `);
+      snapshot.markTable("action_item_replies");
+    }
+    if (!snapshot.hasTable("action_item_attachments")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS action_item_attachments (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          actionItemId int NOT NULL,
+          fileName varchar(255) NULL,
+          contentType varchar(100) NOT NULL,
+          dataBase64 mediumtext NOT NULL,
+          createdBy varchar(200) NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_action_item_attachments_item (actionItemId),
+          INDEX idx_action_item_attachments_created (createdAt)
+        )
+      `);
+      snapshot.markTable("action_item_attachments");
+    }
+    if (!snapshot.hasColumn("action_items", "sourceKey")) {
       await db.execute(sql`ALTER TABLE action_items ADD COLUMN sourceKey varchar(255) NULL`);
+      snapshot.markColumn("action_items", "sourceKey");
     }
-    const existingActionReviewerChecks = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'reviewerChecksJson'`);
-    const actionReviewerChecksRows = getRawRows(existingActionReviewerChecks);
-    if (actionReviewerChecksRows.length === 0) {
+    if (!snapshot.hasColumn("action_items", "reviewerChecksJson")) {
       await db.execute(sql`ALTER TABLE action_items ADD COLUMN reviewerChecksJson text NULL`);
+      snapshot.markColumn("action_items", "reviewerChecksJson");
     }
-    const existingActionPinned = await db.execute(sql`SHOW COLUMNS FROM action_items LIKE 'isPinned'`);
-    const actionPinnedRows = getRawRows(existingActionPinned);
-    if (actionPinnedRows.length === 0) {
+    if (!snapshot.hasColumn("action_items", "isPinned")) {
       await db.execute(sql`ALTER TABLE action_items ADD COLUMN isPinned boolean NOT NULL DEFAULT false`);
+      snapshot.markColumn("action_items", "isPinned");
     }
-    const existingActionSourceKeyIndex = await db.execute(sql`SHOW INDEX FROM action_items WHERE Key_name = 'idx_action_items_source_key'`);
-    const actionSourceKeyIndexRows = getRawRows(existingActionSourceKeyIndex);
-    if (actionSourceKeyIndexRows.length === 0) {
+    if (!snapshot.hasIndex("action_items", "idx_action_items_source_key")) {
       await db.execute(sql`ALTER TABLE action_items ADD INDEX idx_action_items_source_key (sourceKey)`);
+      snapshot.markIndex("action_items", "idx_action_items_source_key");
     }
     await db.execute(sql`
       INSERT IGNORE INTO action_item_assignees (name, sortOrder)
@@ -331,108 +481,123 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
       INSERT IGNORE INTO action_item_authors (name, sortOrder)
       VALUES ('村上', 1), ('鈴木', 2), ('藤本', 3), ('野田', 4)
     `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS work_log_workers (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name varchar(100) NOT NULL UNIQUE,
-        sortOrder int NOT NULL DEFAULT 0,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS work_log_categories (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name varchar(100) NOT NULL UNIQUE,
-        sortOrder int NOT NULL DEFAULT 0,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS work_logs (
-        id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        workerName varchar(100) NOT NULL,
-        category varchar(100) NOT NULL,
-        status varchar(20) NOT NULL DEFAULT 'done',
-        startedAt timestamp NULL,
-        endedAt timestamp NULL,
-        manualMinutes int NULL,
-        quantity int NOT NULL DEFAULT 0,
-        memo text NULL,
-        sourceType varchar(50) NULL,
-        sourceId varchar(200) NULL,
-        detailsJson text NULL,
-        createdBy varchar(200) NULL,
-        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_work_logs_worker (workerName),
-        INDEX idx_work_logs_category (category),
-        INDEX idx_work_logs_status (status),
-        INDEX idx_work_logs_started (startedAt),
-        INDEX idx_work_logs_created (createdAt)
-      )
-    `);
-    const existingWorkLogSourceType = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'sourceType'`);
-    if (getRawRows(existingWorkLogSourceType).length === 0) {
+    if (!snapshot.hasTable("work_log_workers")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS work_log_workers (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          name varchar(100) NOT NULL UNIQUE,
+          sortOrder int NOT NULL DEFAULT 0,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      snapshot.markTable("work_log_workers");
+    }
+    if (!snapshot.hasTable("work_log_categories")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS work_log_categories (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          name varchar(100) NOT NULL UNIQUE,
+          sortOrder int NOT NULL DEFAULT 0,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      snapshot.markTable("work_log_categories");
+    }
+    if (!snapshot.hasTable("work_logs")) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS work_logs (
+          id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          workerName varchar(100) NOT NULL,
+          category varchar(100) NOT NULL,
+          status varchar(20) NOT NULL DEFAULT 'done',
+          startedAt timestamp NULL,
+          endedAt timestamp NULL,
+          manualMinutes int NULL,
+          quantity int NOT NULL DEFAULT 0,
+          memo text NULL,
+          sourceType varchar(50) NULL,
+          sourceId varchar(200) NULL,
+          detailsJson text NULL,
+          createdBy varchar(200) NULL,
+          createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_work_logs_worker (workerName),
+          INDEX idx_work_logs_category (category),
+          INDEX idx_work_logs_status (status),
+          INDEX idx_work_logs_started (startedAt),
+          INDEX idx_work_logs_created (createdAt)
+        )
+      `);
+      snapshot.markTable("work_logs");
+      markSchemaColumns(snapshot, "work_logs", ["sourceType", "sourceId", "detailsJson"]);
+      markSchemaIndexes(snapshot, "work_logs", [
+        "idx_work_logs_worker",
+        "idx_work_logs_category",
+        "idx_work_logs_status",
+        "idx_work_logs_started",
+        "idx_work_logs_created",
+      ]);
+    }
+    if (!snapshot.hasColumn("work_logs", "sourceType")) {
       await db.execute(sql`ALTER TABLE work_logs ADD COLUMN sourceType varchar(50) NULL`);
+      snapshot.markColumn("work_logs", "sourceType");
     }
-    const existingWorkLogSourceId = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'sourceId'`);
-    if (getRawRows(existingWorkLogSourceId).length === 0) {
+    if (!snapshot.hasColumn("work_logs", "sourceId")) {
       await db.execute(sql`ALTER TABLE work_logs ADD COLUMN sourceId varchar(200) NULL`);
+      snapshot.markColumn("work_logs", "sourceId");
     }
-    const existingWorkLogDetailsJson = await db.execute(sql`SHOW COLUMNS FROM work_logs LIKE 'detailsJson'`);
-    if (getRawRows(existingWorkLogDetailsJson).length === 0) {
+    if (!snapshot.hasColumn("work_logs", "detailsJson")) {
       await db.execute(sql`ALTER TABLE work_logs ADD COLUMN detailsJson text NULL`);
+      snapshot.markColumn("work_logs", "detailsJson");
     }
     // T22: 入庫仕訳・工程カラム（local_purchases）を安全追加（drizzleマイグレーション0019と二重化）
-    const existingInboundClass = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'inboundClass'`);
-    if (getRawRows(existingInboundClass).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "inboundClass")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN inboundClass varchar(20) NULL`);
+      snapshot.markColumn("local_purchases", "inboundClass");
     }
-    const existingClassSource = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'classSource'`);
-    if (getRawRows(existingClassSource).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "classSource")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN classSource varchar(10) NOT NULL DEFAULT 'auto'`);
+      snapshot.markColumn("local_purchases", "classSource");
     }
-    const existingStage = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stage'`);
-    if (getRawRows(existingStage).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "stage")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stage varchar(20) NOT NULL DEFAULT 'received'`);
+      snapshot.markColumn("local_purchases", "stage");
     }
-    const existingStageUpdatedBy = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stageUpdatedBy'`);
-    if (getRawRows(existingStageUpdatedBy).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "stageUpdatedBy")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stageUpdatedBy varchar(100) NULL`);
+      snapshot.markColumn("local_purchases", "stageUpdatedBy");
     }
-    const existingStageUpdatedAt = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'stageUpdatedAt'`);
-    if (getRawRows(existingStageUpdatedAt).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "stageUpdatedAt")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN stageUpdatedAt timestamp NULL`);
+      snapshot.markColumn("local_purchases", "stageUpdatedAt");
     }
-    const existingShaftParent = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'shaftParentPurchaseId'`);
-    if (getRawRows(existingShaftParent).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "shaftParentPurchaseId")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN shaftParentPurchaseId int NULL`);
+      snapshot.markColumn("local_purchases", "shaftParentPurchaseId");
     }
-    const existingReceiptAckStatus = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckStatus'`);
-    if (getRawRows(existingReceiptAckStatus).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "receiptAckStatus")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckStatus varchar(20) NULL`);
+      snapshot.markColumn("local_purchases", "receiptAckStatus");
     }
-    const existingReceiptAckSource = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckSource'`);
-    if (getRawRows(existingReceiptAckSource).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "receiptAckSource")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckSource varchar(20) NULL`);
+      snapshot.markColumn("local_purchases", "receiptAckSource");
     }
-    const existingReceiptAckAt = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckAt'`);
-    if (getRawRows(existingReceiptAckAt).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "receiptAckAt")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckAt timestamp NULL`);
+      snapshot.markColumn("local_purchases", "receiptAckAt");
     }
-    const existingReceiptAckNote = await db.execute(sql`SHOW COLUMNS FROM local_purchases LIKE 'receiptAckNote'`);
-    if (getRawRows(existingReceiptAckNote).length === 0) {
+    if (!snapshot.hasColumn("local_purchases", "receiptAckNote")) {
       await db.execute(sql`ALTER TABLE local_purchases ADD COLUMN receiptAckNote varchar(255) NULL`);
+      snapshot.markColumn("local_purchases", "receiptAckNote");
     }
-    const existingReceiptAckIndex = await db.execute(sql`
-      SHOW INDEX FROM local_purchases WHERE Key_name = 'idx_local_purchases_receipt_ack'
-    `);
-    if (getRawRows(existingReceiptAckIndex).length === 0) {
+    if (!snapshot.hasIndex("local_purchases", "idx_local_purchases_receipt_ack")) {
       await db.execute(sql`
         ALTER TABLE local_purchases ADD INDEX idx_local_purchases_receipt_ack (receiptAckStatus, receivedDate)
       `);
+      snapshot.markIndex("local_purchases", "idx_local_purchases_receipt_ack");
     }
     await db.execute(sql`
       INSERT IGNORE INTO work_log_workers (name, sortOrder)
@@ -483,9 +648,24 @@ export async function getDb() {
   if (_db) {
     if (!_inventorySchemaReady) {
       const schemaStart = Date.now();
-      _inventorySchemaReady = ensureInventoryRuntimeSchema(_db).then(() => {
-        console.info("[perf] db.ensureInventoryRuntimeSchema", { ms: Date.now() - schemaStart });
-      });
+      let schemaTimeout: ReturnType<typeof setTimeout> | undefined;
+      _inventorySchemaReady = Promise.race([
+        ensureInventoryRuntimeSchema(_db),
+        new Promise<void>((resolve) => {
+          schemaTimeout = setTimeout(() => {
+            console.warn("[Inventory DB] Runtime schema check timed out; continuing", {
+              timeoutMs: SCHEMA_CHECK_TIMEOUT_MS,
+            });
+            resolve();
+          }, SCHEMA_CHECK_TIMEOUT_MS);
+        }),
+      ])
+        .finally(() => {
+          if (schemaTimeout) clearTimeout(schemaTimeout);
+        })
+        .then(() => {
+          console.info("[perf] db.ensureInventoryRuntimeSchema", { ms: Date.now() - schemaStart });
+        });
     }
     await _inventorySchemaReady;
   }
