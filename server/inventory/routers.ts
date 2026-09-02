@@ -1088,6 +1088,10 @@ type InventoryItemLabelView = {
   localInventoryId?: number | null;
 };
 
+type InventoryItemLabelForEnsure = InventoryItemLabelView & {
+  title?: string | null;
+};
+
 function getInventoryManagementNo(etc: string | null | undefined) {
   return String(etc ?? "").split(",")[0]?.trim() ?? "";
 }
@@ -2365,7 +2369,23 @@ async function ensureStockLabelsForInventories<T extends {
   etc?: string | null;
 }>(inventories: T[]): Promise<Array<T & { itemLabels: InventoryItemLabelView[] }>> {
   if (inventories.length === 0) return [];
-  const labelMap = await getInventoryItemLabelsByInventoryIds(inventories.map((inventory) => Number(inventory.id)));
+  const labelMap = new Map<number, InventoryItemLabelForEnsure[]>();
+  const idsNeedingLabelFetch: number[] = [];
+  for (const inventory of inventories) {
+    const inventoryId = Number(inventory.id);
+    const preloadedLabels = (inventory as { itemLabels?: InventoryItemLabelForEnsure[] | null }).itemLabels;
+    if (Array.isArray(preloadedLabels)) {
+      labelMap.set(inventoryId, preloadedLabels);
+    } else {
+      idsNeedingLabelFetch.push(inventoryId);
+    }
+  }
+  if (idsNeedingLabelFetch.length > 0) {
+    const fetchedLabelMap = await getInventoryItemLabelsByInventoryIds(idsNeedingLabelFetch);
+    for (const [inventoryId, labels] of fetchedLabelMap) {
+      labelMap.set(inventoryId, labels);
+    }
+  }
   return Promise.all(inventories.map(async (inventory) => {
     const inventoryId = Number(inventory.id);
     const existingLabels = labelMap.get(inventoryId) ?? [];
@@ -3831,15 +3851,26 @@ export const inventoryRouter = router({
      * 入庫済みデータから各商品の最新入庫日も付帯する
      */
     getInventories: publicProcedure.query(async () => {
+      const startedAt = Date.now();
+      const logPerf = (step: string, details: Record<string, unknown> = {}) => {
+        console.info("[perf] inventory.getInventories", {
+          step,
+          elapsedMs: Date.now() - startedAt,
+          ...details,
+        });
+      };
       const zaicoEnabled = await isZaicoEnabled();
+      logPerf("zaicoEnabled", { zaicoEnabled });
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
         const [localInvs, dbDateMap] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
         ]);
+        logPerf("localDataLoaded", { inventoryCount: localInvs.length });
         const visibleInvsWithLabels = await ensureStockLabelsForInventories(localInvs);
-        return visibleInvsWithLabels.map((inv) => ({
+        logPerf("labelsEnsured", { inventoryCount: visibleInvsWithLabels.length });
+        const result = visibleInvsWithLabels.map((inv) => ({
           id: inv.zaicoId ?? inv.id,
           title: inv.title,
           quantity: String(inv.quantity ?? 0),
@@ -3864,6 +3895,8 @@ export const inventoryRouter = router({
             localInventoryId: label.localInventoryId,
           })),
         }));
+        logPerf("complete", { inventoryCount: result.length });
+        return result;
       }
       const [inventories, zaicoDateMap, dbDateMap, inventoryExtras, increaseMemosMap] = await Promise.all([
         getInventories(),
@@ -3872,14 +3905,20 @@ export const inventoryRouter = router({
         getAllInventoryExtras(),
         getLatestIncreaseMemosMap(),
       ]);
+      logPerf("zaicoDataLoaded", {
+        inventoryCount: inventories.length,
+        extraCount: inventoryExtras.length,
+      });
       const extrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
       const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
+      logPerf("labelsEnsured", { inventoryCount: inventoriesWithLabels.length });
       // 追跡番号マップを取得
       const inventoryIds = inventoriesWithLabels.map((inv) => inv.id);
       const trackingMap = await getTrackingNumbersByInventoryIds(inventoryIds);
+      logPerf("trackingLoaded", { trackingCount: trackingMap.size });
       // 各在庫に最新入庫日と補足情報を付与
       // 優先順位: DB入庫日 / Zaico API入庫日 / Zaico直接返す日付 / etcフィールド日付 / 手動増加日 のうち最新を使用
-      return inventoriesWithLabels.map((inv) => {
+      const result = inventoriesWithLabels.map((inv) => {
         const dbDate = dbDateMap[inv.id] ?? null;
         const zaicoDate = zaicoDateMap[inv.id] ?? null;
         // Zaico API が直接返す last_purchase_dateも候補に加える
@@ -3903,6 +3942,8 @@ export const inventoryRouter = router({
           itemLabels: inv.itemLabels.map(toInventoryItemLabelView),
         };
       });
+      logPerf("complete", { inventoryCount: result.length });
+      return result;
     }),
 
     getCategories: publicProcedure.query(async () => {
