@@ -1292,6 +1292,9 @@ export type LocalPurchaseWithLabels = LocalPurchase & {
   itemLabels?: InventoryItemLabel[];
 };
 
+const inflightLocalInventories = new Map<string, Promise<LocalInventoryWithLabels[]>>();
+const inflightLocalPurchases = new Map<string, Promise<LocalPurchaseWithLabels[]>>();
+
 const LABEL_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const LABEL_ID_LENGTH = 7;
 
@@ -1674,6 +1677,21 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
 }
 
 export async function getLocalInventories(includeDeleted = false): Promise<LocalInventoryWithLabels[]> {
+  const key = includeDeleted ? "all" : "active";
+  const running = inflightLocalInventories.get(key);
+  if (running) {
+    console.info("[perf] getLocalInventories.joined", { key });
+    return running;
+  }
+
+  const promise = loadLocalInventories(includeDeleted).finally(() => {
+    inflightLocalInventories.delete(key);
+  });
+  inflightLocalInventories.set(key, promise);
+  return promise;
+}
+
+async function loadLocalInventories(includeDeleted: boolean): Promise<LocalInventoryWithLabels[]> {
   const db = await getDb();
   const inventoriesStart = Date.now();
   if (!db) {
@@ -1936,6 +1954,18 @@ export async function updateLocalPurchase(id: number, data: Partial<InsertLocalP
 }
 
 export async function getLocalPurchases(status?: string): Promise<LocalPurchaseWithLabels[]> {
+  const key = status === undefined ? "status:__undefined__" : `status:${status}`;
+  const running = inflightLocalPurchases.get(key);
+  if (running) return running;
+
+  const promise = loadLocalPurchases(status).finally(() => {
+    inflightLocalPurchases.delete(key);
+  });
+  inflightLocalPurchases.set(key, promise);
+  return promise;
+}
+
+async function loadLocalPurchases(status?: string): Promise<LocalPurchaseWithLabels[]> {
   const db = await getDb();
   if (!db) {
     const rows = byCreatedDesc(await getDumpRows<LocalPurchase>("local_purchases"));
