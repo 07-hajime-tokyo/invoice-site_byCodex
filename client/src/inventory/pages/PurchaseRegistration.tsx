@@ -1907,7 +1907,9 @@ function buildStockItemGroups(items: StockItemView[]): { name: string; items: St
 }
 
 function normalizeStockProposalTitle(title: string): string {
-  return title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim() || "-";
+  const normalizedTitle = title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim();
+  if (!normalizedTitle) return "-";
+  return normalizedTitle.replace(/\b(?:ps\s*)?vita\s*1[01]00\b/gi, "Vita 1000");
 }
 
 function stockProposalModelName(title: string, category?: string | null): string {
