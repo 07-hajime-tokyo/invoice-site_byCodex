@@ -80,6 +80,7 @@ async function ensureWhatsappConversationTables(db: AppDatabase) {
 }
 
 async function ensureRuntimeSchema(db: AppDatabase) {
+  const schemaStart = Date.now();
   const steps: Array<[string, () => Promise<void>]> = [
     ["shipment_items.tradeRecordId", () => ensureShipmentItemsTradeRecordId(db)],
     ["whatsapp conversation tables", () => ensureWhatsappConversationTables(db)],
@@ -93,6 +94,7 @@ async function ensureRuntimeSchema(db: AppDatabase) {
       console.warn(`[Database] Runtime schema check skipped (${label}):`, message);
     }
   }
+  console.info("[perf] db.ensureRuntimeSchema", { ms: Date.now() - schemaStart });
 }
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
