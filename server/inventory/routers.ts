@@ -2197,6 +2197,22 @@ async function repairMaxim404PartialCancelLabel(): Promise<void> {
   }
 }
 
+async function softDeleteInventoriesHiddenByDeliveryHistory(): Promise<void> {
+  const [localInvs, deletedFromHistoryIds] = await Promise.all([
+    getLocalInventories(),
+    getDeletedInventoryIdsFromDeliveryHistories(),
+  ]);
+  const hiddenInvs = localInvs.filter((inv) => {
+    const displayId = inv.zaicoId ?? inv.id;
+    return deletedFromHistoryIds.has(displayId) || deletedFromHistoryIds.has(inv.id) || (inv.zaicoId != null && deletedFromHistoryIds.has(inv.zaicoId));
+  });
+  await Promise.all(hiddenInvs.map((inv) =>
+    deleteLocalInventory(inv.id).catch((error) => {
+      console.warn("[inventory] Failed to soft-delete inventory hidden by delivery history", inv.id, error);
+    }),
+  ));
+}
+
 function runInventoryOneTimeRepairsOnce(): Promise<void> {
   if (!inventoryOneTimeRepairPromise) {
     inventoryOneTimeRepairPromise = (async () => {
@@ -2204,6 +2220,7 @@ function runInventoryOneTimeRepairsOnce(): Promise<void> {
       await repairEbay7696SecondKnownContent();
       await repairEbay7696SecondOrderSync();
       await repairMaxim404PartialCancelLabel();
+      await softDeleteInventoriesHiddenByDeliveryHistory();
     })().catch((error) => {
       console.warn("[inventory] Failed to run one-time repairs", error);
     });
@@ -3706,20 +3723,11 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        const [localInvs, dbDateMap, deletedFromHistoryIds] = await Promise.all([
+        const [localInvs, dbDateMap] = await Promise.all([
           getLocalInventories(),
           getLatestPurchaseDateMapFromDB(),
-          getDeletedInventoryIdsFromDeliveryHistories(),
         ]);
-        const hiddenInvs: typeof localInvs = [];
-        const visibleInvs = localInvs.filter((inv) => {
-          const displayId = inv.zaicoId ?? inv.id;
-          const hidden = deletedFromHistoryIds.has(displayId) || deletedFromHistoryIds.has(inv.id) || (inv.zaicoId != null && deletedFromHistoryIds.has(inv.zaicoId));
-          if (hidden) hiddenInvs.push(inv);
-          return !hidden;
-        });
-        await Promise.all(hiddenInvs.map((inv) => deleteLocalInventory(inv.id).catch(() => {})));
-        const visibleInvsWithLabels = await ensureStockLabelsForInventories(visibleInvs);
+        const visibleInvsWithLabels = await ensureStockLabelsForInventories(localInvs);
         return visibleInvsWithLabels.map((inv) => ({
           id: inv.zaicoId ?? inv.id,
           title: inv.title,
