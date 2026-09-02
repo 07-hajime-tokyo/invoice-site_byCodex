@@ -3859,13 +3859,24 @@ export const inventoryRouter = router({
           ...details,
         });
       };
+      const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+        const stepStartedAt = Date.now();
+        try {
+          return await fn();
+        } finally {
+          console.info("[perf] getInventories.step", {
+            name,
+            ms: Date.now() - stepStartedAt,
+          });
+        }
+      };
       const zaicoEnabled = await isZaicoEnabled();
       logPerf("zaicoEnabled", { zaicoEnabled });
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
         const [localInvs, dbDateMap] = await Promise.all([
-          getLocalInventories(),
-          getLatestPurchaseDateMapFromDB(),
+          timed("getLocalInventories", () => getLocalInventories()),
+          timed("getLatestPurchaseDateMapFromDB", () => getLatestPurchaseDateMapFromDB()),
         ]);
         logPerf("localDataLoaded", { inventoryCount: localInvs.length });
         const visibleInvsWithLabels = await ensureStockLabelsForInventories(localInvs);

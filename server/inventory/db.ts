@@ -471,15 +471,22 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
+    const connectStart = Date.now();
     try {
       _db = createDrizzleDatabase(process.env.DATABASE_URL);
+      console.info("[perf] db.createPool", { ms: Date.now() - connectStart });
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   if (_db) {
-    _inventorySchemaReady ??= ensureInventoryRuntimeSchema(_db);
+    if (!_inventorySchemaReady) {
+      const schemaStart = Date.now();
+      _inventorySchemaReady = ensureInventoryRuntimeSchema(_db).then(() => {
+        console.info("[perf] db.ensureInventoryRuntimeSchema", { ms: Date.now() - schemaStart });
+      });
+    }
     await _inventorySchemaReady;
   }
   return _db;
@@ -1488,17 +1495,42 @@ export async function upsertLocalInventory(data: InsertLocalInventory) {
 
 export async function getLocalInventories(includeDeleted = false): Promise<LocalInventoryWithLabels[]> {
   const db = await getDb();
+  const inventoriesStart = Date.now();
   if (!db) {
     const rows = byUpdatedDesc(await getDumpRows<LocalInventory>("local_inventories"));
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.isDeleted);
-    return attachInventoryItemLabelsToInventories(filtered, null);
+    const inventoriesMs = Date.now() - inventoriesStart;
+    const labelsStart = Date.now();
+    const inventoriesWithLabels = await attachInventoryItemLabelsToInventories(filtered, null);
+    const labelsMs = Date.now() - labelsStart;
+    const labelCount = inventoriesWithLabels.reduce((sum, row) => sum + (row.itemLabels?.length ?? 0), 0);
+    console.info("[perf] getLocalInventories", {
+      includeDeleted,
+      inventoriesMs,
+      inventoryCount: filtered.length,
+      labelsMs,
+      labelCount,
+    });
+    return inventoriesWithLabels;
   }
   const rows = includeDeleted
     ? await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt))
     : await db.select().from(localInventories)
         .where(eq(localInventories.isDeleted, 0))
         .orderBy(desc(localInventories.updatedAt));
-  return attachInventoryItemLabelsToInventories(rows, db);
+  const inventoriesMs = Date.now() - inventoriesStart;
+  const labelsStart = Date.now();
+  const inventoriesWithLabels = await attachInventoryItemLabelsToInventories(rows, db);
+  const labelsMs = Date.now() - labelsStart;
+  const labelCount = inventoriesWithLabels.reduce((sum, row) => sum + (row.itemLabels?.length ?? 0), 0);
+  console.info("[perf] getLocalInventories", {
+    includeDeleted,
+    inventoriesMs,
+    inventoryCount: rows.length,
+    labelsMs,
+    labelCount,
+  });
+  return inventoriesWithLabels;
 }
 
 export async function getLocalInventoryById(id: number): Promise<LocalInventory | null> {
