@@ -254,6 +254,8 @@ type InvoiceProductSummary = {
   currency?: string | null;
 };
 
+const EMPTY_INVOICE_PRODUCTS: InvoiceProductSummary[] = [];
+
 type PurchaseRegistrationInvoice = {
   invoiceNo: string;
   partner: string;
@@ -958,15 +960,7 @@ function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targe
 }
 
 function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetTitle?: string): boolean {
-  const managementHints = extractManagementHints(item.legacyManagementNo, item.allocationLabel);
-  const matchText = unique([
-    item.title,
-    item.category,
-    item.legacyManagementNo,
-    item.allocationLabel,
-    item.supplier.name,
-    ...managementHints,
-  ]).join(" ");
+  const { managementHints, matchText } = stockItemMatchData(item);
 
   if (!canMatchTargetProduct(matchText, targetTitle)) return false;
   if (productKey(item.title) === targetKey) return true;
@@ -976,6 +970,49 @@ function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetT
     suggestInvoiceProductNameFromHints(item.title, managementHints, [{ name: targetTitle, qty: 1 }]) === targetTitle ||
     suggestInvoiceProductName(matchText, managementHints.join(" "), [{ name: targetTitle, qty: 1 }]) === targetTitle
   );
+}
+
+function stockItemMatchData(item: StockItemView): { managementHints: string[]; matchText: string } {
+  const managementHints = extractManagementHints(item.legacyManagementNo, item.allocationLabel);
+  return {
+    managementHints,
+    matchText: unique([
+      item.title,
+      item.category,
+      item.legacyManagementNo,
+      item.allocationLabel,
+      item.supplier.name,
+      ...managementHints,
+    ]).join(" "),
+  };
+}
+
+function findInvoiceProductNameForStockItem(
+  item: StockItemView,
+  invoiceProducts: InvoiceProductSummary[],
+): string | null {
+  if (invoiceProducts.length === 0) return null;
+
+  const { managementHints, matchText } = stockItemMatchData(item);
+  const direct = invoiceProducts.find((product) =>
+    productKey(product.productName) === productKey(item.title) &&
+    canMatchTargetProduct(matchText, product.productName)
+  );
+  if (direct) return direct.productName;
+
+  const candidates = invoiceProducts.map((product) => ({
+    name: product.productName,
+    qty: product.orderQty,
+  }));
+  const suggestedName =
+    suggestInvoiceProductNameFromHints(
+      item.title,
+      [item.legacyManagementNo, item.allocationLabel, item.category, ...managementHints],
+      candidates,
+    ) ??
+    suggestInvoiceProductName(matchText, managementHints.join(" "), candidates);
+
+  return suggestedName && canMatchTargetProduct(matchText, suggestedName) ? suggestedName : null;
 }
 
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {
@@ -997,6 +1034,18 @@ function filterStockItemsByProductDetail(items: StockItemView[], filter: Product
   if (!filter || filter.mode !== "stock") return [];
   if (!filter.productKey) return items;
   return items.filter((item) => stockItemMatchesProduct(item, filter.productKey ?? "", filter.productTitle));
+}
+
+function filterStockItemsByInvoiceProductDetail(
+  items: StockItemView[],
+  filter: ProductDetailFilter | null,
+  invoiceProducts: InvoiceProductSummary[],
+): StockItemView[] {
+  if (!filter || filter.mode !== "stock") return [];
+  if (!filter.productKey) return items;
+  return items.filter(
+    (item) => productKey(findInvoiceProductNameForStockItem(item, invoiceProducts) ?? "") === filter.productKey,
+  );
 }
 
 function productDetailFilterLabel(filter: ProductDetailFilter): string {
@@ -2168,18 +2217,18 @@ function buildProductSummaries(
 
 function buildInvoiceStockProductSummaries(
   stockItems: StockItemView[],
-  invoiceNo: string | null,
+  invoiceProducts: InvoiceProductSummary[],
   excludedInventoryIds: Set<number>,
 ): ProductSummary[] {
-  if (!invoiceNo) return [];
+  if (invoiceProducts.length === 0) return [];
   const map = new Map<string, ProductSummary>();
 
   for (const item of stockItems) {
     if (excludedInventoryIds.has(item.inventoryId)) continue;
-    const parsed = parseInvoiceFromManagementNo(item.legacyManagementNo);
-    if (parsed?.invoiceNo !== invoiceNo) continue;
+    const matchedProductName = findInvoiceProductNameForStockItem(item, invoiceProducts);
+    if (!matchedProductName) continue;
 
-    const title = item.title;
+    const title = matchedProductName;
     const key = productKey(title);
     const current = map.get(key) ?? {
       key,
@@ -2217,13 +2266,13 @@ function buildInvoiceStockProductSummaries(
 
 function filterInvoiceStockItems(
   stockItems: StockItemView[],
-  invoiceNo: string | null,
+  invoiceProducts: InvoiceProductSummary[],
   excludedInventoryIds: Set<number>,
 ): StockItemView[] {
-  if (!invoiceNo) return [];
+  if (invoiceProducts.length === 0) return [];
   return stockItems.filter((item) => {
     if (excludedInventoryIds.has(item.inventoryId)) return false;
-    return parseInvoiceFromManagementNo(item.legacyManagementNo)?.invoiceNo === invoiceNo;
+    return Boolean(findInvoiceProductNameForStockItem(item, invoiceProducts));
   });
 }
 
@@ -7775,22 +7824,25 @@ export default function PurchaseRegistration() {
       : [],
     [allStockItems, searchText, selectedIsEbayGroup],
   );
+  const selectedInvoiceProductList = selectedInvoiceProducts?.products ?? EMPTY_INVOICE_PRODUCTS;
   const selectedInvoiceStockItems = useMemo(
-    () => filterInvoiceStockItems(allStockItems, selectedInvoiceNo, selectedRowInventoryIds),
-    [allStockItems, selectedInvoiceNo, selectedRowInventoryIds],
+    () => selectedInvoiceNo
+      ? filterInvoiceStockItems(allStockItems, selectedInvoiceProductList, selectedRowInventoryIds)
+      : [],
+    [allStockItems, selectedInvoiceNo, selectedInvoiceProductList, selectedRowInventoryIds],
   );
   const selectedInvoiceStockProducts = useMemo(
-    () => buildInvoiceStockProductSummaries(selectedInvoiceStockItems, selectedInvoiceNo, selectedRowInventoryIds),
-    [selectedInvoiceNo, selectedInvoiceStockItems, selectedRowInventoryIds],
+    () => buildInvoiceStockProductSummaries(selectedInvoiceStockItems, selectedInvoiceProductList, selectedRowInventoryIds),
+    [selectedInvoiceProductList, selectedInvoiceStockItems, selectedRowInventoryIds],
   );
   const selectedBaseProducts = useMemo(
     () => [
-      ...buildProductSummaries(selectedRows, selectedInvoiceProducts?.products ?? []),
+      ...buildProductSummaries(selectedRows, selectedInvoiceProductList),
       ...selectedInvoiceStockProducts,
     ],
-    [selectedInvoiceProducts?.products, selectedInvoiceStockProducts, selectedRows],
+    [selectedInvoiceProductList, selectedInvoiceStockProducts, selectedRows],
   );
-  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProducts?.products ?? [])
+  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProductList)
     .filter((product) => !selectedInvoiceNo || product.invoiceOrdered != null);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
@@ -7802,10 +7854,16 @@ export default function PurchaseRegistration() {
           : selectedEbayStockItems;
       }
       return productDetailFilter
-        ? filterStockItemsByProductDetail(selectedInvoiceStockItems, productDetailFilter)
+        ? filterStockItemsByInvoiceProductDetail(selectedInvoiceStockItems, productDetailFilter, selectedInvoiceProductList)
         : selectedInvoiceStockItems;
     },
-    [productDetailFilter, selectedEbayStockItems, selectedInvoiceStockItems, selectedIsEbayGroup],
+    [
+      productDetailFilter,
+      selectedEbayStockItems,
+      selectedInvoiceProductList,
+      selectedInvoiceStockItems,
+      selectedIsEbayGroup,
+    ],
   );
 
   const counts = useMemo(() => countPurchaseRows(countableRows), [countableRows]);
