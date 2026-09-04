@@ -1439,6 +1439,20 @@ const EBAY_7696_SECOND_KNOWN_PURCHASE_DATE = "2026-08-12";
 const EBAY_7696_SECOND_KNOWN_SUPPLIER_NAME = "駿河屋 名古屋栄店";
 let inventoryOneTimeRepairPromise: Promise<void> | null = null;
 
+function readStartupBooleanEnv(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return undefined;
+}
+
+function shouldRunInventoryOneTimeRepairs(): boolean {
+  const explicit = readStartupBooleanEnv("RUN_INVENTORY_ONE_TIME_REPAIRS");
+  if (explicit !== undefined) return explicit;
+  return process.env.NODE_ENV !== "production";
+}
+
 const MAXIM_404_3DSLL_SECOND_MANAGEMENT_NO = "404_マキシム_3DSLL_2/5";
 const MAXIM_404_3DSLL_SECOND_KEEP_LABEL_ID = "SEGCUWZ";
 const MAXIM_404_3DSLL_SECOND_REMOVE_LABEL_ID = "QDYEZHT";
@@ -2330,15 +2344,21 @@ async function softDeleteInventoriesHiddenByDeliveryHistory(): Promise<void> {
 
 function runInventoryOneTimeRepairsOnce(): Promise<void> {
   if (!inventoryOneTimeRepairPromise) {
-    inventoryOneTimeRepairPromise = (async () => {
-      await repairEbay7696SecondInventoryOverwrite();
-      await repairEbay7696SecondKnownContent();
-      await repairEbay7696SecondOrderSync();
-      await repairMaxim404PartialCancelLabel();
-      await softDeleteInventoriesHiddenByDeliveryHistory();
-    })().catch((error) => {
-      console.warn("[inventory] Failed to run one-time repairs", error);
-    });
+    if (shouldRunInventoryOneTimeRepairs()) {
+      inventoryOneTimeRepairPromise = (async () => {
+        await repairEbay7696SecondInventoryOverwrite();
+        await repairEbay7696SecondKnownContent();
+        await repairEbay7696SecondOrderSync();
+        await repairMaxim404PartialCancelLabel();
+        await softDeleteInventoriesHiddenByDeliveryHistory();
+      })().catch((error) => {
+        console.warn("[inventory] Failed to run one-time repairs", error);
+      });
+    } else {
+      inventoryOneTimeRepairPromise = (async () => {
+        console.info("[perf] inventory.oneTimeRepairs.skipped");
+      })();
+    }
   }
   return inventoryOneTimeRepairPromise;
 }

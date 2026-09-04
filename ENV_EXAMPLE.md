@@ -26,6 +26,10 @@ DATABASE_CONNECT_TIMEOUT_MS=
 # 一時的に 1 にしてデプロイし、反映を確認したら必ず戻すこと。
 RUN_RUNTIME_SCHEMA_CHECK=
 
+# 起動時の過去データ修復処理。
+# 本番では既定でスキップされる。過去修復を明示的に再実行したいときだけ 1 にする。
+RUN_INVENTORY_ONE_TIME_REPAIRS=
+
 # =============================================================================
 # 認証 (JWT / セッション)
 # =============================================================================
@@ -190,6 +194,7 @@ FEDEX_MISSING_GRACE_HOURS=6
 | `DATABASE_URL` | **必須** | MySQL/TiDB接続 | 自前DB / PlanetScale / TiDB Cloud |
 | `DATABASE_CONNECT_TIMEOUT_MS` | 任意 | DB接続確立タイムアウト(ms) | 例: 10000 |
 | `RUN_RUNTIME_SCHEMA_CHECK` | 任意 | 起動時のランタイムスキーマ自動チェック実行フラグ。本番は未設定でスキップ | 例: 1 / 0 |
+| `RUN_INVENTORY_ONE_TIME_REPAIRS` | 任意 | 起動時の過去データ修復処理。本番は未設定でスキップ | 例: 1 / 0 |
 | `JWT_SECRET` | **必須** | セッションCookie署名 | 任意の32文字以上ランダム文字列 |
 | `VITE_APP_ID` | Manus必須 | Manus OAuth アプリID | Manusダッシュボード |
 | `OAUTH_SERVER_URL` | Manus必須 | Manus OAuth バックエンドURL | Manusダッシュボード |
