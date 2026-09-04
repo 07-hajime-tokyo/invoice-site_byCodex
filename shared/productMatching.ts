@@ -253,7 +253,8 @@ function isOtherColor(colorName: string): boolean {
 
 function isBaseColorProduct(colorName: string): boolean {
   const normalized = normalizeLooseText(colorName);
-  return normalized.includes("base") || normalized.includes("ベース");
+  const text = normalizeText(colorName).toLowerCase();
+  return normalized.includes("base") || text.includes("ベース");
 }
 
 function limitedEditionProductKey(value: string): string | null {
