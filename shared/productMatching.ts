@@ -274,6 +274,22 @@ export function productNamesCanMatch(itemText: string, csvProductName: string): 
   return limitedEditionKeysCompatible(limitedEditionProductKey(itemText), limitedEditionProductKey(csvProductName));
 }
 
+function hasInvoice407ManagementHint(value: string): boolean {
+  return extractManagementHints(value).some((hint) => extractManagementInvoiceKey(hint) === "407");
+}
+
+export function isInvoice407AnimalCrossingWhiteBaseMatch(itemText: string, csvProductName: string): boolean {
+  const targetText = normalizeText(itemText);
+  const csvColor = extractColor(csvProductName);
+  return hasInvoice407ManagementHint(targetText) &&
+    extractModel(targetText) === "3DSLL" &&
+    limitedEditionProductKey(targetText) === "animal-crossing" &&
+    extractModel(csvProductName) === "3DSLL" &&
+    !limitedEditionProductKey(csvProductName) &&
+    isBaseColorProduct(csvColor) &&
+    colorTokens(csvColor).has("white");
+}
+
 function normalizeColorToken(value: string): string {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -363,8 +379,9 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
 
   const csvLimitedKey = limitedEditionProductKey(csvProductName);
   const targetLimitedKey = limitedEditionProductKey(targetText);
-  if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return -1;
   if (csvLimitedKey && targetLimitedKey) return csvLimitedKey === targetLimitedKey ? 95 : 90;
+  if (isInvoice407AnimalCrossingWhiteBaseMatch(targetText, csvProductName)) return 88;
+  if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return -1;
 
   const csvColor = extractColor(csvProductName);
   const managementText = normalizeLooseText(managementNo);

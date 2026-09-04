@@ -3,7 +3,13 @@ import { createPortal } from "react-dom";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
-import { extractManagementHints, extractModel, extractPreferredModel, suggestCsvProduct } from "@shared/productMatching";
+import {
+  extractManagementHints,
+  extractModel,
+  extractPreferredModel,
+  isInvoice407AnimalCrossingWhiteBaseMatch,
+  suggestCsvProduct,
+} from "@shared/productMatching";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
 import { classifyOutboundScan, normalizeOutboundScan, OUTBOUND_BOX_CODE_PATTERN } from "@shared/outboundBoxes";
 import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
@@ -771,6 +777,7 @@ function limitedEditionKeysCompatible(a: string | null, b: string | null): boole
 
 function canMatchTargetProduct(candidateText: string, targetTitle?: string): boolean {
   if (!targetTitle) return true;
+  if (isInvoice407AnimalCrossingWhiteBaseMatch(candidateText, targetTitle)) return true;
   const targetLimitedKey = limitedEditionProductKey(targetTitle);
   const candidateLimitedKey = limitedEditionProductKey(candidateText);
   if (targetLimitedKey || candidateLimitedKey) return limitedEditionKeysCompatible(targetLimitedKey, candidateLimitedKey);
