@@ -1956,7 +1956,10 @@ export async function updateLocalPurchase(id: number, data: Partial<InsertLocalP
 export async function getLocalPurchases(status?: string): Promise<LocalPurchaseWithLabels[]> {
   const key = status === undefined ? "status:__undefined__" : `status:${status}`;
   const running = inflightLocalPurchases.get(key);
-  if (running) return running;
+  if (running) {
+    console.info("[perf] getLocalPurchases.joined", { key });
+    return running;
+  }
 
   const promise = loadLocalPurchases(status).finally(() => {
     inflightLocalPurchases.delete(key);
