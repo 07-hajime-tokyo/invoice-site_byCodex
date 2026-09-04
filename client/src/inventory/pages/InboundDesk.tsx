@@ -174,6 +174,15 @@ function formatDateTime(value: string | null | undefined) {
   }).format(date);
 }
 
+function formatUpdatedTime(value: number) {
+  if (!value) return "未取得";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function carrierLabel(box: InboundBox) {
   return (
     CARRIER_LABELS[box.carrier.trim().toLowerCase()] ??
@@ -1993,17 +2002,22 @@ export default function InboundDesk() {
   const snapshotQuery = trpc.inventory.inboundDesk.snapshot.useQuery(
     undefined,
     {
-      refetchInterval: 30_000,
+      refetchInterval: 300_000,
+      refetchIntervalInBackground: false,
       refetchOnWindowFocus: true,
     }
   );
   const summaryQuery = trpc.inventory.orderManagement.getSummary.useQuery(
     undefined,
     {
-      refetchInterval: 30_000,
+      refetchInterval: 300_000,
+      refetchIntervalInBackground: false,
       refetchOnWindowFocus: true,
     }
   );
+  const isRefreshing = snapshotQuery.isFetching || summaryQuery.isFetching;
+  const lastUpdatedAt = Math.max(snapshotQuery.dataUpdatedAt, summaryQuery.dataUpdatedAt);
+  const lastUpdatedLabel = formatUpdatedTime(lastUpdatedAt);
 
   const labels = (snapshotQuery.data?.labels ?? []) as InboundLabel[];
   const pendingLabels = useMemo(
@@ -2208,6 +2222,20 @@ export default function InboundDesk() {
                   今日の充足状況を保存
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={isRefreshing}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                更新
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                最終更新 {lastUpdatedLabel}
+              </span>
             </div>
             {hiddenCompletedCount > 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
@@ -2264,7 +2292,7 @@ export default function InboundDesk() {
           boxes={boxes}
           incoming={incoming}
           rollups={rollups}
-          isRefreshing={snapshotQuery.isFetching || summaryQuery.isFetching}
+          isRefreshing={isRefreshing}
           onRefresh={refresh}
         />
       ) : null}
