@@ -40,6 +40,12 @@ function readBooleanEnv(name: string): boolean | undefined {
   return undefined;
 }
 
+export function shouldRunRuntimeSchemaCheck(): boolean {
+  const explicit = readBooleanEnv("RUN_RUNTIME_SCHEMA_CHECK");
+  if (explicit !== undefined) return explicit;
+  return process.env.NODE_ENV !== "production";
+}
+
 function shouldUseSsl(connectionString: string): boolean {
   const explicit = readBooleanEnv("DATABASE_SSL");
   if (explicit !== undefined) return explicit;
@@ -64,6 +70,7 @@ export function createDrizzleDatabase(connectionString: string): AppDatabase {
     supportBigNumbers: true,
     waitForConnections: true,
     connectionLimit: Number.isFinite(connectionLimit) ? connectionLimit : 10,
+    connectTimeout: Number(process.env.DATABASE_CONNECT_TIMEOUT_MS ?? 10000),
   };
 
   if (shouldUseSsl(connectionString)) {

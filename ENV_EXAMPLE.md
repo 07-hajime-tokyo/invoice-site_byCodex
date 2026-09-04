@@ -18,6 +18,13 @@ DATABASE_URL=mysql://user:password@localhost:3306/invoice_site
 DATABASE_SSL=
 DATABASE_SSL_REJECT_UNAUTHORIZED=true
 DATABASE_POOL_LIMIT=10
+DATABASE_CONNECT_TIMEOUT_MS=
+
+# 起動時のランタイムスキーマ自動チェック/自動追加。
+# 本番では既定でスキップされる（コールドスタート時に接続を長時間占有するため）。
+# drizzle/ に新しいテーブルやカラムを足して本番に反映したいときだけ、
+# 一時的に 1 にしてデプロイし、反映を確認したら必ず戻すこと。
+RUN_RUNTIME_SCHEMA_CHECK=
 
 # =============================================================================
 # 認証 (JWT / セッション)
@@ -181,6 +188,8 @@ FEDEX_MISSING_GRACE_HOURS=6
 | 変数名 | 必須/任意 | 用途 | 取得元 |
 |---|---|---|---|
 | `DATABASE_URL` | **必須** | MySQL/TiDB接続 | 自前DB / PlanetScale / TiDB Cloud |
+| `DATABASE_CONNECT_TIMEOUT_MS` | 任意 | DB接続確立タイムアウト(ms) | 例: 10000 |
+| `RUN_RUNTIME_SCHEMA_CHECK` | 任意 | 起動時のランタイムスキーマ自動チェック実行フラグ。本番は未設定でスキップ | 例: 1 / 0 |
 | `JWT_SECRET` | **必須** | セッションCookie署名 | 任意の32文字以上ランダム文字列 |
 | `VITE_APP_ID` | Manus必須 | Manus OAuth アプリID | Manusダッシュボード |
 | `OAUTH_SERVER_URL` | Manus必須 | Manus OAuth バックエンドURL | Manusダッシュボード |

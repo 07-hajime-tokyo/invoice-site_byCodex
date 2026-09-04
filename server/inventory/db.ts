@@ -65,7 +65,7 @@ import {
   invoices,
 } from "../../drizzle/schema";
 import { ADMIN_EMAILS } from "../../shared/const";
-import { createDrizzleDatabase, startDatabaseQueryMetrics, type AppDatabase } from "../_core/database";
+import { createDrizzleDatabase, shouldRunRuntimeSchemaCheck, startDatabaseQueryMetrics, type AppDatabase } from "../_core/database";
 import { getLocalDumpTable } from "./localDump";
 
 let _db: AppDatabase | null = null;
@@ -647,25 +647,31 @@ export async function getDb() {
   }
   if (_db) {
     if (!_inventorySchemaReady) {
-      const schemaStart = Date.now();
-      let schemaTimeout: ReturnType<typeof setTimeout> | undefined;
-      _inventorySchemaReady = Promise.race([
-        ensureInventoryRuntimeSchema(_db),
-        new Promise<void>((resolve) => {
-          schemaTimeout = setTimeout(() => {
-            console.warn("[Inventory DB] Runtime schema check timed out; continuing", {
-              timeoutMs: SCHEMA_CHECK_TIMEOUT_MS,
-            });
-            resolve();
-          }, SCHEMA_CHECK_TIMEOUT_MS);
-        }),
-      ])
-        .finally(() => {
-          if (schemaTimeout) clearTimeout(schemaTimeout);
-        })
-        .then(() => {
-          console.info("[perf] db.ensureInventoryRuntimeSchema", { ms: Date.now() - schemaStart });
-        });
+      if (shouldRunRuntimeSchemaCheck()) {
+        const schemaStart = Date.now();
+        let schemaTimeout: ReturnType<typeof setTimeout> | undefined;
+        _inventorySchemaReady = Promise.race([
+          ensureInventoryRuntimeSchema(_db),
+          new Promise<void>((resolve) => {
+            schemaTimeout = setTimeout(() => {
+              console.warn("[Inventory DB] Runtime schema check timed out; continuing", {
+                timeoutMs: SCHEMA_CHECK_TIMEOUT_MS,
+              });
+              resolve();
+            }, SCHEMA_CHECK_TIMEOUT_MS);
+          }),
+        ])
+          .finally(() => {
+            if (schemaTimeout) clearTimeout(schemaTimeout);
+          })
+          .then(() => {
+            console.info("[perf] db.ensureInventoryRuntimeSchema", { ms: Date.now() - schemaStart });
+          });
+      } else {
+        _inventorySchemaReady = (async () => {
+          console.info("[perf] db.ensureInventoryRuntimeSchema.skipped");
+        })();
+      }
     }
     await _inventorySchemaReady;
   }
