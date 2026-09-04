@@ -900,6 +900,18 @@ function suggestAnimalCrossingInvoiceProduct(
   return animalCrossingCandidates.length === 1 ? animalCrossingCandidates[0].name : null;
 }
 
+function suggestInvoice407WhiteBaseProduct(
+  title: string,
+  managementNo: string,
+  candidates: CsvProductCandidate[],
+): string | null {
+  const text = `${title} ${managementNo}`;
+  const match = candidates.find((candidate) =>
+    isInvoice407AnimalCrossingWhiteBaseMatch(text, candidate.name),
+  );
+  return match?.name ?? null;
+}
+
 function suggestInvoiceProductName(
   title: string,
   managementNo: string,
@@ -907,6 +919,9 @@ function suggestInvoiceProductName(
 ): string | null {
   const animalCrossingSuggestion = suggestAnimalCrossingInvoiceProduct(title, managementNo, candidates);
   if (animalCrossingSuggestion) return animalCrossingSuggestion;
+
+  const invoice407WhiteBaseSuggestion = suggestInvoice407WhiteBaseProduct(title, managementNo, candidates);
+  if (invoice407WhiteBaseSuggestion) return invoice407WhiteBaseSuggestion;
 
   const suggestion = suggestCsvProduct(title, managementNo, candidates);
   if (suggestion) return suggestion.name;
@@ -1977,11 +1992,16 @@ function stockProposalModelName(title: string, category?: string | null): string
 
 const STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES = ["403_ネレ"];
 const STOCK_PROPOSAL_ACCESSORY_KEYWORDS = [
+  "付属品",
+  "アクセサリ",
+  "アクセサリー",
   "ケーブル",
+  "コード",
   "バッテリー",
   "タッチペン",
   "充電器",
   "充電ケーブル",
+  "usbケーブル",
   "acアダプタ",
   "acアダプター",
   "アダプタ",
@@ -1993,6 +2013,14 @@ const STOCK_PROPOSAL_ACCESSORY_KEYWORDS = [
   "メモリーカード",
   "メモリースティック",
   "sdカード",
+];
+
+const STOCK_BODY_KEYWORDS = [
+  "本体",
+  "本体のみ",
+  "console",
+  "unit",
+  "body",
 ];
 
 function isExcludedStockProposalManagementNo(managementNo?: string | null): boolean {
@@ -2007,7 +2035,12 @@ function isUnfinishedInvoiceManagementNo(managementNo: string | null | undefined
 
 function isStockProposalAccessory(title: string, category?: string | null): boolean {
   const text = `${title} ${category ?? ""}`;
-  return hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS);
+  if (!hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS)) return false;
+  return !hasAnyProductText(title, STOCK_BODY_KEYWORDS);
+}
+
+function isFulfillmentStockItem(item: StockItemView): boolean {
+  return !isStockProposalAccessory(item.title, item.category);
 }
 
 function isStockWaitingPurchaseRow(row: PurchaseRow, unfinishedInvoiceNos: Set<string>): boolean {
@@ -7822,21 +7855,25 @@ export default function PurchaseRegistration() {
     [allPrintableLabels, labelScopeFrom, narrowLabelScope],
   );
   const allStockItems = useMemo(() => buildStockItemViewsFromInventories(inventoryItems), [inventoryItems]);
+  const allFulfillmentStockItems = useMemo(
+    () => allStockItems.filter(isFulfillmentStockItem),
+    [allStockItems],
+  );
   const selectedEbayStockItems = useMemo(
     () => selectedIsEbayGroup
-      ? allStockItems.filter((item) => (
+      ? allFulfillmentStockItems.filter((item) => (
         isEbayManagementNo(item.legacyManagementNo) &&
         (!searchText || buildStockSearchText(item).includes(searchText))
       ))
       : [],
-    [allStockItems, searchText, selectedIsEbayGroup],
+    [allFulfillmentStockItems, searchText, selectedIsEbayGroup],
   );
   const selectedInvoiceProductList = selectedInvoiceProducts?.products ?? EMPTY_INVOICE_PRODUCTS;
   const selectedInvoiceStockItems = useMemo(
     () => selectedInvoiceNo
-      ? filterInvoiceStockItems(allStockItems, selectedInvoiceProductList, selectedRowInventoryIds)
+      ? filterInvoiceStockItems(allFulfillmentStockItems, selectedInvoiceProductList, selectedRowInventoryIds)
       : [],
-    [allStockItems, selectedInvoiceNo, selectedInvoiceProductList, selectedRowInventoryIds],
+    [allFulfillmentStockItems, selectedInvoiceNo, selectedInvoiceProductList, selectedRowInventoryIds],
   );
   const selectedInvoiceStockProducts = useMemo(
     () => buildInvoiceStockProductSummaries(selectedInvoiceStockItems, selectedInvoiceProductList, selectedRowInventoryIds),

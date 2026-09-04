@@ -236,6 +236,11 @@ describe("productMatching", () => {
 
     expect(suggestCsvProduct("3DS LL どうぶつの森", "407_マキシム_3DSLL_どうぶつの森_1/5", products)?.name)
       .toBe("3DS LL ホワイトベース");
+    expect(suggestCsvProduct("3DS LL どうぶつの森", "407_マキシム_9/25&10/25", [
+      { name: "3DSLL ホワイトベース", qty: 25 },
+      { name: "New 3DS LL ランダムカラー", qty: 5 },
+    ])?.name)
+      .toBe("3DSLL ホワイトベース");
     expect(suggestCsvProduct("3DS LL どうぶつの森", "406_マキシム_3DSLL_どうぶつの森_1/5", products))
       .toBeNull();
     expect(suggestCsvProduct("New 3DS LL どうぶつの森", "407_マキシム_New3DSLL_どうぶつの森_1/5", products))
