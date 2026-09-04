@@ -228,6 +228,30 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("3DSLL レッド×ブラック", "400_マキシム_3DSLL_2/5", products)?.name).toBe("3DS LL ホワイトベース");
   });
 
+  it("No.407の3DS LLどうぶつの森だけを3DS LLホワイトベースへ特別に寄せる", () => {
+    const products = [
+      { name: "3DS LL ホワイトベース", qty: 25 },
+      { name: "New 3DS LL ランダムカラー", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("3DS LL どうぶつの森", "407_マキシム_3DSLL_どうぶつの森_1/5", products)?.name)
+      .toBe("3DS LL ホワイトベース");
+    expect(suggestCsvProduct("3DS LL どうぶつの森", "406_マキシム_3DSLL_どうぶつの森_1/5", products))
+      .toBeNull();
+    expect(suggestCsvProduct("New 3DS LL どうぶつの森", "407_マキシム_New3DSLL_どうぶつの森_1/5", products))
+      .toBeNull();
+  });
+
+  it("No.407でも3DS LLどうぶつの森の注文行がある場合は専用行を優先する", () => {
+    const products = [
+      { name: "3DS LL ホワイトベース", qty: 25 },
+      { name: "3DS LL どうぶつの森", qty: 5 },
+    ];
+
+    expect(suggestCsvProduct("3DS LL どうぶつの森", "407_マキシム_3DSLL_どうぶつの森_1/5", products)?.name)
+      .toBe("3DS LL どうぶつの森");
+  });
+
   it("shipment allocation sums color items into model-only rows without leaking 3DS LL into 3DS", () => {
     const result = allocateShipmentItemsToCsvProducts([
       { productNameJa: "New3DS LL メタリックブラック", productNameEn: "", quantity: 1 },
