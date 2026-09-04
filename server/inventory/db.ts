@@ -65,7 +65,7 @@ import {
   invoices,
 } from "../../drizzle/schema";
 import { ADMIN_EMAILS } from "../../shared/const";
-import { createDrizzleDatabase, type AppDatabase } from "../_core/database";
+import { createDrizzleDatabase, startDatabaseQueryMetrics, type AppDatabase } from "../_core/database";
 import { getLocalDumpTable } from "./localDump";
 
 let _db: AppDatabase | null = null;
@@ -1092,22 +1092,35 @@ export async function getLatestPurchaseDateMapFromDB(): Promise<Record<number, s
     }
     return map;
   }
-  const rows = await db
-    .select({
-      inventoryId: purchaseHistories.inventoryId,
-      latest: sql<string>`MAX(${purchaseHistories.purchaseDate})`,
-    })
-    .from(purchaseHistories)
-    .where(and(
-      eq(purchaseHistories.cancelled, 0),
-      isNotNull(purchaseHistories.inventoryId),
-    ))
-    .groupBy(purchaseHistories.inventoryId);
+  const queryStart = Date.now();
+  const metrics = startDatabaseQueryMetrics();
+  let rows: Array<{ inventoryId: number | null; latest: string | null }> = [];
+  try {
+    rows = await db
+      .select({
+        inventoryId: purchaseHistories.inventoryId,
+        latest: sql<string>`MAX(${purchaseHistories.purchaseDate})`,
+      })
+      .from(purchaseHistories)
+      .where(and(
+        eq(purchaseHistories.cancelled, 0),
+        isNotNull(purchaseHistories.inventoryId),
+      ))
+      .groupBy(purchaseHistories.inventoryId);
+  } finally {
+    metrics.finish();
+  }
 
   const map: Record<number, string> = {};
   for (const row of rows) {
     if (row.inventoryId && row.latest) map[row.inventoryId] = row.latest;
   }
+  console.info("[perf] getLatestPurchaseDateMapFromDB", {
+    ms: Date.now() - queryStart,
+    rowCount: rows.length,
+    inFlightAtStart: metrics.inFlightAtStart,
+    peakInFlight: metrics.peakInFlight,
+  });
   return map;
 }
 
@@ -1464,11 +1477,25 @@ async function attachInventoryItemLabelsToInventories(
   }
   const inventoryIds = rows.map((row) => row.id).filter((id) => Number.isFinite(id));
   if (inventoryIds.length === 0) return rows.map((row) => ({ ...row, itemLabels: [] }));
-  const labels = await db
-    .select()
-    .from(inventoryItemLabels)
-    .where(inArray(inventoryItemLabels.localInventoryId, inventoryIds))
-    .orderBy(desc(inventoryItemLabels.createdAt));
+  const queryStart = Date.now();
+  const metrics = startDatabaseQueryMetrics();
+  let labels: InventoryItemLabel[] = [];
+  try {
+    labels = await db
+      .select()
+      .from(inventoryItemLabels)
+      .where(inArray(inventoryItemLabels.localInventoryId, inventoryIds))
+      .orderBy(desc(inventoryItemLabels.createdAt));
+  } finally {
+    metrics.finish();
+  }
+  console.info("[perf] attachInventoryItemLabelsToInventories", {
+    ms: Date.now() - queryStart,
+    inventoryCount: inventoryIds.length,
+    labelCount: labels.length,
+    inFlightAtStart: metrics.inFlightAtStart,
+    peakInFlight: metrics.peakInFlight,
+  });
   const byInventory = groupLabelsByNumber(labels, "localInventoryId");
   return rows.map((row) => ({ ...row, itemLabels: byInventory.get(row.id) ?? [] }));
 }
@@ -1708,14 +1735,22 @@ async function loadLocalInventories(includeDeleted: boolean): Promise<LocalInven
       inventoryCount: filtered.length,
       labelsMs,
       labelCount,
+      inFlightAtStart: 0,
+      peakInFlight: 0,
     });
     return inventoriesWithLabels;
   }
-  const rows = includeDeleted
-    ? await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt))
-    : await db.select().from(localInventories)
-        .where(eq(localInventories.isDeleted, 0))
-        .orderBy(desc(localInventories.updatedAt));
+  const inventoryMetrics = startDatabaseQueryMetrics();
+  let rows: LocalInventory[] = [];
+  try {
+    rows = includeDeleted
+      ? await db.select().from(localInventories).orderBy(desc(localInventories.updatedAt))
+      : await db.select().from(localInventories)
+          .where(eq(localInventories.isDeleted, 0))
+          .orderBy(desc(localInventories.updatedAt));
+  } finally {
+    inventoryMetrics.finish();
+  }
   const inventoriesMs = Date.now() - inventoriesStart;
   const labelsStart = Date.now();
   const inventoriesWithLabels = await attachInventoryItemLabelsToInventories(rows, db);
@@ -1727,6 +1762,8 @@ async function loadLocalInventories(includeDeleted: boolean): Promise<LocalInven
     inventoryCount: rows.length,
     labelsMs,
     labelCount,
+    inFlightAtStart: inventoryMetrics.inFlightAtStart,
+    peakInFlight: inventoryMetrics.peakInFlight,
   });
   return inventoriesWithLabels;
 }
