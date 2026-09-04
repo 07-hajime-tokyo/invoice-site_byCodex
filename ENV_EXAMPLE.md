@@ -153,6 +153,11 @@ GAS_WEBHOOK_SECRET=replace-with-a-long-random-secret
 # 任意 | Vercel Cron認証用。設定した場合はVercel側にも同じ値を設定してください。
 CRON_SECRET=replace-with-a-long-random-secret
 
+# 任意 | 受取連絡チェックの巡回結果JSONを読むGoogle DriveフォルダID
+# フォルダ名: 取引ハブ巡回結果
+# サービスアカウントに閲覧者権限で共有してください。
+RECEIPT_ACK_DRIVE_FOLDER_ID=1D52paMhZFJ9V3pPRf0XvISUJmq8CLJE4
+
 # 任意 | FedEx発送登録漏れの自動チェック対象日数（未設定時: 7日）
 FEDEX_MISSING_LOOKBACK_DAYS=7
 
@@ -207,5 +212,6 @@ FEDEX_MISSING_GRACE_HOURS=6
 | `VITE_ANALYTICS_WEBSITE_ID` | 任意 | アナリティクスID | Umami等 |
 | `GAS_WEBHOOK_SECRET` | 任意 | GASから発注済みデータを登録するWebhook認証 | 任意の長いランダム文字列 |
 | `CRON_SECRET` | 任意 | Vercel Cron API認証 | 任意の長いランダム文字列 |
+| `RECEIPT_ACK_DRIVE_FOLDER_ID` | 任意 | 受取連絡チェック巡回結果JSONのDrive中継フォルダ | Google Drive |
 | `FEDEX_MISSING_LOOKBACK_DAYS` | 任意 | FedEx発送登録漏れチェック対象日数 | 例: 7 |
 | `FEDEX_MISSING_GRACE_HOURS` | 任意 | 出庫登録後、漏れ判定まで待つ時間 | 例: 6 |

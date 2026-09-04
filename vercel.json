@@ -19,6 +19,10 @@
       "schedule": "5 15 * * *"
     },
     {
+      "path": "/api/cron/receipt-ack-import",
+      "schedule": "30 2 * * *"
+    },
+    {
       "path": "/api/cron/receipt-ack-stale",
       "schedule": "0 3 * * *"
     }
