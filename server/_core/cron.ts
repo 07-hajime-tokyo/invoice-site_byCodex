@@ -7,6 +7,7 @@ import { ADMIN_EMAILS } from "@shared/const";
 import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
 import { refreshStaleDefectiveListings } from "../inventory/defectiveSync";
 import { checkReceiptAckStale } from "../inventory/receiptAck";
+import { importReceiptAckFromDrive } from "../inventory/receiptAckDrive";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -114,6 +115,23 @@ export function registerCronRoutes(app: Express) {
       console.error("[cron/defective-yahoo-prices] failed", error);
       res.status(500).json({
         error: "Defective Yahoo price refresh failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/cron/receipt-ack-import", async (req, res) => {
+    if (!isAuthorizedCronRequest(req)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      res.json(await importReceiptAckFromDrive());
+    } catch (error) {
+      console.error("[cron/receipt-ack-import] failed", error);
+      res.status(500).json({
+        error: "Receipt acknowledgement drive import failed",
         detail: error instanceof Error ? error.message : String(error),
       });
     }
