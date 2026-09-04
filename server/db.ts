@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
-import { createDrizzleDatabase, type AppDatabase } from "./_core/database";
+import { createDrizzleDatabase, shouldRunRuntimeSchemaCheck, type AppDatabase } from "./_core/database";
 
 let _db: AppDatabase | null = null;
 let _schemaReady: Promise<void> | null = null;
@@ -108,7 +108,13 @@ export async function getDb() {
     }
   }
   if (_db) {
-    _schemaReady ??= ensureRuntimeSchema(_db);
+    if (shouldRunRuntimeSchemaCheck()) {
+      _schemaReady ??= ensureRuntimeSchema(_db);
+    } else {
+      _schemaReady ??= (async () => {
+        console.info("[perf] db.ensureRuntimeSchema.skipped");
+      })();
+    }
     await _schemaReady;
   }
   return _db;
