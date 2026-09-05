@@ -289,7 +289,7 @@ pnpm test
 
 | サービス | 用途 | 設定箇所 |
 |---|---|---|
-| **Google Sheets API v4** | 取引データの読み書き（スプレッドシートID: `1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw`） | `GOOGLE_SERVICE_ACCOUNT_JSON` |
+| **Google Sheets API v4** | 取引データ連携（スプレッドシートID: `1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw`。取引ステータスの取り込み元としては廃止済み、2026-09） | `GOOGLE_SERVICE_ACCOUNT_JSON` |
 | **Frankfurter API** | EUR/USD→JPY為替レート取得（無料・APIキー不要） | `https://api.frankfurter.app` |
 | **入出庫管理** | サイト内DBで在庫・発注・出庫を管理 | 外部Zaico/Manus URLは使用しない |
 | **Manus Forge API** | LLM（OpenAI互換）・画像生成・音声認識 | `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` |
@@ -480,7 +480,7 @@ Google Fonts CDN経由で読み込まれます（`client/index.html`）。オフ
 |---|---|
 | 本番サイト | `https://csvsearch-yrduex7p.manus.space` |
 | Frankfurter 為替API | `https://api.frankfurter.app` |
-| Google Sheets | `https://sheets.googleapis.com/v4/spreadsheets/1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw` |
+| Google Sheets | `https://sheets.googleapis.com/v4/spreadsheets/1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw`（取引ステータスの取り込み元としては廃止済み、2026-09） |
 | Manus OAuth | `OAUTH_SERVER_URL` 環境変数で設定 |
 | Manus Forge API | `BUILT_IN_FORGE_API_URL` 環境変数で設定 |
 

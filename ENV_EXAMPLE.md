@@ -77,6 +77,7 @@ VITE_FRONTEND_FORGE_API_URL=https://forge.manus.im
 # 取得元: Google Cloud Console → IAM → サービスアカウント → キーを作成
 # 権限: Google Sheets API の編集権限が必要
 # 対象スプレッドシートID: 1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw
+# 取引ステータスの取り込み元としては廃止済み（2026-09）
 GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"...@....iam.gserviceaccount.com"}
 
 # =============================================================================
