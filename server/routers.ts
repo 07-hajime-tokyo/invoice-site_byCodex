@@ -12,10 +12,6 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { inventoryRouter } from "./inventory/routers";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
-import {
-  applySourceTradeSheetStatuses,
-  parseSourceTradeStatusSheetRows,
-} from "@shared/tradeSheetStatus";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -524,11 +520,6 @@ let tradeShipmentProgressCache: {
   data: Map<string, SheetShipmentProgress[]>;
 } | null = null;
 
-let sourceTradeStatusCache: {
-  expiresAt: number;
-  data: ReturnType<typeof parseSourceTradeStatusSheetRows>;
-} | null = null;
-
 function parseSheetQuantity(value: unknown) {
   const text = String(value ?? "").replace(/,/g, "").trim();
   if (!text) return 0;
@@ -609,29 +600,6 @@ async function getSheetShipmentProgressByInvoice() {
     data: progressByInvoice,
   };
   return progressByInvoice;
-}
-
-async function getSourceTradeStatusesByInvoice() {
-  if (!canSyncTradeSheet()) return new Map<string, never[]>();
-  const now = Date.now();
-  if (sourceTradeStatusCache && sourceTradeStatusCache.expiresAt > now) {
-    return sourceTradeStatusCache.data;
-  }
-
-  const sheets = getSheetsClient();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!C:J`,
-    valueRenderOption: "FORMATTED_VALUE",
-  }).catch((error) => {
-    throw getSheetsAccessError(error, SPREADSHEET_ID);
-  });
-  const data = parseSourceTradeStatusSheetRows(response.data.values ?? []);
-  sourceTradeStatusCache = {
-    expiresAt: now + 20_000,
-    data,
-  };
-  return data;
 }
 
 function summarizeSheetShipmentProgress(entries: SheetShipmentProgress[], fallbackOrderedQty: number) {
@@ -1748,13 +1716,9 @@ export const appRouter = router({
         const orderExpr = input.sortDir === "desc" ? desc(sortColumn) : asc(sortColumn);
         const offset = (input.page - 1) * input.pageSize;
         const toNumber = (value: unknown) => Number(value ?? 0) || 0;
-        const [sheetProgress, sourceTradeStatuses, invoiceMemos] = await Promise.all([
+        const [sheetProgress, invoiceMemos] = await Promise.all([
           getSheetShipmentProgressByInvoice().catch((error) => {
             console.warn("[Trade] Failed to load sheet shipment progress", error);
-            return null;
-          }),
-          getSourceTradeStatusesByInvoice().catch((error) => {
-            console.warn("[Trade] Failed to load source trade sheet statuses", error);
             return null;
           }),
           getAllInvoiceMemos().catch((error) => {
@@ -1771,16 +1735,10 @@ export const appRouter = router({
           ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
           : await db.select().from(tradeRecords).orderBy(orderExpr);
         const baseRows = await applyDisplayedEuroRateRepairs(db, baseRowsFromDb);
-        const rowsWithSourceStatus = sourceTradeStatuses
-          ? applySourceTradeSheetStatuses(baseRows, sourceTradeStatuses)
-          : baseRows;
         const rowsWithSheetStatus = sheetProgress
-          ? applySheetShipmentStatuses(rowsWithSourceStatus, sheetProgress)
-          : rowsWithSourceStatus;
-        const rowsWithSourceCompleteStatus = sourceTradeStatuses
-          ? applySourceTradeSheetStatuses(rowsWithSheetStatus, sourceTradeStatuses, { completeOnly: true })
-          : rowsWithSheetStatus;
-        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithSourceCompleteStatus, manualCompleteSet);
+          ? applySheetShipmentStatuses(baseRows, sheetProgress)
+          : baseRows;
+        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithSheetStatus, manualCompleteSet);
         const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithManualCompleteStatus);
         const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
           rowsWithManualCompleteStatus,
