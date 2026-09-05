@@ -380,7 +380,11 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
 
   const csvLimitedKey = limitedEditionProductKey(csvProductName);
   const targetLimitedKey = limitedEditionProductKey(targetText);
-  if (csvLimitedKey && targetLimitedKey) return csvLimitedKey === targetLimitedKey ? 95 : 90;
+  if (csvLimitedKey && targetLimitedKey) {
+    if (csvLimitedKey === targetLimitedKey) return 95;
+    if (csvLimitedKey === "limited" || targetLimitedKey === "limited") return 90;
+    return -1;
+  }
   if (isInvoice407AnimalCrossingWhiteBaseMatch(targetText, csvProductName)) return 88;
   if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return -1;
 
