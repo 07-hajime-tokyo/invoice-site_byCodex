@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "../_core/connections";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { listingPhotos } from "../../drizzle/schema";
@@ -16,12 +17,9 @@ import { getDb } from "./db";
  * 出品写真はヤフオクに載れば公開されるものだが、保存した時点で
  * URLを知っていれば見える状態になることは意識しておく。
  */
-const PUBLIC_BASE_URL =
-  process.env.PUBLIC_SITE_URL?.replace(/\/+$/, "") ??
-  "https://invoice-site-bycodex.vercel.app";
 
 export function listingPhotoUrl(key: string) {
-  return `${PUBLIC_BASE_URL}/api/listing-photos/${key.split("/").map(encodeURIComponent).join("/")}`;
+  return `${publicSiteUrl()}/api/listing-photos/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 export async function putListingPhoto(
@@ -29,6 +27,7 @@ export async function putListingPhoto(
   body: Buffer,
   contentType: string
 ): Promise<string> {
+  const publicUrl = listingPhotoUrl(key);
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const labelId = key.split("/")[1] ?? null;
@@ -46,9 +45,11 @@ export async function putListingPhoto(
       .set({ contentType, dataBase64, labelId })
       .where(eq(listingPhotos.id, existing.id));
   } else {
-    await db.insert(listingPhotos).values({ photoKey: key, labelId, contentType, dataBase64 });
+    await db
+      .insert(listingPhotos)
+      .values({ photoKey: key, labelId, contentType, dataBase64 });
   }
-  return listingPhotoUrl(key);
+  return publicUrl;
 }
 
 export async function readListingPhoto(key: string) {
@@ -60,7 +61,10 @@ export async function readListingPhoto(key: string) {
     .where(eq(listingPhotos.photoKey, key))
     .limit(1);
   if (!row) return null;
-  return { contentType: row.contentType, body: Buffer.from(row.dataBase64, "base64") };
+  return {
+    contentType: row.contentType,
+    body: Buffer.from(row.dataBase64, "base64"),
+  };
 }
 
 /**
@@ -70,6 +74,8 @@ export async function readListingPhoto(key: string) {
  * 人が見て直せるようにする（村上さん指示・2026-08-18）。
  */
 export async function rotateListingPhoto(key: string, degrees: 90 | 180 | 270) {
+  // DBを書き換える前に、呼び出し元へ返す公開URLを検証する。
+  const publicUrl = listingPhotoUrl(key);
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [row] = await db
@@ -87,5 +93,9 @@ export async function rotateListingPhoto(key: string, degrees: 90 | 180 | 270) {
     .set({ contentType: "image/jpeg", dataBase64: rotated.toString("base64") })
     .where(eq(listingPhotos.id, row.id));
   // Sheetsの =IMAGE() はURL単位でキャッシュするので、回したらURLも変える
-  return { key, bytes: rotated.length, url: `${listingPhotoUrl(key)}?v=${row.id}-${Date.now()}` };
+  return {
+    key,
+    bytes: rotated.length,
+    url: `${publicUrl}?v=${row.id}-${Date.now()}`,
+  };
 }

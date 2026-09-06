@@ -1,3 +1,4 @@
+import { assertDatabaseTarget } from "./server/_core/connections";
 import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
@@ -5,6 +6,8 @@ const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error("DATABASE_URL is required to run drizzle commands");
 }
+
+assertDatabaseTarget(connectionString);
 
 function readBooleanEnv(name: string): boolean | undefined {
   const value = process.env[name]?.trim().toLowerCase();

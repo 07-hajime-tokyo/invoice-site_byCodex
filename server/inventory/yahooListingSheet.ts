@@ -1,3 +1,4 @@
+import { spreadsheetId } from "../_core/connections";
 import { google } from "googleapis";
 import type { DefectiveSheetPayload } from "./defectiveListing";
 
@@ -7,8 +8,7 @@ import type { DefectiveSheetPayload } from "./defectiveListing";
  * 共有ドライブ 0AM4oG1O4rVpLUk9PVA の中にあるので、サービスアカウントは
  * ドライブのメンバー権限でそのまま書き込める（個別共有は不要）。
  */
-export const YAHOO_LISTING_SPREADSHEET_ID =
-  "1y6g_HJNZm_BW1X_3M3bY28ZLMR-JKD0cBhBPfIsUCKs";
+export const YAHOO_LISTING_SPREADSHEET_ID = spreadsheetId("YAHOO_LISTING_SPREADSHEET_ID");
 
 export const YAHOO_LISTING_SHEET_NAME = "出品待ち";
 

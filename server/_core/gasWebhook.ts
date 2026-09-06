@@ -9,6 +9,7 @@ import {
   purchaseHistories,
 } from "../../drizzle/schema";
 import { createInventoryMemo, ensureInventoryItemLabels, getDb } from "../inventory/db";
+import { productionOnly } from "./productionOnly";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -423,6 +424,9 @@ async function findDuplicateManagementNoRows(managementNoInput: string) {
 }
 
 export function registerGasWebhookRoutes(app: Express) {
+  app.use("/api/gas", productionOnly);
+  app.use("/api/gas-webhook", productionOnly);
+
   function sendHealth(res: Response, endpoint: string) {
     res.json({
       success: true,

@@ -8,6 +8,7 @@ import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
 import { refreshStaleDefectiveListings } from "../inventory/defectiveSync";
 import { checkReceiptAckStale } from "../inventory/receiptAck";
 import { importReceiptAckFromDrive } from "../inventory/receiptAckDrive";
+import { productionOnly } from "./productionOnly";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -24,6 +25,8 @@ function isAuthorizedCronRequest(req: Request) {
 }
 
 export function registerCronRoutes(app: Express) {
+  app.use("/api/cron", productionOnly);
+
   app.get("/api/cron/fedex-missing", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });

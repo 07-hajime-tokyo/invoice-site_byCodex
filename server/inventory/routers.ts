@@ -1,3 +1,4 @@
+import { spreadsheetId, gasWebhookUrl } from "../_core/connections";
 import { z } from "zod";
 import { google } from "googleapis";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
@@ -199,7 +200,7 @@ import {
 const shipmentSheetNameSchema = z.enum(["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"]);
 type ShipmentSheetName = z.infer<typeof shipmentSheetNameSchema>;
 
-const TRADE_SHIPMENT_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
+const TRADE_SHIPMENT_SPREADSHEET_ID = spreadsheetId("TRADE_SHIPMENT_SPREADSHEET_ID");
 const TRADE_SHIPMENT_SHEET_NAME_KEYWORD = "発送管理";
 
 let orderManagementShipmentProgressCache: {
@@ -5948,7 +5949,7 @@ export const inventoryRouter = router({
             });
 
             // GAS Webhookでスプシに書き込む
-            const gasUrl = process.env.GAS_WEBHOOK_URL;
+            const gasUrl = gasWebhookUrl();
             if (gasUrl) {
               const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
               const gasPayload = {
@@ -6352,7 +6353,7 @@ export const inventoryRouter = router({
         }
 
         // GAS自動反映: 元の出庫Noと移動先の出庫Noに紐付くfedex_shipmentsを更新
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
         const gasResults: Array<{ trackingNumber: string; success: boolean; message?: string }> = [];
 
@@ -9726,7 +9727,7 @@ export const inventoryRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         type MergeItem = ShipmentGasItem;
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
         const invoiceNo = invoiceNoFromDeliveryNo(input.deliveryNo);
         const sourceItems = (await getShipmentItemsForHistory(input.historyId)) ?? input.items;
@@ -9920,7 +9921,7 @@ export const inventoryRouter = router({
         // DBから削除
         await deleteFedexShipment(input.id);
         // GASを通じてスプシからも削除
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         if (!gasUrl) {
           return { success: true, message: "DBから削除しました（GAS_WEBHOOK_URLが未設定のためスプシは未反映）" };
         }
@@ -9982,7 +9983,7 @@ export const inventoryRouter = router({
         }
         const oldTrackingNumber = record.trackingNumber;
         // GASを通じてスプシも更新
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         if (!gasUrl) {
           await updateFedexShipment(input.id, { spreadsheetStatus: "error", spreadsheetError: "GAS_WEBHOOK_URLが未設定" });
           return { success: false, message: "GAS_WEBHOOK_URL が未設定です。管理者に連絡してください。" };
@@ -10082,7 +10083,7 @@ export const inventoryRouter = router({
       .mutation(async ({ input, ctx }) => {
         type MergeItem = ShipmentGasItem;
         const results: Array<{ deliveryNo: string; sheetName: string; trackingNumber: string; id: number; success: boolean; message: string }> = [];
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
         const workOperatorName = resolveWorkOperatorName(input.operatorName, ctx.user.name ?? ctx.user.email ?? null);
         const alignedShipments = await Promise.all(input.shipments.map(async (shipment) => {
@@ -10285,7 +10286,7 @@ export const inventoryRouter = router({
           spreadsheetStatus: "pending",
         });
         for (const rec of targets.slice(1)) await deleteFedexShipment(rec.id);
-        const gasUrl = process.env.GAS_WEBHOOK_URL;
+        const gasUrl = gasWebhookUrl();
         if (!gasUrl) return { success: true, message: `DBで${targets.length}件を合算しました（GAS未設定）` };
         try {
           const secret = process.env.GAS_WEBHOOK_SECRET ?? "";

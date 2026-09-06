@@ -1,3 +1,4 @@
+import { assertConnectionEnvironment } from "./connections";
 import express from "express";
 import { readActionItemAttachment } from "../inventory/actionItemAttachmentStorage";
 import { readListingPhoto } from "../inventory/listingPhotoStorage";
@@ -82,6 +83,7 @@ async function canReadInternalAsset(req: express.Request) {
 }
 
 export async function createApiApp() {
+  assertConnectionEnvironment();
   const app = express();
 
   app.use(express.json({ limit: "50mb" }));

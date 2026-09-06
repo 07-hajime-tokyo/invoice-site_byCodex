@@ -1,3 +1,4 @@
+import { assertDatabaseTarget } from "../_core/connections";
 import { randomInt } from "node:crypto";
 import { eq, desc, and, inArray, gt, like, isNotNull, sql } from "drizzle-orm";
 import {
@@ -635,6 +636,7 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
 }
 
 export async function getDb() {
+  if (process.env.DATABASE_URL) assertDatabaseTarget(process.env.DATABASE_URL);
   if (!_db && process.env.DATABASE_URL) {
     const connectStart = Date.now();
     try {

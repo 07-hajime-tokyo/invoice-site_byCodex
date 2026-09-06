@@ -7,8 +7,10 @@ describe("Gemini API connection", () => {
     const apiKey = process.env.GEMINI_API_KEY;
     expect(apiKey, "GEMINI_API_KEY must be set").toBeTruthy();
 
+    const model = process.env.GEMINI_TEST_MODEL;
+    expect(model, "GEMINI_TEST_MODEL must be explicitly selected").toBeTruthy();
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

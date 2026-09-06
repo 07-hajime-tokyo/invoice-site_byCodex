@@ -1,3 +1,4 @@
+import { receiptAckFolderId } from "../_core/connections";
 import { google } from "googleapis";
 import { ZodError, type z } from "zod";
 import { RECEIPT_ACK_SITES } from "@shared/receiptAck";
@@ -45,7 +46,7 @@ function getServiceAccountCredentials() {
 }
 
 function getReceiptAckDriveFolderId() {
-  const folderId = cleanText(process.env.RECEIPT_ACK_DRIVE_FOLDER_ID);
+  const folderId = receiptAckFolderId();
   if (!folderId) throw new Error("RECEIPT_ACK_DRIVE_FOLDER_ID is not configured");
   return folderId;
 }

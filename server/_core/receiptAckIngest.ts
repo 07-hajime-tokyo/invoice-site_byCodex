@@ -2,6 +2,7 @@ import { timingSafeEqual } from "crypto";
 import type { Express, Request, Response } from "express";
 import { ZodError } from "zod";
 import { ingestReceiptAckCrawlResult } from "../inventory/receiptAck";
+import { productionOnly } from "./productionOnly";
 
 function getProvidedSecretInfo(req: Request) {
   const authorization = req.header("authorization") ?? "";
@@ -56,6 +57,8 @@ function sendError(res: Response, status: number, message: string, extra: Record
 }
 
 export function registerReceiptAckIngestRoutes(app: Express) {
+  app.use("/api/ingest/receipt-ack", productionOnly);
+
   app.get("/api/ingest/receipt-ack", (_req, res) => {
     res.json({
       ok: true,

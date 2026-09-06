@@ -1,3 +1,4 @@
+import { appEnvironment } from "../_core/connections";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,10 @@ export async function hasLocalDump(): Promise<boolean> {
 }
 
 async function loadLocalDump(): Promise<Map<string, DumpRow[]>> {
+  if (appEnvironment() !== "production") {
+    if (process.env.LOCAL_DUMP_SQL) throw new Error("Legacy SQL dumps are disabled outside production; use synthetic seed data");
+    return new Map();
+  }
   if (cachedTables) return cachedTables;
 
   cachedTables = new Map();

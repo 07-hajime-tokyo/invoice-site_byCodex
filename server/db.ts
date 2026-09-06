@@ -1,3 +1,4 @@
+import { assertDatabaseTarget } from "./_core/connections";
 import { eq, sql } from "drizzle-orm";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -99,6 +100,7 @@ async function ensureRuntimeSchema(db: AppDatabase) {
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
+  if (process.env.DATABASE_URL) assertDatabaseTarget(process.env.DATABASE_URL);
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = createDrizzleDatabase(process.env.DATABASE_URL);

@@ -1,3 +1,4 @@
+import { gasWebhookUrl } from "../_core/connections";
 type GasResult = { success: boolean; message?: string };
 
 function parseGasResult(text: string): GasResult {
@@ -20,7 +21,7 @@ export async function postGasAction(
     secret?: string;
   } = {}
 ): Promise<GasResult> {
-  const gasUrl = options.gasUrl ?? process.env.GAS_WEBHOOK_URL ?? "";
+  const gasUrl = options.gasUrl ?? gasWebhookUrl() ?? "";
   const secret = options.secret ?? process.env.GAS_WEBHOOK_SECRET ?? "";
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep =

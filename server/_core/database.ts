@@ -1,3 +1,4 @@
+import { assertDatabaseTarget } from "./connections";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type PoolOptions } from "mysql2";
 
@@ -59,6 +60,7 @@ function shouldUseSsl(connectionString: string): boolean {
 }
 
 export function createDrizzleDatabase(connectionString: string): AppDatabase {
+  assertDatabaseTarget(connectionString);
   if (_sharedPool && _sharedPoolKey === connectionString) return _sharedPool;
   if (_sharedPool && _sharedPoolKey !== connectionString) {
     console.warn("[Database] createDrizzleDatabase called with a different connection string; creating a separate pool");

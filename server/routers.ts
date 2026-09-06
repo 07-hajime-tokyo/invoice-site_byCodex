@@ -1,3 +1,4 @@
+import { spreadsheetId } from "./_core/connections";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import {
@@ -28,9 +29,9 @@ const WHATSAPP_EXPAND_MONTHS = 3;
 /** WhatsApp会話履歴：期間内が少なくても、最低これだけは遡って出す */
 const WHATSAPP_MIN_MESSAGES = 20;
 
-const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
+const SPREADSHEET_ID = spreadsheetId("TRADE_SOURCE_SPREADSHEET_ID");
 const SHEET_NAME = "全体";
-const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
+const TRADE_VIEW_SPREADSHEET_ID = spreadsheetId("TRADE_SHIPMENT_SPREADSHEET_ID");
 const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
 const TRADE_VIEW_SHEET_NAME_KEYWORD = "発送管理";
 const TRADE_SHEET_WRITE_BACK_ENABLED = false;
