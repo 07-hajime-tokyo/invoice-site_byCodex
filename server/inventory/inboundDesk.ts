@@ -389,6 +389,77 @@ async function loadRestockCandidate(labelId: string) {
   };
 }
 
+const RESTOCK_CANDIDATE_BULK_CHUNK_SIZE = 1000;
+type RestockCandidate = NonNullable<Awaited<ReturnType<typeof loadRestockCandidate>>>;
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function loadRestockCandidatesBulk(): Promise<RestockCandidate[]> {
+  const db = await requireDb();
+
+  const labels = await db.select().from(inventoryItemLabels)
+    .where(eq(inventoryItemLabels.status, "stocked"));
+  if (labels.length === 0) return [];
+
+  const inventoryIds = [...new Set(
+    labels.map(label => label.localInventoryId).filter((id): id is number => id != null)
+  )];
+  const boxIds = [...new Set(
+    labels.map(label => label.outboundBoxId).filter((id): id is number => id != null)
+  )];
+
+  const loadInventoryRows = async () => {
+    const rows: Array<typeof localInventories.$inferSelect> = [];
+    for (const chunk of chunkValues(inventoryIds, RESTOCK_CANDIDATE_BULK_CHUNK_SIZE)) {
+      rows.push(...await db.select().from(localInventories).where(inArray(localInventories.id, chunk)));
+    }
+    return rows;
+  };
+  const loadBoxRows = async () => {
+    const rows: Array<typeof outboundBoxes.$inferSelect> = [];
+    for (const chunk of chunkValues(boxIds, RESTOCK_CANDIDATE_BULK_CHUNK_SIZE)) {
+      rows.push(...await db.select().from(outboundBoxes).where(inArray(outboundBoxes.id, chunk)));
+    }
+    return rows;
+  };
+
+  const [inventoryRows, boxRows] = await Promise.all([
+    inventoryIds.length ? loadInventoryRows() : Promise.resolve([]),
+    boxIds.length ? loadBoxRows() : Promise.resolve([]),
+  ]);
+
+  const inventoryById = new Map(inventoryRows.map(row => [row.id, row]));
+  const boxById = new Map(boxRows.map(row => [row.id, row]));
+
+  return labels.map(label => {
+    const inventory = label.localInventoryId != null
+      ? inventoryById.get(label.localInventoryId) ?? null
+      : null;
+    const box = label.outboundBoxId != null
+      ? boxById.get(label.outboundBoxId) ?? null
+      : null;
+    const reason = restockToDefectiveBlockReason({
+      status: label.status,
+      boxStatus: box?.status,
+      boxCode: box?.boxCode,
+      alreadyDefective: Boolean(label.defectRecordedAt),
+    });
+    return {
+      label,
+      inventory,
+      box,
+      eligible: !reason,
+      reason,
+    } as RestockCandidate;
+  });
+}
+
 type UndoKind = "receive" | "inspection";
 
 type InspectionUndoMeta = {
@@ -987,12 +1058,8 @@ export const inboundDeskRouter = router({
     .mutation(({ input }) => dissolveDefectiveGroup(input.id)),
 
   listRestockCandidates: protectedProcedure.query(async () => {
-    const db = await requireDb();
-    const labels = await db.select({ labelId: inventoryItemLabels.labelId })
-      .from(inventoryItemLabels)
-      .where(eq(inventoryItemLabels.status, "stocked"));
-    const candidates = await Promise.all(labels.map(row => loadRestockCandidate(row.labelId)));
-    return candidates.filter(candidate => candidate && !candidate.label.defectRecordedAt);
+    const candidates = await loadRestockCandidatesBulk();
+    return candidates.filter(candidate => !candidate.label.defectRecordedAt);
   }),
 
   lookupRestockCandidate: protectedProcedure
