@@ -127,7 +127,29 @@ export function registerCronRoutes(app: Express) {
     }
 
     try {
-      res.json(await importReceiptAckFromDrive());
+      const result = await importReceiptAckFromDrive();
+      console.info("[cron/receipt-ack-import] done", {
+        status: result.status,
+        imported: result.imported,
+        file: "file" in result ? result.file?.name : undefined,
+        crawledAt: "crawledAt" in result ? result.crawledAt : undefined,
+        lastImportedCrawledAt: "lastImportedCrawledAt" in result ? result.lastImportedCrawledAt : undefined,
+        checkedFiles: result.checkedFiles,
+        skippedTestFiles: result.skippedTestFiles,
+        counts:
+          "result" in result && result.result
+            ? {
+                matched: result.result.matched,
+                updated: result.result.updated,
+                pending: result.result.pending,
+                unknown: result.result.unknown,
+                unavailable: result.result.unavailable,
+                revoked: result.result.revoked,
+                tasksCreated: result.result.tasksCreated,
+              }
+            : undefined,
+      });
+      res.json(result);
     } catch (error) {
       console.error("[cron/receipt-ack-import] failed", error);
       res.status(500).json({
@@ -144,7 +166,16 @@ export function registerCronRoutes(app: Express) {
     }
 
     try {
-      res.json(await checkReceiptAckStale());
+      const result = await checkReceiptAckStale();
+      console.info("[cron/receipt-ack-stale] done", {
+        enabled: result.enabled,
+        startDate: result.startDate,
+        staleHours: result.staleHours,
+        lastCrawledAt: result.lastCrawledAt,
+        stale: result.stale,
+        tasksCreated: result.tasksCreated,
+      });
+      res.json(result);
     } catch (error) {
       console.error("[cron/receipt-ack-stale] failed", error);
       res.status(500).json({
