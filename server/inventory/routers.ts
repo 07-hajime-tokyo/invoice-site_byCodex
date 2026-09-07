@@ -2925,6 +2925,7 @@ function localPurchaseStatusFromLabelStatus(status: unknown): string {
 
 async function restoreMissingLocalPurchasesFromOrphanLabels(
   localPurchaseRows: LocalPurchaseRow[],
+  preloadedInventories?: LocalInventoryRow[],
 ): Promise<LocalPurchaseRow[]> {
   const db = await getDb();
   if (!db) return localPurchaseRows;
@@ -2942,7 +2943,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  const inventories = await getLocalInventories();
+  const inventories = preloadedInventories ?? await getLocalInventories();
   const candidates = new Map<string, {
     inventory: LocalInventoryRow;
     labels: LocalInventoryItemLabelRow[];
@@ -4110,7 +4111,7 @@ export const inventoryRouter = router({
             ])
           );
           localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
-            restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows)
+            restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
           );
           localPurchaseRows = await t.step("ensureShaftPurchases", () =>
             ensureShaftPurchases(localPurchaseRows, localInventoryRows)
@@ -4306,7 +4307,7 @@ export const inventoryRouter = router({
           ]);
         });
         localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
-          restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows)
+          restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
         );
         localPurchaseRows = await t.step("ensureShaftPurchases", () =>
           ensureShaftPurchases(localPurchaseRows, localInventoryRows)
@@ -6994,15 +6995,45 @@ export const inventoryRouter = router({
 
     getPurchaseRegistrationInvoices: publicProcedure.query(async () => {
       try {
-        const [orderRows, histories, allMemos, shipmentProgressByInvoice] = await Promise.all([
-          getOrderRowsFromTradeRecords(),
-          getAllDeliveryHistories().catch(() => []),
-          getAllInvoiceMemos().catch(() => []),
-          getOrderManagementShipmentProgressByInvoice().catch((error) => {
-            console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
-            return new Map<string, TradeShipmentProgressEntry[]>();
-          }),
-        ]);
+        const t = createStepTimer("purchaseRegistrationInvoices");
+        let orderRowsMs = 0;
+        let deliveryHistoriesMs = 0;
+        let memosMs = 0;
+        let shipmentProgressMs = 0;
+
+        const [orderRows, histories, allMemos, shipmentProgressByInvoice] = await t.step("parallelFetch", () => {
+          const orderRowsStartedAt = Date.now();
+          const orderRowsPromise = getOrderRowsFromTradeRecords().finally(() => {
+            orderRowsMs = Date.now() - orderRowsStartedAt;
+          });
+          const deliveryHistoriesStartedAt = Date.now();
+          const deliveryHistoriesPromise = getAllDeliveryHistories()
+            .catch(() => [])
+            .finally(() => {
+              deliveryHistoriesMs = Date.now() - deliveryHistoriesStartedAt;
+            });
+          const memosStartedAt = Date.now();
+          const memosPromise = getAllInvoiceMemos()
+            .catch(() => [])
+            .finally(() => {
+              memosMs = Date.now() - memosStartedAt;
+            });
+          const shipmentProgressStartedAt = Date.now();
+          const shipmentProgressPromise = getOrderManagementShipmentProgressByInvoice()
+            .catch((error) => {
+              console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
+              return new Map<string, TradeShipmentProgressEntry[]>();
+            })
+            .finally(() => {
+              shipmentProgressMs = Date.now() - shipmentProgressStartedAt;
+            });
+          return Promise.all([
+            orderRowsPromise,
+            deliveryHistoriesPromise,
+            memosPromise,
+            shipmentProgressPromise,
+          ]);
+        });
 
         const manualCompleteSet = new Set<string>(
           allMemos
@@ -7043,72 +7074,91 @@ export const inventoryRouter = router({
         // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
         // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
         // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
-        const inventoryManagementNoMap = await buildInventoryManagementNoMap().catch(
-          () => new Map<number, string>(),
+        const inventoryManagementNoMap = await t.step(
+          "buildInventoryManagementNoMap",
+          () => buildInventoryManagementNoMap().catch(() => new Map<number, string>()),
         );
-        const assignedInvoiceNoMap = await buildAssignedInvoiceNoMap().catch(() => new Map<string, string>());
-        const deliveredQtyByInvoiceNo = new Map<string, number>();
-        for (const history of histories) {
-          if (history.status !== "success") continue;
+        const assignedInvoiceNoMap = await t.step(
+          "buildAssignedInvoiceNoMap",
+          () => buildAssignedInvoiceNoMap().catch(() => new Map<string, string>()),
+        );
+        const deliveredQtyByInvoiceNo = await t.step("aggregateDeliveries", async () => {
+          const deliveredQtyByInvoiceNo = new Map<string, number>();
+          for (const history of histories) {
+            if (history.status !== "success") continue;
 
-          type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
-          const items = parseDeliveryItemsJson(history.itemsJson);
-          let cancelledItems: CancelledDeliveryItem[] = [];
-          try {
-            const parsed = JSON.parse(history.cancelledItemsJson || "[]");
-            cancelledItems = Array.isArray(parsed) ? parsed : [];
-          } catch {
-            cancelledItems = [];
-          }
+            type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
+            const items = parseDeliveryItemsJson(history.itemsJson);
+            let cancelledItems: CancelledDeliveryItem[] = [];
+            try {
+              const parsed = JSON.parse(history.cancelledItemsJson || "[]");
+              cancelledItems = Array.isArray(parsed) ? parsed : [];
+            } catch {
+              cancelledItems = [];
+            }
 
-          const cancelledByInventoryId = new Map<number, number>();
-          for (const item of cancelledItems) {
-            const inventoryId = Number(item.inventoryId ?? 0);
-            const quantity = Number(item.quantity ?? 0);
-            if (inventoryId > 0 && quantity > 0) {
-              cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
+            const cancelledByInventoryId = new Map<number, number>();
+            for (const item of cancelledItems) {
+              const inventoryId = Number(item.inventoryId ?? 0);
+              const quantity = Number(item.quantity ?? 0);
+              if (inventoryId > 0 && quantity > 0) {
+                cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
+              }
+            }
+
+            for (const item of items) {
+              const quantity = Number(item.quantity ?? 0);
+              if (quantity <= 0) continue;
+              const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
+              const cancelledQty = inventoryId ? (cancelledByInventoryId.get(inventoryId) ?? 0) : 0;
+              const usedCancelledQty = Math.min(quantity, cancelledQty);
+              if (inventoryId && usedCancelledQty > 0) {
+                cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
+              }
+              const deliveredQty = Math.max(0, quantity - usedCancelledQty);
+              if (deliveredQty <= 0) continue;
+
+              const invoiceNo = resolveDeliveryItemInvoiceNo(
+                withAssignedInvoiceNo(item, assignedInvoiceNoMap),
+                history.deliveryNo,
+                inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
+              );
+              if (!invoiceNo || !invoiceMap.has(invoiceNo)) continue;
+              deliveredQtyByInvoiceNo.set(
+                invoiceNo,
+                (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
+              );
             }
           }
+          return deliveredQtyByInvoiceNo;
+        });
 
-          for (const item of items) {
-            const quantity = Number(item.quantity ?? 0);
-            if (quantity <= 0) continue;
-            const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
-            const cancelledQty = inventoryId ? (cancelledByInventoryId.get(inventoryId) ?? 0) : 0;
-            const usedCancelledQty = Math.min(quantity, cancelledQty);
-            if (inventoryId && usedCancelledQty > 0) {
-              cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
-            }
-            const deliveredQty = Math.max(0, quantity - usedCancelledQty);
-            if (deliveredQty <= 0) continue;
-
-            const invoiceNo = resolveDeliveryItemInvoiceNo(
-              withAssignedInvoiceNo(item, assignedInvoiceNoMap),
-              history.deliveryNo,
-              inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
-            );
-            if (!invoiceNo || !invoiceMap.has(invoiceNo)) continue;
-            deliveredQtyByInvoiceNo.set(
-              invoiceNo,
-              (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
-            );
-          }
-        }
-
-        return Array.from(invoiceMap.values())
-          .map((invoice) => {
-            const totalDeliveredQty = sheetDeliveredQtyByInvoiceNo.has(invoice.invoiceNo)
-              ? sheetDeliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0
-              : deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
-            const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
-            return {
-              ...invoice,
-              totalDeliveredQty,
-              remainingQty,
-            };
-          })
-          .filter((invoice) => invoice.remainingQty > 0)
-          .sort((a, b) => Number(b.invoiceNo) - Number(a.invoiceNo));
+        const response = await t.step("buildResponse", async () =>
+          Array.from(invoiceMap.values())
+            .map((invoice) => {
+              const totalDeliveredQty = sheetDeliveredQtyByInvoiceNo.has(invoice.invoiceNo)
+                ? sheetDeliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0
+                : deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
+              const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
+              return {
+                ...invoice,
+                totalDeliveredQty,
+                remainingQty,
+              };
+            })
+            .filter((invoice) => invoice.remainingQty > 0)
+            .sort((a, b) => Number(b.invoiceNo) - Number(a.invoiceNo))
+        );
+        t.done({
+          orderRowCount: orderRows.length,
+          historyCount: histories.length,
+          invoiceCount: response.length,
+          orderRowsMs,
+          deliveryHistoriesMs,
+          memosMs,
+          shipmentProgressMs,
+        });
+        return response;
       } catch (err) {
         console.error("getPurchaseRegistrationInvoices error:", err);
         return [];
