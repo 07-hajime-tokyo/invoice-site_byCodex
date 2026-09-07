@@ -2723,6 +2723,20 @@ function getRecoveredPurchaseOverrides(managementNo: string) {
   return {};
 }
 
+function recoveredPurchaseValueEquals(current: unknown, desired: unknown): boolean {
+  const currentText = String(current ?? "");
+  const desiredText = String(desired ?? "");
+  if (currentText === desiredText) return true;
+  if (!currentText || !desiredText) return false;
+  const currentNumber = Number(currentText);
+  const desiredNumber = Number(desiredText);
+  return Number.isFinite(currentNumber) && Number.isFinite(desiredNumber) && currentNumber === desiredNumber;
+}
+
+function recoveredPurchaseJsonEquals(current: unknown, desired: string): boolean {
+  return String(current ?? "") === desired;
+}
+
 async function cleanupUnexpectedRepairedLocalPurchases(
   localPurchaseRows: LocalPurchaseRow[],
 ): Promise<LocalPurchaseRow[]> {
@@ -2809,30 +2823,53 @@ async function cleanupAllowedRecoveredPurchaseIssues(
       category,
       status: repairedStatus,
     }]);
-    await db
-      .update(purchaseTbl)
-      .set({
-        purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
-        status: repairedStatus,
-        itemsJson,
-        title,
-        category,
-        quantity,
-        unitPrice,
-        managementNo: "402_マキシム_2/2",
-        purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
-        receivedDate: null,
-        shipDate: existingShipDate,
-        trackingNumber: existingTrackingNumber,
-        carrier: existingCarrier,
-        note: existingNote,
-        supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
-        stage: repairedStage,
-        stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
-        stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
-      })
-      .where(eq(purchaseTbl.id, maximSecondRow.id));
-    changed = true;
+    const desired = {
+      purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
+      status: repairedStatus,
+      itemsJson,
+      title,
+      category,
+      quantity,
+      unitPrice,
+      managementNo: "402_マキシム_2/2",
+      purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
+      receivedDate: null,
+      shipDate: existingShipDate,
+      trackingNumber: existingTrackingNumber,
+      carrier: existingCarrier,
+      note: existingNote,
+      supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
+      stage: repairedStage,
+      stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
+    };
+    const maximSecondNeedsUpdate =
+      !recoveredPurchaseValueEquals(maximSecondRow.purchaseNum, desired.purchaseNum) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.status, desired.status) ||
+      !recoveredPurchaseJsonEquals(maximSecondRow.itemsJson, desired.itemsJson) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.title, desired.title) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.category, desired.category) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.quantity, desired.quantity) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.unitPrice, desired.unitPrice) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.managementNo, desired.managementNo) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.purchaseDate, desired.purchaseDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.receivedDate, desired.receivedDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.shipDate, desired.shipDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.trackingNumber, desired.trackingNumber) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.carrier, desired.carrier) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.note, desired.note) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.supplierName, desired.supplierName) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.stage, desired.stage) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.stageUpdatedBy, desired.stageUpdatedBy);
+    if (maximSecondNeedsUpdate) {
+      await db
+        .update(purchaseTbl)
+        .set({
+          ...desired,
+          stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
+        })
+        .where(eq(purchaseTbl.id, maximSecondRow.id));
+      changed = true;
+    }
   }
   const maximSecondLabels = await db
     .select()
@@ -2905,7 +2942,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  const inventories = await getLocalInventories(true);
+  const inventories = await getLocalInventories();
   const candidates = new Map<string, {
     inventory: LocalInventoryRow;
     labels: LocalInventoryItemLabelRow[];
