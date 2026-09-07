@@ -3036,7 +3036,8 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  return cleanupAllowedRecoveredPurchaseIssues(repaired ? await getLocalPurchases() : localPurchaseRows);
+  if (!repaired) return localPurchaseRows;
+  return cleanupAllowedRecoveredPurchaseIssues(await getLocalPurchases());
 }
 
 async function ensureShaftPurchases(
@@ -7000,8 +7001,17 @@ export const inventoryRouter = router({
         let deliveryHistoriesMs = 0;
         let memosMs = 0;
         let shipmentProgressMs = 0;
+        let inventoryManagementNoMapMs = 0;
+        let assignedInvoiceNoMapMs = 0;
 
-        const [orderRows, histories, allMemos, shipmentProgressByInvoice] = await t.step("parallelFetch", () => {
+        const [
+          orderRows,
+          histories,
+          allMemos,
+          shipmentProgressByInvoice,
+          inventoryManagementNoMap,
+          assignedInvoiceNoMap,
+        ] = await t.step("parallelFetch", () => {
           const orderRowsStartedAt = Date.now();
           const orderRowsPromise = getOrderRowsFromTradeRecords().finally(() => {
             orderRowsMs = Date.now() - orderRowsStartedAt;
@@ -7027,11 +7037,28 @@ export const inventoryRouter = router({
             .finally(() => {
               shipmentProgressMs = Date.now() - shipmentProgressStartedAt;
             });
+          // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
+          // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
+          // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
+          const inventoryManagementNoMapStartedAt = Date.now();
+          const inventoryManagementNoMapPromise = buildInventoryManagementNoMap()
+            .catch(() => new Map<number, string>())
+            .finally(() => {
+              inventoryManagementNoMapMs = Date.now() - inventoryManagementNoMapStartedAt;
+            });
+          const assignedInvoiceNoMapStartedAt = Date.now();
+          const assignedInvoiceNoMapPromise = buildAssignedInvoiceNoMap()
+            .catch(() => new Map<string, string>())
+            .finally(() => {
+              assignedInvoiceNoMapMs = Date.now() - assignedInvoiceNoMapStartedAt;
+            });
           return Promise.all([
             orderRowsPromise,
             deliveryHistoriesPromise,
             memosPromise,
             shipmentProgressPromise,
+            inventoryManagementNoMapPromise,
+            assignedInvoiceNoMapPromise,
           ]);
         });
 
@@ -7071,17 +7098,6 @@ export const inventoryRouter = router({
           sheetDeliveredQtyByInvoiceNo.set(invoiceNo, summarizeShipmentProgress(entries).shippedQty);
         }
 
-        // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
-        // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
-        // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
-        const inventoryManagementNoMap = await t.step(
-          "buildInventoryManagementNoMap",
-          () => buildInventoryManagementNoMap().catch(() => new Map<number, string>()),
-        );
-        const assignedInvoiceNoMap = await t.step(
-          "buildAssignedInvoiceNoMap",
-          () => buildAssignedInvoiceNoMap().catch(() => new Map<string, string>()),
-        );
         const deliveredQtyByInvoiceNo = await t.step("aggregateDeliveries", async () => {
           const deliveredQtyByInvoiceNo = new Map<string, number>();
           for (const history of histories) {
@@ -7157,6 +7173,8 @@ export const inventoryRouter = router({
           deliveryHistoriesMs,
           memosMs,
           shipmentProgressMs,
+          inventoryManagementNoMapMs,
+          assignedInvoiceNoMapMs,
         });
         return response;
       } catch (err) {
