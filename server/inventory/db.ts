@@ -1126,6 +1126,8 @@ export async function getLatestPurchaseDateMapFromDB(): Promise<Record<number, s
     rowCount: rows.length,
     inFlightAtStart: metrics.inFlightAtStart,
     peakInFlight: metrics.peakInFlight,
+    newConnections: metrics.newConnections,
+    waitedForConnection: metrics.waitedForConnection,
   });
   return map;
 }
@@ -1501,6 +1503,8 @@ async function attachInventoryItemLabelsToInventories(
     labelCount: labels.length,
     inFlightAtStart: metrics.inFlightAtStart,
     peakInFlight: metrics.peakInFlight,
+    newConnections: metrics.newConnections,
+    waitedForConnection: metrics.waitedForConnection,
   });
   const byInventory = groupLabelsByNumber(labels, "localInventoryId");
   return rows.map((row) => ({ ...row, itemLabels: byInventory.get(row.id) ?? [] }));
@@ -1743,6 +1747,8 @@ async function loadLocalInventories(includeDeleted: boolean): Promise<LocalInven
       labelCount,
       inFlightAtStart: 0,
       peakInFlight: 0,
+      newConnections: 0,
+      waitedForConnection: 0,
     });
     return inventoriesWithLabels;
   }
@@ -1770,6 +1776,8 @@ async function loadLocalInventories(includeDeleted: boolean): Promise<LocalInven
     labelCount,
     inFlightAtStart: inventoryMetrics.inFlightAtStart,
     peakInFlight: inventoryMetrics.peakInFlight,
+    newConnections: inventoryMetrics.newConnections,
+    waitedForConnection: inventoryMetrics.waitedForConnection,
   });
   return inventoriesWithLabels;
 }
