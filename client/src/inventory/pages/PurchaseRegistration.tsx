@@ -1077,7 +1077,7 @@ function productDetailFilterLabel(filter: ProductDetailFilter): string {
 }
 
 function buildSearchText(row: PurchaseRow): string {
-  const labels = getItemLabels(row.purchase_items).map((label) => label.labelId);
+  const labels = getItemLabels(row.purchase_items).flatMap((label) => [label.labelId, label.legacyManagementNo ?? ""]);
   const managementNos = getManagementNos(row.purchase_items);
   const supplier = getSupplier(row);
   return [
