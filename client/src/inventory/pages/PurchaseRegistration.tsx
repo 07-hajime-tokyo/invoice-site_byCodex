@@ -2834,9 +2834,11 @@ function PurchaseRegistrationCard({
   onPrintLabels,
   onOpenEdit,
   onOpenTrackingDialog,
+  onClearTracking,
   onOpenShippingHistory,
   onDeleteRow,
   isDeleting,
+  isClearingTracking,
   isSelected = false,
   onSelectChange,
 }: {
@@ -2844,9 +2846,11 @@ function PurchaseRegistrationCard({
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
+  onClearTracking?: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   isDeleting?: boolean;
+  isClearingTracking?: boolean;
   isSelected?: boolean;
   onSelectChange?: (row: PurchaseRow, checked: boolean) => void;
 }) {
@@ -2956,6 +2960,19 @@ function PurchaseRegistrationCard({
             <Truck className="h-4 w-4" />
             {trackingNumber ? "追跡番号を編集" : "追跡番号を登録"}
           </Button>
+          {trackingNumber && onClearTracking ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 sm:w-fit"
+              disabled={isClearingTracking}
+              onClick={() => onClearTracking(row)}
+            >
+              {isClearingTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              追跡番号を外す
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -3055,9 +3072,11 @@ function MissingTrackingOverview({
   onPrintLabels,
   onOpenEdit,
   onOpenTrackingDialog,
+  onClearTracking,
   onOpenShippingHistory,
   onDeleteRow,
   deletingRowId,
+  clearingTrackingRowId,
 }: {
   rows: PurchaseRow[];
   totalCount: number;
@@ -3068,9 +3087,11 @@ function MissingTrackingOverview({
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
+  onClearTracking: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
+  clearingTrackingRowId?: number | null;
 }) {
   const selectedRows = rows.filter((row) => selectedRowIds.has(row.id));
   const selectedCount = selectedRows.length;
@@ -3120,9 +3141,11 @@ function MissingTrackingOverview({
               onPrintLabels={onPrintLabels}
               onOpenEdit={onOpenEdit}
               onOpenTrackingDialog={onOpenTrackingDialog}
+              onClearTracking={onClearTracking}
               onOpenShippingHistory={onOpenShippingHistory}
               onDeleteRow={onDeleteRow}
               isDeleting={deletingRowId === row.id}
+              isClearingTracking={clearingTrackingRowId === row.id}
               isSelected={selectedRowIds.has(row.id)}
               onSelectChange={onSelectRow}
             />
@@ -3171,6 +3194,75 @@ function MissingTrackingOverview({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TrackingRegisteredOverview({
+  rows,
+  totalCount,
+  onPrintLabels,
+  onOpenEdit,
+  onOpenTrackingDialog,
+  onClearTracking,
+  onOpenShippingHistory,
+  onDeleteRow,
+  deletingRowId,
+  clearingTrackingRowId,
+}: {
+  rows: PurchaseRow[];
+  totalCount: number;
+  onPrintLabels: LabelPrintRequest;
+  onOpenEdit: (row: PurchaseRow) => void;
+  onOpenTrackingDialog: (row: PurchaseRow) => void;
+  onClearTracking: (row: PurchaseRow) => void;
+  onOpenShippingHistory: (row: PurchaseRow) => void;
+  onDeleteRow: (row: PurchaseRow) => void;
+  deletingRowId?: number | null;
+  clearingTrackingRowId?: number | null;
+}) {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background">
+        <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              <ClipboardCheck className="h-4 w-4 text-emerald-700" />
+              追跡番号登録済み
+              <Badge variant="outline">表示 {rows.length.toLocaleString()}件</Badge>
+              <Badge variant="secondary">全体 {totalCount.toLocaleString()}件</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              インボイスに関係なく、追跡番号が入っている商品を表示しています。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Truck}
+          title="追跡番号登録済みの商品はありません"
+          description="検索条件を変えると、別の商品が見つかる場合があります。"
+        />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <PurchaseRegistrationCard
+              key={row.id}
+              row={row}
+              onPrintLabels={onPrintLabels}
+              onOpenEdit={onOpenEdit}
+              onOpenTrackingDialog={onOpenTrackingDialog}
+              onClearTracking={onClearTracking}
+              onOpenShippingHistory={onOpenShippingHistory}
+              onDeleteRow={onDeleteRow}
+              isDeleting={deletingRowId === row.id}
+              isClearingTracking={clearingTrackingRowId === row.id}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -3603,9 +3695,11 @@ function OrderDashboard({
   onOpenEdit,
   onOpenStockEdit,
   onOpenTrackingDialog,
+  onClearTracking,
   onOpenShippingHistory,
   onDeleteRow,
   deletingRowId,
+  clearingTrackingRowId,
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
@@ -3619,9 +3713,11 @@ function OrderDashboard({
   onOpenEdit: (row: PurchaseRow) => void;
   onOpenStockEdit: (inventoryId: number) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
+  onClearTracking: (row: PurchaseRow) => void;
   onOpenShippingHistory: (row: PurchaseRow) => void;
   onDeleteRow: (row: PurchaseRow) => void;
   deletingRowId?: number | null;
+  clearingTrackingRowId?: number | null;
 }) {
   const hideFulfillment = group?.key === EBAY_GROUP_KEY;
   const [showShippedRows, setShowShippedRows] = useState(false);
@@ -3724,9 +3820,11 @@ function OrderDashboard({
                   onPrintLabels={onPrintLabels}
                   onOpenEdit={onOpenEdit}
                   onOpenTrackingDialog={onOpenTrackingDialog}
+                  onClearTracking={onClearTracking}
                   onOpenShippingHistory={onOpenShippingHistory}
                   onDeleteRow={onDeleteRow}
                   isDeleting={deletingRowId === row.id}
+                  isClearingTracking={clearingTrackingRowId === row.id}
                 />
               ))}
               {stockDetailItems.length > 0 ? (
@@ -7632,6 +7730,7 @@ export default function PurchaseRegistration() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showGlobalMissingTracking, setShowGlobalMissingTracking] = useState(false);
+  const [showGlobalTrackingRegistered, setShowGlobalTrackingRegistered] = useState(false);
   const [selectedMissingTrackingRowIds, setSelectedMissingTrackingRowIds] = useState<Set<number>>(() => new Set());
   const [showBulkTrackingDialog, setShowBulkTrackingDialog] = useState(false);
   const [bulkTrackingForm, setBulkTrackingForm] = useState<TrackingFormState>({
@@ -7654,6 +7753,7 @@ export default function PurchaseRegistration() {
   const [printedStartPosition, setPrintedStartPosition] = useState(1);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+  const [clearingTrackingRowId, setClearingTrackingRowId] = useState<number | null>(null);
   const [trackingDialogRow, setTrackingDialogRow] = useState<PurchaseRow | null>(null);
   const [editingPurchaseRow, setEditingPurchaseRow] = useState<PurchaseRow | null>(null);
   const [purchaseEditForm, setPurchaseEditForm] = useState<PurchaseEditFormState>({
@@ -7764,6 +7864,17 @@ export default function PurchaseRegistration() {
     if (!searchText) return globalMissingTrackingRows;
     return globalMissingTrackingRows.filter((row) => buildSearchText(row).includes(searchText));
   }, [globalMissingTrackingRows, searchText]);
+
+  const globalTrackingRegisteredRows = useMemo(() => {
+    return normalizePurchaseRegistrationRows(allPurchaseRows)
+      .filter((row) => hasPurchaseTracking(row))
+      .sort(comparePurchaseRegistrationOrder);
+  }, [allPurchaseRows]);
+
+  const visibleGlobalTrackingRegisteredRows = useMemo(() => {
+    if (!searchText) return globalTrackingRegisteredRows;
+    return globalTrackingRegisteredRows.filter((row) => buildSearchText(row).includes(searchText));
+  }, [globalTrackingRegisteredRows, searchText]);
 
   const selectedBulkTrackingRows = useMemo(
     () => visibleGlobalMissingTrackingRows.filter((row) => selectedMissingTrackingRowIds.has(row.id)),
@@ -8107,6 +8218,46 @@ export default function PurchaseRegistration() {
     setTrackingDialogRow(row);
   };
 
+  const handleClearTracking = async (row: PurchaseRow) => {
+    if (clearingTrackingRowId != null || upsertPurchaseExtraMutation.isPending) return;
+    const trackingNumber = purchaseTrackingNumber(row);
+    if (!trackingNumber) {
+      toast.info("外せる追跡番号はありません");
+      return;
+    }
+    const firstItem = row.purchase_items[0];
+    const title = actualProductTitle(firstItem) || firstItem?.title || "商品";
+    const managementNo = getManagementNos(row.purchase_items)[0] || "-";
+    if (!window.confirm(`${title} の追跡番号を外しますか？\n\n追跡番号: ${trackingNumber}\n旧管理番号: ${managementNo}\n\n到着予定から外れて、追跡番号未登録に戻ります。`)) return;
+
+    setClearingTrackingRowId(row.id);
+    try {
+      await upsertPurchaseExtraMutation.mutateAsync({
+        zaicoId: row.id,
+        shipDate: row.extra?.shipDate ?? undefined,
+        trackingNumber: null,
+        carrier: null,
+        note: row.extra?.note ?? undefined,
+        inventoryId: purchaseRowInventoryId(row) ?? undefined,
+        managementNo: getManagementNos(row.purchase_items)[0],
+        labelId: getItemLabels(row.purchase_items)[0]?.labelId,
+      });
+      toast.success("追跡番号を外しました");
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.purchaseHistory.list.invalidate(),
+      ]);
+      void refetch();
+      void refetchAllPurchaseRegistrations();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "追跡番号を外せませんでした");
+    } finally {
+      setClearingTrackingRowId(null);
+    }
+  };
+
   const handleOpenPurchaseEditDialog = (row: PurchaseRow) => {
     const firstItem = row.purchase_items[0];
     const parsed = parseEtc(firstItem?.etc);
@@ -8194,8 +8345,8 @@ export default function PurchaseRegistration() {
         await upsertPurchaseExtraMutation.mutateAsync({
           zaicoId: editingPurchaseRow.id,
           shipDate: purchaseEditForm.shipDate || undefined,
-          trackingNumber: trackingNumber || undefined,
-          carrier: nextCarrier,
+          trackingNumber: trackingNumber || null,
+          carrier: trackingNumber ? nextCarrier : null,
           note: editingPurchaseRow.extra?.note ?? undefined,
           inventoryId,
           managementNo: cleanLegacyManagementNo(purchaseEditForm.managementNo || firstItem.etc),
@@ -8453,8 +8604,14 @@ export default function PurchaseRegistration() {
   const groupedWorkflowUsesInventory = isLabelWorkflow || isShippingWorkflow || isReturnWorkflow;
   const groupSelectOptions = groupedWorkflowUsesInventory ? labelPrintGroups : invoiceGroups;
   const selectedGroupOption = groupSelectOptions.find((group) => group.key === selectedGroupKey) ?? groupSelectOptions[0] ?? null;
-  const hasWorkflowTargets = showGlobalMissingTracking || (groupedWorkflowUsesInventory ? labelPrintGroups.length > 0 : groups.length > 0);
-  const isPageLoading = isLoading || (isStockWorkflow && isInventoryLoading) || (showGlobalMissingTracking && isAllPurchaseRegistrationLoading);
+  const hasWorkflowTargets =
+    showGlobalMissingTracking ||
+    showGlobalTrackingRegistered ||
+    (groupedWorkflowUsesInventory ? labelPrintGroups.length > 0 : groups.length > 0);
+  const isPageLoading =
+    isLoading ||
+    (isStockWorkflow && isInventoryLoading) ||
+    ((showGlobalMissingTracking || showGlobalTrackingRegistered) && isAllPurchaseRegistrationLoading);
   const isRefreshing = isFetching || isInventoryFetching || isAllPurchaseRegistrationFetching;
   const refreshCurrentData = () => void Promise.all([refetch(), refetchInventories(), refetchAllPurchaseRegistrations()]);
   const isPurchaseEditSaving =
@@ -8542,6 +8699,7 @@ export default function PurchaseRegistration() {
                       setSelectedGroupKey(event.target.value);
                       setProductDetailFilter(null);
                       setShowGlobalMissingTracking(false);
+                      setShowGlobalTrackingRegistered(false);
                     }}
                   >
                     {groupSelectOptions.length === 0 ? (
@@ -8569,19 +8727,34 @@ export default function PurchaseRegistration() {
                       <Button
                         key={option.value}
                         type="button"
-                        variant={!showGlobalMissingTracking && statusFilter === option.value ? "secondary" : "ghost"}
+                        variant={!showGlobalMissingTracking && !showGlobalTrackingRegistered && statusFilter === option.value ? "secondary" : "ghost"}
                         size="sm"
                         className="h-8 whitespace-nowrap rounded-sm px-3 text-sm"
-                        aria-pressed={!showGlobalMissingTracking && statusFilter === option.value}
+                        aria-pressed={!showGlobalMissingTracking && !showGlobalTrackingRegistered && statusFilter === option.value}
                         onClick={() => {
                           setStatusFilter(option.value);
                           setProductDetailFilter(null);
                           setShowGlobalMissingTracking(false);
+                          setShowGlobalTrackingRegistered(false);
                         }}
                       >
                         {option.label} {option.count.toLocaleString()}
                       </Button>
                     ))}
+                    <Button
+                      type="button"
+                      variant={showGlobalTrackingRegistered ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-8 whitespace-nowrap rounded-sm px-3 text-sm"
+                      aria-pressed={showGlobalTrackingRegistered}
+                      onClick={() => {
+                        setProductDetailFilter(null);
+                        setShowGlobalMissingTracking(false);
+                        setShowGlobalTrackingRegistered(true);
+                      }}
+                    >
+                      追跡番号登録済み {globalTrackingRegisteredRows.length.toLocaleString()}
+                    </Button>
                     <Button
                       type="button"
                       variant={showGlobalMissingTracking ? "secondary" : "ghost"}
@@ -8590,6 +8763,7 @@ export default function PurchaseRegistration() {
                       aria-pressed={showGlobalMissingTracking}
                       onClick={() => {
                         setProductDetailFilter(null);
+                        setShowGlobalTrackingRegistered(false);
                         setShowGlobalMissingTracking(true);
                       }}
                     >
@@ -8643,7 +8817,10 @@ export default function PurchaseRegistration() {
               onValueChange={(value) => {
                 const nextWorkflow = value as WorkflowTab;
                 setWorkflowTab(nextWorkflow);
-                if (nextWorkflow !== "order") setShowGlobalMissingTracking(false);
+                if (nextWorkflow !== "order") {
+                  setShowGlobalMissingTracking(false);
+                  setShowGlobalTrackingRegistered(false);
+                }
               }}
               className="gap-4"
             >
@@ -8659,9 +8836,24 @@ export default function PurchaseRegistration() {
                     onPrintLabels={handlePrintLabels}
                     onOpenEdit={handleOpenPurchaseEditDialog}
                     onOpenTrackingDialog={handleOpenTrackingDialog}
+                    onClearTracking={handleClearTracking}
                     onOpenShippingHistory={handleOpenShippingHistory}
                     onDeleteRow={handleDeletePurchaseRow}
                     deletingRowId={deletingRowId}
+                    clearingTrackingRowId={clearingTrackingRowId}
+                  />
+                ) : showGlobalTrackingRegistered ? (
+                  <TrackingRegisteredOverview
+                    rows={visibleGlobalTrackingRegisteredRows}
+                    totalCount={globalTrackingRegisteredRows.length}
+                    onPrintLabels={handlePrintLabels}
+                    onOpenEdit={handleOpenPurchaseEditDialog}
+                    onOpenTrackingDialog={handleOpenTrackingDialog}
+                    onClearTracking={handleClearTracking}
+                    onOpenShippingHistory={handleOpenShippingHistory}
+                    onDeleteRow={handleDeletePurchaseRow}
+                    deletingRowId={deletingRowId}
+                    clearingTrackingRowId={clearingTrackingRowId}
                   />
                 ) : (
                   <OrderDashboard
@@ -8677,9 +8869,11 @@ export default function PurchaseRegistration() {
                     onOpenEdit={handleOpenPurchaseEditDialog}
                     onOpenStockEdit={handleOpenStockEditDialog}
                     onOpenTrackingDialog={handleOpenTrackingDialog}
+                    onClearTracking={handleClearTracking}
                     onOpenShippingHistory={handleOpenShippingHistory}
                     onDeleteRow={handleDeletePurchaseRow}
                     deletingRowId={deletingRowId}
+                    clearingTrackingRowId={clearingTrackingRowId}
                   />
                 )}
               </TabsContent>
@@ -9189,7 +9383,10 @@ export default function PurchaseRegistration() {
                   type="button"
                   onClick={() => {
                     setWorkflowTab(tab.value);
-                    if (tab.value !== "order") setShowGlobalMissingTracking(false);
+                    if (tab.value !== "order") {
+                      setShowGlobalMissingTracking(false);
+                      setShowGlobalTrackingRegistered(false);
+                    }
                   }}
                   className={cn(
                     "flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 text-center text-[11px] leading-tight transition-colors lg:h-11 lg:flex-row lg:justify-between lg:px-3 lg:text-left lg:text-sm",
