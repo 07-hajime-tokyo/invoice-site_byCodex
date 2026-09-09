@@ -181,6 +181,7 @@ interface StockItemView {
   supplier: SupplierView;
   purchaseDate: string;
   inboundWaiting?: boolean;
+  zeroStock?: boolean;
 }
 
 interface StockProposalDetail {
@@ -1988,6 +1989,43 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
         },
       ];
     });
+  });
+}
+
+function buildOtherZeroStockItemViewsFromInventories(
+  inventories: InventoryItem[],
+  excludedInventoryIds: Set<number>,
+): StockItemView[] {
+  return inventories.flatMap((inventory) => {
+    if (excludedInventoryIds.has(inventory.id)) return [];
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity > 0) return [];
+
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const category = getInventoryCategory(inventory);
+    const title = inventory.title;
+    if (isStockProposalAccessory(title, category)) return [];
+
+    return [
+      {
+        key: `other-zero-stock-${inventory.id}`,
+        inventoryId: inventory.id,
+        labelId: null,
+        status: "在庫0",
+        title,
+        category,
+        legacyManagementNo: managementNo,
+        allocationLabel: labelAllocationLabel(managementNo),
+        unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
+        quantity: 0,
+        supplier: {
+          name: inventory.supplierName?.trim() || "-",
+          url: inventory.supplierUrl?.trim() || "",
+        },
+        purchaseDate: inventory.last_purchase_date ?? inventory.updated_at ?? "",
+        zeroStock: true,
+      },
+    ];
   });
 }
 
@@ -5596,10 +5634,15 @@ function StockPanel({
   const allStockItems = buildStockItemViewsFromInventories(inventories);
   const inboundWaitingStockItems = buildInboundWaitingStockItemViewsFromRows(purchaseRows);
   const inboundWaitingQuantityTotal = inboundWaitingStockItems.reduce((total, item) => total + item.quantity, 0);
+  const inboundWaitingInventoryIds = new Set(inboundWaitingStockItems.map((item) => item.inventoryId));
+  const otherZeroStockItems = buildOtherZeroStockItemViewsFromInventories(inventories, inboundWaitingInventoryIds);
   const [showInboundWaitingStockItems, setShowInboundWaitingStockItems] = useState(false);
-  const displayStockItems = showInboundWaitingStockItems
-    ? [...allStockItems, ...inboundWaitingStockItems]
-    : allStockItems;
+  const [showOtherZeroStockItems, setShowOtherZeroStockItems] = useState(false);
+  const displayStockItems = [
+    ...allStockItems,
+    ...(showInboundWaitingStockItems ? inboundWaitingStockItems : []),
+    ...(showOtherZeroStockItems ? otherZeroStockItems : []),
+  ];
   const stockItems = searchText
     ? displayStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
     : displayStockItems;
@@ -5643,6 +5686,21 @@ function StockPanel({
               {showInboundWaitingStockItems ? "入庫待ち0在庫を隠す" : "入庫待ち0在庫を表示"}
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
                 {inboundWaitingQuantityTotal.toLocaleString()}
+              </Badge>
+            </Button>
+          ) : null}
+          {otherZeroStockItems.length > 0 ? (
+            <Button
+              type="button"
+              variant={showOtherZeroStockItems ? "secondary" : "outline"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => setShowOtherZeroStockItems((current) => !current)}
+            >
+              <Boxes className="h-3.5 w-3.5" />
+              {showOtherZeroStockItems ? "入庫待ち以外の0在庫を隠す" : "入庫待ち以外の0在庫も表示"}
+              <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+                {otherZeroStockItems.length.toLocaleString()}件
               </Badge>
             </Button>
           ) : null}
@@ -5698,6 +5756,8 @@ function StockPanel({
                             <span className="font-mono text-base font-semibold text-emerald-800">{item.labelId}</span>
                           ) : item.inboundWaiting ? (
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち</Badge>
+                          ) : item.zeroStock ? (
+                            <Badge variant="outline">在庫0</Badge>
                           ) : (
                             <Badge variant="outline">未発行</Badge>
                           )}
