@@ -571,6 +571,32 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function normalizeManagementNoForDisplay(value: string): string {
+  return cleanLegacyManagementNo(value).normalize("NFKC").trim().toLowerCase();
+}
+
+function isStockManagementNoSuffixAlias(value: string, candidates: string[]): boolean {
+  const normalized = normalizeManagementNoForDisplay(value);
+  if (!normalized || normalized.startsWith("在庫")) return false;
+  return candidates.some((candidate) => {
+    const other = normalizeManagementNoForDisplay(candidate);
+    return other !== normalized && other.startsWith("在庫") && other.endsWith(normalized);
+  });
+}
+
+function uniqueManagementNos(values: string[]): string[] {
+  const cleaned = values.map(cleanLegacyManagementNo).filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of cleaned) {
+    const key = normalizeManagementNoForDisplay(value);
+    if (!key || seen.has(key) || isStockManagementNoSuffixAlias(value, cleaned)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
 function getItemLabels(items: PurchaseItem[]): InventoryItemLabel[] {
   return items.flatMap((item) => item.itemLabels ?? []).filter((label) => label.labelId);
 }
@@ -580,14 +606,13 @@ function preferredManagementNo(currentManagementNo?: string | null, labelManagem
 }
 
 function getManagementNos(items: PurchaseItem[]): string[] {
-  return unique(
+  return uniqueManagementNos(
     items.flatMap((item) => {
       const parsed = parseEtc(item.etc);
       const labelNos = parsed.managementNo
         ? []
         : (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
-      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos]
-        .map(cleanLegacyManagementNo);
+      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos];
     }),
   );
 }
