@@ -1,4 +1,6 @@
 import express from "express";
+import { inArray, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { readActionItemAttachment } from "../inventory/actionItemAttachmentStorage";
 import { readListingPhoto } from "../inventory/listingPhotoStorage";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -10,7 +12,8 @@ import { registerCronRoutes } from "./cron";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { generateInvoicePdf } from "../pdfGenerator";
-import { getShaftSales } from "../inventory/db";
+import { getDb, getShaftSales } from "../inventory/db";
+import { inventoryItemLabels, localInventories, localPurchases, purchaseHistories, workLogs } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import { EMAIL_AUTH_LOGIN_METHOD, isAllowedLoginEmail } from "./emailAuth";
 
@@ -81,6 +84,174 @@ async function canReadInternalAsset(req: express.Request) {
   }
 }
 
+const CORRUPT_0909_MANAGEMENT_NOS = ["在庫0909_1", "在庫0909_2", "在庫0909_3"] as const;
+const CORRUPT_0909_KNOWN_INVENTORY_IDS = [50, 51, 52] as const;
+const CORRUPT_0909_CONFIRM = "delete-corrupt-0909";
+
+function compactRows<T extends Record<string, unknown>>(rows: T[]) {
+  return rows.map((row) => Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [
+      key,
+      value instanceof Date ? value.toISOString() : value,
+    ]),
+  ));
+}
+
+function orConditions(conditions: SQL[]) {
+  if (conditions.length === 0) throw new Error("No cleanup conditions");
+  return conditions.length === 1 ? conditions[0] : or(...conditions);
+}
+
+async function loadCorrupt0909Targets() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const targetManagementNos = [...CORRUPT_0909_MANAGEMENT_NOS];
+  const targetInventoryIds = [...CORRUPT_0909_KNOWN_INVENTORY_IDS];
+  const targetSourceKeys = [
+    ...targetManagementNos.map((managementNo) => `management:${managementNo}`),
+    ...targetInventoryIds.map((id) => `inventory:${id}`),
+  ];
+
+  const inventories = await db
+    .select({
+      id: localInventories.id,
+      zaicoId: localInventories.zaicoId,
+      title: localInventories.title,
+      quantity: localInventories.quantity,
+      unitPrice: localInventories.unitPrice,
+      supplierName: localInventories.supplierName,
+      etc: localInventories.etc,
+      isDeleted: localInventories.isDeleted,
+      createdAt: localInventories.createdAt,
+      updatedAt: localInventories.updatedAt,
+    })
+    .from(localInventories)
+    .where(orConditions([
+      inArray(localInventories.id, targetInventoryIds),
+      inArray(sql<string>`SUBSTRING_INDEX(COALESCE(${localInventories.etc}, ''), ',', 1)`, targetManagementNos),
+    ]))
+    .orderBy(localInventories.id);
+
+  const inventoryIds = Array.from(new Set(inventories.map((row) => Number(row.id)).filter(Number.isFinite)));
+
+  const purchases = await db
+    .select({
+      id: localPurchases.id,
+      zaicoId: localPurchases.zaicoId,
+      purchaseNum: localPurchases.purchaseNum,
+      status: localPurchases.status,
+      localInventoryId: localPurchases.localInventoryId,
+      title: localPurchases.title,
+      quantity: localPurchases.quantity,
+      unitPrice: localPurchases.unitPrice,
+      managementNo: localPurchases.managementNo,
+      trackingNumber: localPurchases.trackingNumber,
+      receivedDate: localPurchases.receivedDate,
+      createdAt: localPurchases.createdAt,
+      updatedAt: localPurchases.updatedAt,
+    })
+    .from(localPurchases)
+    .where(orConditions([
+      ...(inventoryIds.length > 0 ? [inArray(localPurchases.localInventoryId, inventoryIds)] : []),
+      inArray(sql<string>`SUBSTRING_INDEX(COALESCE(${localPurchases.managementNo}, ''), ',', 1)`, targetManagementNos),
+    ]))
+    .orderBy(localPurchases.id);
+
+  const purchaseIds = Array.from(new Set(purchases.map((row) => Number(row.id)).filter(Number.isFinite)));
+
+  const labels = await db
+    .select({
+      id: inventoryItemLabels.id,
+      labelId: inventoryItemLabels.labelId,
+      purchaseId: inventoryItemLabels.purchaseId,
+      localInventoryId: inventoryItemLabels.localInventoryId,
+      legacyManagementNo: inventoryItemLabels.legacyManagementNo,
+      title: inventoryItemLabels.title,
+      status: inventoryItemLabels.status,
+      sourceKey: inventoryItemLabels.sourceKey,
+      receivedAt: inventoryItemLabels.receivedAt,
+      shippedAt: inventoryItemLabels.shippedAt,
+      createdAt: inventoryItemLabels.createdAt,
+      updatedAt: inventoryItemLabels.updatedAt,
+    })
+    .from(inventoryItemLabels)
+    .where(orConditions([
+      ...(inventoryIds.length > 0 ? [inArray(inventoryItemLabels.localInventoryId, inventoryIds)] : []),
+      ...(purchaseIds.length > 0 ? [inArray(inventoryItemLabels.purchaseId, purchaseIds)] : []),
+      inArray(sql<string>`SUBSTRING_INDEX(COALESCE(${inventoryItemLabels.legacyManagementNo}, ''), ',', 1)`, targetManagementNos),
+      inArray(inventoryItemLabels.sourceKey, targetSourceKeys),
+    ]))
+    .orderBy(inventoryItemLabels.id);
+
+  const labelDbIds = Array.from(new Set(labels.map((row) => Number(row.id)).filter(Number.isFinite)));
+  const labelIds = Array.from(new Set(labels.map((row) => row.labelId).filter(Boolean)));
+
+  const histories = await db
+    .select({
+      id: purchaseHistories.id,
+      zaicoId: purchaseHistories.zaicoId,
+      kanriNo: purchaseHistories.kanriNo,
+      title: purchaseHistories.title,
+      quantity: purchaseHistories.quantity,
+      unitPrice: purchaseHistories.unitPrice,
+      purchaseDate: purchaseHistories.purchaseDate,
+      inventoryId: purchaseHistories.inventoryId,
+      cancelled: purchaseHistories.cancelled,
+      createdAt: purchaseHistories.createdAt,
+    })
+    .from(purchaseHistories)
+    .where(orConditions([
+      ...(inventoryIds.length > 0 ? [inArray(purchaseHistories.inventoryId, inventoryIds)] : []),
+      inArray(sql<string>`SUBSTRING_INDEX(COALESCE(${purchaseHistories.kanriNo}, ''), ',', 1)`, targetManagementNos),
+    ]))
+    .orderBy(purchaseHistories.id);
+
+  const workLogConditions = [
+    ...(labelIds.length > 0 ? [inArray(workLogs.sourceId, labelIds)] : []),
+    ...labelIds.map((labelId) => sql`${workLogs.detailsJson} LIKE ${`%${labelId}%`}`),
+  ];
+  const logs = workLogConditions.length > 0
+    ? await db
+        .select({
+          id: workLogs.id,
+          sourceType: workLogs.sourceType,
+          sourceId: workLogs.sourceId,
+          category: workLogs.category,
+          status: workLogs.status,
+          quantity: workLogs.quantity,
+          createdAt: workLogs.createdAt,
+        })
+        .from(workLogs)
+        .where(orConditions(workLogConditions))
+        .orderBy(workLogs.id)
+    : [];
+
+  return {
+    db,
+    inventoryIds,
+    purchaseIds,
+    labelDbIds,
+    historyIds: Array.from(new Set(histories.map((row) => Number(row.id)).filter(Number.isFinite))),
+    workLogIds: Array.from(new Set(logs.map((row) => Number(row.id)).filter(Number.isFinite))),
+    preview: {
+      managementNos: targetManagementNos,
+      counts: {
+        inventories: inventories.length,
+        purchases: purchases.length,
+        labels: labels.length,
+        histories: histories.length,
+        workLogs: logs.length,
+      },
+      inventories: compactRows(inventories),
+      purchases: compactRows(purchases),
+      labels: compactRows(labels),
+      histories: compactRows(histories),
+      workLogs: compactRows(logs),
+    },
+  };
+}
+
 export async function createApiApp() {
   const app = express();
 
@@ -92,6 +263,66 @@ export async function createApiApp() {
   registerGasWebhookRoutes(app);
   registerReceiptAckIngestRoutes(app);
   registerCronRoutes(app);
+
+  app.get("/api/maintenance/cleanup-corrupt-0909", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      if (!(await canReadInternalAsset(req))) {
+        res.status(401).json({ ok: false, error: "Unauthorized" });
+        return;
+      }
+
+      const targets = await loadCorrupt0909Targets();
+      const confirmed = req.query.confirm === CORRUPT_0909_CONFIRM;
+      if (!confirmed) {
+        res.json({
+          ok: true,
+          dryRun: true,
+          confirmHint: `Add ?confirm=${CORRUPT_0909_CONFIRM} to delete these fixed targets.`,
+          ...targets.preview,
+        });
+        return;
+      }
+
+      await targets.db.transaction(async (tx) => {
+        if (targets.workLogIds.length > 0) {
+          await tx.delete(workLogs).where(inArray(workLogs.id, targets.workLogIds));
+        }
+        if (targets.historyIds.length > 0) {
+          await tx.delete(purchaseHistories).where(inArray(purchaseHistories.id, targets.historyIds));
+        }
+        if (targets.labelDbIds.length > 0) {
+          await tx.delete(inventoryItemLabels).where(inArray(inventoryItemLabels.id, targets.labelDbIds));
+        }
+        if (targets.purchaseIds.length > 0) {
+          await tx.delete(localPurchases).where(inArray(localPurchases.id, targets.purchaseIds));
+        }
+        if (targets.inventoryIds.length > 0) {
+          await tx
+            .update(localInventories)
+            .set({ quantity: 0, isDeleted: 1 })
+            .where(inArray(localInventories.id, targets.inventoryIds));
+        }
+      });
+
+      console.info("[maintenance/cleanup-corrupt-0909] done", targets.preview.counts);
+      res.json({
+        ok: true,
+        dryRun: false,
+        deleted: {
+          workLogs: targets.workLogIds.length,
+          histories: targets.historyIds.length,
+          labels: targets.labelDbIds.length,
+          purchases: targets.purchaseIds.length,
+          inventoriesSoftDeleted: targets.inventoryIds.length,
+        },
+        preview: targets.preview,
+      });
+    } catch (err) {
+      console.error("[maintenance/cleanup-corrupt-0909] failed", err);
+      res.status(500).json({ ok: false, error: "Cleanup failed" });
+    }
+  });
 
   const setShaftSalesHeaders = (res: express.Response) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
