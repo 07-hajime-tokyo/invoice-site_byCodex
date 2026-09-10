@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
@@ -14,62 +14,6 @@ function AppLoading() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] text-sm text-muted-foreground">
       Loading...
-    </div>
-  );
-}
-
-function MaintenanceCleanupCorrupt0909() {
-  const [result, setResult] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function run(confirmed = false) {
-    setBusy(true);
-    try {
-      const path = confirmed
-        ? "/api/maintenance/cleanup-corrupt-0909?confirm=delete-corrupt-0909"
-        : "/api/maintenance/cleanup-corrupt-0909";
-      const res = await fetch(path, { credentials: "include" });
-      const text = await res.text();
-      try {
-        setResult(JSON.parse(text));
-      } catch {
-        setResult({ ok: res.ok, status: res.status, text });
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    void run(false);
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-[#F4F5F7] p-8 text-slate-900">
-      <div className="mx-auto max-w-5xl rounded-lg border bg-white p-6 shadow-sm">
-        <h1 className="mb-4 text-xl font-semibold">0909 corrupted inventory cleanup</h1>
-        <div className="mb-4 flex gap-3">
-          <button
-            className="rounded-md border px-3 py-2 text-sm"
-            disabled={busy}
-            onClick={() => void run(false)}
-            type="button"
-          >
-            Preview
-          </button>
-          <button
-            className="rounded-md bg-red-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-            disabled={busy}
-            onClick={() => void run(true)}
-            type="button"
-          >
-            Delete fixed targets
-          </button>
-        </div>
-        <pre className="max-h-[70vh] overflow-auto rounded-md bg-slate-950 p-4 text-xs text-slate-100">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      </div>
     </div>
   );
 }
@@ -102,7 +46,6 @@ function Router() {
         <Route path={"/inventory/whatsapp-history"} component={Home} />
         <Route path={"/inventory/yahoo-listings"} component={Home} />
         <Route path={"/inventory/partner/:code"} component={Home} />
-        <Route path={"/inventory/maintenance/cleanup-corrupt-0909"} component={MaintenanceCleanupCorrupt0909} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />
