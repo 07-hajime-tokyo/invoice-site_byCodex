@@ -1561,14 +1561,8 @@ export async function ensureInventoryItemLabelsForInventory(input: {
     .orderBy(desc(inventoryItemLabels.createdAt));
 
   for (const label of existing) {
-    const stockLabel = isStockInventoryLabel(label);
     const currentStatus = String(label.status ?? "").trim().toLowerCase();
-    const promotesToStock = (status === "stocked" || status === "received") && currentStatus === "ordered";
-    const nextStatus = promotesToStock
-      ? status
-      : stockLabel
-        ? (currentStatus ? label.status : status)
-        : label.status;
+    const nextStatus = currentStatus ? label.status : status;
     const nextStatusText = String(nextStatus ?? "").trim().toLowerCase();
     await db
       .update(inventoryItemLabels)

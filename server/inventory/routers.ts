@@ -2397,11 +2397,6 @@ setTimeout(() => {
   void runInventoryOneTimeRepairsOnce();
 }, 0);
 
-function isStockLabelView(label: InventoryItemLabelView): boolean {
-  const status = String(label.status ?? "").trim().toLowerCase();
-  return !status || status === "stocked" || status === "received";
-}
-
 function toInventoryItemLabelView(label: InventoryItemLabelView): InventoryItemLabelView {
   return {
     id: label.id,
@@ -2442,9 +2437,7 @@ async function ensureStockLabelsForInventories<T extends {
     const quantity = inventoryStockQuantity(inventory.quantity);
     const labelQuantity = inventoryLabelQuantity(quantity);
     const labelStatus = inventoryInitialLabelStatus(quantity);
-    const countableLabelCount = labelStatus === "ordered"
-      ? existingLabels.length
-      : existingLabels.filter(isStockLabelView).length;
+    const countableLabelCount = existingLabels.length;
     const expectedManagementNo = getInventoryManagementNo(inventory.etc);
     const hasStaleLabelData = existingLabels.some((label) =>
       String(label.legacyManagementNo ?? "").trim() !== expectedManagementNo ||

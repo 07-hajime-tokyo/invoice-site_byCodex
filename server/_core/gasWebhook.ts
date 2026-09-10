@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "crypto";
 import type { Express, Request, Response } from "express";
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   localInventories,
@@ -180,6 +180,7 @@ const FULL_RESTORE_SNAPSHOT_CHANGE_TYPE = "restore_snapshot";
 type GasInventoryRow = typeof localInventories.$inferSelect;
 type GasPurchaseRow = typeof localPurchases.$inferSelect;
 type GasLabelRow = typeof inventoryItemLabels.$inferSelect;
+type GasDatabase = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 async function recordGasFullRestoreSnapshot(input: {
   inventory?: GasInventoryRow | null;
@@ -323,6 +324,52 @@ function sendError(res: Response, status: number, message: string, extra: Record
 
 function primaryManagementNo(value: string | null | undefined) {
   return String(value ?? "").split(",")[0]?.trim() ?? "";
+}
+
+function replacePrimaryManagementNo(etc: string | null | undefined, nextManagementNo: string) {
+  const parts = String(etc ?? "").split(",");
+  parts[0] = nextManagementNo;
+  return parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function retireDeletedInventoriesForManagementNo(
+  db: GasDatabase,
+  managementNo: string,
+  operatorName: string | null,
+) {
+  const primary = primaryManagementNo(managementNo);
+  if (!primary) return;
+
+  const deletedInventories = await db
+    .select()
+    .from(localInventories)
+    .where(and(
+      eq(localInventories.isDeleted, 1),
+      sql`substring_index(coalesce(${localInventories.etc}, ''), ',', 1) = ${primary}`,
+    ))
+    .orderBy(desc(localInventories.updatedAt));
+
+  for (const inventory of deletedInventories) {
+    const currentManagementNo = primaryManagementNo(inventory.etc);
+    if (!currentManagementNo || currentManagementNo.includes("#retired-")) continue;
+    const retiredManagementNo = `${currentManagementNo}#retired-${inventory.id}`;
+
+    await recordGasFullRestoreSnapshot({
+      inventory,
+      purchases: [],
+      source: "gas-webhook",
+      reason: "管理番号退避（削除済み在庫）",
+      operatorName,
+    });
+
+    await db
+      .update(localInventories)
+      .set({ etc: replacePrimaryManagementNo(inventory.etc, retiredManagementNo) })
+      .where(eq(localInventories.id, inventory.id));
+  }
 }
 
 function isDuplicateManagementNoCheck(payload: Record<string, unknown>) {
@@ -498,7 +545,6 @@ export function registerGasWebhookRoutes(app: Express) {
       const carrier = textField(payload, stringKeys.carrier) || null;
       const note = textField(payload, stringKeys.note) || null;
       const operatorName = textField(payload, stringKeys.operatorName) || "Google Apps Script";
-      const explicitInventoryId = numberField(payload, numberKeys.inventoryId, null);
       const markPurchased = booleanField(payload, booleanKeys.markPurchased, defaultMarkPurchased);
       const createInventory = booleanField(payload, booleanKeys.createInventory, true);
       const inventoryQuantity = numberField(payload, numberKeys.inventoryQuantity, null)
@@ -545,10 +591,15 @@ export function registerGasWebhookRoutes(app: Express) {
 
       let inventoryId: number | null = null;
       let previousQuantity = 0;
-      const inventoryConditions: SQL<unknown>[] = [];
-      if (explicitInventoryId) inventoryConditions.push(eq(localInventories.id, explicitInventoryId));
-      if (managementNo) inventoryConditions.push(sql`substring_index(${localInventories.etc}, ',', 1) = ${managementNo}`);
-      const inventoryWhere = combineOr(inventoryConditions);
+      const inventoryMatchManagementNo = primaryManagementNo(managementNo);
+      await retireDeletedInventoriesForManagementNo(db, inventoryMatchManagementNo, operatorName);
+
+      const inventoryWhere = inventoryMatchManagementNo
+        ? and(
+            eq(localInventories.isDeleted, 0),
+            sql`substring_index(coalesce(${localInventories.etc}, ''), ',', 1) = ${inventoryMatchManagementNo}`,
+          )
+        : undefined;
       const existingInventory = inventoryWhere
         ? await db
             .select()
@@ -558,24 +609,10 @@ export function registerGasWebhookRoutes(app: Express) {
             .limit(1)
         : [];
 
-      const purchaseWhere = managementNo
-        ? eq(localPurchases.managementNo, managementNo)
-        : purchaseNum
-          ? eq(localPurchases.purchaseNum, purchaseNum)
-          : undefined;
-      const existingPurchase = purchaseWhere
-        ? await db
-            .select()
-            .from(localPurchases)
-            .where(purchaseWhere)
-            .orderBy(desc(localPurchases.updatedAt))
-            .limit(1)
-        : [];
-
-      if (existingInventory[0] || existingPurchase[0]) {
+      if (existingInventory[0]) {
         await recordGasFullRestoreSnapshot({
-          inventory: existingInventory[0] ?? null,
-          purchases: existingPurchase[0] ? [existingPurchase[0]] : [],
+          inventory: existingInventory[0],
+          purchases: [],
           source: "gas-webhook",
           reason: "GAS商品登録前",
           operatorName,
@@ -592,12 +629,17 @@ export function registerGasWebhookRoutes(app: Express) {
               title,
               category,
               place,
-              quantity: markPurchased && !alreadyReceived ? previousQuantity + quantity : previousQuantity,
+              quantity: markPurchased
+                ? alreadyReceived ? previousQuantity : previousQuantity + quantity
+                : inventoryQuantity,
               unit,
               unitPrice,
               etc: inventoryEtc,
               supplierUrl,
               supplierName,
+              ebayListingUrl: null,
+              ebayOrderUrl: null,
+              ebayOrderStatus: "normal",
               isDeleted: 0,
             })
             .where(eq(localInventories.id, inventoryId));
@@ -630,8 +672,36 @@ export function registerGasWebhookRoutes(app: Express) {
         category,
       }]);
 
+      const purchaseIdentityWhere = managementNo
+        ? eq(localPurchases.managementNo, managementNo)
+        : purchaseNum
+          ? eq(localPurchases.purchaseNum, purchaseNum)
+          : undefined;
+      const purchaseWhere = purchaseIdentityWhere
+        ? and(
+            purchaseIdentityWhere,
+            inventoryId == null ? isNull(localPurchases.localInventoryId) : eq(localPurchases.localInventoryId, inventoryId),
+          )
+        : undefined;
+      const existingPurchase = purchaseWhere
+        ? await db
+            .select()
+            .from(localPurchases)
+            .where(purchaseWhere)
+            .orderBy(desc(localPurchases.updatedAt))
+            .limit(1)
+        : [];
+
       let purchaseId: number | null = null;
       if (existingPurchase[0]) {
+        await recordGasFullRestoreSnapshot({
+          inventory: null,
+          purchases: [existingPurchase[0]],
+          source: "gas-webhook",
+          reason: "GAS商品登録前",
+          operatorName,
+        });
+
         purchaseId = existingPurchase[0].id;
         const nextStatus = markPurchased ? "purchased" : existingPurchase[0].status ?? "ordered";
         await db
