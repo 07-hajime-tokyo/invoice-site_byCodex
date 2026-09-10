@@ -264,7 +264,7 @@ export async function createApiApp() {
   registerReceiptAckIngestRoutes(app);
   registerCronRoutes(app);
 
-  const handleCorrupt0909Cleanup: express.RequestHandler = async (req, res) => {
+  app.get("/api/maintenance/cleanup-corrupt-0909", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
       if (!(await canReadInternalAsset(req))) {
@@ -322,10 +322,7 @@ export async function createApiApp() {
       console.error("[maintenance/cleanup-corrupt-0909] failed", err);
       res.status(500).json({ ok: false, error: "Cleanup failed" });
     }
-  };
-
-  app.get("/api/maintenance/cleanup-corrupt-0909", handleCorrupt0909Cleanup);
-  app.get("/maintenance/cleanup-corrupt-0909", handleCorrupt0909Cleanup);
+  });
 
   const setShaftSalesHeaders = (res: express.Response) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
