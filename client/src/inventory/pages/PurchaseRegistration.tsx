@@ -5638,11 +5638,18 @@ function StockPanel({
   const otherZeroStockItems = buildOtherZeroStockItemViewsFromInventories(inventories, inboundWaitingInventoryIds);
   const [showInboundWaitingStockItems, setShowInboundWaitingStockItems] = useState(false);
   const [showOtherZeroStockItems, setShowOtherZeroStockItems] = useState(false);
-  const displayStockItems = [
+  const [showAccessoryOnlyStockItems, setShowAccessoryOnlyStockItems] = useState(false);
+  const baseDisplayStockItems = [
     ...allStockItems,
     ...(showInboundWaitingStockItems ? inboundWaitingStockItems : []),
     ...(showOtherZeroStockItems ? otherZeroStockItems : []),
   ];
+  const accessoryStockItems = [
+    ...allStockItems,
+    ...inboundWaitingStockItems,
+    ...otherZeroStockItems,
+  ].filter((item) => isStockProposalAccessory(item.title, item.category));
+  const displayStockItems = showAccessoryOnlyStockItems ? accessoryStockItems : baseDisplayStockItems;
   const stockItems = searchText
     ? displayStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
     : displayStockItems;
@@ -5689,21 +5696,36 @@ function StockPanel({
               </Badge>
             </Button>
           ) : null}
-          {otherZeroStockItems.length > 0 ? (
-            <Button
-              type="button"
-              variant={showOtherZeroStockItems ? "secondary" : "outline"}
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs"
-              onClick={() => setShowOtherZeroStockItems((current) => !current)}
-            >
-              <Boxes className="h-3.5 w-3.5" />
-              {showOtherZeroStockItems ? "入庫待ち以外の0在庫を隠す" : "入庫待ち以外の0在庫も表示"}
-              <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
-                {otherZeroStockItems.length.toLocaleString()}件
-              </Badge>
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant={showOtherZeroStockItems ? "secondary" : "outline"}
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            disabled={!showOtherZeroStockItems && otherZeroStockItems.length === 0}
+            onClick={() => setShowOtherZeroStockItems((current) => !current)}
+          >
+            <Boxes className="h-3.5 w-3.5" />
+            {showOtherZeroStockItems && otherZeroStockItems.length > 0
+              ? "入庫待ち以外の0在庫を隠す"
+              : "入庫待ち以外の0在庫も表示"}
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {otherZeroStockItems.length.toLocaleString()}件
+            </Badge>
+          </Button>
+          <Button
+            type="button"
+            variant={showAccessoryOnlyStockItems ? "secondary" : "outline"}
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            disabled={!showAccessoryOnlyStockItems && accessoryStockItems.length === 0}
+            onClick={() => setShowAccessoryOnlyStockItems((current) => !current)}
+          >
+            <Tag className="h-3.5 w-3.5" />
+            {showAccessoryOnlyStockItems && accessoryStockItems.length > 0 ? "付属品のみ解除" : "付属品のみ表示"}
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {accessoryStockItems.length.toLocaleString()}件
+            </Badge>
+          </Button>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。
