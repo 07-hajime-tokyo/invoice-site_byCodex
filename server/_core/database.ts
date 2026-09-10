@@ -8,10 +8,14 @@ let _sharedPool: AppDatabase | null = null;
 let _sharedPoolKey: string | null = null;
 let inFlightQueries = 0;
 let peakInFlight = 0;
+let poolConnectionCount = 0;
+let poolEnqueueCount = 0;
 
 export type DatabaseQueryMetrics = {
   inFlightAtStart: number;
   readonly peakInFlight: number;
+  readonly newConnections: number;
+  readonly waitedForConnection: number;
   finish: () => void;
 };
 
@@ -19,11 +23,19 @@ export function startDatabaseQueryMetrics(): DatabaseQueryMetrics {
   inFlightQueries += 1;
   const inFlightAtStart = inFlightQueries;
   peakInFlight = Math.max(peakInFlight, inFlightQueries);
+  const connectionsAtStart = poolConnectionCount;
+  const enqueuesAtStart = poolEnqueueCount;
   let finished = false;
   return {
     inFlightAtStart,
     get peakInFlight() {
       return peakInFlight;
+    },
+    get newConnections() {
+      return poolConnectionCount - connectionsAtStart;
+    },
+    get waitedForConnection() {
+      return poolEnqueueCount - enqueuesAtStart;
     },
     finish() {
       if (finished) return;
@@ -83,7 +95,14 @@ export function createDrizzleDatabase(connectionString: string): AppDatabase {
     };
   }
 
-  const pool = drizzle(createPool(poolOptions));
+  const mysqlPool = createPool(poolOptions);
+  mysqlPool.on("connection", () => {
+    poolConnectionCount += 1;
+  });
+  mysqlPool.on("enqueue", () => {
+    poolEnqueueCount += 1;
+  });
+  const pool = drizzle(mysqlPool);
   if (!_sharedPool) {
     _sharedPool = pool;
     _sharedPoolKey = connectionString;

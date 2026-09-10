@@ -1029,6 +1029,36 @@ function parseMoneyNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function createStepTimer(label: string) {
+  const startedAt = Date.now();
+  let lastAt = startedAt;
+  const steps: Array<{ name: string; ms: number }> = [];
+  return {
+    async step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+      const from = Date.now();
+      try {
+        return await fn();
+      } finally {
+        const now = Date.now();
+        steps.push({ name, ms: now - from });
+        lastAt = now;
+      }
+    },
+    mark(name: string) {
+      const now = Date.now();
+      steps.push({ name, ms: now - lastAt });
+      lastAt = now;
+    },
+    done(extra: Record<string, unknown> = {}) {
+      console.info(`[perf] ${label}`, {
+        totalMs: Date.now() - startedAt,
+        steps,
+        ...extra,
+      });
+    },
+  };
+}
+
 const publicProcedure = protectedProcedure;
 
 type PurchasePageInput = {
@@ -2694,6 +2724,20 @@ function getRecoveredPurchaseOverrides(managementNo: string) {
   return {};
 }
 
+function recoveredPurchaseValueEquals(current: unknown, desired: unknown): boolean {
+  const currentText = String(current ?? "");
+  const desiredText = String(desired ?? "");
+  if (currentText === desiredText) return true;
+  if (!currentText || !desiredText) return false;
+  const currentNumber = Number(currentText);
+  const desiredNumber = Number(desiredText);
+  return Number.isFinite(currentNumber) && Number.isFinite(desiredNumber) && currentNumber === desiredNumber;
+}
+
+function recoveredPurchaseJsonEquals(current: unknown, desired: string): boolean {
+  return String(current ?? "") === desired;
+}
+
 async function cleanupUnexpectedRepairedLocalPurchases(
   localPurchaseRows: LocalPurchaseRow[],
 ): Promise<LocalPurchaseRow[]> {
@@ -2780,30 +2824,53 @@ async function cleanupAllowedRecoveredPurchaseIssues(
       category,
       status: repairedStatus,
     }]);
-    await db
-      .update(purchaseTbl)
-      .set({
-        purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
-        status: repairedStatus,
-        itemsJson,
-        title,
-        category,
-        quantity,
-        unitPrice,
-        managementNo: "402_マキシム_2/2",
-        purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
-        receivedDate: null,
-        shipDate: existingShipDate,
-        trackingNumber: existingTrackingNumber,
-        carrier: existingCarrier,
-        note: existingNote,
-        supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
-        stage: repairedStage,
-        stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
-        stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
-      })
-      .where(eq(purchaseTbl.id, maximSecondRow.id));
-    changed = true;
+    const desired = {
+      purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
+      status: repairedStatus,
+      itemsJson,
+      title,
+      category,
+      quantity,
+      unitPrice,
+      managementNo: "402_マキシム_2/2",
+      purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
+      receivedDate: null,
+      shipDate: existingShipDate,
+      trackingNumber: existingTrackingNumber,
+      carrier: existingCarrier,
+      note: existingNote,
+      supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
+      stage: repairedStage,
+      stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
+    };
+    const maximSecondNeedsUpdate =
+      !recoveredPurchaseValueEquals(maximSecondRow.purchaseNum, desired.purchaseNum) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.status, desired.status) ||
+      !recoveredPurchaseJsonEquals(maximSecondRow.itemsJson, desired.itemsJson) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.title, desired.title) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.category, desired.category) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.quantity, desired.quantity) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.unitPrice, desired.unitPrice) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.managementNo, desired.managementNo) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.purchaseDate, desired.purchaseDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.receivedDate, desired.receivedDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.shipDate, desired.shipDate) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.trackingNumber, desired.trackingNumber) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.carrier, desired.carrier) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.note, desired.note) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.supplierName, desired.supplierName) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.stage, desired.stage) ||
+      !recoveredPurchaseValueEquals(maximSecondRow.stageUpdatedBy, desired.stageUpdatedBy);
+    if (maximSecondNeedsUpdate) {
+      await db
+        .update(purchaseTbl)
+        .set({
+          ...desired,
+          stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
+        })
+        .where(eq(purchaseTbl.id, maximSecondRow.id));
+      changed = true;
+    }
   }
   const maximSecondLabels = await db
     .select()
@@ -2859,6 +2926,7 @@ function localPurchaseStatusFromLabelStatus(status: unknown): string {
 
 async function restoreMissingLocalPurchasesFromOrphanLabels(
   localPurchaseRows: LocalPurchaseRow[],
+  preloadedInventories?: LocalInventoryRow[],
 ): Promise<LocalPurchaseRow[]> {
   const db = await getDb();
   if (!db) return localPurchaseRows;
@@ -2876,7 +2944,7 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  const inventories = await getLocalInventories(true);
+  const inventories = preloadedInventories ?? await getLocalInventories();
   const candidates = new Map<string, {
     inventory: LocalInventoryRow;
     labels: LocalInventoryItemLabelRow[];
@@ -2969,7 +3037,8 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
     }
   }
 
-  return cleanupAllowedRecoveredPurchaseIssues(repaired ? await getLocalPurchases() : localPurchaseRows);
+  if (!repaired) return localPurchaseRows;
+  return cleanupAllowedRecoveredPurchaseIssues(await getLocalPurchases());
 }
 
 async function ensureShaftPurchases(
@@ -3977,7 +4046,10 @@ export const inventoryRouter = router({
     }),
 
     getCategories: publicProcedure.query(async () => {
-      return getInventoryCategoryList();
+      const startedAt = Date.now();
+      const list = await getInventoryCategoryList();
+      console.info("[perf] getCategories", { ms: Date.now() - startedAt, count: list.length });
+      return list;
     }),
 
     addCategory: publicProcedure
@@ -4032,20 +4104,34 @@ export const inventoryRouter = router({
         const zaicoEnabled = await isZaicoEnabled();
 
         if (!zaicoEnabled) {
-          let [localPurchaseRows, localInventoryRows, purchaseExtras] = await Promise.all([
-            getLocalPurchases(),
-            getLocalInventories(),
-            getAllPurchaseExtras(),
-          ]);
-          localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
-          localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
-          localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
+          const t = createStepTimer("purchasesWithCategoryPage");
+          let [localPurchaseRows, localInventoryRows, purchaseExtras] = await t.step("parallelFetch", () =>
+            Promise.all([
+              getLocalPurchases(),
+              getLocalInventories(),
+              getAllPurchaseExtras(),
+            ])
+          );
+          localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
+            restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
+          );
+          localPurchaseRows = await t.step("ensureShaftPurchases", () =>
+            ensureShaftPurchases(localPurchaseRows, localInventoryRows)
+          );
+          localPurchaseRows = await t.step("reconcileLabelQuantities", () =>
+            reconcileLocalPurchaseLabelQuantities(localPurchaseRows)
+          );
           // T22: 分類を解決（auto行は自動判定＋バックフィル、manual行は保存値尊重）
-          const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
+          const inboundInfoMap = await t.step("resolveInboundInfoMap", () =>
+            resolveInboundInfoMap(localPurchaseRows, localInventoryRows)
+          );
           const invIds = localPurchaseRows
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
-          const inventoryLabelMap = await getInventoryItemLabelsByInventoryIds(invIds);
+          t.mark("collectInventoryIds");
+          const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+            getInventoryItemLabelsByInventoryIds(invIds)
+          );
           const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
           const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
           for (const inv of localInventoryRows) {
@@ -4056,29 +4142,32 @@ export const inventoryRouter = router({
               quantity: inv.quantity ?? null,
             });
           }
+          t.mark("prepareSupplierMap");
 
-          if (invIds.length > 0) {
-            const { localInventories: localInvTbl } = await import("../../drizzle/schema");
-            const { inArray } = await import("drizzle-orm");
-            const db = await getDb();
-            if (db) {
-              const rows = await db.select({
-                id: localInvTbl.id,
-                supplierName: localInvTbl.supplierName,
-                supplierUrl: localInvTbl.supplierUrl,
-                ebayListingUrl: localInvTbl.ebayListingUrl,
-                quantity: localInvTbl.quantity,
-              }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
-              for (const row of rows) {
-                invSupplierMap.set(row.id, {
-                  supplierName: row.supplierName ?? null,
-                  supplierUrl: row.supplierUrl ?? null,
-                  ebayListingUrl: row.ebayListingUrl ?? null,
-                  quantity: row.quantity ?? null,
-                });
+          await t.step("supplierMapQuery", async () => {
+            if (invIds.length > 0) {
+              const { localInventories: localInvTbl } = await import("../../drizzle/schema");
+              const { inArray } = await import("drizzle-orm");
+              const db = await getDb();
+              if (db) {
+                const rows = await db.select({
+                  id: localInvTbl.id,
+                  supplierName: localInvTbl.supplierName,
+                  supplierUrl: localInvTbl.supplierUrl,
+                  ebayListingUrl: localInvTbl.ebayListingUrl,
+                  quantity: localInvTbl.quantity,
+                }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
+                for (const row of rows) {
+                  invSupplierMap.set(row.id, {
+                    supplierName: row.supplierName ?? null,
+                    supplierUrl: row.supplierUrl ?? null,
+                    ebayListingUrl: row.ebayListingUrl ?? null,
+                    quantity: row.quantity ?? null,
+                  });
+                }
               }
             }
-          }
+          });
 
           const rows = localPurchaseRows.map((p) => {
             const purchaseWithExtra = mergeLocalPurchaseStoredExtra(p, getLocalPurchaseStoredExtra(p, purchaseExtraMap));
@@ -4142,6 +4231,7 @@ export const inventoryRouter = router({
               })(),
             };
           });
+          t.mark("mapRows");
 
           for (const row of rows) {
             for (const item of row.purchase_items as Array<Record<string, unknown>>) {
@@ -4151,8 +4241,12 @@ export const inventoryRouter = router({
               item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
             }
           }
+          t.mark("attachItemInventoryInfo");
 
-          return buildPurchasePageResponse(rows, input);
+          const response = buildPurchasePageResponse(rows, input);
+          t.mark("buildPageResponse");
+          t.done({ purchaseCount: localPurchaseRows.length, inventoryCount: localInventoryRows.length, invIdCount: invIds.length });
+          return response;
         }
 
         const [purchases, inventories, extras, inventoryExtras] = await Promise.all([
@@ -4200,27 +4294,47 @@ export const inventoryRouter = router({
       const zaicoEnabled = await isZaicoEnabled();
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
-        let [localPurchaseRows, purchaseHistRows, localInventoryRows, purchaseExtras] = await Promise.all([
-          getLocalPurchases(),
-          getPurchaseHistories(2000),
-          getLocalInventories(),
-          getAllPurchaseExtras(),
-        ]);
-        localPurchaseRows = await restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows);
-        localPurchaseRows = await ensureShaftPurchases(localPurchaseRows, localInventoryRows);
-        localPurchaseRows = await reconcileLocalPurchaseLabelQuantities(localPurchaseRows);
-        const inboundInfoMap = await resolveInboundInfoMap(localPurchaseRows, localInventoryRows);
+        const t = createStepTimer("purchasesWithCategory");
+        let purchaseHistoriesMs = 0;
+        let [localPurchaseRows, purchaseHistRows, localInventoryRows, purchaseExtras] = await t.step("parallelFetch", () => {
+          const purchaseHistoriesStartedAt = Date.now();
+          const purchaseHistories = getPurchaseHistories(2000).finally(() => {
+            purchaseHistoriesMs = Date.now() - purchaseHistoriesStartedAt;
+          });
+          return Promise.all([
+            getLocalPurchases(),
+            purchaseHistories,
+            getLocalInventories(),
+            getAllPurchaseExtras(),
+          ]);
+        });
+        localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
+          restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
+        );
+        localPurchaseRows = await t.step("ensureShaftPurchases", () =>
+          ensureShaftPurchases(localPurchaseRows, localInventoryRows)
+        );
+        localPurchaseRows = await t.step("reconcileLabelQuantities", () =>
+          reconcileLocalPurchaseLabelQuantities(localPurchaseRows)
+        );
+        const inboundInfoMap = await t.step("resolveInboundInfoMap", () =>
+          resolveInboundInfoMap(localPurchaseRows, localInventoryRows)
+        );
         // purchase_historiesから有効な入庫履歴（cancelled=0）のzaicoIdセットを構築（ステータス証明用）
         const purchasedZaicoIds = new Set<number>(
           purchaseHistRows
             .filter((h) => h.cancelled === 0 && h.zaicoId != null)
             .map((h) => h.zaicoId as number)
         );
+        t.mark("buildPurchasedZaicoIds");
         // localInventoryIdをキーのlocal_inventoriesのsupplierName・supplierUrlを取得
         const invIds = localPurchaseRows
           .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
-        const inventoryLabelMap = await getInventoryItemLabelsByInventoryIds(invIds);
+        t.mark("collectInventoryIds");
+        const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+          getInventoryItemLabelsByInventoryIds(invIds)
+        );
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
         const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
         for (const inv of localInventoryRows) {
@@ -4231,28 +4345,31 @@ export const inventoryRouter = router({
             quantity: inv.quantity ?? null,
           });
         }
-        if (invIds.length > 0) {
-          const { localInventories: localInvTbl } = await import("../../drizzle/schema");
-          const { inArray } = await import("drizzle-orm");
-          const db = await getDb();
-          if (db) {
-            const rows = await db.select({
-              id: localInvTbl.id,
-              supplierName: localInvTbl.supplierName,
-              supplierUrl: localInvTbl.supplierUrl,
-              ebayListingUrl: localInvTbl.ebayListingUrl,
-              quantity: localInvTbl.quantity,
-            }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
-            for (const row of rows) {
-              invSupplierMap.set(row.id, {
-                supplierName: row.supplierName ?? null,
-                supplierUrl: row.supplierUrl ?? null,
-                ebayListingUrl: row.ebayListingUrl ?? null,
-                quantity: row.quantity ?? null,
-              });
+        t.mark("prepareSupplierMap");
+        await t.step("supplierMapQuery", async () => {
+          if (invIds.length > 0) {
+            const { localInventories: localInvTbl } = await import("../../drizzle/schema");
+            const { inArray } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const rows = await db.select({
+                id: localInvTbl.id,
+                supplierName: localInvTbl.supplierName,
+                supplierUrl: localInvTbl.supplierUrl,
+                ebayListingUrl: localInvTbl.ebayListingUrl,
+                quantity: localInvTbl.quantity,
+              }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
+              for (const row of rows) {
+                invSupplierMap.set(row.id, {
+                  supplierName: row.supplierName ?? null,
+                  supplierUrl: row.supplierUrl ?? null,
+                  ebayListingUrl: row.ebayListingUrl ?? null,
+                  quantity: row.quantity ?? null,
+                });
+              }
             }
           }
-        }
+        });
         const rows = localPurchaseRows.map((p) => {
           const purchaseWithExtra = mergeLocalPurchaseStoredExtra(p, getLocalPurchaseStoredExtra(p, purchaseExtraMap));
           const inv = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
@@ -4320,6 +4437,7 @@ export const inventoryRouter = router({
             })(),
           };
         });
+        t.mark("mapRows");
         for (const row of rows) {
           for (const item of row.purchase_items as Array<Record<string, unknown>>) {
             const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
@@ -4328,6 +4446,13 @@ export const inventoryRouter = router({
             item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
           }
         }
+        t.mark("attachItemInventoryInfo");
+        t.done({
+          purchaseCount: localPurchaseRows.length,
+          historyCount: purchaseHistRows.length,
+          inventoryCount: localInventoryRows.length,
+          purchaseHistoriesMs,
+        });
         return rows;
       }
       const [purchases, inventories, extras, inventoryExtras] = await Promise.all([
@@ -6872,15 +6997,71 @@ export const inventoryRouter = router({
 
     getPurchaseRegistrationInvoices: publicProcedure.query(async () => {
       try {
-        const [orderRows, histories, allMemos, shipmentProgressByInvoice] = await Promise.all([
-          getOrderRowsFromTradeRecords(),
-          getAllDeliveryHistories().catch(() => []),
-          getAllInvoiceMemos().catch(() => []),
-          getOrderManagementShipmentProgressByInvoice().catch((error) => {
-            console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
-            return new Map<string, TradeShipmentProgressEntry[]>();
-          }),
-        ]);
+        const t = createStepTimer("purchaseRegistrationInvoices");
+        let orderRowsMs = 0;
+        let deliveryHistoriesMs = 0;
+        let memosMs = 0;
+        let shipmentProgressMs = 0;
+        let inventoryManagementNoMapMs = 0;
+        let assignedInvoiceNoMapMs = 0;
+
+        const [
+          orderRows,
+          histories,
+          allMemos,
+          shipmentProgressByInvoice,
+          inventoryManagementNoMap,
+          assignedInvoiceNoMap,
+        ] = await t.step("parallelFetch", () => {
+          const orderRowsStartedAt = Date.now();
+          const orderRowsPromise = getOrderRowsFromTradeRecords().finally(() => {
+            orderRowsMs = Date.now() - orderRowsStartedAt;
+          });
+          const deliveryHistoriesStartedAt = Date.now();
+          const deliveryHistoriesPromise = getAllDeliveryHistories()
+            .catch(() => [])
+            .finally(() => {
+              deliveryHistoriesMs = Date.now() - deliveryHistoriesStartedAt;
+            });
+          const memosStartedAt = Date.now();
+          const memosPromise = getAllInvoiceMemos()
+            .catch(() => [])
+            .finally(() => {
+              memosMs = Date.now() - memosStartedAt;
+            });
+          const shipmentProgressStartedAt = Date.now();
+          const shipmentProgressPromise = getOrderManagementShipmentProgressByInvoice()
+            .catch((error) => {
+              console.warn("[OrderManagement] Failed to load shipment progress sheet", error);
+              return new Map<string, TradeShipmentProgressEntry[]>();
+            })
+            .finally(() => {
+              shipmentProgressMs = Date.now() - shipmentProgressStartedAt;
+            });
+          // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
+          // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
+          // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
+          const inventoryManagementNoMapStartedAt = Date.now();
+          const inventoryManagementNoMapPromise = buildInventoryManagementNoMap()
+            .catch(() => new Map<number, string>())
+            .finally(() => {
+              inventoryManagementNoMapMs = Date.now() - inventoryManagementNoMapStartedAt;
+            });
+          const assignedInvoiceNoMapStartedAt = Date.now();
+          const assignedInvoiceNoMapPromise = buildAssignedInvoiceNoMap()
+            .catch(() => new Map<string, string>())
+            .finally(() => {
+              assignedInvoiceNoMapMs = Date.now() - assignedInvoiceNoMapStartedAt;
+            });
+          return Promise.all([
+            orderRowsPromise,
+            deliveryHistoriesPromise,
+            memosPromise,
+            shipmentProgressPromise,
+            inventoryManagementNoMapPromise,
+            assignedInvoiceNoMapPromise,
+          ]);
+        });
 
         const manualCompleteSet = new Set<string>(
           allMemos
@@ -6918,75 +7099,85 @@ export const inventoryRouter = router({
           sheetDeliveredQtyByInvoiceNo.set(invoiceNo, summarizeShipmentProgress(entries).shippedQty);
         }
 
-        // 出庫Noの文字列ではなく明細1点ずつの管理番号でインボイスに振り分ける。
-        // 箱ID（B000002）のように出庫Noから読めない出庫でも、中身が403と408に
-        // 分かれていればそれぞれに計上される。従来の出庫Noは接頭辞で当たるので挙動は変わらない。
-        const inventoryManagementNoMap = await buildInventoryManagementNoMap().catch(
-          () => new Map<number, string>(),
+        const deliveredQtyByInvoiceNo = await t.step("aggregateDeliveries", async () => {
+          const deliveredQtyByInvoiceNo = new Map<string, number>();
+          for (const history of histories) {
+            if (history.status !== "success") continue;
+
+            type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
+            const items = parseDeliveryItemsJson(history.itemsJson);
+            let cancelledItems: CancelledDeliveryItem[] = [];
+            try {
+              const parsed = JSON.parse(history.cancelledItemsJson || "[]");
+              cancelledItems = Array.isArray(parsed) ? parsed : [];
+            } catch {
+              cancelledItems = [];
+            }
+
+            const cancelledByInventoryId = new Map<number, number>();
+            for (const item of cancelledItems) {
+              const inventoryId = Number(item.inventoryId ?? 0);
+              const quantity = Number(item.quantity ?? 0);
+              if (inventoryId > 0 && quantity > 0) {
+                cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
+              }
+            }
+
+            for (const item of items) {
+              const quantity = Number(item.quantity ?? 0);
+              if (quantity <= 0) continue;
+              const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
+              const cancelledQty = inventoryId ? (cancelledByInventoryId.get(inventoryId) ?? 0) : 0;
+              const usedCancelledQty = Math.min(quantity, cancelledQty);
+              if (inventoryId && usedCancelledQty > 0) {
+                cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
+              }
+              const deliveredQty = Math.max(0, quantity - usedCancelledQty);
+              if (deliveredQty <= 0) continue;
+
+              const invoiceNo = resolveDeliveryItemInvoiceNo(
+                withAssignedInvoiceNo(item, assignedInvoiceNoMap),
+                history.deliveryNo,
+                inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
+              );
+              if (!invoiceNo || !invoiceMap.has(invoiceNo)) continue;
+              deliveredQtyByInvoiceNo.set(
+                invoiceNo,
+                (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
+              );
+            }
+          }
+          return deliveredQtyByInvoiceNo;
+        });
+
+        const response = await t.step("buildResponse", async () =>
+          Array.from(invoiceMap.values())
+            .map((invoice) => {
+              const totalDeliveredQty = sheetDeliveredQtyByInvoiceNo.has(invoice.invoiceNo)
+                ? sheetDeliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0
+                : deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
+              const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
+              return {
+                ...invoice,
+                totalDeliveredQty,
+                remainingQty,
+              };
+            })
+            .filter((invoice) => invoice.remainingQty > 0)
+            .sort((a, b) => Number(b.invoiceNo) - Number(a.invoiceNo))
         );
-        const assignedInvoiceNoMap = await buildAssignedInvoiceNoMap().catch(() => new Map<string, string>());
-        const deliveredQtyByInvoiceNo = new Map<string, number>();
-        for (const history of histories) {
-          if (history.status !== "success") continue;
-
-          type CancelledDeliveryItem = { inventoryId?: number; quantity?: unknown };
-          const items = parseDeliveryItemsJson(history.itemsJson);
-          let cancelledItems: CancelledDeliveryItem[] = [];
-          try {
-            const parsed = JSON.parse(history.cancelledItemsJson || "[]");
-            cancelledItems = Array.isArray(parsed) ? parsed : [];
-          } catch {
-            cancelledItems = [];
-          }
-
-          const cancelledByInventoryId = new Map<number, number>();
-          for (const item of cancelledItems) {
-            const inventoryId = Number(item.inventoryId ?? 0);
-            const quantity = Number(item.quantity ?? 0);
-            if (inventoryId > 0 && quantity > 0) {
-              cancelledByInventoryId.set(inventoryId, (cancelledByInventoryId.get(inventoryId) ?? 0) + quantity);
-            }
-          }
-
-          for (const item of items) {
-            const quantity = Number(item.quantity ?? 0);
-            if (quantity <= 0) continue;
-            const inventoryId = item.inventoryId == null ? undefined : Number(item.inventoryId);
-            const cancelledQty = inventoryId ? (cancelledByInventoryId.get(inventoryId) ?? 0) : 0;
-            const usedCancelledQty = Math.min(quantity, cancelledQty);
-            if (inventoryId && usedCancelledQty > 0) {
-              cancelledByInventoryId.set(inventoryId, cancelledQty - usedCancelledQty);
-            }
-            const deliveredQty = Math.max(0, quantity - usedCancelledQty);
-            if (deliveredQty <= 0) continue;
-
-            const invoiceNo = resolveDeliveryItemInvoiceNo(
-              withAssignedInvoiceNo(item, assignedInvoiceNoMap),
-              history.deliveryNo,
-              inventoryId ? inventoryManagementNoMap.get(inventoryId) : null,
-            );
-            if (!invoiceNo || !invoiceMap.has(invoiceNo)) continue;
-            deliveredQtyByInvoiceNo.set(
-              invoiceNo,
-              (deliveredQtyByInvoiceNo.get(invoiceNo) ?? 0) + deliveredQty,
-            );
-          }
-        }
-
-        return Array.from(invoiceMap.values())
-          .map((invoice) => {
-            const totalDeliveredQty = sheetDeliveredQtyByInvoiceNo.has(invoice.invoiceNo)
-              ? sheetDeliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0
-              : deliveredQtyByInvoiceNo.get(invoice.invoiceNo) ?? 0;
-            const remainingQty = Math.max(0, invoice.totalOrderQty - totalDeliveredQty);
-            return {
-              ...invoice,
-              totalDeliveredQty,
-              remainingQty,
-            };
-          })
-          .filter((invoice) => invoice.remainingQty > 0)
-          .sort((a, b) => Number(b.invoiceNo) - Number(a.invoiceNo));
+        t.done({
+          orderRowCount: orderRows.length,
+          historyCount: histories.length,
+          invoiceCount: response.length,
+          orderRowsMs,
+          deliveryHistoriesMs,
+          memosMs,
+          shipmentProgressMs,
+          inventoryManagementNoMapMs,
+          assignedInvoiceNoMapMs,
+        });
+        return response;
       } catch (err) {
         console.error("getPurchaseRegistrationInvoices error:", err);
         return [];

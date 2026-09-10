@@ -83,7 +83,14 @@ const newSnippet = `    const unitPrice = maximSecondOverrides.unitPrice ?? maxi
         stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
         stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),`;
 
-if (normalized.includes(newSnippet)) {
+const hasIdempotentSnippet =
+  normalized.includes("const maximSecondNeedsUpdate =") &&
+  normalized.includes("!recoveredPurchaseJsonEquals(maximSecondRow.itemsJson, desired.itemsJson)") &&
+  normalized.includes("stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),");
+
+if (hasIdempotentSnippet) {
+  console.log("[preserve-restored-purchase-tracking] already idempotent");
+} else if (normalized.includes(newSnippet)) {
   console.log("[preserve-restored-purchase-tracking] already applied");
 } else if (normalized.includes(oldSnippet)) {
   writeFileSync(target, normalized.replace(oldSnippet, newSnippet).replace(/\n/g, eol));
