@@ -4,6 +4,7 @@ import {
   extractManagementInvoiceKey,
   extractModel,
   isAccessory,
+  specificColorProductMatchesItem,
   suggestCsvProduct,
 } from "./productMatching";
 
@@ -125,6 +126,14 @@ describe("productMatching", () => {
       .toBe("3DS ブルー");
     expect(suggestCsvProduct("3DS フレアレッド", "410_マキシム_3DS_レッド_1/1", products)?.name)
       .toBe("3DS レッド");
+  });
+
+  it("色指定の現在庫照合は指定色以外を混ぜず、ランダムカラーだけ全色を許可する", () => {
+    expect(specificColorProductMatchesItem("Vita 2000 ホワイト", "Vita 2000 グレイシャー・ホワイト")).toBe(true);
+    expect(specificColorProductMatchesItem("Vita 2000 ホワイト", "Vita 2000 アクア・ブルー")).toBe(false);
+    expect(specificColorProductMatchesItem("New 2DS LL ライム×ブラック", "New 2DS LL ブラック×ライム")).toBe(true);
+    expect(specificColorProductMatchesItem("New 2DS LL ライム×ブラック", "New 2DS LL ブラック×ターコイズ")).toBe(false);
+    expect(specificColorProductMatchesItem("Vita 2000 ランダムカラー", "Vita 2000 アクア・ブルー")).toBe(true);
   });
 
   it("New 2DS LL マインクラフトをランダムカラーに混ぜない", () => {

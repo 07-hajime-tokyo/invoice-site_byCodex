@@ -329,13 +329,29 @@ function colorlessQualifierMatches(colorName: string, targetText: string): boole
   return true;
 }
 
-function colorTokens(value: string): Set<string> {
+export function extractColorTokens(value: string): Set<string> {
   const target = normalizeLooseText(value);
   const tokens = new Set<string>();
   for (const [alias, token] of COLOR_ALIASES) {
     if (target.includes(normalizeLooseText(alias))) tokens.add(token);
   }
   return tokens;
+}
+
+function colorTokens(value: string): Set<string> {
+  return extractColorTokens(value);
+}
+
+export function specificColorProductMatchesItem(targetProductName: string, itemText: string): boolean {
+  if (isRandomColor(targetProductName) || isRandomColor(extractColor(targetProductName))) return true;
+
+  const targetTokens = extractColorTokens(targetProductName);
+  if (targetTokens.size === 0) return true;
+
+  const itemTokens = Array.from(extractColorTokens(itemText)).filter((token) => token !== "metallic");
+  if (itemTokens.length === 0) return false;
+
+  return itemTokens.every((token) => targetTokens.has(token));
 }
 
 function splitColorParts(colorName: string): string[] {

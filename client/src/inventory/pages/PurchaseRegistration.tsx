@@ -8,6 +8,7 @@ import {
   extractModel,
   extractPreferredModel,
   isInvoice407AnimalCrossingWhiteBaseMatch,
+  specificColorProductMatchesItem,
   suggestCsvProduct,
 } from "@shared/productMatching";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
@@ -804,6 +805,7 @@ function limitedEditionKeysCompatible(a: string | null, b: string | null): boole
 function canMatchTargetProduct(candidateText: string, targetTitle?: string): boolean {
   if (!targetTitle) return true;
   if (isInvoice407AnimalCrossingWhiteBaseMatch(candidateText, targetTitle)) return true;
+  if (!specificColorProductMatchesItem(targetTitle, candidateText)) return false;
   const targetLimitedKey = limitedEditionProductKey(targetTitle);
   const candidateLimitedKey = limitedEditionProductKey(candidateText);
   if (targetLimitedKey || candidateLimitedKey) return limitedEditionKeysCompatible(targetLimitedKey, candidateLimitedKey);
@@ -943,19 +945,23 @@ function suggestInvoiceProductName(
   managementNo: string,
   candidates: CsvProductCandidate[],
 ): string | null {
+  const targetText = `${title} ${managementNo}`.trim();
   const animalCrossingSuggestion = suggestAnimalCrossingInvoiceProduct(title, managementNo, candidates);
-  if (animalCrossingSuggestion) return animalCrossingSuggestion;
+  if (animalCrossingSuggestion && canMatchTargetProduct(targetText, animalCrossingSuggestion)) return animalCrossingSuggestion;
 
   const invoice407WhiteBaseSuggestion = suggestInvoice407WhiteBaseProduct(title, managementNo, candidates);
   if (invoice407WhiteBaseSuggestion) return invoice407WhiteBaseSuggestion;
 
   const suggestion = suggestCsvProduct(title, managementNo, candidates);
-  if (suggestion) return suggestion.name;
+  if (suggestion && canMatchTargetProduct(targetText, suggestion.name)) return suggestion.name;
 
   const model = extractPreferredModel(title, managementNo);
   if (!model) return null;
 
-  const sameModelCandidates = candidates.filter((candidate) => extractModel(candidate.name) === model);
+  const sameModelCandidates = candidates.filter((candidate) =>
+    extractModel(candidate.name) === model &&
+    canMatchTargetProduct(targetText, candidate.name)
+  );
   return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
 }
 

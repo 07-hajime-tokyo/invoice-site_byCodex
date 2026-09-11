@@ -2,7 +2,7 @@ import { z } from "zod";
 import { google } from "googleapis";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
+import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, productNamesCanMatch, specificColorProductMatchesItem, suggestCsvProduct } from "@shared/productMatching";
 import {
   invoiceGroupKeyFromDeliveryNo,
   invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
@@ -488,16 +488,17 @@ function suggestCsvProductNameWithFallback(
   managementNo: string,
   candidates: CsvProductCandidate[],
 ): string | null {
+  const targetText = `${title} ${managementNo}`.trim();
   const suggestion = suggestCsvProduct(title, managementNo, candidates);
-  if (suggestion) return suggestion.name;
+  if (suggestion && specificColorProductMatchesItem(suggestion.name, targetText)) return suggestion.name;
 
   const model = extractPreferredModel(title, managementNo);
   if (!model) return null;
 
-  const targetText = `${title} ${managementNo}`;
   const sameModelCandidates = candidates.filter((candidate) =>
     extractModel(candidate.name) === model &&
-    productNamesCanMatch(targetText, candidate.name)
+    productNamesCanMatch(targetText, candidate.name) &&
+    specificColorProductMatchesItem(candidate.name, targetText)
   );
   return sameModelCandidates.length === 1 ? sameModelCandidates[0].name : null;
 }
@@ -529,6 +530,7 @@ function deliveryProductNameMatchesOrderProduct(
   const order = orderProductName.trim();
   if (!delivered || !order) return false;
   if (!productNamesCanMatch(delivered, order)) return false;
+  if (!specificColorProductMatchesItem(order, delivered)) return false;
   if (productNameKey(delivered) === productNameKey(order)) return true;
 
   const suggestion =
@@ -8116,6 +8118,8 @@ export const inventoryRouter = router({
       // invManagementNo: Zaico在庫管理番号（例: "369_ルカ_レッド_3/10"）
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
         const managementHints = extractManagementHints(invManagementNo, invTitle);
+        const itemText = `${invTitle} ${invManagementNo ?? ""}`.trim();
+        if (!specificColorProductMatchesItem(csvProductName, itemText)) return false;
         return (
           suggestCsvProductNameFromHints("", managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName ||
           suggestCsvProductNameFromHints(invTitle, managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName
