@@ -1821,6 +1821,32 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    /** DB の取引データの支払日を一括更新する */
+    bulkUpdatePaymentDate: protectedProcedure
+      .input(z.object({
+        ids: z.array(z.number().int().positive()).min(1).max(500),
+        paymentDate: z.string().trim().min(1).max(64),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+
+        const ids = Array.from(new Set(input.ids));
+        const targets = await db.select({ id: tradeRecords.id })
+          .from(tradeRecords)
+          .where(inArray(tradeRecords.id, ids));
+        const targetIds = targets.map((row) => row.id);
+        if (targetIds.length === 0) {
+          return { success: true, updatedCount: 0, requestedCount: ids.length };
+        }
+
+        await db.update(tradeRecords)
+          .set({ paymentDate: input.paymentDate })
+          .where(inArray(tradeRecords.id, targetIds));
+
+        return { success: true, updatedCount: targetIds.length, requestedCount: ids.length };
+      }),
+
     /** DB のフィルター用ユニーク値を取得する */
     getFilterOptions: protectedProcedure.query(async () => {
       const db = await getDb();

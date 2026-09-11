@@ -3,7 +3,7 @@
  * Design: Scandinavian BI Style
  * Full-featured sortable, paginated data table with teal row hover
  */
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   TradeRecord,
   COLUMN_LABELS,
@@ -13,10 +13,14 @@ import {
   SortKey,
   SortDir,
 } from "@/lib/csvUtils";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Truck } from "lucide-react";
+import { CalendarDays, ChevronUp, ChevronDown, ChevronsUpDown, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { EditTradeDialog } from "@/components/EditTradeDialog";
 import { ShipmentHistory } from "@/components/ShipmentHistory";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 interface DataTableProps {
   records: TradeRecord[];
@@ -62,6 +66,10 @@ const MOBILE_META_COLUMNS: (keyof TradeRecord)[] = [
   "profitWithRefund",
 ];
 
+function getTradeRecordId(row: TradeRecord): number | null {
+  return typeof row.id === "number" && Number.isFinite(row.id) && row.id > 0 ? row.id : null;
+}
+
 export function DataTable({
   records,
   pageSize: controlledPageSize,
@@ -84,6 +92,8 @@ export function DataTable({
   const sortDir = controlledSortDir ?? localSortDir;
   const page = controlledPage ?? localPage;
   const pageSize = controlledPageSize ?? localPageSize;
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkPaymentDate, setBulkPaymentDate] = useState("");
   const setPage = (next: number | ((prev: number) => number)) => {
     if (onPageChange) {
       onPageChange(typeof next === "function" ? next(page) : next);
@@ -97,6 +107,21 @@ export function DataTable({
   };
   // 発送履歴展開状態: key = `${no}-${index}`
   const [expandedShipment, setExpandedShipment] = useState<string | null>(null);
+  const bulkUpdatePaymentDateMutation = trpc.trade.bulkUpdatePaymentDate.useMutation({
+    onSuccess: (result) => {
+      toast.success("支払日を一括登録しました", {
+        description: `${result.updatedCount}件を更新しました。`,
+      });
+      setSelectedIds(new Set());
+      setBulkPaymentDate("");
+      onRecordUpdated?.();
+    },
+    onError: (error) => {
+      toast.error("支払日の一括登録に失敗しました", {
+        description: error.message,
+      });
+    },
+  });
 
   const handleSort = useCallback(
     (key: SortKey) => {
@@ -139,6 +164,64 @@ export function DataTable({
   const pageRecords = isServerPaged
     ? sorted
     : sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const selectablePageIds = useMemo(
+    () => pageRecords.map(getTradeRecordId).filter((id): id is number => id !== null),
+    [pageRecords]
+  );
+  const allPageSelected = selectablePageIds.length > 0 && selectablePageIds.every((id) => selectedIds.has(id));
+  const somePageSelected = selectablePageIds.some((id) => selectedIds.has(id));
+  const selectedCount = selectedIds.size;
+
+  useEffect(() => {
+    const availableIds = new Set(records.map(getTradeRecordId).filter((id): id is number => id !== null));
+    setSelectedIds((current) => {
+      const next = new Set<number>();
+      for (const id of current) {
+        if (availableIds.has(id)) next.add(id);
+      }
+      return next.size === current.size ? current : next;
+    });
+  }, [records]);
+
+  const toggleRowSelection = useCallback((id: number, checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const togglePageSelection = useCallback((checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const id of selectablePageIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, [selectablePageIds]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkPaymentDateSubmit = useCallback(() => {
+    const paymentDate = bulkPaymentDate.trim();
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      toast.error("更新する行を選択してください。");
+      return;
+    }
+    if (!paymentDate) {
+      toast.error("支払日を入力してください。");
+      return;
+    }
+    const ok = window.confirm(`${ids.length}件の支払日を ${paymentDate} に更新します。よろしいですか？`);
+    if (!ok) return;
+    bulkUpdatePaymentDateMutation.mutate({ ids, paymentDate });
+  }, [bulkPaymentDate, bulkUpdatePaymentDateMutation, selectedIds]);
 
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col || sortDir === "none")
@@ -240,6 +323,41 @@ export function DataTable({
             ))}
           </div>
         </div>
+        {selectedCount > 0 && (
+          <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+            <span className="text-xs font-semibold text-primary">{selectedCount}件選択中</span>
+            <Input
+              type="date"
+              value={bulkPaymentDate}
+              onChange={(event) => setBulkPaymentDate(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleBulkPaymentDateSubmit();
+              }}
+              className="h-8 w-full bg-white text-xs sm:w-40"
+              aria-label="一括登録する支払日"
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              disabled={bulkUpdatePaymentDateMutation.isPending}
+              onClick={handleBulkPaymentDateSubmit}
+            >
+              <CalendarDays size={13} />
+              支払日を一括登録
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              disabled={bulkUpdatePaymentDateMutation.isPending}
+              onClick={clearSelection}
+            >
+              選択解除
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Mobile cards */}
@@ -251,10 +369,19 @@ export function DataTable({
         ) : (
           pageRecords.map((row, i) => {
             const rowKey = row.id ? `trade-${row.id}` : `${row.no}-${i}`;
+            const rowId = getTradeRecordId(row);
             const isExpanded = expandedShipment === rowKey;
             return (
               <div key={rowKey} className="p-3">
                 <div className="flex items-start justify-between gap-2">
+                  {rowId !== null && (
+                    <Checkbox
+                      checked={selectedIds.has(rowId)}
+                      onCheckedChange={(checked) => toggleRowSelection(rowId, checked === true)}
+                      aria-label={`No.${row.no} ${row.productName}を選択`}
+                      className="mt-1"
+                    />
+                  )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {Number.isFinite(Number(row.no)) && onInvoiceNoClick ? (
@@ -323,6 +450,14 @@ export function DataTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
+              <th className="w-10 px-3 py-2.5 text-left">
+                <Checkbox
+                  checked={allPageSelected ? true : somePageSelected ? "indeterminate" : false}
+                  onCheckedChange={(checked) => togglePageSelection(checked === true)}
+                  disabled={selectablePageIds.length === 0}
+                  aria-label="表示中の取引データを選択"
+                />
+              </th>
               {VISIBLE_COLUMNS.map((col) => (
                 <th
                   key={col}
@@ -343,13 +478,14 @@ export function DataTable({
           <tbody>
             {pageRecords.length === 0 ? (
               <tr>
-                <td colSpan={VISIBLE_COLUMNS.length} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                <td colSpan={VISIBLE_COLUMNS.length + 2} className="px-4 py-12 text-center text-muted-foreground text-sm">
                   データが見つかりませんでした
                 </td>
               </tr>
             ) : (
               pageRecords.map((row, i) => {
                 const rowKey = row.id ? `trade-${row.id}` : `${row.no}-${i}`;
+                const rowId = getTradeRecordId(row);
                 const isExpanded = expandedShipment === rowKey;
                 return (
                   <React.Fragment key={rowKey}>
@@ -357,6 +493,15 @@ export function DataTable({
                       className="data-table-row animate-row"
                       style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}
                     >
+                      <td className="w-10 px-3 py-2 whitespace-nowrap">
+                        {rowId !== null && (
+                          <Checkbox
+                            checked={selectedIds.has(rowId)}
+                            onCheckedChange={(checked) => toggleRowSelection(rowId, checked === true)}
+                            aria-label={`No.${row.no} ${row.productName}を選択`}
+                          />
+                        )}
+                      </td>
                       {VISIBLE_COLUMNS.map((col) => (
                         <td
                           key={col}
@@ -384,7 +529,7 @@ export function DataTable({
                     </tr>
                     {isExpanded && (
                       <tr className="bg-muted/20">
-                        <td colSpan={VISIBLE_COLUMNS.length + 1} className="px-4 py-3">
+                        <td colSpan={VISIBLE_COLUMNS.length + 2} className="px-4 py-3">
                           <div className="text-xs font-semibold text-muted-foreground mb-2">
                             No.{row.no} 発送履歴
                           </div>
