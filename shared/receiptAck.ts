@@ -69,6 +69,21 @@ export function parseReceiptAckTarget(supplierUrl: unknown): ReceiptAckTarget | 
     return { site: "yahuoku", itemId: normalizeItemId(yahooAuctionMatch[1]) };
   }
 
+  try {
+    const parsedUrl = new URL(url);
+    if (/(?:^|\.)contact\.auctions\.yahoo\.co\.jp$/i.test(parsedUrl.hostname)) {
+      for (const [name, value] of parsedUrl.searchParams.entries()) {
+        if (name.toLowerCase() !== "aid") continue;
+        const auctionId = cleanText(value);
+        if (/^[a-z]?\d+$/i.test(auctionId)) {
+          return { site: "yahuoku", itemId: normalizeItemId(auctionId) };
+        }
+      }
+    }
+  } catch {
+    // Keep falling through to the other lightweight URL patterns.
+  }
+
   const mercariMatch = url.match(/\/(?:item|transaction)\/(m\d+)(?:[/?#]|$)/i);
   if (mercariMatch?.[1] && /(?:^|\/\/|\.)mercari\.(?:com|jp)/i.test(url)) {
     return { site: "mercari", itemId: normalizeItemId(mercariMatch[1]) };

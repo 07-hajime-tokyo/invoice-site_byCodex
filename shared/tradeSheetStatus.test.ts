@@ -120,4 +120,23 @@ describe("tradeSheetStatus", () => {
     expect(totals.get("New 2DS LL ホワイト×オレンジ")).toEqual({ orderedQty: 3, shippedQty: 2 });
     expect(allocated.map((item) => item.shippedQty)).toEqual([2, 1]);
   });
+
+  it("does not allocate shipment progress to a different product in the same invoice", () => {
+    const progress = parseShipmentProgressSheetRows([[
+      ["410", "8/31", "New 2DS LL ホワイト×オレンジ", "New 2DS LL White/Orange", "3", "2"],
+      ["", "", "New 2DS LL ホワイト×ラベンダー", "New 2DS LL White/Lavender", "1", "1"],
+    ]]);
+    const rows = [
+      { productName: "New 2DS LL マインクラフト", orderQty: 1 },
+    ];
+
+    const totals = buildShipmentProgressProductTotals(
+      rows.map((row) => ({ name: row.productName, qty: row.orderQty })),
+      progress.get("410"),
+    );
+    const allocated = allocateShipmentProgressToProducts(rows, progress.get("410"));
+
+    expect(totals.has("New 2DS LL マインクラフト")).toBe(false);
+    expect(allocated.map((item) => item.shippedQty)).toEqual([0]);
+  });
 });

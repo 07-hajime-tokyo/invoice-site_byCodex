@@ -13,6 +13,11 @@ import { getAllInvoiceMemos } from "./inventory/db";
 import { inventoryRouter } from "./inventory/routers";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
+import {
+  buildShipmentProgressProductTotals,
+  parseShipmentProgressSheetRows,
+  type TradeShipmentProgressEntry,
+} from "@shared/tradeSheetStatus";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
@@ -507,17 +512,9 @@ function isTradeViewSheet(sheet: { title: string; hidden?: boolean }) {
   return Boolean(sheet.title) && !sheet.hidden && sheet.title.includes(TRADE_VIEW_SHEET_NAME_KEYWORD);
 }
 
-type SheetShipmentProgress = {
-  invoiceNo: string;
-  productNameJa: string;
-  productNameEn: string;
-  orderedQty: number;
-  shippedQty: number;
-};
-
 let tradeShipmentProgressCache: {
   expiresAt: number;
-  data: Map<string, SheetShipmentProgress[]>;
+  data: Map<string, TradeShipmentProgressEntry[]>;
 } | null = null;
 
 function parseSheetQuantity(value: unknown) {
@@ -527,16 +524,8 @@ function parseSheetQuantity(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
-function normalizeSheetProductKey(value: unknown) {
-  return String(value ?? "")
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .trim();
-}
-
 async function getSheetShipmentProgressByInvoice() {
-  if (!canSyncTradeSheet()) return new Map<string, SheetShipmentProgress[]>();
+  if (!canSyncTradeSheet()) return new Map<string, TradeShipmentProgressEntry[]>();
   const now = Date.now();
   if (tradeShipmentProgressCache && tradeShipmentProgressCache.expiresAt > now) {
     return tradeShipmentProgressCache.data;
@@ -558,7 +547,7 @@ async function getSheetShipmentProgressByInvoice() {
     .filter(isTradeViewSheet)
     .sort((a, b) => a.index - b.index);
 
-  if (tabs.length === 0) return new Map<string, SheetShipmentProgress[]>();
+  if (tabs.length === 0) return new Map<string, TradeShipmentProgressEntry[]>();
 
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
@@ -568,32 +557,9 @@ async function getSheetShipmentProgressByInvoice() {
     throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
   });
 
-  const progressByInvoice = new Map<string, SheetShipmentProgress[]>();
-  for (const valueRange of response.data.valueRanges ?? []) {
-    let currentInvoiceNo = "";
-    for (const row of valueRange.values ?? []) {
-      const rawInvoiceNo = String(row[0] ?? "").trim();
-      if (/^\d+$/.test(rawInvoiceNo)) {
-        currentInvoiceNo = rawInvoiceNo;
-      } else if (rawInvoiceNo) {
-        currentInvoiceNo = "";
-      }
-      const invoiceNo = currentInvoiceNo;
-      if (!invoiceNo) continue;
-      const orderedQty = parseSheetQuantity(row[4]);
-      const shippedQty = parseSheetQuantity(row[5]);
-      if (orderedQty <= 0 && shippedQty <= 0) continue;
-      const entries = progressByInvoice.get(invoiceNo) ?? [];
-      entries.push({
-        invoiceNo,
-        productNameJa: String(row[2] ?? "").trim(),
-        productNameEn: String(row[3] ?? "").trim(),
-        orderedQty,
-        shippedQty,
-      });
-      progressByInvoice.set(invoiceNo, entries);
-    }
-  }
+  const progressByInvoice = parseShipmentProgressSheetRows(
+    (response.data.valueRanges ?? []).map((valueRange) => valueRange.values ?? []),
+  );
 
   tradeShipmentProgressCache = {
     expiresAt: now + 20_000,
@@ -602,78 +568,53 @@ async function getSheetShipmentProgressByInvoice() {
   return progressByInvoice;
 }
 
-function summarizeSheetShipmentProgress(entries: SheetShipmentProgress[], fallbackOrderedQty: number) {
-  const orderedQty = entries.reduce((sum, entry) => sum + entry.orderedQty, 0) || fallbackOrderedQty;
-  const shippedQty = entries.reduce((sum, entry) => sum + entry.shippedQty, 0);
-  return { orderedQty, shippedQty };
-}
-
 function getSheetShipmentStatus(
   row: { no: number | null; productName: string | null; quantity: string | null },
-  entries: SheetShipmentProgress[] | undefined,
-  occurrenceIndex: number,
+  progress: { orderedQty: number; shippedQty: number } | undefined,
 ) {
-  if (!entries?.length) return null;
-  const productKey = normalizeSheetProductKey(row.productName);
-  const matchedByProduct = productKey
-    ? entries.find((entry) => {
-        const jaKey = normalizeSheetProductKey(entry.productNameJa);
-        const enKey = normalizeSheetProductKey(entry.productNameEn);
-        const jaLooseKey = normalizeLooseText(entry.productNameJa);
-        const enLooseKey = normalizeLooseText(entry.productNameEn);
-        const productLooseKey = normalizeLooseText(String(row.productName ?? ""));
-        return jaKey === productKey ||
-          enKey === productKey ||
-          jaKey.includes(productKey) ||
-          enKey.includes(productKey) ||
-          jaLooseKey === productLooseKey ||
-          enLooseKey === productLooseKey;
-      }) ??
-      (() => {
-        const productName = String(row.productName ?? "").trim();
-        if (!productName) return undefined;
-        const suggestion = suggestCsvProduct(
-          productName,
-          productName,
-          entries.map((entry) => ({
-            name: entry.productNameJa || entry.productNameEn,
-            qty: entry.orderedQty,
-          })),
-        );
-        if (!suggestion) return undefined;
-        const suggestionKey = normalizeLooseText(suggestion.name);
-        return entries.find((entry) =>
-          normalizeLooseText(entry.productNameJa) === suggestionKey ||
-          normalizeLooseText(entry.productNameEn) === suggestionKey
-        );
-      })()
-    : undefined;
-  const fallback = entries[occurrenceIndex];
-  const selected = matchedByProduct ?? fallback;
+  if (!progress) return null;
   const fallbackOrderedQty = parseSheetQuantity(row.quantity);
-  const progress = selected
-    ? {
-        orderedQty: selected.orderedQty || fallbackOrderedQty,
-        shippedQty: selected.shippedQty,
-      }
-    : summarizeSheetShipmentProgress(entries, fallbackOrderedQty);
-  if (progress.orderedQty <= 0) return null;
-  const remaining = Math.max(0, Math.round((progress.orderedQty - progress.shippedQty) * 100) / 100);
+  const effectiveOrderedQty = progress.orderedQty || fallbackOrderedQty;
+  if (effectiveOrderedQty <= 0) return null;
+  if (progress.orderedQty <= 0 && progress.shippedQty <= 0) return null;
+  const remaining = Math.max(0, Math.round((effectiveOrderedQty - progress.shippedQty) * 100) / 100);
   return remaining <= 0 ? "complete" : `残${Number.isInteger(remaining) ? remaining : remaining.toFixed(2)}`;
 }
 
 function applySheetShipmentStatuses<T extends { no: number | null; productName: string | null; quantity: string | null; status: string | null }>(
   rows: T[],
-  progressByInvoice: Map<string, SheetShipmentProgress[]>,
+  progressByInvoice: Map<string, TradeShipmentProgressEntry[]>,
 ) {
   if (progressByInvoice.size === 0) return rows;
-  const invoiceOccurrences = new Map<string, number>();
+  const rowsByInvoice = new Map<string, T[]>();
+  for (const row of rows) {
+    if (row.no == null) continue;
+    const invoiceNo = String(row.no);
+    const invoiceRows = rowsByInvoice.get(invoiceNo) ?? [];
+    invoiceRows.push(row);
+    rowsByInvoice.set(invoiceNo, invoiceRows);
+  }
+
+  const progressByInvoiceAndProduct = new Map<string, Map<string, { orderedQty: number; shippedQty: number }>>();
+  for (const [invoiceNo, invoiceRows] of rowsByInvoice.entries()) {
+    const entries = progressByInvoice.get(invoiceNo);
+    if (!entries?.length) continue;
+    const candidates = invoiceRows
+      .map((row) => ({
+        name: String(row.productName ?? "").trim(),
+        qty: parseSheetQuantity(row.quantity),
+      }))
+      .filter((candidate) => candidate.name);
+    if (candidates.length === 0) continue;
+    progressByInvoiceAndProduct.set(invoiceNo, buildShipmentProgressProductTotals(candidates, entries));
+  }
+
   return rows.map((row) => {
     if (row.no == null) return row;
     const invoiceNo = String(row.no);
-    const occurrenceIndex = invoiceOccurrences.get(invoiceNo) ?? 0;
-    invoiceOccurrences.set(invoiceNo, occurrenceIndex + 1);
-    const status = getSheetShipmentStatus(row, progressByInvoice.get(invoiceNo), occurrenceIndex);
+    const productName = String(row.productName ?? "").trim();
+    if (!productName) return row;
+    const status = getSheetShipmentStatus(row, progressByInvoiceAndProduct.get(invoiceNo)?.get(productName));
     return status ? { ...row, status } : row;
   });
 }
