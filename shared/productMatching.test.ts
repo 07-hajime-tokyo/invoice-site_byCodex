@@ -3,6 +3,7 @@ import {
   allocateShipmentItemsToCsvProducts,
   extractManagementInvoiceKey,
   extractModel,
+  inventoryItemCanMatchCsvProduct,
   isAccessory,
   suggestCsvProduct,
 } from "./productMatching";
@@ -226,6 +227,21 @@ describe("productMatching", () => {
 
     expect(suggestCsvProduct("3DSLL ミント×ホワイト", "400_マキシム_3DSLL_1/5", products)?.name).toBe("3DS LL ホワイトベース");
     expect(suggestCsvProduct("3DSLL レッド×ブラック", "400_マキシム_3DSLL_2/5", products)?.name).toBe("3DS LL ホワイトベース");
+  });
+
+  it("現在庫のホワイトベース照合ではブラック在庫を除外する", () => {
+    expect(inventoryItemCanMatchCsvProduct(
+      "3DS LL ミント×ホワイト 在庫0904_1",
+      "3DS LL ホワイトベース",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "3DS LL シルバー×ブラック 在庫0904_6",
+      "3DS LL ホワイトベース",
+    )).toBe(false);
+    expect(inventoryItemCanMatchCsvProduct(
+      "3DS LL どうぶつの森 407_マキシム_3DSLL_どうぶつの森_1/5",
+      "3DS LL ホワイトベース",
+    )).toBe(true);
   });
 
   it("No.407の3DS LLどうぶつの森だけを3DS LLホワイトベースへ特別に寄せる", () => {

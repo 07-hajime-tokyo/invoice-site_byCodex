@@ -2,7 +2,7 @@ import { z } from "zod";
 import { google } from "googleapis";
 import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { getEbayStockType, isEbayManagementNo, normalizeEbayOrderStatus } from "@shared/ebayInventory";
-import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
+import { allocateShipmentItemsToCsvProducts, extractColor, extractManagementHints, extractModel, extractPreferredModel, inventoryItemCanMatchCsvProduct, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
 import {
   invoiceGroupKeyFromDeliveryNo,
   invoiceNoFromDeliveryNo as invoiceNoFromDeliveryNoStrict,
@@ -8116,6 +8116,7 @@ export const inventoryRouter = router({
       // invManagementNo: Zaico在庫管理番号（例: "369_ルカ_レッド_3/10"）
       function invMatchesCsvProduct(csvProductName: string, invTitle: string, invManagementNo?: string): boolean {
         const managementHints = extractManagementHints(invManagementNo, invTitle);
+        if (!inventoryItemCanMatchCsvProduct(`${invTitle} ${invManagementNo ?? ""}`, csvProductName)) return false;
         return (
           suggestCsvProductNameFromHints("", managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName ||
           suggestCsvProductNameFromHints(invTitle, managementHints, [{ name: csvProductName, qty: 1 }]) === csvProductName

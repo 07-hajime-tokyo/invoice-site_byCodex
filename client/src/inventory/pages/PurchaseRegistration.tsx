@@ -7,6 +7,7 @@ import {
   extractManagementHints,
   extractModel,
   extractPreferredModel,
+  inventoryItemCanMatchCsvProduct,
   isInvoice407AnimalCrossingWhiteBaseMatch,
   suggestCsvProduct,
 } from "@shared/productMatching";
@@ -811,6 +812,12 @@ function canMatchTargetProduct(candidateText: string, targetTitle?: string): boo
   return true;
 }
 
+function canMatchStockTargetProduct(candidateText: string, targetTitle?: string): boolean {
+  if (!targetTitle) return true;
+  return canMatchTargetProduct(candidateText, targetTitle) &&
+    inventoryItemCanMatchCsvProduct(candidateText, targetTitle);
+}
+
 function displayProductTitle(item: PurchaseItem): string {
   const title = item.title?.trim() || "-";
   const managementNo = parseEtc(item.etc).managementNo;
@@ -1010,7 +1017,7 @@ function purchaseItemMatchesProduct(item: PurchaseItem, targetKey: string, targe
 function stockItemMatchesProduct(item: StockItemView, targetKey: string, targetTitle?: string): boolean {
   const { managementHints, matchText } = stockItemMatchData(item);
 
-  if (!canMatchTargetProduct(matchText, targetTitle)) return false;
+  if (!canMatchStockTargetProduct(matchText, targetTitle)) return false;
   if (productKey(item.title) === targetKey) return true;
   if (!targetTitle) return false;
 
@@ -1044,7 +1051,7 @@ function findInvoiceProductNameForStockItem(
   const { managementHints, matchText } = stockItemMatchData(item);
   const direct = invoiceProducts.find((product) =>
     productKey(product.productName) === productKey(item.title) &&
-    canMatchTargetProduct(matchText, product.productName)
+    canMatchStockTargetProduct(matchText, product.productName)
   );
   if (direct) return direct.productName;
 
@@ -1060,7 +1067,7 @@ function findInvoiceProductNameForStockItem(
     ) ??
     suggestInvoiceProductName(matchText, managementHints.join(" "), candidates);
 
-  return suggestedName && canMatchTargetProduct(matchText, suggestedName) ? suggestedName : null;
+  return suggestedName && canMatchStockTargetProduct(matchText, suggestedName) ? suggestedName : null;
 }
 
 function filterRowsByProductDetail(rows: PurchaseRow[], filter: ProductDetailFilter | null): PurchaseRow[] {

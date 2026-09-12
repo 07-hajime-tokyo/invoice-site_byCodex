@@ -291,6 +291,24 @@ export function isInvoice407AnimalCrossingWhiteBaseMatch(itemText: string, csvPr
     colorTokens(csvColor).has("white");
 }
 
+export function inventoryItemCanMatchCsvProduct(itemText: string, csvProductName: string): boolean {
+  const targetText = normalizeText(itemText);
+  if (isInvoice407AnimalCrossingWhiteBaseMatch(targetText, csvProductName)) return true;
+
+  const targetLimitedKey = limitedEditionProductKey(targetText);
+  const csvLimitedKey = limitedEditionProductKey(csvProductName);
+  if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return false;
+
+  const csvColor = extractColor(csvProductName);
+  if (!isBaseColorProduct(csvColor)) return true;
+
+  const csvTokens = colorTokens(csvColor);
+  if (csvTokens.size === 0) return true;
+
+  const targetTokens = colorTokens(targetText);
+  return Array.from(csvTokens).some((token) => targetTokens.has(token));
+}
+
 function normalizeColorToken(value: string): string {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
