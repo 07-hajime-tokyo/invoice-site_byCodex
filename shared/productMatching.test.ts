@@ -244,6 +244,33 @@ describe("productMatching", () => {
     )).toBe(true);
   });
 
+  it("現在庫の色指定商品では注文商品の色だけを対象にする", () => {
+    expect(inventoryItemCanMatchCsvProduct(
+      "Vita 2000 グレイシャー・ホワイト 在庫0910_1",
+      "Vita 2000 ホワイト",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "Vita 2000 ブラック 在庫0910_2",
+      "Vita 2000 ホワイト",
+    )).toBe(false);
+    expect(inventoryItemCanMatchCsvProduct(
+      "New 2DS LL ブラック×ライム 在庫0910_3",
+      "New 2DS LL ブラック×ライム",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "New 2DS LL ブラック×ターコイズ 在庫0910_4",
+      "New 2DS LL ブラック×ライム",
+    )).toBe(false);
+    expect(inventoryItemCanMatchCsvProduct(
+      "New 3DS ホワイト 在庫0910_5",
+      "New 3DS ブラック",
+    )).toBe(false);
+    expect(inventoryItemCanMatchCsvProduct(
+      "New 3DS LL メタリックブラック 在庫0910_6",
+      "New 3DS LL ホワイト",
+    )).toBe(false);
+  });
+
   it("No.407の3DS LLどうぶつの森だけを3DS LLホワイトベースへ特別に寄せる", () => {
     const products = [
       { name: "3DS LL ホワイトベース", qty: 25 },

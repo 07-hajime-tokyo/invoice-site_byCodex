@@ -300,13 +300,19 @@ export function inventoryItemCanMatchCsvProduct(itemText: string, csvProductName
   if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return false;
 
   const csvColor = extractColor(csvProductName);
-  if (!isBaseColorProduct(csvColor)) return true;
+  if (isRandomColor(csvColor) || isOtherColor(csvColor) || isColorlessRandomColor(csvColor)) return true;
 
-  const csvTokens = colorTokens(csvColor);
+  const csvTokens = inventoryColorTokens(csvColor);
   if (csvTokens.size === 0) return true;
 
-  const targetTokens = colorTokens(targetText);
-  return Array.from(csvTokens).some((token) => targetTokens.has(token));
+  const targetTokens = inventoryColorTokens(targetText);
+  if (targetTokens.size === 0) return false;
+
+  const csvTokenList = Array.from(csvTokens);
+  if (isBaseColorProduct(csvColor) || colorRequiresAllTokens(csvColor, csvTokens)) {
+    return csvTokenList.every((token) => targetTokens.has(token));
+  }
+  return csvTokenList.some((token) => targetTokens.has(token));
 }
 
 function normalizeColorToken(value: string): string {
@@ -354,6 +360,18 @@ function colorTokens(value: string): Set<string> {
     if (target.includes(normalizeLooseText(alias))) tokens.add(token);
   }
   return tokens;
+}
+
+function inventoryColorTokens(value: string): Set<string> {
+  const tokens = colorTokens(value);
+  tokens.delete("metallic");
+  return tokens;
+}
+
+function colorRequiresAllTokens(colorName: string, tokens: Set<string>): boolean {
+  if (tokens.size <= 1) return true;
+  if (/[×xXｘＸ&＆/／]/.test(colorName)) return true;
+  return tokens.size <= 2;
 }
 
 function splitColorParts(colorName: string): string[] {
