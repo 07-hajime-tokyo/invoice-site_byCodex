@@ -1103,6 +1103,32 @@ function filterStockItemsByInvoiceProductDetail(
   );
 }
 
+function withInvoiceStockCountsFromItems(
+  products: ProductSummary[],
+  stockItems: StockItemView[],
+  invoiceProducts: InvoiceProductSummary[],
+): ProductSummary[] {
+  if (invoiceProducts.length === 0) return products;
+
+  const stockCountByProductKey = new Map<string, number>();
+  for (const item of stockItems) {
+    const matchedProductName = findInvoiceProductNameForStockItem(item, invoiceProducts);
+    if (!matchedProductName) continue;
+    const key = productKey(matchedProductName);
+    const quantity = Math.max(0, Math.floor(Number(item.quantity)) || 0);
+    if (quantity <= 0) continue;
+    stockCountByProductKey.set(key, (stockCountByProductKey.get(key) ?? 0) + quantity);
+  }
+
+  return products.map((product) => {
+    if (product.invoiceOrdered == null) return product;
+    return {
+      ...product,
+      secured: stockCountByProductKey.get(product.key) ?? 0,
+    };
+  });
+}
+
 function productDetailFilterLabel(filter: ProductDetailFilter): string {
   if (!filter.productKey) return filter.mode === "stock" ? "現在庫すべて" : "入庫まちすべて";
   return `${filter.productTitle} / ${filter.mode === "stock" ? "現在庫" : "入庫まち"}`;
@@ -7994,7 +8020,11 @@ export default function PurchaseRegistration() {
     ],
     [selectedInvoiceProductList, selectedInvoiceStockProducts, selectedRows],
   );
-  const selectedProducts = withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProductList)
+  const selectedProducts = withInvoiceStockCountsFromItems(
+    withInvoiceProductCounts(selectedBaseProducts, selectedInvoiceProductList),
+    selectedInvoiceStockItems,
+    selectedInvoiceProductList,
+  )
     .filter((product) => !selectedInvoiceNo || product.invoiceOrdered != null);
   const selectedOpenProducts = selectedProducts.filter(hasOpenInvoiceQuantity);
   const selectedDetailRows = filterRowsByProductDetail(selectedRows, productDetailFilter);
