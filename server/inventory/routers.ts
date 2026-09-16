@@ -3544,7 +3544,8 @@ function purchaseRowMatchesSearch(row: PurchasePageRow, rawSearch: string) {
     ...row.purchase_items.flatMap((item) => {
       const etc = item.etc ?? "";
       const parts = etc.split(",").map((part) => part.trim());
-      return [item.title, etc, parts[0], parts[2], ...(item.itemLabels ?? []).map((label) => label.labelId)];
+      const labelTexts = (item.itemLabels ?? []).flatMap((label) => [label.labelId, label.legacyManagementNo ?? ""]);
+      return [item.title, etc, parts[0], parts[2], ...labelTexts];
     }),
   ]
     .filter((value): value is string => typeof value === "string" && value.length > 0)

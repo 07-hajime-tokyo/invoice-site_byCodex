@@ -15,6 +15,24 @@ describe("receiptAck", () => {
       site: "yahuoku",
       itemId: "n1234567890",
     });
+    expect(classifyReceiptAckUrl("https://page.auctions.yahoo.co.jp/jp/auction/g1242383118")).toEqual({
+      status: "target",
+      target: { site: "yahuoku", itemId: "g1242383118" },
+    });
+  });
+
+  it("ヤフオク取引ナビURLから商品IDを抜き出す", () => {
+    expect(parseReceiptAckTarget("https://contact.auctions.yahoo.co.jp/trade/top?aid=g1242383118&oid=12345")).toEqual({
+      site: "yahuoku",
+      itemId: "g1242383118",
+    });
+    expect(parseReceiptAckTarget("https://contact.auctions.yahoo.co.jp/trade/top?aID=g1242383118&oid=12345")).toEqual({
+      site: "yahuoku",
+      itemId: "g1242383118",
+    });
+    expect(classifyReceiptAckUrl("https://contact.auctions.yahoo.co.jp/trade/top?aid=abc&oid=12345")).toEqual({
+      status: "not_required",
+    });
   });
 
   it("メルカリの取引URLと商品URLを対象にする", () => {
@@ -41,6 +59,8 @@ describe("receiptAck", () => {
 
   it("対象外サイトとURL不明を分ける", () => {
     expect(classifyReceiptAckUrl("https://www.suruga-ya.jp/product/detail/123")).toEqual({ status: "not_required" });
+    expect(classifyReceiptAckUrl("https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?foo=bar")).toEqual({ status: "not_required" });
+    expect(classifyReceiptAckUrl("https://www.amazon.co.jp/your-orders/order-details?orderID=123-4567890-1234567")).toEqual({ status: "not_required" });
     expect(classifyReceiptAckUrl("https://mercari-shops.com/products/abc123")).toEqual({ status: "unknown" });
     expect(classifyReceiptAckUrl("追跡番号不明")).toEqual({
       status: "unknown",
