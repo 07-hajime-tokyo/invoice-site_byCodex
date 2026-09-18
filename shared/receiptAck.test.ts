@@ -17,6 +17,24 @@ describe("receiptAck", () => {
     });
   });
 
+  it("ヤフオクの取引ナビURLからaidの商品IDを抜き出す", () => {
+    expect(
+      parseReceiptAckTarget(
+        "https://contact.auctions.yahoo.co.jp/buyer/top?aid=x1234567890&seller_auc_user_id=seller&buyer_auc_user_id=buyer&oid=123",
+      ),
+    ).toEqual({
+      site: "yahuoku",
+      itemId: "x1234567890",
+    });
+    expect(parseReceiptAckTarget("https://contact.auctions.yahoo.co.jp/buyer/top?aID=x1234567890&oid=123")).toEqual({
+      site: "yahuoku",
+      itemId: "x1234567890",
+    });
+    expect(classifyReceiptAckUrl("https://contact.auctions.yahoo.co.jp/buyer/top")).toEqual({
+      status: "not_required",
+    });
+  });
+
   it("メルカリの取引URLと商品URLを対象にする", () => {
     expect(parseReceiptAckTarget("https://jp.mercari.com/item/m12345678901")).toEqual({
       site: "mercari",

@@ -55,6 +55,14 @@ function normalizeItemId(value: string): string {
   return cleanText(value).toLowerCase();
 }
 
+function searchParamCaseInsensitive(params: URLSearchParams, key: string): string | null {
+  const normalizedKey = key.toLowerCase();
+  for (const [paramKey, value] of params.entries()) {
+    if (paramKey.toLowerCase() === normalizedKey) return value;
+  }
+  return null;
+}
+
 export function receiptAckItemKey(site: ReceiptAckSite, itemId: string): string {
   return `${site}:${normalizeItemId(itemId)}`;
 }
@@ -67,6 +75,18 @@ export function parseReceiptAckTarget(supplierUrl: unknown): ReceiptAckTarget | 
   const yahooAuctionMatch = url.match(/\/jp\/auction\/([a-z]?\d+)(?:[/?#]|$)/i);
   if (yahooAuctionMatch?.[1] && /(?:^|\/\/|\.)(?:page\.)?auctions\.yahoo\.co\.jp/i.test(url)) {
     return { site: "yahuoku", itemId: normalizeItemId(yahooAuctionMatch[1]) };
+  }
+
+  if (/(?:^|\/\/|\.)contact\.auctions\.yahoo\.co\.jp/i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      const aid = searchParamCaseInsensitive(parsed.searchParams, "aid");
+      if (aid && /^[a-z]?\d{8,12}$/i.test(aid)) {
+        return { site: "yahuoku", itemId: normalizeItemId(aid) };
+      }
+    } catch {
+      return null;
+    }
   }
 
   const mercariMatch = url.match(/\/(?:item|transaction)\/(m\d+)(?:[/?#]|$)/i);
