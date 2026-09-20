@@ -198,6 +198,51 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("Vita 1000 サファイア・ブルー", "400_マキシム*Vita1000*ブルー_4/5", products)?.name).toBe("PS Vita 1000 レッド・ブルー・ホワイト");
   });
 
+  it("No.415/416は指定色だけを注文行へ分類する", () => {
+    const products = [
+      { name: "PS Vita 1000 ブラック", qty: 3 },
+      { name: "PS Vita 1000 ホワイト", qty: 1 },
+      { name: "PS Vita 2000 ブラック×レッド", qty: 1 },
+      { name: "PS Vita 2000 ブルー", qty: 2 },
+      { name: "PS Vita 2000 カーキ×ブラック", qty: 1 },
+      { name: "New 3DS LL ブラック", qty: 4 },
+      { name: "New 3DS LL ホワイト", qty: 3 },
+      { name: "New 3DS LL ブルー", qty: 2 },
+      { name: "New 3DS LL レッド", qty: 1 },
+      { name: "New 2DS LL ブラック×ライム", qty: 1 },
+      { name: "New 2DS LL ブラック×ターコイズ", qty: 1 },
+    ];
+
+    expect(suggestCsvProduct("Vita1000", "415_マキシム_Vita1000_ブラック_1/3", products)?.name)
+      .toBe("PS Vita 1000 ブラック");
+    expect(suggestCsvProduct("Vita1000", "415_マキシム_Vita1000_ホワイト_1/1", products)?.name)
+      .toBe("PS Vita 1000 ホワイト");
+    expect(suggestCsvProduct("Vita1000", "415_マキシム_Vita1000_ブルー_1/1", products))
+      .toBeNull();
+    expect(suggestCsvProduct("Vita2000", "415_マキシム_Vita2000_ブラックレッド_1/1", products)?.name)
+      .toBe("PS Vita 2000 ブラック×レッド");
+    expect(suggestCsvProduct("Vita2000", "415_マキシム_Vita2000_カーキブラック_1/1", products)?.name)
+      .toBe("PS Vita 2000 カーキ×ブラック");
+    expect(inventoryItemCanMatchCsvProduct(
+      "PS Vita 2000 カーキ/ブラック 在庫0915_1",
+      "PS Vita 2000 カーキ×ブラック",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "PS Vita 2000 ブラック 在庫0915_2",
+      "PS Vita 2000 カーキ×ブラック",
+    )).toBe(false);
+    expect(suggestCsvProduct("New3DSLL", "415_マキシム_New3DSLL_ブラック_1/4", products)?.name)
+      .toBe("New 3DS LL ブラック");
+    expect(suggestCsvProduct("New3DSLL", "415_マキシム_New3DSLL_グレー_1/1", products))
+      .toBeNull();
+    expect(suggestCsvProduct("New2DSLL", "415_マキシム_New2DSLL_ライム_1/1", products)?.name)
+      .toBe("New 2DS LL ブラック×ライム");
+    expect(suggestCsvProduct("New2DSLL", "415_マキシム_New2DSLL_ターコイズ_1/1", products)?.name)
+      .toBe("New 2DS LL ブラック×ターコイズ");
+    expect(suggestCsvProduct("New2DSLL", "415_マキシム_New2DSLL_ブルー_1/1", products))
+      .toBeNull();
+  });
+
   it("PSP GoをPSPの他モデルと分けて扱う", () => {
     const products = [
       { name: "PSP Go", qty: 2 },

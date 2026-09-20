@@ -473,6 +473,49 @@ type OrderCsvRow = {
   status: string;
 };
 
+type MaximOrderSplitLine = {
+  productName: string;
+  orderQty: number;
+  sourceModel: string;
+};
+
+const MAXIM_415_416_ORDER_SPLITS: Record<string, MaximOrderSplitLine[]> = {
+  "415": [
+    { productName: "PS Vita 1000 ブラック", orderQty: 3, sourceModel: "Vita1000" },
+    { productName: "PS Vita 1000 ホワイト", orderQty: 1, sourceModel: "Vita1000" },
+    { productName: "PS Vita 2000 ブラック×レッド", orderQty: 1, sourceModel: "Vita2000" },
+    { productName: "PS Vita 2000 ブルー", orderQty: 2, sourceModel: "Vita2000" },
+    { productName: "PS Vita 2000 カーキ×ブラック", orderQty: 1, sourceModel: "Vita2000" },
+    { productName: "PSP 1000 ホワイト", orderQty: 1, sourceModel: "PSP1000" },
+    { productName: "PSP 2000 シルバー", orderQty: 2, sourceModel: "PSP2000" },
+    { productName: "PSP 3000 グリーン", orderQty: 1, sourceModel: "PSP3000" },
+    { productName: "New 3DS LL ブラック", orderQty: 4, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL ホワイト", orderQty: 3, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL ブルー", orderQty: 2, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL レッド", orderQty: 1, sourceModel: "New3DSLL" },
+    { productName: "New 2DS LL ブラック×ライム", orderQty: 1, sourceModel: "New2DSLL" },
+    { productName: "New 2DS LL ブラック×ターコイズ", orderQty: 1, sourceModel: "New2DSLL" },
+    { productName: "Nintendo 2DS ピンク", orderQty: 1, sourceModel: "2DS" },
+  ],
+  "416": [
+    { productName: "PS Vita 1000 ブラック", orderQty: 3, sourceModel: "Vita1000" },
+    { productName: "PS Vita 1000 ホワイト", orderQty: 1, sourceModel: "Vita1000" },
+    { productName: "PS Vita 2000 ブラック×レッド", orderQty: 1, sourceModel: "Vita2000" },
+    { productName: "PS Vita 2000 ブルー", orderQty: 1, sourceModel: "Vita2000" },
+    { productName: "PS Vita 2000 カーキ×ブラック", orderQty: 2, sourceModel: "Vita2000" },
+    { productName: "PSP 1000 ホワイト", orderQty: 1, sourceModel: "PSP1000" },
+    { productName: "PSP 2000 シルバー", orderQty: 2, sourceModel: "PSP2000" },
+    { productName: "PSP 3000 グリーン", orderQty: 1, sourceModel: "PSP3000" },
+    { productName: "New 3DS LL ブラック", orderQty: 4, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL ホワイト", orderQty: 3, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL ブルー", orderQty: 2, sourceModel: "New3DSLL" },
+    { productName: "New 3DS LL レッド", orderQty: 1, sourceModel: "New3DSLL" },
+    { productName: "New 2DS LL ブラック×ライム", orderQty: 1, sourceModel: "New2DSLL" },
+    { productName: "New 2DS LL ブラック×ターコイズ", orderQty: 1, sourceModel: "New2DSLL" },
+    { productName: "Nintendo 2DS ピンク", orderQty: 1, sourceModel: "2DS" },
+  ],
+};
+
 type CsvProductCandidate = { name: string; qty: number };
 
 function normalizeTradePartnerName(partner: string | null | undefined): string {
@@ -481,6 +524,35 @@ function normalizeTradePartnerName(partner: string | null | undefined): string {
   const normalized = trimmed.normalize("NFKC").toLowerCase();
   if (normalized === "hennes kamusien") return "サイモン";
   return trimmed;
+}
+
+function isMaximPartnerName(partner: string | null | undefined): boolean {
+  const normalized = normalizeLooseText(String(partner ?? ""));
+  return normalized.includes("マキシム") || normalized.includes("maxim");
+}
+
+function expandMaxim415416OrderRows(orderRows: OrderCsvRow[]): OrderCsvRow[] {
+  const invoiceNo = orderRows[0]?.invoiceNo;
+  const splitLines = invoiceNo ? MAXIM_415_416_ORDER_SPLITS[invoiceNo] : undefined;
+  if (!splitLines || orderRows.length === 0) return orderRows;
+  if (!orderRows.some((row) => isMaximPartnerName(row.partner))) return orderRows;
+
+  const rowsByModel = new Map<string, OrderCsvRow>();
+  for (const row of orderRows) {
+    const model = extractModel(row.productName);
+    if (model && !rowsByModel.has(model)) rowsByModel.set(model, row);
+  }
+
+  const fallbackRow = orderRows[0];
+  return splitLines.map((line) => {
+    const sourceRow = rowsByModel.get(line.sourceModel) ?? fallbackRow;
+    return {
+      ...sourceRow,
+      tradeRecordId: null,
+      productName: line.productName,
+      orderQty: line.orderQty,
+    };
+  });
 }
 
 function suggestCsvProductNameWithFallback(
@@ -746,6 +818,7 @@ function shipmentColorTokens(value: string): Set<string> {
     ["シルバー", "silver"], ["silver", "silver"],
     ["ゴールド", "gold"], ["gold", "gold"],
     ["グレー", "gray"], ["gray", "gray"], ["grey", "gray"],
+    ["カーキ", "khaki"], ["khaki", "khaki"],
     ["ブラウン", "brown"], ["茶", "brown"], ["brown", "brown"],
     ["ダークブラウン", "brown"], ["darkbrown", "brown"], ["dark brown", "brown"],
     ["オレンジ", "orange"], ["orange", "orange"],
@@ -787,7 +860,8 @@ async function alignShipmentItemsToOrderRows(invoiceNo: string, items: ShipmentG
     .filter((row) => row.invoiceNo === invoiceNo && row.productName.trim());
   if (orderRows.length === 0) return mergeShipmentGasItems(items);
 
-  const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
+  const expandedOrderRows = expandMaxim415416OrderRows(orderRows);
+  const csvProducts = expandedOrderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
   return allocateShipmentItemsToCsvProducts(items, csvProducts);
 }
 
@@ -7180,8 +7254,9 @@ export const inventoryRouter = router({
       .input(z.object({ invoiceNo: z.string().min(1) }))
       .query(async ({ input }) => {
         const invoiceNo = input.invoiceNo.trim();
-        const orderRows = (await getOrderRowsFromTradeRecords())
+        const rawOrderRows = (await getOrderRowsFromTradeRecords())
           .filter((row) => row.invoiceNo === invoiceNo);
+        const orderRows = expandMaxim415416OrderRows(rawOrderRows);
         const csvProducts = orderRows.map((row) => ({ name: row.productName, qty: row.orderQty }));
         const shipmentEntries = (await getOrderManagementShipmentProgressByInvoice().catch((error) => {
           console.warn("[OrderManagement] Failed to load shipment progress sheet", error);

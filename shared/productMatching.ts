@@ -85,6 +85,8 @@ const COLOR_ALIASES: Array<[string, string]> = [
   ["グレー", "gray"],
   ["gray", "gray"],
   ["grey", "gray"],
+  ["カーキ", "khaki"],
+  ["khaki", "khaki"],
   ["ブラウン", "brown"],
   ["茶", "brown"],
   ["brown", "brown"],
