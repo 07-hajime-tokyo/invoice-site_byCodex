@@ -658,15 +658,6 @@ function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; par
   };
 }
 
-function isRegisteredPurchaseManagementNo(managementNo: string): boolean {
-  const normalized = normalizeManagementNoForDisplay(managementNo);
-  return Boolean(normalized) && !normalized.startsWith("在庫");
-}
-
-function isRegisteredPurchaseRow(row: PurchaseRow): boolean {
-  return getManagementNos(row.purchase_items).some(isRegisteredPurchaseManagementNo);
-}
-
 function getSupplier(row: PurchaseRow): SupplierView {
   const firstItem = row.purchase_items[0];
   const parsed = parseEtc(firstItem?.etc);
@@ -3115,13 +3106,13 @@ function PurchaseRegistrationCard({
 function MissingTrackingOverview({
   rows,
   totalCount,
-  registeredOnly,
-  registeredOnlyCount,
+  trackingRegisteredOnly,
+  trackingRegisteredCount,
   missingTrackingCount,
   selectedRowIds,
   onSelectRow,
   onSelectAllRows,
-  onRegisteredOnlyChange,
+  onTrackingRegisteredOnlyChange,
   onOpenBulkTracking,
   onPrintLabels,
   onOpenEdit,
@@ -3132,13 +3123,13 @@ function MissingTrackingOverview({
 }: {
   rows: PurchaseRow[];
   totalCount: number;
-  registeredOnly: boolean;
-  registeredOnlyCount: number;
+  trackingRegisteredOnly: boolean;
+  trackingRegisteredCount: number;
   missingTrackingCount: number;
   selectedRowIds: Set<number>;
   onSelectRow: (row: PurchaseRow, checked: boolean) => void;
   onSelectAllRows: (rows: PurchaseRow[], checked: boolean) => void;
-  onRegisteredOnlyChange: (checked: boolean) => void;
+  onTrackingRegisteredOnlyChange: (checked: boolean) => void;
   onOpenBulkTracking: () => void;
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
@@ -3164,23 +3155,23 @@ function MissingTrackingOverview({
               <Badge variant="outline">追跡未登録 {missingTrackingCount.toLocaleString()}件</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              {registeredOnly
-                ? "発注登録済みの商品だけを、インボイス選択に関係なくサイト登録順で表示しています。"
+              {trackingRegisteredOnly
+                ? "追跡番号登録済みの商品だけを、インボイス選択に関係なくサイト登録順で表示しています。"
                 : "インボイス選択に関係なく、サイト登録順で商品を表示しています。"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              variant={registeredOnly ? "secondary" : "outline"}
+              variant={trackingRegisteredOnly ? "secondary" : "outline"}
               size="sm"
               className="h-9 gap-2"
-              onClick={() => onRegisteredOnlyChange(!registeredOnly)}
+              onClick={() => onTrackingRegisteredOnlyChange(!trackingRegisteredOnly)}
             >
               <PackageCheck className="h-4 w-4" />
-              発注登録済みのみ表示
+              追跡番号登録済みのみ表示
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
-                {registeredOnlyCount.toLocaleString()}
+                {trackingRegisteredCount.toLocaleString()}
               </Badge>
             </Button>
             <label className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm">
@@ -7723,7 +7714,7 @@ export default function PurchaseRegistration() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showGlobalMissingTracking, setShowGlobalMissingTracking] = useState(false);
-  const [showRegisteredMissingTrackingOnly, setShowRegisteredMissingTrackingOnly] = useState(false);
+  const [showTrackedGlobalRowsOnly, setShowTrackedGlobalRowsOnly] = useState(false);
   const [selectedMissingTrackingRowIds, setSelectedMissingTrackingRowIds] = useState<Set<number>>(() => new Set());
   const [showBulkTrackingDialog, setShowBulkTrackingDialog] = useState(false);
   const [bulkTrackingForm, setBulkTrackingForm] = useState<TrackingFormState>({
@@ -7856,13 +7847,13 @@ export default function PurchaseRegistration() {
     return globalPurchaseListRows.filter((row) => buildSearchText(row).includes(searchText));
   }, [globalPurchaseListRows, searchText]);
 
-  const registeredSearchedGlobalMissingTrackingRows = useMemo(
-    () => searchedGlobalPurchaseListRows.filter(isRegisteredPurchaseRow),
+  const trackedSearchedGlobalPurchaseRows = useMemo(
+    () => searchedGlobalPurchaseListRows.filter(hasPurchaseTracking),
     [searchedGlobalPurchaseListRows],
   );
 
-  const visibleGlobalMissingTrackingRows = showRegisteredMissingTrackingOnly
-    ? registeredSearchedGlobalMissingTrackingRows
+  const visibleGlobalMissingTrackingRows = showTrackedGlobalRowsOnly
+    ? trackedSearchedGlobalPurchaseRows
     : searchedGlobalPurchaseListRows;
 
   const searchedGlobalPurchaseMissingTrackingCount = useMemo(
@@ -8770,13 +8761,13 @@ export default function PurchaseRegistration() {
                   <MissingTrackingOverview
                     rows={visibleGlobalMissingTrackingRows}
                     totalCount={globalPurchaseListRows.length}
-                    registeredOnly={showRegisteredMissingTrackingOnly}
-                    registeredOnlyCount={registeredSearchedGlobalMissingTrackingRows.length}
+                    trackingRegisteredOnly={showTrackedGlobalRowsOnly}
+                    trackingRegisteredCount={trackedSearchedGlobalPurchaseRows.length}
                     missingTrackingCount={searchedGlobalPurchaseMissingTrackingCount}
                     selectedRowIds={selectedMissingTrackingRowIds}
                     onSelectRow={handleSelectMissingTrackingRow}
                     onSelectAllRows={handleSelectAllMissingTrackingRows}
-                    onRegisteredOnlyChange={setShowRegisteredMissingTrackingOnly}
+                    onTrackingRegisteredOnlyChange={setShowTrackedGlobalRowsOnly}
                     onOpenBulkTracking={handleOpenBulkTrackingDialog}
                     onPrintLabels={handlePrintLabels}
                     onOpenEdit={handleOpenPurchaseEditDialog}
