@@ -3117,6 +3117,7 @@ function MissingTrackingOverview({
   totalCount,
   registeredOnly,
   registeredOnlyCount,
+  missingTrackingCount,
   selectedRowIds,
   onSelectRow,
   onSelectAllRows,
@@ -3133,6 +3134,7 @@ function MissingTrackingOverview({
   totalCount: number;
   registeredOnly: boolean;
   registeredOnlyCount: number;
+  missingTrackingCount: number;
   selectedRowIds: Set<number>;
   onSelectRow: (row: PurchaseRow, checked: boolean) => void;
   onSelectAllRows: (rows: PurchaseRow[], checked: boolean) => void;
@@ -3156,14 +3158,15 @@ function MissingTrackingOverview({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
               <Truck className="h-4 w-4 text-blue-700" />
-              追跡番号未登録一覧
+              発注登録一覧
               <Badge variant="outline">表示 {rows.length.toLocaleString()}件</Badge>
               <Badge variant="secondary">全体 {totalCount.toLocaleString()}件</Badge>
+              <Badge variant="outline">追跡未登録 {missingTrackingCount.toLocaleString()}件</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
               {registeredOnly
-                ? "発注登録済みの商品だけを、サイト登録順で表示しています。"
-                : "インボイスに関係なく、サイト登録順で追跡番号未登録の商品を表示しています。"}
+                ? "発注登録済みの商品だけを、インボイス選択に関係なくサイト登録順で表示しています。"
+                : "インボイス選択に関係なく、サイト登録順で商品を表示しています。"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -3175,7 +3178,7 @@ function MissingTrackingOverview({
               onClick={() => onRegisteredOnlyChange(!registeredOnly)}
             >
               <PackageCheck className="h-4 w-4" />
-              登録済みのみ表示
+              発注登録済みのみ表示
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
                 {registeredOnlyCount.toLocaleString()}
               </Badge>
@@ -3196,7 +3199,7 @@ function MissingTrackingOverview({
       {rows.length === 0 ? (
         <EmptyState
           icon={Truck}
-          title="追跡番号未登録の商品はありません"
+          title="表示できる商品はありません"
           description="検索条件を変えると、別の商品が見つかる場合があります。"
         />
       ) : (
@@ -3252,7 +3255,7 @@ function MissingTrackingOverview({
                 onClick={onOpenBulkTracking}
               >
                 <Truck className="h-4 w-4" />
-                追跡番号を一括登録
+                追跡番号を一括登録/更新
                 <Badge className="bg-white/20 text-white hover:bg-white/20">{selectedCount}</Badge>
               </Button>
             </div>
@@ -7843,25 +7846,29 @@ export default function PurchaseRegistration() {
     });
   }, [rows, searchText]);
 
-  const globalMissingTrackingRows = useMemo(() => {
+  const globalPurchaseListRows = useMemo(() => {
     return normalizePurchaseRegistrationRows(allPurchaseRows)
-      .filter((row) => !hasPurchaseTracking(row))
       .sort(comparePurchaseRegistrationOrder);
   }, [allPurchaseRows]);
 
-  const searchedGlobalMissingTrackingRows = useMemo(() => {
-    if (!searchText) return globalMissingTrackingRows;
-    return globalMissingTrackingRows.filter((row) => buildSearchText(row).includes(searchText));
-  }, [globalMissingTrackingRows, searchText]);
+  const searchedGlobalPurchaseListRows = useMemo(() => {
+    if (!searchText) return globalPurchaseListRows;
+    return globalPurchaseListRows.filter((row) => buildSearchText(row).includes(searchText));
+  }, [globalPurchaseListRows, searchText]);
 
   const registeredSearchedGlobalMissingTrackingRows = useMemo(
-    () => searchedGlobalMissingTrackingRows.filter(isRegisteredPurchaseRow),
-    [searchedGlobalMissingTrackingRows],
+    () => searchedGlobalPurchaseListRows.filter(isRegisteredPurchaseRow),
+    [searchedGlobalPurchaseListRows],
   );
 
   const visibleGlobalMissingTrackingRows = showRegisteredMissingTrackingOnly
     ? registeredSearchedGlobalMissingTrackingRows
-    : searchedGlobalMissingTrackingRows;
+    : searchedGlobalPurchaseListRows;
+
+  const searchedGlobalPurchaseMissingTrackingCount = useMemo(
+    () => searchedGlobalPurchaseListRows.filter((row) => !hasPurchaseTracking(row)).length,
+    [searchedGlobalPurchaseListRows],
+  );
 
   const selectedBulkTrackingRows = useMemo(
     () => visibleGlobalMissingTrackingRows.filter((row) => selectedMissingTrackingRowIds.has(row.id)),
@@ -8124,11 +8131,11 @@ export default function PurchaseRegistration() {
   useEffect(() => {
     setSelectedMissingTrackingRowIds((current) => {
       if (current.size === 0) return current;
-      const validIds = new Set(globalMissingTrackingRows.map((row) => row.id));
+      const validIds = new Set(globalPurchaseListRows.map((row) => row.id));
       const next = new Set(Array.from(current).filter((id) => validIds.has(id)));
       return next.size === current.size ? current : next;
     });
-  }, [globalMissingTrackingRows]);
+  }, [globalPurchaseListRows]);
 
   const workflowCounts = useMemo(
     () => ({
@@ -8704,7 +8711,7 @@ export default function PurchaseRegistration() {
                         setShowGlobalMissingTracking(true);
                       }}
                     >
-                      一覧 {globalMissingTrackingRows.length.toLocaleString()}
+                      一覧 {globalPurchaseListRows.length.toLocaleString()}
                     </Button>
                   </div>
                 )}
@@ -8762,9 +8769,10 @@ export default function PurchaseRegistration() {
                 {showGlobalMissingTracking ? (
                   <MissingTrackingOverview
                     rows={visibleGlobalMissingTrackingRows}
-                    totalCount={globalMissingTrackingRows.length}
+                    totalCount={globalPurchaseListRows.length}
                     registeredOnly={showRegisteredMissingTrackingOnly}
                     registeredOnlyCount={registeredSearchedGlobalMissingTrackingRows.length}
+                    missingTrackingCount={searchedGlobalPurchaseMissingTrackingCount}
                     selectedRowIds={selectedMissingTrackingRowIds}
                     onSelectRow={handleSelectMissingTrackingRow}
                     onSelectAllRows={handleSelectAllMissingTrackingRows}
