@@ -3149,15 +3149,19 @@ function MissingTrackingOverview({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
               <Truck className="h-4 w-4 text-blue-700" />
-              発注登録一覧
+              {trackingRegisteredOnly ? "追跡番号登録済み一覧" : "追跡番号未登録一覧"}
               <Badge variant="outline">表示 {rows.length.toLocaleString()}件</Badge>
               <Badge variant="secondary">全体 {totalCount.toLocaleString()}件</Badge>
-              <Badge variant="outline">追跡未登録 {missingTrackingCount.toLocaleString()}件</Badge>
+              <Badge variant="outline">
+                {trackingRegisteredOnly
+                  ? `追跡登録済み ${trackingRegisteredCount.toLocaleString()}件`
+                  : `追跡未登録 ${missingTrackingCount.toLocaleString()}件`}
+              </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
               {trackingRegisteredOnly
-                ? "追跡番号登録済みの商品だけを、インボイス選択に関係なくサイト登録順で表示しています。"
-                : "インボイス選択に関係なく、サイト登録順で商品を表示しています。"}
+                ? "入庫待ちで追跡番号登録済みの商品を、インボイス選択に関係なくサイト登録順で表示しています。"
+                : "インボイス選択に関係なく、追跡番号未登録の商品をサイト登録順で表示しています。"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -3169,7 +3173,7 @@ function MissingTrackingOverview({
               onClick={() => onTrackingRegisteredOnlyChange(!trackingRegisteredOnly)}
             >
               <PackageCheck className="h-4 w-4" />
-              追跡番号登録済みのみ表示
+              登録済みのみ表示
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
                 {trackingRegisteredCount.toLocaleString()}
               </Badge>
@@ -7847,19 +7851,24 @@ export default function PurchaseRegistration() {
     return globalPurchaseListRows.filter((row) => buildSearchText(row).includes(searchText));
   }, [globalPurchaseListRows, searchText]);
 
-  const trackedSearchedGlobalPurchaseRows = useMemo(
-    () => searchedGlobalPurchaseListRows.filter(hasPurchaseTracking),
+  const trackedInboundWaitingGlobalPurchaseRows = useMemo(
+    () =>
+      searchedGlobalPurchaseListRows.filter(
+        (row) => hasPurchaseTracking(row) && purchaseRowStatusKind(row) === "inbound_shipped",
+      ),
+    [searchedGlobalPurchaseListRows],
+  );
+
+  const missingTrackingGlobalPurchaseRows = useMemo(
+    () => searchedGlobalPurchaseListRows.filter((row) => !hasPurchaseTracking(row)),
     [searchedGlobalPurchaseListRows],
   );
 
   const visibleGlobalMissingTrackingRows = showTrackedGlobalRowsOnly
-    ? trackedSearchedGlobalPurchaseRows
-    : searchedGlobalPurchaseListRows;
+    ? trackedInboundWaitingGlobalPurchaseRows
+    : missingTrackingGlobalPurchaseRows;
 
-  const searchedGlobalPurchaseMissingTrackingCount = useMemo(
-    () => searchedGlobalPurchaseListRows.filter((row) => !hasPurchaseTracking(row)).length,
-    [searchedGlobalPurchaseListRows],
-  );
+  const searchedGlobalPurchaseMissingTrackingCount = missingTrackingGlobalPurchaseRows.length;
 
   const selectedBulkTrackingRows = useMemo(
     () => visibleGlobalMissingTrackingRows.filter((row) => selectedMissingTrackingRowIds.has(row.id)),
@@ -8762,7 +8771,7 @@ export default function PurchaseRegistration() {
                     rows={visibleGlobalMissingTrackingRows}
                     totalCount={globalPurchaseListRows.length}
                     trackingRegisteredOnly={showTrackedGlobalRowsOnly}
-                    trackingRegisteredCount={trackedSearchedGlobalPurchaseRows.length}
+                    trackingRegisteredCount={trackedInboundWaitingGlobalPurchaseRows.length}
                     missingTrackingCount={searchedGlobalPurchaseMissingTrackingCount}
                     selectedRowIds={selectedMissingTrackingRowIds}
                     onSelectRow={handleSelectMissingTrackingRow}
