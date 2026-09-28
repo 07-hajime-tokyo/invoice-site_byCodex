@@ -1,4 +1,4 @@
-import { useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
 import { CheckCircle2, ClipboardCheck, ExternalLink, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -78,7 +78,9 @@ function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | nul
   };
 }
 
-const DETAIL_EXTERNAL_LINK_RE = /\[([^\]\n]{1,40})\]\((https?:\/\/[^\s)]+)\)/g;
+const DETAIL_MARKDOWN_LINK_RE = /\[([^\]\n]{1,40})\]\((https?:\/\/[^\s)]+)\)/g;
+const DETAIL_RAW_URL_RE = /https?:\/\/[^\s<>"'`]+/gi;
+const TRAILING_URL_PUNCTUATION_RE = /[.,!?;:、。！？；：)\]\}」』】》]+$/;
 
 function normalizeSafeDetailUrl(url: string) {
   const normalized = normalizeExternalUrl(url);
@@ -90,34 +92,82 @@ function normalizeSafeDetailUrl(url: string) {
   }
 }
 
-function renderDetailLine(line: string) {
+function splitUrlTrailingPunctuation(value: string): { urlText: string; trailingText: string } {
+  const match = value.match(TRAILING_URL_PUNCTUATION_RE);
+  if (!match?.[0]) return { urlText: value, trailingText: "" };
+  return {
+    urlText: value.slice(0, -match[0].length),
+    trailingText: match[0],
+  };
+}
+
+function detailExternalLink(label: string, url: string, key: string) {
+  return (
+    <a
+      key={key}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center break-all text-blue-700 underline underline-offset-2 hover:text-blue-900"
+    >
+      {label}
+      <ExternalLink className="ml-1 h-3 w-3 shrink-0" />
+    </a>
+  );
+}
+
+function renderRawUrlText(text: string, keyPrefix: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
 
-  for (const match of line.matchAll(DETAIL_EXTERNAL_LINK_RE)) {
+  for (const match of text.matchAll(DETAIL_RAW_URL_RE)) {
+    const raw = match[0];
+    const index = match.index ?? 0;
+    const { urlText, trailingText } = splitUrlTrailingPunctuation(raw);
+    const url = normalizeSafeDetailUrl(urlText);
+    if (!url) continue;
+
+    if (index > lastIndex) parts.push(text.slice(lastIndex, index));
+    parts.push(detailExternalLink(urlText, url, `${keyPrefix}-${index}-${url}`));
+    if (trailingText) parts.push(trailingText);
+    lastIndex = index + raw.length;
+  }
+
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+function renderLinkedTextLine(line: string) {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of line.matchAll(DETAIL_MARKDOWN_LINK_RE)) {
     const [raw, label, rawUrl] = match;
     const index = match.index ?? 0;
     const url = normalizeSafeDetailUrl(rawUrl);
     if (!url) continue;
 
-    if (index > lastIndex) parts.push(line.slice(lastIndex, index));
-    parts.push(
-      <Button
-        key={`${index}-${url}`}
-        type="button"
-        variant="link"
-        className="h-auto p-0 align-baseline text-sm"
-        onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
-      >
-        {label}
-        <ExternalLink className="ml-1 h-3 w-3" />
-      </Button>
-    );
+    if (index > lastIndex) {
+      parts.push(...renderRawUrlText(line.slice(lastIndex, index), `text-${lastIndex}`));
+    }
+    parts.push(detailExternalLink(label, url, `markdown-${index}-${url}`));
     lastIndex = index + raw.length;
   }
 
-  if (lastIndex < line.length) parts.push(line.slice(lastIndex));
+  if (lastIndex < line.length) {
+    parts.push(...renderRawUrlText(line.slice(lastIndex), `text-${lastIndex}`));
+  }
   return parts.length > 0 ? parts : line || "\u00a0";
+}
+
+function LinkedText({ value }: { value: string }) {
+  return (
+    <>
+      {value.split("\n").map((line, index) => (
+        <Fragment key={`${index}-${line}`}>{index > 0 ? "\n" : null}{renderLinkedTextLine(line)}</Fragment>
+      ))}
+    </>
+  );
 }
 
 function ActionItemDetail({
@@ -149,7 +199,7 @@ function ActionItemDetail({
                 </Button>
               </span>
             ) : (
-              renderDetailLine(line)
+              renderLinkedTextLine(line)
             )}
           </div>
         );
@@ -720,7 +770,9 @@ export default function ActionItems() {
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="whitespace-pre-wrap text-sm leading-6">{reply.body}</div>
+                                          <div className="whitespace-pre-wrap text-sm leading-6">
+                                            <LinkedText value={reply.body} />
+                                          </div>
                                         )}
                                       </div>
                                     );
