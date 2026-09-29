@@ -1,0 +1,863 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`stock UI against b04b91d > captures collapsed/expanded model cards and keeps controlled open state across props updates 1`] = `
+{
+  "log": [
+    {
+      "previous": false,
+      "sameReference": false,
+      "slot": 0,
+      "value": true,
+    },
+    {
+      "previous": true,
+      "sameReference": false,
+      "slot": 0,
+      "value": false,
+    },
+  ],
+  "output": [
+    {
+      "controls": [
+        {
+          "className": "overflow-hidden rounded-md border bg-background",
+          "open": false,
+          "text": "3DS LL3台内 入庫待ち 1台1商品 / 平均仕入相場 ¥200商品台数現在庫入庫待ち仕入相場管理番号",
+          "value": undefined,
+          "variant": undefined,
+        },
+      ],
+      "hash": "96408a91e5593adace84867bd8838a8c0fac669ae1db81284fdd65bf2d276d97",
+      "text": "3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200",
+    },
+    {
+      "controls": [
+        {
+          "className": "overflow-hidden rounded-md border bg-background",
+          "open": true,
+          "text": "3DS LL3台内 入庫待ち 1台1商品 / 平均仕入相場 ¥200商品台数現在庫入庫待ち仕入相場管理番号",
+          "value": undefined,
+          "variant": undefined,
+        },
+      ],
+      "hash": "a4bc25214f7b29c879e83aad702fd88788868e506c43b4e8d0bb86b0aeba4544",
+      "text": "3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200 3DS LL ホワイト 3台 現在庫 2台 内 入庫待ち 1台 仕入相場 平均 ¥200 ¥100 - ¥300 管理番号 - 商品 台数 現在庫 入庫待ち 仕入相場 管理番号 3DS LL ホワイト 内 入庫待ち 1台 3台 2台 1台 平均 ¥200 ¥100 - ¥300 -",
+    },
+    {
+      "controls": [
+        {
+          "className": "overflow-hidden rounded-md border bg-background",
+          "open": true,
+          "text": "3DS LL9台内 入庫待ち 1台1商品 / 平均仕入相場 ¥200商品台数現在庫入庫待ち仕入相場管理番号",
+          "value": undefined,
+          "variant": undefined,
+        },
+      ],
+      "hash": "0e9c55547201e27f01109b2df3e93b869427226414aa85419aff48656a216d47",
+      "text": "3DS LL 9台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200 3DS LL ホワイト 3台 現在庫 2台 内 入庫待ち 1台 仕入相場 平均 ¥200 ¥100 - ¥300 管理番号 - 商品 台数 現在庫 入庫待ち 仕入相場 管理番号 3DS LL ホワイト 内 入庫待ち 1台 3台 2台 1台 平均 ¥200 ¥100 - ¥300 -",
+    },
+    {
+      "controls": [
+        {
+          "className": "overflow-hidden rounded-md border bg-background",
+          "open": false,
+          "text": "3DS LL9台内 入庫待ち 1台1商品 / 平均仕入相場 ¥200商品台数現在庫入庫待ち仕入相場管理番号",
+          "value": undefined,
+          "variant": undefined,
+        },
+      ],
+      "hash": "a36e19414cc47dba107603b3001413af09fa2906514f24f120ab25d6cdc45fb1",
+      "text": "3DS LL 9台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200",
+    },
+  ],
+}
+`;
+
+exports[`stock UI against b04b91d > captures desktop/mobile proposal quantities, price ranges and management truncation 1`] = `
+[
+  {
+    "controls": [],
+    "hash": "793873c5f3c11360e074efddda30d893f4f368be99da12d74672ff5810d9034c",
+    "text": "3DS LL ホワイト 内 入庫待ち 1台 3台 2台 1台 平均 ¥200 ¥100 - ¥300 -",
+  },
+  {
+    "controls": [],
+    "hash": "ef5ac4661fce1306d42669f46e372a4b873a8c8e91ccfb611cdae0ea91c470dd",
+    "text": "3DS LL ホワイト 3台 現在庫 2台 内 入庫待ち 1台 仕入相場 平均 ¥200 ¥100 - ¥300 管理番号 -",
+  },
+  {
+    "controls": [],
+    "hash": "cc82bdb20e9dd0be6a5425cc2aed7d6bea2d7b1ea0ab7d5c6bcdf94a697bddf8",
+    "text": "3DS LL ホワイト 0台 0台 - - -",
+  },
+  {
+    "controls": [],
+    "hash": "0df292eae68d294700cc46b5d6342bd49d7fd38233e3e09321ff412e4bd9d959",
+    "text": "3DS LL ホワイト 0台 現在庫 0台 仕入相場 - 管理番号 -",
+  },
+  {
+    "controls": [],
+    "hash": "b9a2a5fe2a31e7998a8295224923ca5e08d61ae34b2b60fcedb8dcac47d51895",
+    "text": "3DS LL ホワイト 内 入庫待ち 0.5台 -0.5台 -1台 0.5台 平均 ¥200 在庫0 / 在庫1 / 在庫2 / 在庫3 / ほか2件",
+  },
+  {
+    "controls": [],
+    "hash": "7ae26827fc541b1fa989c559c0b6b13ddb878d4bcee938a7a9d4be3152d94233",
+    "text": "3DS LL ホワイト -0.5台 現在庫 -1台 内 入庫待ち 0.5台 仕入相場 平均 ¥200 管理番号 在庫0 / 在庫1 / 在庫2 / 在庫3 / ほか2件",
+  },
+  {
+    "controls": [],
+    "hash": "c01292cb09b807ea0eeba834fd3bacf503ec62caffe331178aeef19023f5e4ab",
+    "text": "3DS LL ホワイト 内 入庫待ち 1台 3台 2台 1台 - 在庫0 / 在庫1 / 在庫2 / 在庫3 / ほか2件",
+  },
+  {
+    "controls": [],
+    "hash": "b1368a048389cb73427df553dc9a6a8cb3c6c7a2d0e8408353f8877854bcedde",
+    "text": "3DS LL ホワイト 3台 現在庫 2台 内 入庫待ち 1台 仕入相場 - 管理番号 在庫0 / 在庫1 / 在庫2 / 在庫3 / ほか2件",
+  },
+]
+`;
+
+exports[`stock UI against b04b91d > captures list/proposal, empty/search, labels and unfinished-invoice inputs 1`] = `
+[
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 3DS LL2点",
+        "value": undefined,
+        "variant": undefined,
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "d69408703c0b46a7b7d95470a7ffabe0ff743752359dddf90d0556c2cffafe28",
+    "text": "在庫一覧 3件 5点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 3DS LL2点",
+        "value": undefined,
+        "variant": undefined,
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "d69408703c0b46a7b7d95470a7ffabe0ff743752359dddf90d0556c2cffafe28",
+    "text": "在庫一覧 3件 5点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 3DS LL2点",
+        "value": undefined,
+        "variant": undefined,
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "d69408703c0b46a7b7d95470a7ffabe0ff743752359dddf90d0556c2cffafe28",
+    "text": "在庫一覧 3件 5点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "1da4f1fa1f3fcfb6135364019cc35677470de3ee3dbbc20d2374b3f215b67aff",
+    "text": "在庫一覧 2件 3点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "1da4f1fa1f3fcfb6135364019cc35677470de3ee3dbbc20d2374b3f215b67aff",
+    "text": "在庫一覧 2件 3点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+      {
+        "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+        "open": undefined,
+        "text": "棚 PSP 30003点",
+        "value": undefined,
+        "variant": undefined,
+      },
+    ],
+    "hash": "1da4f1fa1f3fcfb6135364019cc35677470de3ee3dbbc20d2374b3f215b67aff",
+    "text": "在庫一覧 2件 3点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 PSP 3000 3点",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+    ],
+    "hash": "d8aed3eeb206feb978354a5220a54ed0b895e05f0df536372a558cdc9ad317e8",
+    "text": "在庫一覧 0件 0点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 在庫がありません",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+    ],
+    "hash": "d8aed3eeb206feb978354a5220a54ed0b895e05f0df536372a558cdc9ad317e8",
+    "text": "在庫一覧 0件 0点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 在庫がありません",
+  },
+  {
+    "controls": [
+      {
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "open": undefined,
+        "text": "入庫待ち0在庫を表示3",
+        "value": undefined,
+        "variant": "outline",
+      },
+    ],
+    "hash": "d8aed3eeb206feb978354a5220a54ed0b895e05f0df536372a558cdc9ad317e8",
+    "text": "在庫一覧 0件 0点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 在庫がありません",
+  },
+  {
+    "controls": [],
+    "hash": "96a80c85be1ff9c01c67af77ef38a3e4bb4e86ad6a6c6a374acd7424f0ffd1dc",
+    "text": "在庫提案サマリー 3商品 8台 入庫待ち 3台 現在庫 5台 入庫待ち 3台 平均仕入相場 全体 3DS LL PSP 3000 ¥138 全体 3DS LL 5台 内 入庫待ち 3台 2商品 / 平均仕入相場 ¥160 PSP 3000 3台 1商品 / 平均仕入相場 ¥100",
+  },
+  {
+    "controls": [],
+    "hash": "96a80c85be1ff9c01c67af77ef38a3e4bb4e86ad6a6c6a374acd7424f0ffd1dc",
+    "text": "在庫提案サマリー 3商品 8台 入庫待ち 3台 現在庫 5台 入庫待ち 3台 平均仕入相場 全体 3DS LL PSP 3000 ¥138 全体 3DS LL 5台 内 入庫待ち 3台 2商品 / 平均仕入相場 ¥160 PSP 3000 3台 1商品 / 平均仕入相場 ¥100",
+  },
+  {
+    "controls": [],
+    "hash": "67bea2481e307b07b7cfc05dfb77d1e7fc64f344e3a69108d5987eaacd6f4e92",
+    "text": "在庫提案サマリー 2商品 5台 入庫待ち 3台 現在庫 2台 入庫待ち 3台 平均仕入相場 全体 3DS LL ¥160 全体 3DS LL 5台 内 入庫待ち 3台 2商品 / 平均仕入相場 ¥160",
+  },
+  {
+    "controls": [],
+    "hash": "032267d0c36b5d55a1b3c466afc8939d84f3681478d9a11520ce3bf68725f8ce",
+    "text": "在庫提案サマリー 1商品 3台 現在庫 3台 入庫待ち 0台 平均仕入相場 全体 PSP 3000 ¥100 全体 PSP 3000 3台 1商品 / 平均仕入相場 ¥100",
+  },
+  {
+    "controls": [],
+    "hash": "032267d0c36b5d55a1b3c466afc8939d84f3681478d9a11520ce3bf68725f8ce",
+    "text": "在庫提案サマリー 1商品 3台 現在庫 3台 入庫待ち 0台 平均仕入相場 全体 PSP 3000 ¥100 全体 PSP 3000 3台 1商品 / 平均仕入相場 ¥100",
+  },
+  {
+    "controls": [],
+    "hash": "cedc461c06330a1cfaf09a3693d6a182e6c211c6fb448877f9704aed6981036f",
+    "text": "在庫提案サマリー 0商品 0台 現在庫 0台 入庫待ち 0台 平均仕入相場 全体 - 全体 提案できる在庫がありません",
+  },
+  {
+    "controls": [],
+    "hash": "cedc461c06330a1cfaf09a3693d6a182e6c211c6fb448877f9704aed6981036f",
+    "text": "在庫提案サマリー 0商品 0台 現在庫 0台 入庫待ち 0台 平均仕入相場 全体 - 全体 提案できる在庫がありません",
+  },
+  {
+    "controls": [],
+    "hash": "cedc461c06330a1cfaf09a3693d6a182e6c211c6fb448877f9704aed6981036f",
+    "text": "在庫提案サマリー 0商品 0台 現在庫 0台 入庫待ち 0台 平均仕入相場 全体 - 全体 提案できる在庫がありません",
+  },
+  {
+    "controls": [],
+    "hash": "cedc461c06330a1cfaf09a3693d6a182e6c211c6fb448877f9704aed6981036f",
+    "text": "在庫提案サマリー 0商品 0台 現在庫 0台 入庫待ち 0台 平均仕入相場 全体 - 全体 提案できる在庫がありません",
+  },
+  {
+    "controls": [],
+    "hash": "3a4064bb8b43473629e4a7eae335927215956d5173548861080ab8e63ffaf671",
+    "text": "在庫一覧 0件 0点 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 在庫がありません",
+  },
+]
+`;
+
+exports[`stock UI against b04b91d > keeps average model selection and fallback without resetting the remembered selection 1`] = `
+{
+  "log": [
+    {
+      "previous": "all",
+      "sameReference": false,
+      "slot": 0,
+      "value": "PSP",
+    },
+  ],
+  "output": [
+    {
+      "controls": [
+        {
+          "className": "w-full rounded-md border border-input py-1 shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-8 min-w-0 bg-white px-2 text-xs sm:w-36",
+          "open": undefined,
+          "text": "全体3DS LLPSP",
+          "value": "all",
+          "variant": undefined,
+        },
+      ],
+      "hash": "e4117ef7817075d7ba0d59c606c86049ed63ef18afcdf8666720251bb1858f9b",
+      "text": "在庫提案サマリー 2商品 6台 入庫待ち 1台 現在庫 5台 入庫待ち 1台 平均仕入相場 全体 3DS LL PSP ¥260 全体 3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200 PSP 3台 1商品 / 平均仕入相場 ¥300",
+    },
+    {
+      "controls": [
+        {
+          "className": "w-full rounded-md border border-input py-1 shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-8 min-w-0 bg-white px-2 text-xs sm:w-36",
+          "open": undefined,
+          "text": "全体3DS LLPSP",
+          "value": "PSP",
+          "variant": undefined,
+        },
+      ],
+      "hash": "d6c5ba000a02b60c05f3e7b6aa45a3af012f9e700c60d3ada59d09fd95a934b5",
+      "text": "在庫提案サマリー 2商品 6台 入庫待ち 1台 現在庫 5台 入庫待ち 1台 平均仕入相場 全体 3DS LL PSP ¥300 PSP 3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200 PSP 3台 1商品 / 平均仕入相場 ¥300",
+    },
+    {
+      "controls": [
+        {
+          "className": "w-full rounded-md border border-input py-1 shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-8 min-w-0 bg-white px-2 text-xs sm:w-36",
+          "open": undefined,
+          "text": "全体3DS LL",
+          "value": "all",
+          "variant": undefined,
+        },
+      ],
+      "hash": "12a653cdacf4854e6390c82c80c902949f936e4c7f9267ebc272b215d7c73a42",
+      "text": "在庫提案サマリー 1商品 3台 入庫待ち 1台 現在庫 2台 入庫待ち 1台 平均仕入相場 全体 3DS LL ¥200 全体 3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200",
+    },
+    {
+      "controls": [
+        {
+          "className": "w-full rounded-md border border-input py-1 shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-8 min-w-0 bg-white px-2 text-xs sm:w-36",
+          "open": undefined,
+          "text": "全体PSP3DS LL",
+          "value": "PSP",
+          "variant": undefined,
+        },
+      ],
+      "hash": "e8d264c6581ba1e8839664594719f6edf2e14c3abd50a42084ada11e212dc807",
+      "text": "在庫提案サマリー 2商品 6台 入庫待ち 1台 現在庫 5台 入庫待ち 1台 平均仕入相場 全体 PSP 3DS LL ¥300 PSP PSP 3台 1商品 / 平均仕入相場 ¥300 3DS LL 3台 内 入庫待ち 1台 1商品 / 平均仕入相場 ¥200",
+    },
+    {
+      "controls": [
+        {
+          "className": "w-full rounded-md border border-input py-1 shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-8 min-w-0 bg-white px-2 text-xs sm:w-36",
+          "open": undefined,
+          "text": "全体",
+          "value": "all",
+          "variant": undefined,
+        },
+      ],
+      "hash": "cedc461c06330a1cfaf09a3693d6a182e6c211c6fb448877f9704aed6981036f",
+      "text": "在庫提案サマリー 0商品 0台 現在庫 0台 入庫待ち 0台 平均仕入相場 全体 - 全体 提案できる在庫がありません",
+    },
+  ],
+}
+`;
+
+exports[`stock UI against b04b91d > preserves shelf Set state, waiting toggles, edit IDs and search/mode round trips 1`] = `
+{
+  "edits": [
+    1,
+    2,
+    20,
+    1,
+    2,
+  ],
+  "log": [
+    {
+      "previous": [],
+      "sameReference": false,
+      "slot": 1,
+      "value": [
+        "3DS LL",
+      ],
+    },
+    {
+      "previous": [
+        "3DS LL",
+      ],
+      "sameReference": false,
+      "slot": 1,
+      "value": [
+        "3DS LL",
+        "PSP 3000",
+      ],
+    },
+    {
+      "previous": false,
+      "sameReference": false,
+      "slot": 0,
+      "value": true,
+    },
+    {
+      "previous": [
+        "3DS LL",
+        "PSP 3000",
+      ],
+      "sameReference": false,
+      "slot": 1,
+      "value": [
+        "PSP 3000",
+      ],
+    },
+    {
+      "previous": [
+        "PSP 3000",
+      ],
+      "sameReference": false,
+      "slot": 1,
+      "value": [
+        "PSP 3000",
+        "3DS LL",
+      ],
+    },
+    {
+      "previous": true,
+      "sameReference": false,
+      "slot": 0,
+      "value": false,
+    },
+  ],
+  "output": [
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を表示3",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL2点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+      ],
+      "hash": "139ee1e67f5ed2f997c623e2a00690eb6af3cf5d2e48a16b4a928bac65f65a0d",
+      "text": "在庫一覧 2件 4点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 棚 PSP 3000 2点",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を表示3",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL2点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "2d50588115d835598a9c84ea3136f845bfcdbe18a13704f6e8dd7bea9c56b9d6",
+      "text": "在庫一覧 2件 4点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL5点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "a3f57fbc9804cf36c8922920b3cdfa951bfaae7965e2706e990050e0c91e7d03",
+      "text": "在庫一覧 3件 7点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 5点 入庫待ち 3点 3DS LL ブラック 旧管理番号: 在庫002_3DSLL 一般在庫 - ¥200 - 発注済み 編集 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+      ],
+      "hash": "419816def8d757e9547d539285a216cf420a729558a767e44acf67693e9ac470",
+      "text": "在庫一覧 0件 0点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 在庫がありません",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL5点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "a3f57fbc9804cf36c8922920b3cdfa951bfaae7965e2706e990050e0c91e7d03",
+      "text": "在庫一覧 3件 7点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 5点 入庫待ち 3点 3DS LL ブラック 旧管理番号: 在庫002_3DSLL 一般在庫 - ¥200 - 発注済み 編集 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [],
+      "hash": "72fa84b9fcb36bff44dedf8161f6190a8a4eb4f6cc339aba1427ccc6029d86c6",
+      "text": "在庫提案サマリー 3商品 7台 入庫待ち 3台 現在庫 4台 入庫待ち 3台 平均仕入相場 全体 3DS LL PSP 3000 ¥143 全体 3DS LL 5台 内 入庫待ち 3台 2商品 / 平均仕入相場 ¥160 PSP 3000 2台 1商品 / 平均仕入相場 ¥100",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL5点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "a3f57fbc9804cf36c8922920b3cdfa951bfaae7965e2706e990050e0c91e7d03",
+      "text": "在庫一覧 3件 7点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 5点 入庫待ち 3点 3DS LL ブラック 旧管理番号: 在庫002_3DSLL 一般在庫 - ¥200 - 発注済み 編集 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL5点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "d322b95cbe43c57febb073e5fe92dbd557cd2a4c1b895ab5171ed96381ee49cb",
+      "text": "在庫一覧 3件 7点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 5点 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を隠す3",
+          "value": undefined,
+          "variant": "secondary",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL5点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "a3f57fbc9804cf36c8922920b3cdfa951bfaae7965e2706e990050e0c91e7d03",
+      "text": "在庫一覧 3件 7点 入庫待ち0在庫を隠す 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 5点 入庫待ち 3点 3DS LL ブラック 旧管理番号: 在庫002_3DSLL 一般在庫 - ¥200 - 発注済み 編集 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+    {
+      "controls": [
+        {
+          "className": "h-7 gap-1.5 px-2 text-xs",
+          "open": undefined,
+          "text": "入庫待ち0在庫を表示3",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 3DS LL2点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+        {
+          "className": "flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100",
+          "open": undefined,
+          "text": "棚 PSP 30002点",
+          "value": undefined,
+          "variant": undefined,
+        },
+        {
+          "className": "gap-2 border-blue-200 text-blue-700 hover:bg-blue-50",
+          "open": undefined,
+          "text": "編集",
+          "value": undefined,
+          "variant": "outline",
+        },
+      ],
+      "hash": "2d50588115d835598a9c84ea3136f845bfcdbe18a13704f6e8dd7bea9c56b9d6",
+      "text": "在庫一覧 2件 4点 入庫待ち0在庫を表示 3 商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。 ID 商品 引当先 仕入先 仕入単価 状態 操作 棚 3DS LL 2点 未発行 2点 3DS LL ホワイト 旧管理番号: 在庫001_3DSLL 一般在庫 Shop ¥100 2026-09-01 在庫 編集 棚 PSP 3000 2点 未発行 2点 PSP3000 旧管理番号: 在庫003_PSP3000 一般在庫 Shop ¥100 2026-09-01 在庫 編集",
+    },
+  ],
+  "slots": [
+    false,
+    [
+      "PSP 3000",
+      "3DS LL",
+    ],
+  ],
+}
+`;

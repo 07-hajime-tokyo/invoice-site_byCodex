@@ -489,3 +489,52 @@ git diff --check
 
 今回、カードからOrderDashboardまでの前回候補は分離済み。画面には追跡不足一覧、在庫提案・一覧、ラベル印刷/永続設定、カメラスキャン、出庫箱・申告・発送・返品、最上位query/mutationとダイアログ状態が残る。
 次候補は①在庫提案の表示部品とStockPanel、②印刷用紙/チェックリスト/CSSからLabelPrintPanelの境界、③追跡不足一覧と追跡ダイアログの表示境界。実行処理の整理は表示移動と分け、次の親指示で範囲を決める。
+
+## 第8回：在庫提案と在庫一覧の表示（R12）
+
+共通基準 `b04b91d` をcleanな作業枝へmergeし、競合なし。次の3単位を分離した。
+
+| 単位 | モジュール | 内容 |
+| --- | --- | --- |
+| 提案商品表示 | `StockProposalProducts.tsx` | 商品のdesktop行/mobileカード |
+| 提案グループ・サマリー | `StockProposalGroupCard.tsx` / `StockProposalPanel.tsx` | 機種ごとの展開状態、平均価格のモデル選択、サマリー |
+| 在庫一覧 | `StockPanel.tsx` | 検索・一覧/提案分岐、入庫待ち表示、棚の展開Set、編集ID通知 |
+
+共通入力クラス文字列は `fieldStyles.ts`、既存の入庫待ち/提案builder構成2宣言は `registrationStockBuilders.ts` へ移動した。直接importの依存方向とし、props追加・factory追加・循環参照はない。shared変更なし。画面は5,968行から5,588行。
+
+### 維持した意味と状態
+
+- 商品数量/現在庫/待ち数量、価格幅・平均価格、管理番号の上限/重複処理は既存表示規則を再利用し、負数/小数を追加で正規化しない。
+- 提案グループのopenは既存component内のuseStateのまま。`defaultOpen` の後からの変化で強制リセットしない。モデルkey、desktop/mobileの分岐とCSSも保持。
+- サマリーの平均モデル選択は候補が消えると全体表示にfallbackするが、選択stateは保持し、同モデルが再登場すると選択が戻る。新しいeffectは追加しない。
+- `StockPanel` は入庫待ち表示booleanと棚名Setを元のhook順で保持する。Set更新時は従来どおり新しいSetを作り、検索や一覧/提案モードの変更で状態を初期化しない。
+- 待ち数量は検索前、表示件数/数量は検索後、提案は全在庫と購入行から別途集計する既存順序を維持。未完了インボイスの未指定/空配列/指定ありの違いも保持。
+- 編集操作は `onOpenEdit(item.inventoryId)` に同じIDを通知するだけ。画面側の引当編集・保存・API実行は変えていない。
+- Reactの確認ではcomponentをモジュール直下に保ち、inline componentやprops注入を追加せず、controlled Collapsibleと既存のクリック/選択ハンドラーを保持した。
+
+### 固定基準と対象検証
+
+`stock-ui-baseline-source.txt` は `b04b91d` の実宣言8件（component5件・定数/構成3件）の固定fixture。
+SHA-256：`8e1519469df5e215efde4c79bcc3fd1c2626a757e735fe7b6df033917d4f784d`。
+アプリ編集前に旧実装で5テスト・5スナップショットを保存し、移動後は更新せず比較した。通常テストはGit不要で、現行側は新アプリモジュールを直接参照する。
+
+- 新規5テスト＋在庫規則10テスト、計15テストが成功。新5件と既存10件のスナップショットが一致。
+- 商品4条件×desktop/mobileの8表示を比較。数量0/小数/負数、価格幅あり/なし、価格なし、管理番号の上限/重複を含む。
+- 提案グループの初期開閉と往復、props更新時のopen保持、平均モデル選択→候補消失→再登場→全件なしを旧実装と比較。
+- 一覧/提案×検索3条件×未完了インボイス3条件の18組でHTML全体一致。空在庫も基準保存。HTMLのSHA-256、文字、操作要素属性を記録。
+- 棚を開く→入庫待ち表示→検索で非表示→検索解除→提案/一覧往復→棚の開閉→待ち非表示の連続操作をhookハーネスで比較。編集IDとSetの非破壊更新も確認。
+- hookハーネスと生成HTML比較は実ブラウザーでの開閉/検索/モード変更確認の代替完了報告ではない。ブラウザー確認は統合担当へ集約。
+- 対象 `tsconfig.tests.json` の型チェック成功。基準コミットからfixture再抽出完全一致、元画面75宣言すべてexport修飾子以外の完全一致を確認。
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/stock-ui.test.ts client/src/inventory/pages/purchase-registration/stock.test.ts
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+git diff --check
+```
+
+全体test/type/build/DB/browserは親が実施。担当はローカルcommitで引き渡して停止し、main/push/Vercel/本番DB・キーには触れない。
+
+### 残る境界と次候補
+
+在庫提案・一覧の指定表示領域は分離済み。画面にはラベル印刷/チェックリスト/印刷CSSと設定、追跡不足一覧、カメラスキャン、出庫箱・申告・発送・返品、最上位query/mutation・ダイアログが残る。
+次候補は①印刷用紙/チェックリスト/CSS、②その依存元を使うLabelPrintPanelと設定境界、③追跡不足一覧と追跡ダイアログ表示。スキャン/発送/引当実行を同じバッチへ広げず、親の次指示を待つ。

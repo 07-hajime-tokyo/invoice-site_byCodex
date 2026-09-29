@@ -1,0 +1,376 @@
+const fieldClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
+
+const buildInboundWaitingStockItemViewsFromRows = createInboundWaitingStockBuilder(actualProductTitle);
+
+const buildStockProposalGroups = createStockProposalBuilder(actualProductTitle);
+
+function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
+  const [averageModelFilter, setAverageModelFilter] = useState("all");
+  const productCount = groups.reduce((total, group) => total + group.products.length, 0);
+  const totalQuantity = groups.reduce((total, group) => total + group.totalQuantity, 0);
+  const waitingQuantity = groups.reduce((total, group) => total + group.waitingQuantity, 0);
+  const pricedQuantity = groups.reduce((total, group) => total + group.unitPriceQuantity, 0);
+  const averagePrice = proposalAveragePrice(
+    groups.reduce((total, group) => total + group.unitPriceTotal, 0),
+    pricedQuantity,
+  );
+  const selectedAverageGroup = groups.find((group) => group.model === averageModelFilter) ?? null;
+  const selectedAveragePrice = selectedAverageGroup
+    ? proposalAveragePrice(selectedAverageGroup.unitPriceTotal, selectedAverageGroup.unitPriceQuantity)
+    : averagePrice;
+  const selectedAverageLabel = selectedAverageGroup?.model ?? "全体";
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">在庫提案サマリー</h2>
+          <Badge variant="outline">{productCount.toLocaleString()}商品</Badge>
+          <Badge variant="secondary">{totalQuantity.toLocaleString()}台</Badge>
+          {waitingQuantity > 0 ? (
+            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち {waitingQuantity.toLocaleString()}台</Badge>
+          ) : null}
+        </div>
+        <div className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <div className="text-xs text-muted-foreground">現在庫</div>
+            <div className="mt-1 font-semibold">{(totalQuantity - waitingQuantity).toLocaleString()}台</div>
+          </div>
+          <div className="rounded-md bg-amber-50 px-3 py-2">
+            <div className="text-xs text-amber-700">入庫待ち</div>
+            <div className="mt-1 font-semibold text-amber-800">{waitingQuantity.toLocaleString()}台</div>
+          </div>
+          <div className="rounded-md bg-emerald-50 px-3 py-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-emerald-700">平均仕入相場</div>
+              <select
+                className={cn(fieldClass, "h-8 min-w-0 bg-white px-2 text-xs sm:w-36")}
+                value={selectedAverageGroup ? selectedAverageGroup.model : "all"}
+                onChange={(event) => setAverageModelFilter(event.target.value)}
+              >
+                <option value="all">全体</option>
+                {groups.map((group) => (
+                  <option key={group.model} value={group.model}>
+                    {group.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-1 font-semibold text-emerald-800">
+              {selectedAveragePrice > 0 ? formatCurrency(selectedAveragePrice) : "-"}
+            </div>
+            <div className="mt-1 text-xs text-emerald-700">{selectedAverageLabel}</div>
+          </div>
+        </div>
+      </section>
+
+      {groups.length === 0 ? (
+        <EmptyState icon={Boxes} title="提案できる在庫がありません" />
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group) => (
+            <StockProposalGroupCard key={group.model} group={group} defaultOpen={false} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockProposalGroupCard({ group, defaultOpen }: { group: StockProposalGroup; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const averagePrice = proposalAveragePrice(group.unitPriceTotal, group.unitPriceQuantity);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-md border bg-background">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+        >
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-base font-semibold">{group.model}</span>
+              <Badge variant="secondary">{group.totalQuantity.toLocaleString()}台</Badge>
+              {group.waitingQuantity > 0 ? (
+                <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                  内 入庫待ち {group.waitingQuantity.toLocaleString()}台
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {group.products.length.toLocaleString()}商品 / 平均仕入相場 {averagePrice > 0 ? formatCurrency(averagePrice) : "-"}
+            </div>
+          </div>
+          <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t">
+          <div className="divide-y md:hidden">
+            {group.products.map((product) => (
+              <StockProposalProductMobile key={product.key} product={product} />
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">商品</th>
+                  <th className="px-4 py-3 text-right font-medium">台数</th>
+                  <th className="px-4 py-3 text-right font-medium">現在庫</th>
+                  <th className="px-4 py-3 text-right font-medium">入庫待ち</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入相場</th>
+                  <th className="px-4 py-3 text-left font-medium">管理番号</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.products.map((product) => (
+                  <StockProposalProductRow key={product.key} product={product} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function StockProposalProductRow({ product }: { product: StockProposalProduct }) {
+  const price = stockProposalPriceLabel(product);
+  return (
+    <tr className="border-b last:border-0">
+      <td className="px-4 py-3">
+        <div className="font-medium">{product.title}</div>
+        {product.waitingQuantity > 0 ? (
+          <div className="mt-1 text-xs text-amber-700">内 入庫待ち {product.waitingQuantity.toLocaleString()}台</div>
+        ) : null}
+      </td>
+      <td className="px-4 py-3 text-right font-semibold">{product.totalQuantity.toLocaleString()}台</td>
+      <td className="px-4 py-3 text-right">{product.stockQuantity.toLocaleString()}台</td>
+      <td className="px-4 py-3 text-right">{product.waitingQuantity > 0 ? `${product.waitingQuantity.toLocaleString()}台` : "-"}</td>
+      <td className="px-4 py-3">
+        <div className="font-medium">{price.main}</div>
+        {price.sub ? <div className="mt-1 text-xs text-muted-foreground">{price.sub}</div> : null}
+      </td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">{stockProposalManagementLabel(product)}</td>
+    </tr>
+  );
+}
+
+function StockProposalProductMobile({ product }: { product: StockProposalProduct }) {
+  const price = stockProposalPriceLabel(product);
+  return (
+    <div className="p-4">
+      <div className="font-medium">{product.title}</div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Badge variant="secondary">{product.totalQuantity.toLocaleString()}台</Badge>
+        <Badge variant="outline">現在庫 {product.stockQuantity.toLocaleString()}台</Badge>
+        {product.waitingQuantity > 0 ? (
+          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">内 入庫待ち {product.waitingQuantity.toLocaleString()}台</Badge>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2 text-sm">
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <div className="text-xs text-muted-foreground">仕入相場</div>
+          <div className="mt-1 font-semibold">{price.main}</div>
+          {price.sub ? <div className="mt-1 text-xs text-muted-foreground">{price.sub}</div> : null}
+        </div>
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <div className="text-xs text-muted-foreground">管理番号</div>
+          <div className="mt-1 text-xs">{stockProposalManagementLabel(product)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockPanel({
+  inventories,
+  purchaseRows,
+  unfinishedInvoices,
+  searchText,
+  viewMode,
+  onOpenEdit,
+}: {
+  inventories: InventoryItem[];
+  purchaseRows: PurchaseRow[];
+  unfinishedInvoices?: PurchaseRegistrationInvoice[];
+  searchText: string;
+  viewMode: StockViewMode;
+  onOpenEdit: (inventoryId: number) => void;
+}) {
+  const allStockItems = buildStockItemViewsFromInventories(inventories);
+  const inboundWaitingStockItems = buildInboundWaitingStockItemViewsFromRows(purchaseRows);
+  const inboundWaitingQuantityTotal = inboundWaitingStockItems.reduce((total, item) => total + item.quantity, 0);
+  const [showInboundWaitingStockItems, setShowInboundWaitingStockItems] = useState(false);
+  const displayStockItems = showInboundWaitingStockItems
+    ? [...allStockItems, ...inboundWaitingStockItems]
+    : allStockItems;
+  const stockItems = searchText
+    ? displayStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
+    : displayStockItems;
+  const stockGroups = buildStockItemGroups(stockItems);
+  const proposalGroups = buildStockProposalGroups(allStockItems, purchaseRows, searchText, unfinishedInvoices);
+  const stockQuantityTotal = stockItems.reduce((total, item) => total + item.quantity, 0);
+  const [openStockGroupNames, setOpenStockGroupNames] = useState<Set<string>>(() => new Set());
+
+  const toggleStockGroup = (groupName: string) => {
+    setOpenStockGroupNames((current) => {
+      const next = new Set(current);
+      if (next.has(groupName)) {
+        next.delete(groupName);
+      } else {
+        next.add(groupName);
+      }
+      return next;
+    });
+  };
+
+  if (viewMode === "proposal") {
+    return <StockProposalPanel groups={proposalGroups} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border bg-background p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">在庫一覧</h2>
+          <Badge variant="outline">{stockItems.length.toLocaleString()}件</Badge>
+          <Badge variant="secondary">{stockQuantityTotal.toLocaleString()}点</Badge>
+          {inboundWaitingStockItems.length > 0 ? (
+            <Button
+              type="button"
+              variant={showInboundWaitingStockItems ? "secondary" : "outline"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => setShowInboundWaitingStockItems((current) => !current)}
+            >
+              <PackageCheck className="h-3.5 w-3.5" />
+              {showInboundWaitingStockItems ? "入庫待ち0在庫を隠す" : "入庫待ち0在庫を表示"}
+              <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+                {inboundWaitingQuantityTotal.toLocaleString()}
+              </Badge>
+            </Button>
+          ) : null}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。
+        </p>
+      </section>
+      {stockItems.length === 0 ? (
+        <EmptyState icon={Boxes} title="在庫がありません" />
+      ) : (
+        <div className="overflow-hidden rounded-md border bg-background">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">ID</th>
+                  <th className="px-4 py-3 text-left font-medium">商品</th>
+                  <th className="px-4 py-3 text-left font-medium">引当先</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入先</th>
+                  <th className="px-4 py-3 text-left font-medium">仕入単価</th>
+                  <th className="px-4 py-3 text-left font-medium">状態</th>
+                  <th className="px-4 py-3 text-right font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockGroups.map((group) => (
+                  <Fragment key={group.name}>
+                    <tr key={`${group.name}-header`} className="border-b bg-slate-50">
+                      <td colSpan={7} className="p-0">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100"
+                          onClick={() => toggleStockGroup(group.name)}
+                        >
+                          <ChevronDown
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 transition-transform",
+                              !openStockGroupNames.has(group.name) && "-rotate-90",
+                            )}
+                          />
+                          <span>棚 {group.name}</span>
+                          <Badge variant="secondary" className="text-[11px]">
+                            {group.quantity.toLocaleString()}点
+                          </Badge>
+                        </button>
+                      </td>
+                    </tr>
+                    {openStockGroupNames.has(group.name) ? group.items.map((item) => (
+                      <tr key={item.key} className="border-b last:border-0">
+                        <td className="px-4 py-3">
+                          {item.labelId ? (
+                            <span className="font-mono text-base font-semibold text-emerald-800">{item.labelId}</span>
+                          ) : item.inboundWaiting ? (
+                            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち</Badge>
+                          ) : (
+                            <Badge variant="outline">未発行</Badge>
+                          )}
+                          {item.quantity > 1 ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{item.quantity.toLocaleString()}点</div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{item.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {item.supplier.url ? (
+                            <a
+                              href={normalizeExternalUrl(item.supplier.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-700 hover:underline"
+                            >
+                              {item.supplier.name}
+                            </a>
+                          ) : (
+                            item.supplier.name
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>{formatCurrency(item.unitPrice)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{formatDate(item.purchaseDate)}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            className={
+                              item.inboundWaiting
+                                ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
+                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
+                            }
+                          >
+                            {item.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                            onClick={() => onOpenEdit(item.inventoryId)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            編集
+                          </Button>
+                        </td>
+                      </tr>
+                    )) : null}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
