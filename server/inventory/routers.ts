@@ -1,3 +1,13 @@
+import { normalizeCategoryName } from "./categoryName";
+import { purchaseEditInputSchema, purchaseSupplierInputSchema, purchaseTrackingInputSchema, purchaseTrackingBulkInputSchema } from "./purchases/saveInput";
+import { savePurchaseEdit } from "./purchases/saveEdit";
+import { savePurchaseSupplier } from "./purchases/saveSupplier";
+import { savePurchaseTracking, savePurchaseTrackingBulk } from "./purchases/saveTracking";
+import type { PurchaseSnapshotInput } from "./purchases/snapshotContract";
+import { resolveWorkOperatorName, resolveOperatorToken } from "./workOperator";
+import { historyDateFrom, normalizePurchaseHistoryText, firstPurchaseHistoryEtcPart, positiveHistoryNumber, parseLocalPurchaseItems, localPurchasePrimaryManagementNo } from "./purchases/legacyValues";
+import { localPurchaseMatchesInventoryLabel } from "./purchases/labelMatching";
+import { restoreMissingLocalPurchasesFromOrphanLabels } from "./purchases/orphanRecovery";
 import { ensureShaftPurchases } from "./purchases/shaftBackfill";
 import { getInventoryManagementNo } from "./managementNo";
 import { getDirectPartnerNames, resolveInboundInfoMap } from "./purchases/inboundClassification";
@@ -878,9 +888,7 @@ const CATEGORY_SETTINGS_KEY = "inventory_categories";
 const ALL_CATEGORY_LABEL = "すべて";
 const UNCATEGORIZED_LABEL = "未分類";
 
-function normalizeCategoryName(value?: string | null): string {
-  return (value ?? "").trim();
-}
+
 
 function uniqueSortedCategories(values: Array<string | null | undefined>): string[] {
   const categories = new Set<string>();
@@ -1087,13 +1095,7 @@ function shouldUseExistingShipmentForGas(
   return record.deliveryNo === target.deliveryNo;
 }
 
-function resolveOperatorToken(_operatorKey?: string): string | undefined {
-  return undefined;
-}
 
-function resolveWorkOperatorName(operatorName?: string | null, fallback?: string | null): string {
-  return operatorName?.trim() || fallback?.trim() || "野田";
-}
 
 function sumWorkQuantity(items: Array<{ quantity: string | number }>): number {
   return Math.round(items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0));
@@ -1155,12 +1157,6 @@ type InventoryItemLabelForEnsure = InventoryItemLabelView & {
   title?: string | null;
 };
 
-
-function historyDateFrom(value: unknown, fallback = new Date()): string {
-  const date = value ? new Date(value as string | number | Date) : fallback;
-  return Number.isNaN(date.getTime()) ? fallback.toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
-}
-
 function historyTimestampFrom(value: unknown, fallback = new Date()): Date {
   const date = value ? new Date(value as string | number | Date) : fallback;
   return Number.isNaN(date.getTime()) ? fallback : date;
@@ -1170,22 +1166,9 @@ function purchaseHistoryKey(row: Pick<PurchaseHistoryRow, "zaicoId" | "inventory
   return [row.zaicoId, row.inventoryId ?? "", row.kanriNo ?? "", row.title].join("\u0001");
 }
 
-function normalizePurchaseHistoryText(value: unknown): string {
-  return String(value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 function nonEmptyPurchaseHistoryText(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text ? text : null;
-}
-
-function firstPurchaseHistoryEtcPart(value: unknown): string {
-  return normalizePurchaseHistoryText(String(value ?? "").split(",")[0] ?? "");
-}
-
-function positiveHistoryNumber(value: unknown): number | null {
-  const num = Number(value);
-  return Number.isFinite(num) && num > 0 ? num : null;
 }
 
 function localPurchaseItemQuantity(item: Record<string, unknown>): number {
@@ -1244,15 +1227,6 @@ function historyRowCreatedMs(row: Pick<PurchaseHistoryRow, "createdAt">): number
 function localPurchaseCreatedMs(row: LocalPurchaseRow): number {
   const ms = new Date(row.updatedAt ?? row.createdAt).getTime();
   return Number.isFinite(ms) ? ms : 0;
-}
-
-function parseLocalPurchaseItems(row: LocalPurchaseRow): Array<Record<string, unknown>> {
-  try {
-    const parsed = JSON.parse(row.itemsJson ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is Record<string, unknown> => item != null && typeof item === "object") : [];
-  } catch {
-    return [];
-  }
 }
 
 function preferLocalPurchaseCandidate(candidate: LocalPurchaseRow, current: LocalPurchaseRow): boolean {
@@ -1776,16 +1750,6 @@ function fullRestoreSnapshotHaystack(memo: InventoryMemoRow, snapshot: FullResto
   ].filter(Boolean).join(" "));
 }
 
-function localPurchasePrimaryManagementNo(row: Pick<LocalPurchaseRow, "managementNo" | "itemsJson">): string {
-  const direct = getInventoryManagementNo(row.managementNo);
-  if (direct) return direct;
-  for (const item of parseLocalPurchaseItems(row as LocalPurchaseRow)) {
-    const itemManagementNo = getInventoryManagementNo(String(item.etc ?? ""));
-    if (itemManagementNo) return itemManagementNo;
-  }
-  return "";
-}
-
 function localPurchaseMatchesInventoryForRestore(
   row: LocalPurchaseRow,
   localInventoryId: number | null,
@@ -1845,13 +1809,7 @@ function uniqueFullRestoreLabels(snapshot: FullRestoreSnapshot): FullRestoreLabe
   return [...byLabelId.values()];
 }
 
-async function recordFullRestoreSnapshot(input: {
-  inventory?: (Partial<LocalInventoryRow> & { id: number }) | null;
-  purchases?: Array<Partial<LocalPurchaseRow> & { id?: number | null }>;
-  source: string;
-  reason: string;
-  operatorName?: string | null;
-}) {
+async function recordFullRestoreSnapshot(input: PurchaseSnapshotInput) {
   try {
     const inventory = await enrichInventoryForFullRestore(input.inventory ?? null);
     const purchases = input.purchases
@@ -2481,23 +2439,6 @@ async function ensureStockLabelsForInventories<T extends {
   }));
 }
 
-
-
-function localPurchaseMatchesInventoryLabel(
-  row: LocalPurchaseRow,
-  localInventoryId: number | null,
-  managementNo: string,
-): boolean {
-  const inventoryId = Number(localInventoryId);
-  if (!Number.isFinite(inventoryId)) return false;
-  return localPurchaseItems(row).some((item) => {
-    const itemInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
-    if (!Number.isFinite(itemInventoryId) || itemInventoryId !== inventoryId) return false;
-    const itemManagementNo = getPurchaseItemManagementNo(row, item);
-    return !managementNo || !itemManagementNo || itemManagementNo === managementNo;
-  });
-}
-
 function localPurchaseMatchesInventoryForLinkedDelete(
   row: LocalPurchaseRow,
   localInventoryId: number | null,
@@ -2528,644 +2469,6 @@ function localPurchaseMatchesInventoryForLinkedDelete(
   }
 
   return hasInventoryMatch;
-}
-
-const RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS = new Set([
-  "402_マキシム_1/2",
-  "402_マキシム_2/2",
-  "在庫0807_1&2&3",
-  "在庫0807_4",
-  "在庫0807_5&6",
-  "在庫0807_7",
-]);
-
-function canRecoverOrphanLabelPurchase(managementNo: string): boolean {
-  return RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS.has(managementNo.trim());
-}
-
-
-const MAXIM_SECOND_LABEL_ID = "NRFZKRM";
-
-
-function getRecoveredPurchaseOverrides(managementNo: string) {
-  if (managementNo === "402_マキシム_1/2") {
-    return {
-      purchaseNum: "1641259420",
-      title: "PSP 3000 ミスティック・シルバー",
-      category: "PSP",
-      unitPrice: "13720",
-      purchaseDate: "2026-08-06",
-      trackingNumber: "490731074886",
-      carrier: "yamato",
-      supplierName: "駿河屋 岐阜マーサ21店",
-    };
-  }
-  if (managementNo === "402_マキシム_2/2") {
-    return {
-      purchaseNum: "1794101757",
-      title: "PSP 3000 ミスティック・シルバー",
-      category: "PSP",
-      unitPrice: "14426",
-      purchaseDate: "2026-08-07",
-      supplierName: "駿河屋 豊橋二ノ輪店",
-      status: "ordered",
-      stage: "ordered",
-      labelStatus: "ordered" as InventoryItemLabelStatus,
-      receivedDate: null,
-      quantity: 1,
-    };
-  }
-  return {};
-}
-
-function recoveredPurchaseValueEquals(current: unknown, desired: unknown): boolean {
-  const currentText = String(current ?? "");
-  const desiredText = String(desired ?? "");
-  if (currentText === desiredText) return true;
-  if (!currentText || !desiredText) return false;
-  const currentNumber = Number(currentText);
-  const desiredNumber = Number(desiredText);
-  return Number.isFinite(currentNumber) && Number.isFinite(desiredNumber) && currentNumber === desiredNumber;
-}
-
-function recoveredPurchaseJsonEquals(current: unknown, desired: string): boolean {
-  return String(current ?? "") === desired;
-}
-
-async function cleanupUnexpectedRepairedLocalPurchases(
-  localPurchaseRows: LocalPurchaseRow[],
-): Promise<LocalPurchaseRow[]> {
-  const unexpectedRows = localPurchaseRows.filter((purchase) => {
-    if (purchase.stageUpdatedBy !== "system-repair") return false;
-    const managementNo = String(purchase.managementNo ?? "").trim();
-    return !canRecoverOrphanLabelPurchase(managementNo);
-  });
-  if (unexpectedRows.length === 0) return localPurchaseRows;
-
-  const unexpectedIds = unexpectedRows.map((purchase) => purchase.id).filter((id) => Number.isFinite(id));
-  const unexpectedIdSet = new Set(unexpectedIds);
-  const db = await getDb();
-  if (db && unexpectedIds.length > 0) {
-    const { inventoryItemLabels: labelTbl, localPurchases: purchaseTbl } = await import("../../drizzle/schema");
-    const { inArray } = await import("drizzle-orm");
-    await db
-      .update(labelTbl)
-      .set({ purchaseId: null, status: "stocked" })
-      .where(and(inArray(labelTbl.purchaseId, unexpectedIds), eq(labelTbl.status, "ordered")));
-    await db
-      .update(labelTbl)
-      .set({ purchaseId: null })
-      .where(inArray(labelTbl.purchaseId, unexpectedIds));
-    await db.delete(purchaseTbl).where(inArray(purchaseTbl.id, unexpectedIds));
-  }
-
-  return localPurchaseRows.filter((purchase) => !unexpectedIdSet.has(purchase.id));
-}
-
-async function cleanupAllowedRecoveredPurchaseIssues(
-  localPurchaseRows: LocalPurchaseRow[],
-): Promise<LocalPurchaseRow[]> {
-  const db = await getDb();
-  if (!db) return localPurchaseRows;
-
-  const { inventoryItemLabels: labelTbl, localPurchases: purchaseTbl } = await import("../../drizzle/schema");
-  const { inArray } = await import("drizzle-orm");
-  let changed = false;
-  let nextRows = localPurchaseRows;
-
-  const duplicateRows = nextRows
-    .filter((purchase) => String(purchase.managementNo ?? "").trim() === "402_マキシム_1/2")
-    .sort((a, b) => a.id - b.id);
-  const keepDuplicateRow = duplicateRows[0];
-  const duplicateDeleteIds = duplicateRows.slice(1).map((purchase) => purchase.id);
-  if (keepDuplicateRow && duplicateDeleteIds.length > 0) {
-    await db
-      .update(labelTbl)
-      .set({ purchaseId: keepDuplicateRow.id })
-      .where(inArray(labelTbl.purchaseId, duplicateDeleteIds));
-    await db.delete(purchaseTbl).where(inArray(purchaseTbl.id, duplicateDeleteIds));
-    const deleteIdSet = new Set(duplicateDeleteIds);
-    nextRows = nextRows.filter((purchase) => !deleteIdSet.has(purchase.id));
-    changed = true;
-  }
-
-  const maximSecondRows = nextRows
-    .filter((purchase) => String(purchase.managementNo ?? "").trim() === "402_マキシム_2/2")
-    .sort((a, b) => a.id - b.id);
-  const maximSecondRow = maximSecondRows[0] ?? null;
-  const maximSecondOverrides = getRecoveredPurchaseOverrides("402_マキシム_2/2");
-  if (maximSecondRow) {
-    const title = maximSecondOverrides.title ?? maximSecondRow.title ?? "";
-    const category = maximSecondOverrides.category ?? maximSecondRow.category ?? null;
-    const quantity = Math.max(1, Number(maximSecondOverrides.quantity ?? maximSecondRow.quantity ?? 1) || 1);
-    const unitPrice = maximSecondOverrides.unitPrice ?? maximSecondRow.unitPrice ?? null;
-    const existingTrackingNumber = normalizePurchaseTrackingValue(maximSecondRow.trackingNumber);
-    const existingShipDate = normalizePurchaseTrackingValue(maximSecondRow.shipDate);
-    const existingCarrier = normalizePurchaseTrackingValue(maximSecondRow.carrier);
-    const existingNote = normalizePurchaseTrackingValue(maximSecondRow.note);
-    const hasInboundTracking = existingTrackingNumber != null;
-    const repairedStatus = hasInboundTracking ? "shipped" : "ordered";
-    const repairedStage = hasInboundTracking ? "shipped" : maximSecondOverrides.stage ?? "ordered";
-    const itemsJson = JSON.stringify([{
-      id: 1,
-      inventory_id: maximSecondRow.localInventoryId,
-      inventoryId: maximSecondRow.localInventoryId,
-      title,
-      quantity: String(quantity),
-      unit_price: unitPrice,
-      unitPrice,
-      etc: "402_マキシム_2/2",
-      category,
-      status: repairedStatus,
-    }]);
-    const desired = {
-      purchaseNum: maximSecondOverrides.purchaseNum ?? maximSecondRow.purchaseNum,
-      status: repairedStatus,
-      itemsJson,
-      title,
-      category,
-      quantity,
-      unitPrice,
-      managementNo: "402_マキシム_2/2",
-      purchaseDate: maximSecondOverrides.purchaseDate ?? maximSecondRow.purchaseDate,
-      receivedDate: null,
-      shipDate: existingShipDate,
-      trackingNumber: existingTrackingNumber,
-      carrier: existingCarrier,
-      note: existingNote,
-      supplierName: maximSecondOverrides.supplierName ?? maximSecondRow.supplierName,
-      stage: repairedStage,
-      stageUpdatedBy: hasInboundTracking ? maximSecondRow.stageUpdatedBy ?? "tracking-registration" : "system-repair",
-    };
-    const maximSecondNeedsUpdate =
-      !recoveredPurchaseValueEquals(maximSecondRow.purchaseNum, desired.purchaseNum) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.status, desired.status) ||
-      !recoveredPurchaseJsonEquals(maximSecondRow.itemsJson, desired.itemsJson) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.title, desired.title) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.category, desired.category) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.quantity, desired.quantity) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.unitPrice, desired.unitPrice) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.managementNo, desired.managementNo) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.purchaseDate, desired.purchaseDate) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.receivedDate, desired.receivedDate) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.shipDate, desired.shipDate) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.trackingNumber, desired.trackingNumber) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.carrier, desired.carrier) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.note, desired.note) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.supplierName, desired.supplierName) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.stage, desired.stage) ||
-      !recoveredPurchaseValueEquals(maximSecondRow.stageUpdatedBy, desired.stageUpdatedBy);
-    if (maximSecondNeedsUpdate) {
-      await db
-        .update(purchaseTbl)
-        .set({
-          ...desired,
-          stageUpdatedAt: hasInboundTracking ? maximSecondRow.stageUpdatedAt ?? new Date() : new Date(),
-        })
-        .where(eq(purchaseTbl.id, maximSecondRow.id));
-      changed = true;
-    }
-  }
-  const maximSecondLabels = await db
-    .select()
-    .from(labelTbl)
-    .where(eq(labelTbl.legacyManagementNo, "402_マキシム_2/2"));
-  const sortedMaximSecondLabels = [...maximSecondLabels].sort((a, b) => {
-    const aIsTargetLabel = String(a.labelId ?? "").trim().toUpperCase() === MAXIM_SECOND_LABEL_ID;
-    const bIsTargetLabel = String(b.labelId ?? "").trim().toUpperCase() === MAXIM_SECOND_LABEL_ID;
-    if (aIsTargetLabel !== bIsTargetLabel) return aIsTargetLabel ? -1 : 1;
-    const timeA = new Date(a.createdAt ?? 0).getTime();
-    const timeB = new Date(b.createdAt ?? 0).getTime();
-    if (timeA !== timeB) return timeB - timeA;
-    return Number(b.id) - Number(a.id);
-  });
-  const keepLabel = sortedMaximSecondLabels[0];
-  const deleteLabelIds = sortedMaximSecondLabels.slice(1).map((label) => Number(label.id)).filter((id) => Number.isFinite(id));
-  if (deleteLabelIds.length > 0) {
-    await db.delete(labelTbl).where(inArray(labelTbl.id, deleteLabelIds));
-    changed = true;
-  }
-  if (maximSecondRow && keepLabel) {
-    const targetLocalInventoryId = maximSecondRow.localInventoryId ?? keepLabel.localInventoryId;
-    const keepLabelNeedsUpdate =
-      Number(keepLabel.purchaseId) !== maximSecondRow.id ||
-      String(keepLabel.status ?? "").trim().toLowerCase() !== "ordered" ||
-      (targetLocalInventoryId != null && Number(keepLabel.localInventoryId) !== Number(targetLocalInventoryId));
-    if (keepLabelNeedsUpdate) {
-      await db
-        .update(labelTbl)
-        .set({
-          purchaseId: maximSecondRow.id,
-          localInventoryId: targetLocalInventoryId,
-          status: "ordered",
-        })
-        .where(eq(labelTbl.id, keepLabel.id));
-      changed = true;
-    }
-  } else if (keepLabel && String(keepLabel.status ?? "").trim().toLowerCase() !== "ordered") {
-    await db
-      .update(labelTbl)
-      .set({ status: "ordered" })
-      .where(eq(labelTbl.id, keepLabel.id));
-    changed = true;
-  }
-
-  return changed ? getLocalPurchases() : nextRows;
-}
-
-function localPurchaseStatusFromLabelStatus(status: unknown): string {
-  return isReceivedLabelStatus(status) ? "purchased" : "ordered";
-}
-
-async function restoreMissingLocalPurchasesFromOrphanLabels(
-  localPurchaseRows: LocalPurchaseRow[],
-  preloadedInventories?: LocalInventoryRow[],
-): Promise<LocalPurchaseRow[]> {
-  const db = await getDb();
-  if (!db) return localPurchaseRows;
-  localPurchaseRows = await cleanupUnexpectedRepairedLocalPurchases(localPurchaseRows);
-  localPurchaseRows = await cleanupAllowedRecoveredPurchaseIssues(localPurchaseRows);
-
-  const existingIds = new Set(localPurchaseRows.map((purchase) => purchase.id));
-  const existingManagementNos = new Set<string>();
-  for (const purchase of localPurchaseRows) {
-    const rowManagementNo = String(purchase.managementNo ?? "").trim();
-    if (rowManagementNo) existingManagementNos.add(rowManagementNo);
-    for (const item of localPurchaseItems(purchase)) {
-      const itemManagementNo = getPurchaseItemManagementNo(purchase, item);
-      if (itemManagementNo) existingManagementNos.add(itemManagementNo);
-    }
-  }
-
-  const inventories = preloadedInventories ?? await getLocalInventories();
-  const candidates = new Map<string, {
-    inventory: LocalInventoryRow;
-    labels: LocalInventoryItemLabelRow[];
-  }>();
-
-  for (const inventory of inventories) {
-    if (Number(inventory.isDeleted ?? 0) !== 0) continue;
-    for (const label of inventory.itemLabels ?? []) {
-      const labelPurchaseId = Number(label.purchaseId);
-      const managementNo = String(label.legacyManagementNo ?? getInventoryManagementNo(inventory.etc)).trim();
-      const canRecover = canRecoverOrphanLabelPurchase(managementNo);
-      if (!canRecover && (!Number.isFinite(labelPurchaseId) || labelPurchaseId <= 0)) continue;
-      if (Number.isFinite(labelPurchaseId) && labelPurchaseId > 0 && existingIds.has(labelPurchaseId)) continue;
-      if (!managementNo || existingManagementNos.has(managementNo)) continue;
-      const current = candidates.get(managementNo);
-      if (current) {
-        current.labels.push(label);
-      } else {
-        candidates.set(managementNo, { inventory, labels: [label] });
-      }
-    }
-  }
-
-  let repaired = false;
-  for (const [managementNo, candidate] of candidates) {
-    const { inventory, labels } = candidate;
-    const firstLabel = labels[0];
-    if (!firstLabel) continue;
-    const overrides = getRecoveredPurchaseOverrides(managementNo);
-    if (!canRecoverOrphanLabelPurchase(managementNo)) continue;
-    const quantity = Math.max(1, Number(overrides.quantity ?? labels.length) || 1);
-    const title = overrides.title ?? firstLabel.title ?? inventory.title;
-    const category = overrides.category ?? inventory.category ?? null;
-    const unitPrice = overrides.unitPrice ?? (inventory.unitPrice == null ? null : String(inventory.unitPrice));
-    const purchaseDate = overrides.purchaseDate ?? historyDateFrom(firstLabel.createdAt ?? inventory.createdAt);
-    const status = String(overrides.status ?? localPurchaseStatusFromLabelStatus(firstLabel.status));
-    const receivedDate = "receivedDate" in overrides
-      ? overrides.receivedDate ?? null
-      : status === "purchased"
-        ? historyDateFrom(firstLabel.receivedAt ?? inventory.updatedAt)
-        : null;
-    const newPurchaseId = await insertLocalPurchase({
-      zaicoId: null,
-      purchaseNum: overrides.purchaseNum ?? managementNo,
-      status,
-      itemsJson: JSON.stringify([{
-        id: 1,
-        inventory_id: inventory.id,
-        inventoryId: inventory.id,
-        title,
-        quantity: String(quantity),
-        unit_price: unitPrice,
-        unitPrice,
-        etc: managementNo,
-        category,
-      }]),
-      localInventoryId: inventory.id,
-      title,
-      category,
-      quantity,
-      unitPrice,
-      managementNo,
-      purchaseDate,
-      receivedDate,
-      shipDate: null,
-      trackingNumber: overrides.trackingNumber ?? null,
-      carrier: overrides.carrier ?? null,
-      note: null,
-      supplierUrl: inventory.supplierUrl ?? null,
-      supplierName: overrides.supplierName ?? inventory.supplierName ?? null,
-      inboundClass: null,
-      classSource: "auto",
-      stage: overrides.stage ?? (status === "purchased" ? "received" : "ordered"),
-      stageUpdatedBy: "system-repair",
-      stageUpdatedAt: new Date(),
-      shaftParentPurchaseId: null,
-    });
-    if (newPurchaseId > 0) {
-      await ensureInventoryItemLabels({
-        purchaseId: newPurchaseId,
-        localInventoryId: inventory.id,
-        legacyManagementNo: managementNo,
-        title,
-        quantity,
-        status: (overrides.labelStatus ?? String(firstLabel.status ?? "ordered")) as InventoryItemLabelStatus,
-        sourceKey: `repair:${managementNo}`,
-      });
-      existingManagementNos.add(managementNo);
-      repaired = true;
-    }
-  }
-
-  if (!repaired) return localPurchaseRows;
-  return cleanupAllowedRecoveredPurchaseIssues(await getLocalPurchases());
-}
-
-type PurchaseTrackingSyncInput = {
-  zaicoId: number;
-  shipDate?: string | null;
-  trackingNumber?: string | null;
-  carrier?: string | null;
-  note?: string | null;
-  inventoryId?: number | null;
-  managementNo?: string | null;
-  labelId?: string | null;
-  operatorName?: string | null;
-  createdBy?: string | null;
-};
-
-type PurchaseTrackingAuditState = {
-  shipDate: string | null;
-  trackingNumber: string | null;
-  carrier: string | null;
-  note: string | null;
-  status: string | null;
-  stage: string | null;
-};
-
-type PurchaseTrackingAuditUpdate = Partial<
-  Pick<InsertLocalPurchase, "shipDate" | "trackingNumber" | "carrier" | "note" | "status" | "stage">
->;
-
-function hasOwnPurchaseTrackingField(input: PurchaseTrackingSyncInput, key: keyof PurchaseTrackingSyncInput): boolean {
-  return Object.prototype.hasOwnProperty.call(input, key);
-}
-
-function normalizePurchaseTrackingValue(value: string | null | undefined): string | null {
-  if (value == null) return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function buildPurchaseTrackingUpdate(input: PurchaseTrackingSyncInput) {
-  const update: {
-    shipDate?: string | null;
-    trackingNumber?: string | null;
-    carrier?: string | null;
-    note?: string | null;
-  } = {};
-  if (hasOwnPurchaseTrackingField(input, "shipDate")) {
-    update.shipDate = normalizePurchaseTrackingValue(input.shipDate);
-  }
-  if (hasOwnPurchaseTrackingField(input, "trackingNumber")) {
-    update.trackingNumber = normalizePurchaseTrackingValue(input.trackingNumber);
-    update.carrier = hasOwnPurchaseTrackingField(input, "carrier")
-      ? normalizePurchaseTrackingValue(input.carrier)
-      : null;
-  } else if (hasOwnPurchaseTrackingField(input, "carrier")) {
-    update.carrier = normalizePurchaseTrackingValue(input.carrier);
-  }
-  if (hasOwnPurchaseTrackingField(input, "note")) {
-    update.note = normalizePurchaseTrackingValue(input.note);
-  }
-  return update;
-}
-
-function purchaseTrackingAuditValue(value: unknown): string | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  const text = String(value).trim();
-  return text ? text : null;
-}
-
-function getPurchaseTrackingAuditState(row: LocalPurchaseRow): PurchaseTrackingAuditState {
-  return {
-    shipDate: purchaseTrackingAuditValue(row.shipDate),
-    trackingNumber: purchaseTrackingAuditValue(row.trackingNumber),
-    carrier: purchaseTrackingAuditValue(row.carrier),
-    note: purchaseTrackingAuditValue(row.note),
-    status: purchaseTrackingAuditValue(row.status),
-    stage: purchaseTrackingAuditValue(row.stage),
-  };
-}
-
-function getNextPurchaseTrackingAuditState(
-  previous: PurchaseTrackingAuditState,
-  update: PurchaseTrackingAuditUpdate,
-): PurchaseTrackingAuditState {
-  return {
-    shipDate: Object.prototype.hasOwnProperty.call(update, "shipDate")
-      ? purchaseTrackingAuditValue(update.shipDate)
-      : previous.shipDate,
-    trackingNumber: Object.prototype.hasOwnProperty.call(update, "trackingNumber")
-      ? purchaseTrackingAuditValue(update.trackingNumber)
-      : previous.trackingNumber,
-    carrier: Object.prototype.hasOwnProperty.call(update, "carrier")
-      ? purchaseTrackingAuditValue(update.carrier)
-      : previous.carrier,
-    note: Object.prototype.hasOwnProperty.call(update, "note")
-      ? purchaseTrackingAuditValue(update.note)
-      : previous.note,
-    status: Object.prototype.hasOwnProperty.call(update, "status")
-      ? purchaseTrackingAuditValue(update.status)
-      : previous.status,
-    stage: Object.prototype.hasOwnProperty.call(update, "stage")
-      ? purchaseTrackingAuditValue(update.stage)
-      : previous.stage,
-  };
-}
-
-function getPurchaseTrackingChangedFields(
-  previous: PurchaseTrackingAuditState,
-  next: PurchaseTrackingAuditState,
-): Array<keyof PurchaseTrackingAuditState> {
-  const keys: Array<keyof PurchaseTrackingAuditState> = [
-    "shipDate",
-    "trackingNumber",
-    "carrier",
-    "note",
-    "status",
-    "stage",
-  ];
-  return keys.filter((key) => (previous[key] ?? null) !== (next[key] ?? null));
-}
-
-function getPurchaseTrackingAuditLabelIds(row: LocalPurchaseRow, input: PurchaseTrackingSyncInput): string[] {
-  const labels = new Set<string>();
-  const addLabel = (value: unknown) => {
-    const label = String(value ?? "").trim().toUpperCase();
-    if (label) labels.add(label);
-  };
-
-  addLabel(input.labelId);
-  for (const label of row.itemLabels ?? []) {
-    addLabel(label.labelId);
-  }
-  for (const item of parseLocalPurchaseItems(row)) {
-    const itemLabels = (item as { itemLabels?: Array<{ labelId?: unknown }> }).itemLabels;
-    for (const label of itemLabels ?? []) {
-      addLabel(label.labelId);
-    }
-  }
-
-  return Array.from(labels);
-}
-
-async function recordPurchaseTrackingAuditLog(
-  input: PurchaseTrackingSyncInput,
-  purchase: LocalPurchaseRow,
-  previous: PurchaseTrackingAuditState,
-  next: PurchaseTrackingAuditState,
-  changedFields: Array<keyof PurchaseTrackingAuditState>,
-) {
-  if (changedFields.length === 0) return;
-
-  const labelIds = getPurchaseTrackingAuditLabelIds(purchase, input);
-  const managementNo =
-    localPurchasePrimaryManagementNo(purchase) ||
-    String(input.managementNo ?? purchase.managementNo ?? "").trim() ||
-    null;
-  const workerName = resolveWorkOperatorName(input.operatorName, input.createdBy);
-  const trackingBefore = previous.trackingNumber ?? "未設定";
-  const trackingAfter = next.trackingNumber ?? "未設定";
-
-  try {
-    await recordWorkLog({
-      workerName,
-      category: "追跡番号登録",
-      status: "done",
-      startedAt: new Date(),
-      endedAt: new Date(),
-      quantity: 1,
-      memo: [
-        managementNo ? `管理番号: ${managementNo}` : null,
-        `追跡番号: ${trackingBefore} -> ${trackingAfter}`,
-        labelIds.length > 0 ? `商品ID: ${labelIds.join(", ")}` : null,
-      ].filter(Boolean).join(" / "),
-      createdBy: input.createdBy ?? workerName,
-      sourceType: "purchase-tracking-audit",
-      sourceId: `purchase:${purchase.id}`,
-      detailsJson: JSON.stringify({
-        version: 1,
-        action: "purchase_tracking_update",
-        target: {
-          purchaseId: purchase.id,
-          zaicoId: purchase.zaicoId ?? null,
-          localInventoryId: purchase.localInventoryId ?? input.inventoryId ?? null,
-          purchaseNum: purchase.purchaseNum ?? null,
-          title: purchase.title ?? null,
-          managementNo,
-          labelIds,
-        },
-        input: {
-          zaicoId: input.zaicoId,
-          inventoryId: input.inventoryId ?? null,
-          managementNo: input.managementNo ?? null,
-          labelId: input.labelId ?? null,
-        },
-        before: previous,
-        after: next,
-        changedFields,
-      }),
-    });
-  } catch (error) {
-    console.warn("[purchaseTrackingAudit] failed to record work log", error);
-  }
-}
-
-function requiresLocalPurchaseTrackingTarget(input: PurchaseTrackingSyncInput): boolean {
-  if (!hasOwnPurchaseTrackingField(input, "trackingNumber")) return false;
-  return normalizePurchaseTrackingValue(input.trackingNumber) != null;
-}
-
-function assertLocalPurchaseTrackingSynced(input: PurchaseTrackingSyncInput, updatedCount: number) {
-  if (!requiresLocalPurchaseTrackingTarget(input) || updatedCount > 0) return;
-  throw new TRPCError({
-    code: "NOT_FOUND",
-    message: "追跡番号を反映できる発注データが見つかりませんでした。ページを更新してから再度登録してください。",
-  });
-}
-
-function localPurchaseMatchesTrackingTarget(row: LocalPurchaseRow, input: PurchaseTrackingSyncInput): boolean {
-  if (row.id === input.zaicoId || row.zaicoId === input.zaicoId) return true;
-  const labelId = String(input.labelId ?? "").trim().toUpperCase();
-  if (labelId && (row.itemLabels ?? []).some((label) => String(label.labelId ?? "").trim().toUpperCase() === labelId)) {
-    return true;
-  }
-
-  const inventoryId = positiveHistoryNumber(input.inventoryId);
-  const managementNo = firstPurchaseHistoryEtcPart(input.managementNo);
-  if (inventoryId != null && localPurchaseMatchesInventoryLabel(row, inventoryId, managementNo)) return true;
-  if (!managementNo) return false;
-  if (firstPurchaseHistoryEtcPart(row.managementNo) === managementNo) return true;
-  return parseLocalPurchaseItems(row).some((item) => firstPurchaseHistoryEtcPart(item.etc) === managementNo);
-}
-
-async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInput) {
-  const db = await getDb();
-  if (!db) return { updatedCount: 0, targetIds: [] as number[] };
-  const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
-  const trackingNumberWasProvided = hasOwnPurchaseTrackingField(input, "trackingNumber");
-  const trackingUpdate = buildPurchaseTrackingUpdate(input);
-  if (Object.keys(trackingUpdate).length === 0) return { updatedCount: 0, targetIds: [] as number[] };
-  const hasTrackingNumber = String(trackingUpdate.trackingNumber ?? "").trim().length > 0;
-  const localPurchases = await getLocalPurchases();
-  const directMatches = localPurchases.filter((row) => row.id === input.zaicoId || row.zaicoId === input.zaicoId);
-  const targets = directMatches.length > 0
-    ? directMatches
-    : localPurchases.filter((row) => localPurchaseMatchesTrackingTarget(row, input));
-  const uniqueTargets = Array.from(new Map(targets.map((row) => [row.id, row])).values());
-
-  for (const purchase of uniqueTargets) {
-    const updateData: Partial<typeof lpTbl.$inferInsert> = {
-      ...trackingUpdate,
-      stageUpdatedBy: "tracking-registration",
-      stageUpdatedAt: new Date(),
-    };
-    if (purchase.status !== "purchased" && trackingNumberWasProvided) {
-      if (hasTrackingNumber) {
-        updateData.status = "shipped";
-        updateData.stage = "shipped";
-      } else if (purchase.status === "shipped") {
-        updateData.status = "ordered";
-        updateData.stage = "ordered";
-      }
-    }
-    const previousAuditState = getPurchaseTrackingAuditState(purchase);
-    const nextAuditState = getNextPurchaseTrackingAuditState(previousAuditState, updateData);
-    const changedFields = getPurchaseTrackingChangedFields(previousAuditState, nextAuditState);
-    await db
-      .update(lpTbl)
-      .set(updateData)
-      .where(eq(lpTbl.id, purchase.id));
-    await recordPurchaseTrackingAuditLog(input, purchase, previousAuditState, nextAuditState, changedFields);
-  }
-
-  return { updatedCount: uniqueTargets.length, targetIds: uniqueTargets.map((purchase) => purchase.id) };
 }
 
 export const inventoryRouter = router({
@@ -3896,182 +3199,8 @@ export const inventoryRouter = router({
      * 入庫管理の編集ダイアログ用
      */
     updatePurchaseData: publicProcedure
-      .input(z.object({
-        purchaseId: z.number().int().positive(),
-        operatorKey: z.enum(["default", "A", "B"]).optional(),
-        customerName: z.string().optional(),
-        estimatedPurchaseDate: z.string().optional(),
-        memo: z.string().optional(),
-        purchaseItems: z.array(z.object({
-          id: z.number().int().nonnegative().optional(),
-          inventoryId: z.number().int().positive(),
-          title: z.string().min(1).max(500).optional(),
-          unitPrice: z.number().optional(),
-          quantity: z.number().optional(),
-          estimatedPurchaseDate: z.string().optional(),
-          etc: z.string().optional(),
-          category: z.string().max(200).nullable().optional(),
-        })).optional(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        const zaicoEnabled = await isZaicoEnabled();
-        const operatorToken = resolveOperatorToken(input.operatorKey);
-
-        if (!zaicoEnabled) {
-          // Zaico連携OFF: ローカルDBを直接更新
-          const { localPurchases: lpTbl, localInventories: liTbl } = await import("../../drizzle/schema");
-          const { eq, or } = await import("drizzle-orm");
-          const db = await getDb();
-          if (!db) throw new Error("Database not available");
-          // purchaseIdはlocal_purchases.idまたは同期元のzaicoIdとして渡る。
-          const [lp] = await db
-            .select()
-            .from(lpTbl)
-            .where(or(eq(lpTbl.id, input.purchaseId), eq(lpTbl.zaicoId, input.purchaseId)))
-            .limit(1);
-          if (lp) {
-            // purchaseItemsの先頭要素からunitPrice・etcを取得
-            const firstItem = input.purchaseItems?.[0];
-            const firstInventoryId = firstItem?.inventoryId ?? lp.localInventoryId;
-            const snapshotInventory = firstInventoryId ? await getLocalInventoryById(firstInventoryId) : null;
-            const snapshotPurchase = (await getLocalPurchases().catch(() => [] as LocalPurchaseRow[]))
-              .find((row) => row.id === lp.id) ?? lp;
-            await recordFullRestoreSnapshot({
-              inventory: snapshotInventory ?? null,
-              purchases: [snapshotPurchase],
-              source: "purchase",
-              reason: "入庫管理編集前",
-              operatorName: ctx.user.name ?? ctx.user.email ?? null,
-            });
-            const lpUpdateData: Partial<typeof lpTbl.$inferInsert> = {};
-            if (firstInventoryId && lp.localInventoryId !== firstInventoryId) {
-              lpUpdateData.localInventoryId = firstInventoryId;
-            }
-            let itemsJsonCache: Array<Record<string, unknown>> | null = null;
-            const updateFirstItemJson = (changes: Record<string, unknown>) => {
-              try {
-                if (!itemsJsonCache) {
-                  const parsed = JSON.parse(lp.itemsJson ?? "[]");
-                  itemsJsonCache = Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : [];
-                }
-                if (itemsJsonCache.length > 0) {
-                  itemsJsonCache[0] = { ...itemsJsonCache[0], ...changes };
-                  lpUpdateData.itemsJson = JSON.stringify(itemsJsonCache);
-                }
-              } catch {
-                // Snapshot updates are best-effort.
-              }
-            };
-            if (firstItem?.unitPrice !== undefined) {
-              // decimal型は数値をそのまま渡せる
-              const unitPrice = String(firstItem.unitPrice);
-              (lpUpdateData as Record<string, unknown>).unitPrice = unitPrice;
-              updateFirstItemJson({ unit_price: unitPrice, unitPrice });
-              // local_inventoriesの単価も更新
-              if (firstInventoryId) {
-                await db.update(liTbl).set({ unitPrice }).where(eq(liTbl.id, firstInventoryId));
-              }
-            }
-            if (firstItem?.quantity !== undefined) {
-              const quantity = Math.max(1, Math.round(Number(firstItem.quantity) || 1));
-              lpUpdateData.quantity = quantity;
-              updateFirstItemJson({ quantity: String(quantity) });
-            }
-            if (firstItem?.title !== undefined) {
-              const nextTitle = firstItem.title.trim();
-              (lpUpdateData as Record<string, unknown>).title = nextTitle;
-              updateFirstItemJson({ title: nextTitle });
-              if (firstInventoryId) {
-                await db.update(liTbl).set({ title: nextTitle }).where(eq(liTbl.id, firstInventoryId));
-              }
-            }
-            if (firstItem?.etc !== undefined) {
-              const nextManagementNo = firstItem.etc.split(",")[0]?.trim() ?? (lp.managementNo ?? undefined);
-              lpUpdateData.managementNo = nextManagementNo;
-              updateFirstItemJson({ etc: firstItem.etc });
-              if (firstInventoryId) {
-                await db.update(liTbl).set({ etc: firstItem.etc || nextManagementNo || null }).where(eq(liTbl.id, firstInventoryId));
-              }
-            }
-            if (firstItem?.category !== undefined) {
-              const nextCategory = normalizeCategoryName(firstItem.category) || null;
-              (lpUpdateData as Record<string, unknown>).category = nextCategory;
-              updateFirstItemJson({ category: nextCategory });
-              if (firstInventoryId) {
-                await db.update(liTbl).set({ category: nextCategory }).where(eq(liTbl.id, firstInventoryId));
-              }
-            }
-            if (Object.keys(lpUpdateData).length > 0) {
-              await db.update(lpTbl).set(lpUpdateData).where(eq(lpTbl.id, lp.id));
-            }
-            if (firstItem) {
-              const nextManagementNo = firstItem.etc !== undefined
-                ? firstItem.etc.split(",")[0]?.trim() || null
-                : lp.managementNo ?? null;
-              await ensureInventoryItemLabels({
-                purchaseId: lp.id,
-                localInventoryId: firstInventoryId ?? null,
-                legacyManagementNo: nextManagementNo,
-                title: firstItem.title?.trim() || lp.title || "",
-                quantity: Math.max(1, Math.round(Number(firstItem.quantity ?? lp.quantity ?? 1) || 1)),
-                status: lp.status === "purchased" ? "received" : "ordered",
-                sourceKey: nextManagementNo ? `management:${nextManagementNo}` : null,
-              });
-            }
-          }
-          return { success: true };
-        }
-
-        const payload: Parameters<typeof updatePurchase>[1] = {};
-        if (input.customerName !== undefined) payload.customer_name = input.customerName;
-        if (input.estimatedPurchaseDate !== undefined) payload.estimated_purchase_date = input.estimatedPurchaseDate;
-        if (input.memo !== undefined) payload.memo = input.memo;
-        if (input.purchaseItems) {
-          const invalidItem = input.purchaseItems.find((item) => !item.id || item.id <= 0);
-          if (invalidItem) {
-            throw new Error("Zaico連携ONでは発注明細IDが必要です");
-          }
-          payload.purchase_items = input.purchaseItems.map((item) => ({
-            id: item.id!,
-            inventory_id: item.inventoryId,
-            ...(item.unitPrice !== undefined && { unit_price: item.unitPrice }),
-            ...(item.quantity !== undefined && { quantity: item.quantity }),
-            ...(item.estimatedPurchaseDate !== undefined && { estimated_purchase_date: item.estimatedPurchaseDate }),
-            ...(item.etc !== undefined && { etc: item.etc }),
-          }));
-        }
-        await updatePurchase(input.purchaseId, payload, operatorToken);
-        if (input.purchaseItems) {
-          const itemsWithInventoryChanges = input.purchaseItems.filter(
-            (item) => item.title !== undefined || item.unitPrice !== undefined || item.category !== undefined || item.etc !== undefined
-          );
-          await Promise.all(
-            itemsWithInventoryChanges.map(async (item) => {
-              try {
-                const inv = await getInventory(item.inventoryId);
-                await updateInventory(
-                  item.inventoryId,
-                  {
-                    title: item.title ?? inv.title,
-                    quantity: String(inv.quantity ?? 0),
-                    unit: inv.unit ?? undefined,
-                    category: item.category !== undefined
-                      ? (normalizeCategoryName(item.category) || undefined)
-                      : inv.categories?.[0] ?? inv.category ?? undefined,
-                    place: inv.place ?? undefined,
-                    etc: item.etc !== undefined ? item.etc : inv.etc ?? undefined,
-                    purchase_unit_price: item.unitPrice ?? inv.purchase_unit_price ?? undefined,
-                  },
-                  operatorToken
-                );
-              } catch {
-                // 在庫同期の失敗はログのみ（発注更新自体は成功している）
-              }
-            })
-          );
-        }
-        return { success: true };
-      }),
+      .input(purchaseEditInputSchema)
+      .mutation(async ({ input, ctx }) => savePurchaseEdit(input, { recordSnapshot: recordFullRestoreSnapshot, getOperatorName: () => ctx.user.name ?? ctx.user.email ?? null })),
 
     /**
      * 在庫削除（Zaicoから削除）
@@ -4588,53 +3717,9 @@ export const inventoryRouter = router({
      */
     updateSupplierNameOnly: publicProcedure
       .input(
-        z.object({
-          purchaseId: z.number().int().positive().optional(),
-          inventoryId: z.number().int().positive(),
-          supplierName: z.string().max(200).nullable(),
-          supplierUrl: z.string().max(500).nullable().optional(),
-        })
+        purchaseSupplierInputSchema
       )
-      .mutation(async ({ input }) => {
-        const zaicoEnabled = await isZaicoEnabled();
-        const normalizedSupplierUrl = (() => {
-          const value = input.supplierUrl?.trim();
-          if (!value) return null;
-          return /^https?:\/\//i.test(value) ? value : `https://${value}`;
-        })();
-        if (!zaicoEnabled) {
-          const localInv = await getLocalInventoryByZaicoIdOrId(input.inventoryId);
-          if (localInv) {
-            await updateLocalInventory(localInv.id, { supplierName: input.supplierName, supplierUrl: normalizedSupplierUrl });
-          }
-          const db = await getDb();
-          if (db) {
-            const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-            const purchaseRows = await getLocalPurchases();
-            const targets = purchaseRows.filter((p) => {
-              if (input.purchaseId && (p.id === input.purchaseId || p.zaicoId === input.purchaseId)) return true;
-              if (localInv?.id && p.localInventoryId === localInv.id) return true;
-              try {
-                const items = JSON.parse(p.itemsJson ?? "[]");
-                return Array.isArray(items) && items.some((item) => Number(item.inventory_id ?? item.inventoryId) === input.inventoryId);
-              } catch {
-                return false;
-              }
-            });
-            await Promise.all(
-              targets.map((p) => db.update(lpTbl).set({ supplierName: input.supplierName, supplierUrl: normalizedSupplierUrl }).where(eq(lpTbl.id, p.id)))
-            );
-          }
-        } else {
-          const existing = await getInventoryExtraByZaicoId(input.inventoryId);
-          await upsertInventoryExtra({
-            zaicoInventoryId: input.inventoryId,
-            supplierName: input.supplierName,
-            supplierUrl: normalizedSupplierUrl ?? existing?.supplierUrl ?? null,
-          }).catch(() => {});
-        }
-        return { success: true };
-      }),
+      .mutation(async ({ input }) => savePurchaseSupplier(input)),
 
     updateEbayListingUrl: publicProcedure
       .input(
@@ -5457,79 +4542,14 @@ export const inventoryRouter = router({
   purchaseExtra: router({
     upsert: publicProcedure
       .input(
-        z.object({
-          zaicoId: z.number().int().positive(),
-          shipDate: z.string().nullable().optional(),
-          trackingNumber: z.string().max(200).nullable().optional(),
-          carrier: z.string().max(50).nullable().optional(),
-          note: z.string().nullable().optional(),
-          inventoryId: z.number().int().positive().optional(),
-          managementNo: z.string().max(200).optional(),
-          labelId: z.string().max(20).optional(),
-        })
+        purchaseTrackingInputSchema
       )
-      .mutation(async ({ input, ctx }) => {
-        const operatorName = resolveWorkOperatorName(undefined, ctx.user?.name ?? ctx.user?.email ?? null);
-        const auditInput: PurchaseTrackingSyncInput = {
-          ...input,
-          operatorName,
-          createdBy: ctx.user?.email ?? operatorName,
-        };
-        const zaicoEnabled = await isZaicoEnabled();
-        if (!zaicoEnabled) {
-          const syncResult = await syncLocalPurchaseTrackingFromExtra(auditInput);
-          assertLocalPurchaseTrackingSynced(auditInput, syncResult.updatedCount);
-          return { success: true, localUpdatedCount: syncResult.updatedCount };
-        }
-        const trackingUpdate = buildPurchaseTrackingUpdate(auditInput);
-        if (Object.keys(trackingUpdate).length > 0) {
-          await upsertPurchaseExtra({ zaicoId: input.zaicoId, ...trackingUpdate });
-          if (input.inventoryId && input.inventoryId !== input.zaicoId) {
-            await upsertPurchaseExtra({ zaicoId: input.inventoryId, ...trackingUpdate });
-          }
-        }
-        const syncResult = await syncLocalPurchaseTrackingFromExtra(auditInput);
-        return { success: true, localUpdatedCount: syncResult.updatedCount };
-      }),
+      .mutation(async ({ input, ctx }) => savePurchaseTracking(input, ctx.user ?? {})),
     upsertBulk: publicProcedure
       .input(
-        z.object({
-          zaicoIds: z.array(z.number().int().positive()).min(1).max(100),
-          shipDate: z.string().nullable().optional(),
-          trackingNumber: z.string().max(200).nullable().optional(),
-          carrier: z.string().max(50).nullable().optional(),
-          note: z.string().nullable().optional(),
-        })
+        purchaseTrackingBulkInputSchema
       )
-      .mutation(async ({ input, ctx }) => {
-        const operatorName = resolveWorkOperatorName(undefined, ctx.user?.name ?? ctx.user?.email ?? null);
-        const auditBase: Omit<PurchaseTrackingSyncInput, "zaicoId"> = {
-          operatorName,
-          createdBy: ctx.user?.email ?? operatorName,
-        };
-        if (Object.prototype.hasOwnProperty.call(input, "shipDate")) auditBase.shipDate = input.shipDate;
-        if (Object.prototype.hasOwnProperty.call(input, "trackingNumber")) auditBase.trackingNumber = input.trackingNumber;
-        if (Object.prototype.hasOwnProperty.call(input, "carrier")) auditBase.carrier = input.carrier;
-        if (Object.prototype.hasOwnProperty.call(input, "note")) auditBase.note = input.note;
-        const trackingUpdate = buildPurchaseTrackingUpdate({ zaicoId: input.zaicoIds[0], ...auditBase });
-        const zaicoEnabled = await isZaicoEnabled();
-        if (!zaicoEnabled) {
-          const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...auditBase, zaicoId })));
-          const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
-          assertLocalPurchaseTrackingSynced({ ...auditBase, zaicoId: input.zaicoIds[0] }, localUpdatedCount);
-          return { success: true, count: input.zaicoIds.length, localUpdatedCount };
-        }
-        await Promise.all(
-          Object.keys(trackingUpdate).length > 0
-            ? input.zaicoIds.map((zaicoId) =>
-                upsertPurchaseExtra({ zaicoId, ...trackingUpdate })
-              )
-            : []
-        );
-        const syncResults = await Promise.all(input.zaicoIds.map((zaicoId) => syncLocalPurchaseTrackingFromExtra({ ...auditBase, zaicoId })));
-        const localUpdatedCount = syncResults.reduce((sum, result) => sum + result.updatedCount, 0);
-        return { success: true, count: input.zaicoIds.length, localUpdatedCount };
-      }),
+      .mutation(async ({ input, ctx }) => savePurchaseTrackingBulk(input, ctx.user ?? {})),
   }),
   // ============================================================
   // 出庫履歴
