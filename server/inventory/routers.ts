@@ -1,3 +1,4 @@
+import { loadLocalPurchaseListData, refreshPurchaseInventoryMap } from "./purchases/localData";
 import { buildLocalPurchaseRow, createPurchaseInventoryMap, attachPurchaseInventoryInfo, type InboundInfo } from "./purchases/localRows";
 import { purchasePageInputSchema } from "./purchases/input";
 import { buildPurchasePageResponse } from "./purchases/page";
@@ -3904,13 +3905,10 @@ export const inventoryRouter = router({
 
         if (!zaicoEnabled) {
           const t = createStepTimer("purchasesWithCategoryPage");
-          let [localPurchaseRows, localInventoryRows, purchaseExtras] = await t.step("parallelFetch", () =>
-            Promise.all([
-              getLocalPurchases(),
-              getLocalInventories(),
-              getAllPurchaseExtras(),
-            ])
+          const { localInventoryRows, purchaseExtras, ...initialData } = await t.step("parallelFetch", () =>
+            loadLocalPurchaseListData("page")
           );
+          let { localPurchaseRows } = initialData;
           localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
             restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
           );
@@ -3935,30 +3933,9 @@ export const inventoryRouter = router({
           const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
           t.mark("prepareSupplierMap");
 
-          await t.step("supplierMapQuery", async () => {
-            if (invIds.length > 0) {
-              const { localInventories: localInvTbl } = await import("../../drizzle/schema");
-              const { inArray } = await import("drizzle-orm");
-              const db = await getDb();
-              if (db) {
-                const rows = await db.select({
-                  id: localInvTbl.id,
-                  supplierName: localInvTbl.supplierName,
-                  supplierUrl: localInvTbl.supplierUrl,
-                  ebayListingUrl: localInvTbl.ebayListingUrl,
-                  quantity: localInvTbl.quantity,
-                }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
-                for (const row of rows) {
-                  invSupplierMap.set(row.id, {
-                    supplierName: row.supplierName ?? null,
-                    supplierUrl: row.supplierUrl ?? null,
-                    ebayListingUrl: row.ebayListingUrl ?? null,
-                    quantity: row.quantity ?? null,
-                  });
-                }
-              }
-            }
-          });
+          await t.step("supplierMapQuery", () =>
+            refreshPurchaseInventoryMap(invIds, invSupplierMap)
+          );
 
           const rows = localPurchaseRows.map((p) =>
             buildLocalPurchaseRow(p, {
@@ -4026,19 +4003,10 @@ export const inventoryRouter = router({
       // Zaico連携OFFの場合はローカルDBから取得
       if (!zaicoEnabled) {
         const t = createStepTimer("purchasesWithCategory");
-        let purchaseHistoriesMs = 0;
-        let [localPurchaseRows, purchaseHistRows, localInventoryRows, purchaseExtras] = await t.step("parallelFetch", () => {
-          const purchaseHistoriesStartedAt = Date.now();
-          const purchaseHistories = getPurchaseHistories(2000).finally(() => {
-            purchaseHistoriesMs = Date.now() - purchaseHistoriesStartedAt;
-          });
-          return Promise.all([
-            getLocalPurchases(),
-            purchaseHistories,
-            getLocalInventories(),
-            getAllPurchaseExtras(),
-          ]);
-        });
+        const { localInventoryRows, purchaseExtras, purchaseHistRows, purchaseHistoriesMs, ...initialData } = await t.step("parallelFetch", () =>
+          loadLocalPurchaseListData("all")
+        );
+        let { localPurchaseRows } = initialData;
         localPurchaseRows = await t.step("restoreMissingFromOrphanLabels", () =>
           restoreMissingLocalPurchasesFromOrphanLabels(localPurchaseRows, localInventoryRows)
         );
@@ -4069,30 +4037,9 @@ export const inventoryRouter = router({
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
         const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
         t.mark("prepareSupplierMap");
-        await t.step("supplierMapQuery", async () => {
-          if (invIds.length > 0) {
-            const { localInventories: localInvTbl } = await import("../../drizzle/schema");
-            const { inArray } = await import("drizzle-orm");
-            const db = await getDb();
-            if (db) {
-              const rows = await db.select({
-                id: localInvTbl.id,
-                supplierName: localInvTbl.supplierName,
-                supplierUrl: localInvTbl.supplierUrl,
-                ebayListingUrl: localInvTbl.ebayListingUrl,
-                quantity: localInvTbl.quantity,
-              }).from(localInvTbl).where(inArray(localInvTbl.id, invIds));
-              for (const row of rows) {
-                invSupplierMap.set(row.id, {
-                  supplierName: row.supplierName ?? null,
-                  supplierUrl: row.supplierUrl ?? null,
-                  ebayListingUrl: row.ebayListingUrl ?? null,
-                  quantity: row.quantity ?? null,
-                });
-              }
-            }
-          }
-        });
+        await t.step("supplierMapQuery", () =>
+          refreshPurchaseInventoryMap(invIds, invSupplierMap)
+        );
         const rows = localPurchaseRows.map((p) => ({
           ...buildLocalPurchaseRow(p, {
             extrasById: purchaseExtraMap,

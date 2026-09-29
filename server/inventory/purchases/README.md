@@ -1,7 +1,7 @@
 # 入庫一覧
 
 `inventory.zaico.getPurchasesWithCategoryPage` の入力検証・一覧処理と、
-`getPurchasesWithCategory` と共通のローカルDB行の表示用変換を担当します。
+`getPurchasesWithCategory` と共通のローカルDBデータ取得・表示用変換を担当します。
 データ取得後の行を受け取り、表示用の形への変換、検索・集計・ページ分割を行います。
 
 | ファイル                                | 責務                                                               |
@@ -10,6 +10,7 @@
 | `page.ts`                               | 検索、分類・カテゴリ・状態フィルタ、合計・件数、並び順、ページ分割 |
 | `localRows.ts`                          | 通常一覧・全件取得で共通の、ローカル発注・明細・在庫情報の表示用変換 |
 | `storedExtra.ts`                        | 保存済み配送情報・メモで発注行の空欄を補う優先順位 |
+| `localData.ts`                          | 一覧の初期データ取得と、参照在庫の仕入先・出品URL・数量の再取得 |
 | `../../../shared/purchaseVisibility.ts` | サーバーと画面が共有する日付・発送状態・完了の判定                 |
 | `../routers.ts`                         | APIの認証とデータ取得・補完。取得結果を一覧処理へ渡す              |
 
@@ -40,11 +41,20 @@
 - 追加情報は発注ID → 外部ID → 在庫IDの順で1レコードを選び、発注行の空欄だけを補います。
 - 壊れた明細JSONは発注行から復元します。有効なJSONが空配列・配列以外だった場合は空明細です。
 
+## データ取得の境界
+
+- 初期取得は発注・在庫・追加情報を並行して読みます。全件取得だけは入庫履歴2,000件を先に読み始め、その読取時間を別に計測します。
+- 復旧・数量調整・分類・ラベル取得を終えてから仕入先等を再取得します。順序と各工程の計測は `routers.ts` に残しています。
+- 再取得は参照在庫IDで照会し、削除済み在庫も含めます。空IDリストではDBに接続しません。
+- DB不在・照会で見つからなかったIDは初期情報を保持します。取得した行はnullや数量0も反映します。
+- DBの利用可否と読取時の既存の補助処理は元のDB関数に任せます。新しいキャッシュや接続設定は追加しません。照会エラーは従来どおり呼出元へ返します。
+
 ## 確認
 
 - `shared/purchaseVisibility.test.ts`: 日付の境界・代替日付・UTC・状態・完了判定
 - このフォルダの `input.test.ts` / `page.test.ts`: 入力検証と一覧計算
 - `localRows.test.ts` / `storedExtra.test.ts`: 表示用変換・JSONの例外・情報の優先順位
+- `localData.test.ts`: 並行取得・履歴取得の差・再取得・DB不在・エラー伝播
 - `tests/regression/purchases.test.ts`: 実際のHTTP/API/ローカルMySQLを通す動作確認
 - `tests/regression/browser-checklist.md`: 実画面で繰り返す確認手順
 

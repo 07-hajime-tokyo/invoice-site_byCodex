@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { RowDataPacket } from "mysql2/promise";
 import { connectTestDatabase, resetFixtures } from "./support/database";
 import { startTestApi } from "./support/api";
@@ -26,6 +34,117 @@ afterAll(async () => {
 });
 
 describe("入庫一覧: 整理前のHTTP/API/DBの振る舞い", () => {
+  it("在庫の仕入先・出品URL・数量の変更を次の一覧取得に反映する", async () => {
+    await db.query(
+      "UPDATE local_purchases SET supplierName=NULL, supplierUrl=NULL WHERE id=910001"
+    );
+    for (const quantity of [0, 7]) {
+      const supplierName = `更新した架空仕入先${quantity}`;
+      const supplierUrl = `https://supplier.invalid/${quantity}`;
+      const ebayListingUrl = `https://listing.invalid/${quantity}`;
+      await db.query(
+        "UPDATE local_inventories SET supplierName=?, supplierUrl=?, ebayListingUrl=?, quantity=? WHERE id=910001",
+        [supplierName, supplierUrl, ebayListingUrl, quantity]
+      );
+      const page =
+        await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+          search: "TEST-A",
+        });
+      const all =
+        await api.client.inventory.zaico.getPurchasesWithCategory.query();
+      for (const row of [page.items[0], all.find(row => row.id === 910001)!]) {
+        expect(row).toMatchObject({
+          csvSupplierName: supplierName,
+          csvSupplierUrl: supplierUrl,
+        });
+        expect(row.purchase_items[0]).toMatchObject({
+          ebayListingUrl,
+          currentInventoryQuantity: quantity,
+        });
+      }
+    }
+  });
+
+  it("通常の在庫一覧から除かれた削除済み在庫も発注IDで再取得する", async () => {
+    await db.query(
+      "UPDATE local_purchases SET supplierName=NULL, supplierUrl=NULL WHERE id=910001"
+    );
+    await db.query(
+      "UPDATE local_inventories SET isDeleted=1, supplierName='削除済み在庫の仕入先', supplierUrl='https://supplier.invalid/deleted', ebayListingUrl='https://listing.invalid/deleted' WHERE id=910001"
+    );
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    for (const row of [page.items[0], all.find(row => row.id === 910001)!]) {
+      expect(row).toMatchObject({
+        csvSupplierName: "削除済み在庫の仕入先",
+        csvSupplierUrl: "https://supplier.invalid/deleted",
+      });
+      expect(row.purchase_items[0]).toMatchObject({
+        ebayListingUrl: "https://listing.invalid/deleted",
+        currentInventoryQuantity: 0,
+      });
+    }
+  });
+
+  it("発注・在庫が空のときは両方の一覧が空で返る", async () => {
+    await db.query("DELETE FROM local_purchases");
+    await db.query("DELETE FROM local_inventories");
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({});
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(page.items).toEqual([]);
+    expect(page.totalCount).toBe(0);
+    expect(all).toEqual([]);
+  });
+
+  it("取得・復旧・ラベル・仕入先再取得の計測順序を保つ", async () => {
+    const info = vi.spyOn(console, "info");
+    try {
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({});
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+      const page = info.mock.calls.find(
+        ([label]) => label === "[perf] purchasesWithCategoryPage"
+      )?.[1];
+      const all = info.mock.calls.find(
+        ([label]) => label === "[perf] purchasesWithCategory"
+      )?.[1];
+      const preparation = [
+        "parallelFetch",
+        "restoreMissingFromOrphanLabels",
+        "ensureShaftPurchases",
+        "reconcileLabelQuantities",
+        "resolveInboundInfoMap",
+      ];
+      const projection = [
+        "collectInventoryIds",
+        "getInventoryItemLabelsByInventoryIds",
+        "prepareSupplierMap",
+        "supplierMapQuery",
+        "mapRows",
+        "attachItemInventoryInfo",
+      ];
+      expect(page.steps.map((step: { name: string }) => step.name)).toEqual([
+        ...preparation,
+        ...projection,
+        "buildPageResponse",
+      ]);
+      expect(all.steps.map((step: { name: string }) => step.name)).toEqual([
+        ...preparation,
+        "buildPurchasedZaicoIds",
+        ...projection,
+      ]);
+      expect(page).not.toHaveProperty("purchaseHistoriesMs");
+      expect(all.purchaseHistoriesMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   it("有効な入庫履歴は全件取得側だけの状態判定に使う", async () => {
     await db.query("INSERT INTO purchase_histories SET ?", {
       zaicoId: 910001,
@@ -59,7 +178,8 @@ describe("入庫一覧: 整理前のHTTP/API/DBの振る舞い", () => {
       910001, 910002, 910003, 910004, 910005, 910006, 910007,
     ]);
     const first = all.find(row => row.id === 910001)!;
-    if (!("createdAt" in first)) throw new Error("Expected the local DB response");
+    if (!("createdAt" in first))
+      throw new Error("Expected the local DB response");
     expect(first.createdAt).toBeInstanceOf(Date);
     expect(first.created_at).toBe((first.createdAt as Date).toISOString());
     const page =
