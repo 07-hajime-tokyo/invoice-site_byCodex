@@ -1,3 +1,5 @@
+import { ACTION_ITEM_ASSIGNEE_ORDER, ACTION_ITEM_REVIEWERS, parseActionItemReviewerChecks } from "@shared/actionItems";
+import { MAX_ATTACHMENTS_PER_REQUEST, actionItemAttachmentInputSchema, cleanText, validateAttachments, buildAttachmentRows } from "./actionItemAttachmentInput";
 import { z } from "zod";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -13,89 +15,12 @@ import { actionItemAttachmentUrl } from "./actionItemAttachmentStorage";
 import { getDb } from "./db";
 
 const actionItemStatusSchema = z.enum(["open", "done"]);
-const defaultAssignees = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
-const reviewerNameSchema = z.enum(["村上さん", "鈴木さん", "藤本さん", "野田さん"]);
-const MAX_ATTACHMENTS_PER_REQUEST = 10;
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_BASE64_LENGTH = 12 * 1024 * 1024;
-const allowedImageTypes = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-]);
+const defaultAssignees = new Set(ACTION_ITEM_ASSIGNEE_ORDER);
+const reviewerNameSchema = z.enum(ACTION_ITEM_REVIEWERS);
 
-const actionItemAttachmentInputSchema = z.object({
-  fileName: z.string().max(255).optional(),
-  contentType: z.string().min(1).max(100),
-  dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64_LENGTH),
-});
-
-function cleanText(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function cleanBase64(value: string) {
-  return value.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
-}
-
-function validateAttachment(input: z.infer<typeof actionItemAttachmentInputSchema>) {
-  const contentType = input.contentType.trim().toLowerCase();
-  if (!allowedImageTypes.has(contentType)) {
-    throw new Error("添付できるのは画像ファイルだけです");
-  }
-  const dataBase64 = cleanBase64(input.dataBase64);
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
-    throw new Error("画像データの形式が正しくありません");
-  }
-  const byteLength = Buffer.byteLength(dataBase64, "base64");
-  if (byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new Error("添付画像は1枚8MB以下にしてください");
-  }
-  return {
-    fileName: cleanText(input.fileName ?? "") || "screenshot",
-    contentType,
-    dataBase64,
-  };
-}
-
-type ValidatedAttachmentInput = ReturnType<typeof validateAttachment>;
-
-function validateAttachments(attachments: Array<z.infer<typeof actionItemAttachmentInputSchema>>) {
-  if (attachments.length > MAX_ATTACHMENTS_PER_REQUEST) {
-    throw new Error(`添付は1回${MAX_ATTACHMENTS_PER_REQUEST}枚までです`);
-  }
-  return attachments.map(validateAttachment);
-}
-
-function buildAttachmentRows(
-  actionItemId: number,
-  attachments: ValidatedAttachmentInput[],
-  createdBy: string | null,
-) {
-  return attachments.map((attachment) => ({
-    actionItemId,
-    ...attachment,
-    createdBy,
-  }));
-}
 
 function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>)
-        .filter(([key]) => key.length > 0)
-        .map(([key, checked]) => [key, Boolean(checked)]),
-    );
-  } catch {
-    return {};
-  }
+  return Object.fromEntries(Object.entries(parseActionItemReviewerChecks(value)).filter(([key]) => key.length > 0));
 }
 
 async function requireDb() {

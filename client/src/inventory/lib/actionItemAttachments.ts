@@ -1,4 +1,5 @@
-export const ACTION_ITEM_ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024;
+import { ACTION_ITEM_ATTACHMENT_MAX_BYTES } from "@shared/actionItems";
+export { ACTION_ITEM_ATTACHMENT_MAX_BYTES } from "@shared/actionItems";
 const IMAGE_RESIZE_MAX_EDGE = 1600;
 const IMAGE_JPEG_QUALITY = 0.82;
 

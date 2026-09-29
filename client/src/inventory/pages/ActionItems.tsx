@@ -1,5 +1,8 @@
-import { Fragment, useMemo, useState, type ClipboardEvent, type ReactNode } from "react";
-import { CheckCircle2, ClipboardCheck, ExternalLink, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
+import { ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER, compareActionItemAssignees, parseActionItemReviewerChecks as parseReviewerChecks } from "@shared/actionItems";
+import { getDeliveryHistoryLink, LinkedText, ActionItemDetail } from "./action-items/LinkedText";
+import { getAssigneeBadgeClass, formatDate, formatAuthorName, getCheckReviewers, getTimestamp } from "./action-items/presentation";
+import { useMemo, useState, type ClipboardEvent } from "react";
+import { CheckCircle2, ClipboardCheck, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
@@ -16,7 +19,6 @@ import {
   toActionItemAttachmentPayloads,
   type ActionItemAttachmentDraft,
 } from "@/inventory/lib/actionItemAttachments";
-import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { trpc } from "@/lib/trpc";
 
 type StatusFilter = "open" | "done" | "all";
@@ -24,223 +26,11 @@ type AttachmentPreview = {
   url: string;
   fileName?: string | null;
 };
-const ASSIGNEE_ORDER = ["全員", "仕入れ担当", "荷受担当", "出荷担当"];
-const ALL_REVIEWERS = ["村上さん", "鈴木さん", "藤本さん", "野田さん"] as const;
-type ReviewerName = (typeof ALL_REVIEWERS)[number];
-const SHIPPING_REVIEWERS: ReviewerName[] = ["鈴木さん", "藤本さん"];
-const CUSTOM_ASSIGNEE_BADGE_CLASSES = [
-  "border-slate-200 bg-slate-100 text-slate-700",
-  "border-rose-200 bg-rose-50 text-rose-700",
-  "border-cyan-200 bg-cyan-50 text-cyan-700",
-  "border-lime-200 bg-lime-50 text-lime-700",
-  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-];
 
-function getAssigneeBadgeClass(assignee: string | null | undefined, done: boolean) {
-  const name = assignee || "未設定";
-  const base = done ? "opacity-70" : "";
-  const fixed: Record<string, string> = {
-    仕入れ担当: "border-amber-200 bg-amber-50 text-amber-700",
-    荷受担当: "border-sky-200 bg-sky-50 text-sky-700",
-    出荷担当: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    全員: "border-violet-200 bg-violet-50 text-violet-700",
-    未設定: "border-slate-200 bg-slate-100 text-slate-600",
-  };
-  if (fixed[name]) return `${fixed[name]} ${base}`;
 
-  const hash = Array.from(name).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return `${CUSTOM_ASSIGNEE_BADGE_CLASSES[hash % CUSTOM_ASSIGNEE_BADGE_CLASSES.length]} ${base}`;
-}
 
-function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>).map(([key, checked]) => [key, Boolean(checked)]),
-    );
-  } catch {
-    return {};
-  }
-}
 
-function getDeliveryHistoryLink(item: { detail: string; sourceKey?: string | null }) {
-  const historyId = item.sourceKey?.match(/^fedex-missing-history:(\d+)$/)?.[1];
-  if (!historyId) return null;
-  const deliveryNo = item.detail.match(/出庫No:\s*([^\n]+)/)?.[1]?.trim();
-  if (!deliveryNo) return null;
-  const group = deliveryNo.match(/^(\d{3,4})/)?.[1] ?? deliveryNo.split("_")[0] ?? deliveryNo;
-  return {
-    historyId,
-    deliveryNo,
-    url: `/inventory/delivery-history?group=${encodeURIComponent(group)}&historyId=${encodeURIComponent(historyId)}`,
-  };
-}
 
-const DETAIL_MARKDOWN_LINK_RE = /\[([^\]\n]{1,40})\]\((https?:\/\/[^\s)]+)\)/g;
-const DETAIL_RAW_URL_RE = /https?:\/\/[^\s<>"'`]+/gi;
-const TRAILING_URL_PUNCTUATION_RE = /[.,!?;:、。！？；：)\]\}」』】》]+$/;
-
-function normalizeSafeDetailUrl(url: string) {
-  const normalized = normalizeExternalUrl(url);
-  try {
-    const parsed = new URL(normalized);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
-}
-
-function splitUrlTrailingPunctuation(value: string): { urlText: string; trailingText: string } {
-  const match = value.match(TRAILING_URL_PUNCTUATION_RE);
-  if (!match?.[0]) return { urlText: value, trailingText: "" };
-  return {
-    urlText: value.slice(0, -match[0].length),
-    trailingText: match[0],
-  };
-}
-
-function detailExternalLink(label: string, url: string, key: string) {
-  return (
-    <a
-      key={key}
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center break-all text-blue-700 underline underline-offset-2 hover:text-blue-900"
-    >
-      {label}
-      <ExternalLink className="ml-1 h-3 w-3 shrink-0" />
-    </a>
-  );
-}
-
-function renderRawUrlText(text: string, keyPrefix: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of text.matchAll(DETAIL_RAW_URL_RE)) {
-    const raw = match[0];
-    const index = match.index ?? 0;
-    const { urlText, trailingText } = splitUrlTrailingPunctuation(raw);
-    const url = normalizeSafeDetailUrl(urlText);
-    if (!url) continue;
-
-    if (index > lastIndex) parts.push(text.slice(lastIndex, index));
-    parts.push(detailExternalLink(urlText, url, `${keyPrefix}-${index}-${url}`));
-    if (trailingText) parts.push(trailingText);
-    lastIndex = index + raw.length;
-  }
-
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
-}
-
-function renderLinkedTextLine(line: string) {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of line.matchAll(DETAIL_MARKDOWN_LINK_RE)) {
-    const [raw, label, rawUrl] = match;
-    const index = match.index ?? 0;
-    const url = normalizeSafeDetailUrl(rawUrl);
-    if (!url) continue;
-
-    if (index > lastIndex) {
-      parts.push(...renderRawUrlText(line.slice(lastIndex, index), `text-${lastIndex}`));
-    }
-    parts.push(detailExternalLink(label, url, `markdown-${index}-${url}`));
-    lastIndex = index + raw.length;
-  }
-
-  if (lastIndex < line.length) {
-    parts.push(...renderRawUrlText(line.slice(lastIndex), `text-${lastIndex}`));
-  }
-  return parts.length > 0 ? parts : line || "\u00a0";
-}
-
-function LinkedText({ value }: { value: string }) {
-  return (
-    <>
-      {value.split("\n").map((line, index) => (
-        <Fragment key={`${index}-${line}`}>{index > 0 ? "\n" : null}{renderLinkedTextLine(line)}</Fragment>
-      ))}
-    </>
-  );
-}
-
-function ActionItemDetail({
-  detail,
-  deliveryLink,
-  onNavigate,
-}: {
-  detail: string;
-  deliveryLink: ReturnType<typeof getDeliveryHistoryLink>;
-  onNavigate: (url: string) => void;
-}) {
-  return (
-    <div className="text-sm whitespace-pre-wrap leading-6">
-      {detail.split("\n").map((line, index) => {
-        const lineDeliveryLink = deliveryLink && line.trim().startsWith("出庫No:") ? deliveryLink : null;
-        return (
-          <div key={`${index}-${line}`}>
-            {lineDeliveryLink ? (
-              <span>
-                出庫No:{" "}
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0 align-baseline font-mono text-sm"
-                  onClick={() => onNavigate(lineDeliveryLink.url)}
-                >
-                  {lineDeliveryLink.deliveryNo}
-                  <ExternalLink className="ml-1 h-3 w-3" />
-                </Button>
-              </span>
-            ) : (
-              renderLinkedTextLine(line)
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function formatDate(value: string | Date | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatAuthorName(value: string | null | undefined) {
-  if (!value) return "未設定";
-  return value === "cron" ? "自動" : value;
-}
-
-function normalizePersonName(value: string | null | undefined) {
-  return (value ?? "").trim().replace(/[ 　]/g, "").replace(/さん$/, "").replace(/様$/, "");
-}
-
-function getCheckReviewers(item: { assignee?: string | null; createdBy?: string | null }): ReviewerName[] {
-  if (item.assignee === "出荷担当") return SHIPPING_REVIEWERS;
-  if (item.assignee !== "全員") return [];
-  const author = normalizePersonName(item.createdBy);
-  return ALL_REVIEWERS.filter((reviewer) => normalizePersonName(reviewer) !== author);
-}
-
-function getTimestamp(value: string | Date | null) {
-  if (!value) return 0;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
 
 export default function ActionItems() {
   const utils = trpc.useUtils();
@@ -341,14 +131,7 @@ export default function ActionItems() {
     const assignees = Array.from(
       new Set([...ASSIGNEE_ORDER, ...items.map((item) => item.assignee || "未設定")]),
     ).filter((assignee) => assignee !== "その他");
-    return assignees.sort((a, b) => {
-      const aIndex = ASSIGNEE_ORDER.indexOf(a);
-      const bIndex = ASSIGNEE_ORDER.indexOf(b);
-      if (aIndex !== -1 || bIndex !== -1) {
-        return (aIndex === -1 ? ASSIGNEE_ORDER.length : aIndex) - (bIndex === -1 ? ASSIGNEE_ORDER.length : bIndex);
-      }
-      return a.localeCompare(b, "ja");
-    });
+    return assignees.sort(compareActionItemAssignees);
   }, [items]);
 
   const filteredItems = useMemo(() => {
