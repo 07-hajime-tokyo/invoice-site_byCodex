@@ -238,3 +238,46 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-tests.json --
 - 分割保存はフォームの特定フィールドだけを列挙し、通常保存はformをspreadする。双方のpayloadを無理に同じ形にしない。
 - 初期化/採番/保存/失敗通知/外部為替/DB/実UIの実行検証は担当では行わない。全体型・全テスト・ビルドも未実行で、統合担当へ引き継ぐ。
 - 編集UI、AI入力、保存等の副作用自体の整理は未着手。この3単位を引き渡して停止する。
+
+## 第6回：I06g〜i 編集UIとプレビュー寸法
+
+共通基準`7db6054`をクリーンな担当ブランチへ`d2d4248`でmerge。調査後、保存処理と密接な確認ダイアログ群は次へ残し、巨大props束を避けられる以下の3単位に限定した。
+
+| 単位 | ファイルと境界 |
+| --- | --- |
+| I06g | `InvoiceMetadata.tsx`：基本情報（番号/状態/発行日/期限/通貨/金額表示/色）。propsはformとsetFormのみ |
+| I06h | `InvoiceItemsEditor.tsx`：明細入力・追加/削除・合計。propsはformと既存の3操作のみ |
+| I06i | `ScaledPreview.tsx`：幅に合わせるScaledPreviewと幅/高さに合わせるScaledPreviewFit。共通のA4寸法定数、異なるサイズ規則は保持 |
+
+InvoicePageは2,241行から1,975行へ縮小。初期化、保存query/mutation、AI、採番、印刷/PDFの実行順序、確認ダイアログのイベントは変更なし。元画面で不要になったSwitch importのみ削除。
+
+### 旧JSX・イベント・サイズ計算の比較
+
+`editor-ui-baseline.json`は7db6054の実基本情報JSX・実明細JSX・2つの実プレビュー関数を固定したfixture。`editorUiReference.tsx`で同じ固定依存を与えて実行し、旧実装側で先にスナップショットを保存した。
+
+- 13対象テスト・24スナップショットが整理前後で一致。
+- 基本情報は4通貨のHTML、番号/状態/日付/期限/通貨/金額表示/色の実イベントを比較。手動期限が設定済みでも発行日変更で期限を再計算する既存挙動を保持。
+- 明細は空/通常/金額非表示、EUR/USD/JPY/GBPの既存表示を比較。追加、商品名/subText、数量の空欄→Number("")=0、単価小数、削除index、数値入力focus時のselect呼出しを確認。
+- プレビューは初期scale1、幅397/高さ280.75、上限1、幅/高さ0、幅794/高さ561.5、親なし、ResizeObserverのobserve対象/更新/cleanupを固定依存で比較。
+- 対象型チェック成功。AST比較で対象JSX2か所とサイズ調整関数以外の画面宣言が不変であることを確認。移動したJSXはそのまま一致。`git diff --check`成功。
+- UI基盤は固定HTMLタグ、React hooks/ResizeObserverは決定的なアダプター。実Radix・ブラウザーlayout・observer配信タイミング・フォーカスの再現保証ではない。実UI比較は統合担当へ引き継ぐ。全体テスト/型/build/DB/browserは担当では未実施。
+
+```sh
+INVOICE_EDITOR_UI_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editorUi.test.tsx
+TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editorUi.test.tsx
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-ui-tests.json --noEmit
+```
+
+### 保持した注意点
+
+- 編集合計は税抜で、USD/EURだけ記号化する。PDF/プレビューの税/記号/書式に統一しない。
+- ScaledPreviewは親なしでも自身の幅で調整するが、Fitは親なしで初期scale1を保持する。負数やゼロ寸法への補正は追加しない。
+- 統合担当が旧画面で、JPYのquantity2×600000=120万円の単一明細が1グループとなり「分割不要です」「合計1,200,000円で100万円以下です」と表示される既存矛盾を確認した。今回の担当では実UIを再確認していないが、該当ダイアログと分割規則を変更せず、この制約を引き継ぐ。
+
+### 残る大きな責務と次の候補
+
+1. 戻る/上限/分割の確認ダイアログ、編集ツールバー・宛先/備考表示。副作用は親イベントとして残し、表示境界と保存成功/失敗/取消の順序を固定して分割する。
+2. KnowledgeBaseDialogのファイル入力・履歴表示・チャットUI。アップロード/AI呼出しと表示を段階分離し、実外部通信を使わない比較を先行する。
+3. 編集/一覧の残る処理（保存、印刷/PDF操作、削除済み/検知結果モーダル）の責務別整理。大きな汎用hookへ集めず、実行順序・初期化・取消を個別に固定する。
+
+これらは今回未着手。I06g〜iのローカルコミットを引き渡して停止する。

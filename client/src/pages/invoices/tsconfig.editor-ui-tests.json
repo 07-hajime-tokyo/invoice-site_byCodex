@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["./InvoiceMetadata.tsx", "./InvoiceItemsEditor.tsx", "./ScaledPreview.tsx", "./editorUiReference.tsx", "./editorUi.test.tsx"],
+  "exclude": []
+}

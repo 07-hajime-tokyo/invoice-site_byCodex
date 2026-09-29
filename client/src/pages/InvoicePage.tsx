@@ -30,7 +30,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import {
   Plus,
   Trash2,
@@ -72,6 +71,9 @@ import { InvoiceCard } from "./invoices/InvoiceCard";
 import { addInvoiceItem, updateInvoiceItem, removeInvoiceItem, resolveInvoiceClient, applyInvoiceClient } from "./invoices/editorItems";
 import { buildInvoiceSavePayload, buildInvoiceSplitPayload } from "./invoices/editorPayload";
 import { computeInvoiceSplits } from "./invoices/splitInvoices";
+import { InvoiceMetadata } from "./invoices/InvoiceMetadata";
+import { InvoiceItemsEditor } from "./invoices/InvoiceItemsEditor";
+import { ScaledPreview, ScaledPreviewFit } from "./invoices/ScaledPreview";
 
 // ─── Sender Settings Dialog ──────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -761,86 +763,7 @@ function InvoiceEditor({
             )}
 
             {/* Invoice metadata */}
-            <div className="bg-background border border-border rounded-lg p-4 space-y-3">
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">基本情報</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">インボイス番号 *</Label>
-                  <Input value={form.invoiceNumber} onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))} placeholder="INV-20260324-001" className="h-8 text-sm mt-1" />
-                </div>
-                <div>
-                  <Label className="text-xs">ステータス</Label>
-                  <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as InvoiceFormData["status"] }))}>
-                    <SelectTrigger className="h-8 text-sm mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="draft">下書き</SelectItem>
-                      <SelectItem value="sent">送付済み</SelectItem>
-                      <SelectItem value="paid">支払済み</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">発行日</Label>
-                  <Input
-                    type="date"
-                    value={form.invoiceDate}
-                    onChange={e => {
-                      const newDate = e.target.value;
-                      setForm(f => ({
-                        ...f,
-                        invoiceDate: newDate,
-                        // 支払期限が未設定 or まだ自動計算値のままなら自動更新
-                        dueDate: calcDueDate(newDate),
-                      }));
-                    }}
-                    className="h-8 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">支払期限 <span className="text-muted-foreground font-normal">(発行日+1ヶ月-1日)</span></Label>
-                  <Input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} className="h-8 text-sm mt-1" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">通貨</Label>
-                  <Select value={form.currency} onValueChange={v => setForm(f => ({ ...f, currency: v }))}>
-                    <SelectTrigger className="h-8 text-sm mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="EUR">EUR (€)</SelectItem>
-                      <SelectItem value="USD">USD ($)</SelectItem>
-                      <SelectItem value="JPY">JPY (¥)</SelectItem>
-                      <SelectItem value="GBP">GBP (£)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end gap-2 pb-0.5">
-                  <Switch
-                    checked={form.showAmounts}
-                    onCheckedChange={v => setForm(f => ({ ...f, showAmounts: v }))}
-                    id="show-amounts"
-                  />
-                  <Label htmlFor="show-amounts" className="text-xs cursor-pointer">金額を表示</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground whitespace-nowrap">アクセントカラー</Label>
-                  <input
-                    type="color"
-                    value={form.accentColor || "#db8b1a"}
-                    onChange={e => setForm(f => ({ ...f, accentColor: e.target.value }))}
-                    className="w-8 h-8 rounded cursor-pointer border border-border p-0.5 bg-transparent"
-                    title="インボイスのアクセントカラーを変更"
-                  />
-                  <span className="text-xs text-muted-foreground font-mono">{form.accentColor || "#db8b1a"}</span>
-                </div>
-              </div>
-            </div>
+            <InvoiceMetadata form={form} setForm={setForm} />
 
             {/* Client selection */}
             <div className="bg-background border border-border rounded-lg p-4 space-y-3">
@@ -879,92 +802,7 @@ function InvoiceEditor({
           </div>
 
           {/* Right: items */}
-          <div className="space-y-3">
-            <div className="bg-background border border-border rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">明細</h3>
-                <Button size="sm" variant="outline" onClick={addItem} className="h-7 text-xs gap-1">
-                  <Plus size={11} /> 行を追加
-                </Button>
-              </div>
-
-              {form.items.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4 italic">
-                  WhatsAppから解析するか、手動で行を追加してください
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {/* Header */}
-                  <div className={`grid gap-2 text-[10px] font-bold text-muted-foreground uppercase px-1 ${form.showAmounts ? "grid-cols-[1fr_60px_80px_24px]" : "grid-cols-[1fr_60px_24px]"}`}>
-                    <span>商品名</span>
-                    <span className="text-right">数量</span>
-                    {form.showAmounts && <span className="text-right">単価</span>}
-                    <span></span>
-                  </div>
-                  {form.items.map((item, idx) => (
-                    <div key={idx} className={`grid gap-2 items-start ${form.showAmounts ? "grid-cols-[1fr_60px_80px_24px]" : "grid-cols-[1fr_60px_24px]"}`}>
-                      <div className="flex flex-col gap-1">
-                        <Input
-                          value={item.description}
-                          onChange={e => updateItem(idx, "description", e.target.value)}
-                          placeholder="商品名・説明"
-                          className="h-8 text-xs"
-                        />
-                        <Input
-                          value={item.subText ?? ""}
-                          onChange={e => updateItem(idx, "subText", e.target.value)}
-                          placeholder="種類・カラー等（任意）"
-                          className="h-7 text-xs text-muted-foreground"
-                        />
-                      </div>
-                      <Input
-                        type="number"
-                        value={item.quantity}
-                        onChange={e => updateItem(idx, "quantity", Number(e.target.value))}
-                        onFocus={e => e.currentTarget.select()}
-                        className="h-8 text-xs text-right"
-                        min={0}
-                      />
-                      {form.showAmounts && (
-                        <Input
-                          type="number"
-                          value={item.unitPrice}
-                          onChange={e => updateItem(idx, "unitPrice", Number(e.target.value))}
-                          onFocus={e => e.currentTarget.select()}
-                          className="h-8 text-xs text-right"
-                          min={0}
-                        />
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeItem(idx)}
-                      >
-                        <X size={12} />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Totals */}
-              {form.showAmounts && form.items.length > 0 && (
-                <div className="border-t border-border pt-3 space-y-1">
-                  {(() => {
-                    const subtotal = form.items.reduce((s, item) => s + item.quantity * item.unitPrice, 0);
-                    const sym = form.currency === "USD" ? "$" : form.currency === "EUR" ? "€" : form.currency;
-                    return (
-                      <div className="flex justify-between text-sm font-bold">
-                        <span>合計</span>
-                        <span>{sym}{subtotal.toLocaleString()}</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-        </div>
-        </div>
+          <InvoiceItemsEditor form={form} addItem={addItem} updateItem={updateItem} removeItem={removeItem} />
         </div>
       ) : null}
 
@@ -1538,114 +1376,10 @@ function KnowledgeBaseDialog({
 
 // ─// ─── Scaled Preview Wrapper ──────────────────────────────────────────────────────────────────────────────────
 // Scales A4 (794px wide) to fit the available container width
-function ScaledPreview({ children }: { children: React.ReactNode }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
 
-  const A4_W = 794;
-  const A4_H = 1123;
-
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const update = () => {
-      // Use the parent's width to determine scale
-      const available = el.parentElement?.clientWidth ?? el.clientWidth;
-      const s = Math.min(1, available / A4_W);
-      setScale(s);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    if (el.parentElement) ro.observe(el.parentElement);
-    return () => ro.disconnect();
-  }, []);
-
-  // The outer wrapper is exactly the scaled size — no extra white space on the right or bottom
-  const scaledW = Math.round(A4_W * scale);
-  const scaledH = Math.round(A4_H * scale);
-
-  return (
-    <div
-      ref={wrapperRef}
-      className="scaled-preview-container"
-      style={{
-        // Exact scaled dimensions — wrapper hugs the content
-        width: `${scaledW}px`,
-        height: `${scaledH}px`,
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
-      <div
-        className="scaled-preview-inner"
-        style={{
-          transformOrigin: "top left",
-          transform: `scale(${scale})`,
-          width: `${A4_W}px`,
-          overflow: "hidden",
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 // 幅・高さ両方を考慮してモーダル内に収めるプレビューコンポーネント
-function ScaledPreviewFit({ children }: { children: React.ReactNode }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
 
-  const A4_W = 794;
-  const A4_H = 1123;
-
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const update = () => {
-      const parent = el.parentElement;
-      if (!parent) return;
-      const availW = parent.clientWidth - 0; // padding already applied by parent
-      const availH = parent.clientHeight - 0;
-      const scaleW = availW / A4_W;
-      const scaleH = availH / A4_H;
-      const s = Math.min(1, scaleW, scaleH);
-      setScale(s);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    if (el.parentElement) ro.observe(el.parentElement);
-    return () => ro.disconnect();
-  }, []);
-
-  const scaledW = Math.round(A4_W * scale);
-  const scaledH = Math.round(A4_H * scale);
-
-  return (
-    <div
-      ref={wrapperRef}
-      style={{
-        width: `${scaledW}px`,
-        height: `${scaledH}px`,
-        overflow: "hidden",
-        position: "relative",
-        flexShrink: 0,
-        boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-      }}
-    >
-      <div
-        style={{
-          transformOrigin: "top left",
-          transform: `scale(${scale})`,
-          width: `${A4_W}px`,
-          overflow: "hidden",
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 // ─── Invoice List ──────────────────────────────────────────────────────────────────────────────────────
 function InvoiceList({  onNew,
