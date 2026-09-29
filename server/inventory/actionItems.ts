@@ -1,5 +1,15 @@
-import { ACTION_ITEM_ASSIGNEE_ORDER, ACTION_ITEM_REVIEWERS, parseActionItemReviewerChecks } from "@shared/actionItems";
-import { MAX_ATTACHMENTS_PER_REQUEST, actionItemAttachmentInputSchema, cleanText, validateAttachments, buildAttachmentRows } from "./actionItemAttachmentInput";
+import {
+  ACTION_ITEM_ASSIGNEE_ORDER,
+  ACTION_ITEM_REVIEWERS,
+  parseActionItemReviewerChecks,
+  normalizeActionItemSingleLineText,
+} from "@shared/actionItems";
+import {
+  MAX_ATTACHMENTS_PER_REQUEST,
+  actionItemAttachmentInputSchema,
+  validateAttachments,
+  buildAttachmentRows,
+} from "./actionItemAttachmentInput";
 import { z } from "zod";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -17,7 +27,6 @@ import { getDb } from "./db";
 const actionItemStatusSchema = z.enum(["open", "done"]);
 const defaultAssignees = new Set(ACTION_ITEM_ASSIGNEE_ORDER);
 const reviewerNameSchema = z.enum(ACTION_ITEM_REVIEWERS);
-
 
 function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
   return Object.fromEntries(Object.entries(parseActionItemReviewerChecks(value)).filter(([key]) => key.length > 0));
@@ -118,9 +127,9 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
-      const title = cleanText(input.title);
-      const assignee = cleanText(input.assignee);
-      const createdBy = cleanText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
+      const title = normalizeActionItemSingleLineText(input.title);
+      const assignee = normalizeActionItemSingleLineText(input.assignee);
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
       const detail = input.detail.trim();
       const validatedAttachments = validateAttachments(input.attachments);
       const result = await db.insert(actionItems).values({
@@ -161,7 +170,7 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const [item] = await db.select({ id: actionItems.id }).from(actionItems).where(eq(actionItems.id, input.actionItemId)).limit(1);
       if (!item) throw new Error("やることが見つかりません");
-      const createdBy = cleanText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
       await db.insert(actionItemAttachments).values(buildAttachmentRows(input.actionItemId, validateAttachments(input.attachments), createdBy));
       return { success: true, count: input.attachments.length };
     }),
@@ -185,10 +194,10 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      const title = cleanText(input.title);
-      const assignee = cleanText(input.assignee);
+      const title = normalizeActionItemSingleLineText(input.title);
+      const assignee = normalizeActionItemSingleLineText(input.assignee);
       const detail = input.detail.trim();
-      const createdBy = cleanText(input.createdBy ?? "");
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "");
       await db.update(actionItems).set({
         title,
         assignee,
@@ -209,7 +218,7 @@ export const actionItemsRouter = router({
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemAssignees).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
+      await db.insert(actionItemAssignees).ignore().values({ name: normalizeActionItemSingleLineText(input.name), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -230,7 +239,7 @@ export const actionItemsRouter = router({
     .input(z.object({ title: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemTitlePresets).ignore().values({ title: cleanText(input.title), sortOrder: 100 });
+      await db.insert(actionItemTitlePresets).ignore().values({ title: normalizeActionItemSingleLineText(input.title), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -238,7 +247,7 @@ export const actionItemsRouter = router({
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemAuthors).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
+      await db.insert(actionItemAuthors).ignore().values({ name: normalizeActionItemSingleLineText(input.name), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -291,7 +300,7 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const [item] = await db.select({ id: actionItems.id }).from(actionItems).where(eq(actionItems.id, input.actionItemId)).limit(1);
       if (!item) throw new Error("やることが見つかりません");
-      const author = cleanText(input.author ?? "") || ctx.user.name || ctx.user.email || null;
+      const author = normalizeActionItemSingleLineText(input.author ?? "") || ctx.user.name || ctx.user.email || null;
       await db.insert(actionItemReplies).values({
         actionItemId: input.actionItemId,
         body: input.body.trim(),
@@ -311,7 +320,7 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      const author = cleanText(input.author ?? "") || null;
+      const author = normalizeActionItemSingleLineText(input.author ?? "") || null;
       await db.update(actionItemReplies).set({
         body: input.body.trim(),
         author,

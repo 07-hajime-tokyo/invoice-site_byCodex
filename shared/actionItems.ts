@@ -14,6 +14,11 @@ export const ACTION_ITEM_REVIEWERS = [
 export type ActionItemReviewer = (typeof ACTION_ITEM_REVIEWERS)[number];
 export const ACTION_ITEM_ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024;
 
+/** 保存するタイトル・人名・ファイル名用。改行を保持する詳細/返信本文には使わない。 */
+export function normalizeActionItemSingleLineText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export function compareActionItemAssignees(a: string, b: string) {
   const aIndex = ACTION_ITEM_ASSIGNEE_ORDER.indexOf(a);
   const bIndex = ACTION_ITEM_ASSIGNEE_ORDER.indexOf(b);

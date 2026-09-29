@@ -1,8 +1,35 @@
-import { ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER, compareActionItemAssignees, parseActionItemReviewerChecks as parseReviewerChecks } from "@shared/actionItems";
-import { getDeliveryHistoryLink, LinkedText, ActionItemDetail } from "./action-items/LinkedText";
-import { getAssigneeBadgeClass, formatDate, formatAuthorName, getCheckReviewers, getTimestamp } from "./action-items/presentation";
+import {
+  ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER,
+  compareActionItemAssignees,
+  parseActionItemReviewerChecks as parseReviewerChecks,
+} from "@shared/actionItems";
+import {
+  getDeliveryHistoryLink,
+  LinkedText,
+  ActionItemDetail,
+} from "./action-items/LinkedText";
+import {
+  getAssigneeBadgeClass,
+  formatDate,
+  formatAuthorName,
+  getCheckReviewers,
+  getTimestamp,
+} from "./action-items/presentation";
 import { useMemo, useState, type ClipboardEvent } from "react";
-import { CheckCircle2, ClipboardCheck, ImagePlus, MessageSquare, Paperclip, Pencil, Pin, PinOff, RefreshCw, Search, Send, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  ClipboardCheck,
+  ImagePlus,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Search,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { ActionItemForm } from "@/inventory/components/ActionItemForm";
@@ -10,7 +37,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -26,11 +58,6 @@ type AttachmentPreview = {
   url: string;
   fileName?: string | null;
 };
-
-
-
-
-
 
 export default function ActionItems() {
   const utils = trpc.useUtils();

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { ACTION_ITEM_ATTACHMENT_MAX_BYTES as MAX_ATTACHMENT_BYTES } from "@shared/actionItems";
+import {
+  ACTION_ITEM_ATTACHMENT_MAX_BYTES as MAX_ATTACHMENT_BYTES,
+  normalizeActionItemSingleLineText,
+} from "@shared/actionItems";
 
 export const MAX_ATTACHMENTS_PER_REQUEST = 10;
 
@@ -21,10 +24,6 @@ export const actionItemAttachmentInputSchema = z.object({
   dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64_LENGTH),
 });
 
-export function cleanText(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
 function cleanBase64(value: string) {
   return value.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
 }
@@ -45,7 +44,7 @@ function validateAttachment(
     throw new Error("添付画像は1枚8MB以下にしてください");
   }
   return {
-    fileName: cleanText(input.fileName ?? "") || "screenshot",
+    fileName: normalizeActionItemSingleLineText(input.fileName ?? "") || "screenshot",
     contentType,
     dataBase64,
   };

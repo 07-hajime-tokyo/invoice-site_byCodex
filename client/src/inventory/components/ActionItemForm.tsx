@@ -1,5 +1,14 @@
-import { ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER, compareActionItemAssignees } from "@shared/actionItems";
-import { useEffect, useId, useMemo, useState, type ClipboardEvent } from "react";
+import {
+  ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER,
+  compareActionItemAssignees,
+} from "@shared/actionItems";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ClipboardEvent,
+} from "react";
 import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fileToActionItemAttachment,
