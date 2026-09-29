@@ -6,8 +6,8 @@
     "./support/*.mjs",
     "../../server/inventory/purchases/*.test.ts",
     "../../shared/purchaseVisibility.test.ts",
-    "../../client/src/inventory/pages/purchases/*.test.ts",
-    "../../client/src/inventory/pages/purchases/*.test.tsx"
+    "../../client/**/*.test.ts",
+    "../../client/**/*.test.tsx"
   ],
   "exclude": ["../../node_modules"]
 }

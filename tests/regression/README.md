@@ -71,7 +71,22 @@ node scripts/test-local-regression.mjs seed
 接続URLと接続後のDB名を確認し、テストDB以外は初期化しません。
 ネットワークガードはNode用の補助策でありOS全体のファイアウォールではありません。
 既存の `pnpm test` にはこのDB依存テストを混ぜていません。
-現在のDB回帰テストは合計43件です。
+現在の既存DB回帰テストは43件。並行作業の接続先制限2件を追加し、合計45件です。
+
+## 並行作業の専用DB
+
+作業用チャットには `.local/test.env` の `LOCAL_TEST_TARGET=registration` または `invoices` を設定します。
+許可する組合せは `support/test-target.mjs` に固定されています。ホストとポートは全て上記のローカルMySQLです。
+
+| 担当 | DB | ユーザー |
+| --- | --- | --- |
+| 統合（省略時main） | invoice_remake_test | invoice_test |
+| 発注登録 | invoice_remake_test_registration | invoice_test_registration |
+| インボイス | invoice_remake_test_invoices | invoice_test_invoices |
+
+担当ごとに専用DBだけの権限を与えます。別担当や本番の接続URLは拒否します。
+実行コマンドは同じで、子プロセスにも担当設定を引き継ぎます。任意のDB名を環境変数で許可する仕組みではありません。
+分担とファイルの所有範囲は `docs/parallel-refactor.md` を参照してください。
 
 ## 自動テストの対象
 

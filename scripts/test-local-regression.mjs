@@ -7,7 +7,8 @@ import { assertTestDatabase } from "../tests/regression/support/test-target.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const config = parse(fs.readFileSync(path.join(root, ".local/test.env")));
-assertTestDatabase(config.DATABASE_URL ?? "");
+const targetKey = config.LOCAL_TEST_TARGET ?? "main";
+assertTestDatabase(config.DATABASE_URL ?? "", targetKey);
 const mode = process.argv[2] ?? "test";
 if (!["test", "schema", "seed"].includes(mode)) throw new Error("Unknown mode");
 const env = {
@@ -15,6 +16,7 @@ const env = {
   TMPDIR: process.env.TMPDIR,
   DATABASE_URL: config.DATABASE_URL,
   DATABASE_SSL: "false",
+  LOCAL_TEST_TARGET: targetKey,
   NODE_ENV: "test",
   LOCAL_AUTH_BYPASS: "true",
   RUN_RUNTIME_SCHEMA_CHECK: "true",
