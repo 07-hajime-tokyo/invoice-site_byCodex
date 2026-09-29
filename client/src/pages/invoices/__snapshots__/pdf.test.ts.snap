@@ -1,0 +1,1831 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`logo contracts > keeps MIME precedence, extension fallback and unsupported formats 1`] = `
+[
+  "PNG",
+  "JPEG",
+  "JPEG",
+  "PNG",
+  "JPEG",
+  "PNG",
+  null,
+  null,
+  null,
+  null,
+]
+`;
+
+exports[`logo contracts > real PDF embeds or skips fixed logo: false 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "74bea8b9227d096558a4786f29301c3fc5a173246f74e9d4185d36dff3cf7e47",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "( 1,234.57) Tj",
+        "(10%) Tj",
+        "( 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "( 50.00) Tj",
+        "() Tj",
+        "( 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "( -3.25) Tj",
+        "() Tj",
+        "( -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "( 0.12) Tj",
+        "(8.5%) Tj",
+        "( 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "( 2,466.04) Tj",
+        "(Tax) Tj",
+        "( 246.93) Tj",
+        "(Total) Tj",
+        "( 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`logo contracts > real PDF embeds or skips fixed logo: true 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "f9cfd6a7a6f13943502420de66aaf33c8ed84568ff43c5d9eed7d1a31974493b",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+/I0 19 0 R
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "( 1,234.57) Tj",
+        "(10%) Tj",
+        "( 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "( 50.00) Tj",
+        "() Tj",
+        "( 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "( -3.25) Tj",
+        "() Tj",
+        "( -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "( 0.12) Tj",
+        "(8.5%) Tj",
+        "( 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "( 2,466.04) Tj",
+        "(Tax) Tj",
+        "( 246.93) Tj",
+        "(Total) Tj",
+        "( 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > CAD 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "0da071dcbf4e9b8b23babef8a10ada666d35812021c61287e8da501a53002a7b",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "(CAD 1,234.57) Tj",
+        "(10%) Tj",
+        "(CAD 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "(CAD 50.00) Tj",
+        "() Tj",
+        "(CAD 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "(CAD -3.25) Tj",
+        "() Tj",
+        "(CAD -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "(CAD 0.12) Tj",
+        "(8.5%) Tj",
+        "(CAD 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "(CAD 2,466.04) Tj",
+        "(Tax) Tj",
+        "(CAD 246.93) Tj",
+        "(Total) Tj",
+        "(CAD 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > EUR 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "74bea8b9227d096558a4786f29301c3fc5a173246f74e9d4185d36dff3cf7e47",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "( 1,234.57) Tj",
+        "(10%) Tj",
+        "( 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "( 50.00) Tj",
+        "() Tj",
+        "( 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "( -3.25) Tj",
+        "() Tj",
+        "( -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "( 0.12) Tj",
+        "(8.5%) Tj",
+        "( 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "( 2,466.04) Tj",
+        "(Tax) Tj",
+        "( 246.93) Tj",
+        "(Total) Tj",
+        "( 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > GBP 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "0710fca0760a86bb0d4647eb4d9d53a2f61243e00f3a25ea6d7253ab4a55f8ec",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "(£ 1,234.57) Tj",
+        "(10%) Tj",
+        "(£ 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "(£ 50.00) Tj",
+        "() Tj",
+        "(£ 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "(£ -3.25) Tj",
+        "() Tj",
+        "(£ -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "(£ 0.12) Tj",
+        "(8.5%) Tj",
+        "(£ 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "(£ 2,466.04) Tj",
+        "(Tax) Tj",
+        "(£ 246.93) Tj",
+        "(Total) Tj",
+        "(£ 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > JPY 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "352718e87e8499e0a7782a0e7b0df3eed8951ed96aeb7562337e01d2c429daca",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "(¥ 1,234.567) Tj",
+        "(10%) Tj",
+        "(¥ 2,469.134) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "(¥ 50) Tj",
+        "() Tj",
+        "(¥ 0) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "(¥ -3.25) Tj",
+        "() Tj",
+        "(¥ -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "(¥ 0.123) Tj",
+        "(8.5%) Tj",
+        "(¥ 0.154) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "(¥ 2,466.038) Tj",
+        "(Tax) Tj",
+        "(¥ 246.927) Tj",
+        "(Total) Tj",
+        "(¥ 2,712.965) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > USD 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "40f572d5d21bc4457f037083c110251f32a7dd75c674e8cf3be54928099d1d37",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "($ 1,234.57) Tj",
+        "(10%) Tj",
+        "($ 2,469.13) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "($ 50.00) Tj",
+        "() Tj",
+        "($ 0.00) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "($ -3.25) Tj",
+        "() Tj",
+        "($ -3.25) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "($ 0.12) Tj",
+        "(8.5%) Tj",
+        "($ 0.15) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "($ 2,466.04) Tj",
+        "(Tax) Tj",
+        "($ 246.93) Tj",
+        "(Total) Tj",
+        "($ 2,712.96) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > empty 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "6b5beea1c36c33a85b08fbc912a4a4e7ce8b94f72bf3768286d331da21242516",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: CUSTOM) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "( 0.00) Tj",
+        "(Tax) Tj",
+        "( 0.00) Tj",
+        "(Total) Tj",
+        "( 0.00) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-CUSTOM",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > empty hidden 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "1cc4776c410173590539d1a3aec151f7a820cd535dbd80357e07c8e1e69025a5",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > hidden 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "be882e8ff82e6590c6f82f6f491b967fdd524d85b6d63efbea6d405fa1d7781d",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Product One) Tj",
+        "(Blue / A) Tj",
+        "(2) Tj",
+        "(Zero) Tj",
+        "(0) Tj",
+        "(Credit) Tj",
+        "(1) Tj",
+        "(Fraction) Tj",
+        "(1.25) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;
+
+exports[`real PDF output against 0471a7f > multiple pages 1`] = `
+{
+  "creator": "Tokyo Media Koueki",
+  "openAction": [
+    true,
+    "/XYZ",
+    "null",
+    "null",
+    "1",
+  ],
+  "pages": [
+    {
+      "contentSha256": "d4c2dbc7a1d86a6a1155b7e5d74b3cb6c442cee1f19af30337fba2d12e721d20",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Sender Ltd) Tj",
+        "(Invoice: 42) Tj",
+        "(Issued on: 2026-09-30) Tj",
+        "(Due by: 2026-10-29) Tj",
+        "(FROM) Tj",
+        "(TO) Tj",
+        "(Sender Ltd) Tj",
+        "(Sender) Tj",
+        "(Address) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(sender@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Line 1) Tj",
+        "(Line 2) Tj",
+        "(Client Ltd) Tj",
+        "(Example: Client) Tj",
+        "(Address: Line) Tj",
+        "(City) Tj",
+        "(Country) Tj",
+        "(test@example.invalid) Tj",
+        "(0000000) Tj",
+        "(Customer note) Tj",
+        "(Second) Tj",
+        "(Reference: Fixed) Tj",
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 1) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(1) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 1.25) Tj",
+        "(Item 2) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(2) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 2.50) Tj",
+        "(Item 3) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(3) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 3.75) Tj",
+        "(Item 4) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(4) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 5.00) Tj",
+        "(Item 5) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(5) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 6.25) Tj",
+        "(Item 6) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(6) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 7.50) Tj",
+        "(Item 7) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(7) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 8.75) Tj",
+        "(Item 8) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(8) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 10.00) Tj",
+        "(Item 9) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(9) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 11.25) Tj",
+        "(Item 10) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(10) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 12.50) Tj",
+        "(Item 11) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(11) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 13.75) Tj",
+      ],
+    },
+    {
+      "contentSha256": "f270b2b877d4dd06c0913fb4a8fac773a65d67c1a9ca9a7b4c11fcfb9eb70a07",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 12) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(12) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 15.00) Tj",
+        "(Item 13) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(13) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 16.25) Tj",
+        "(Item 14) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(14) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 17.50) Tj",
+        "(Item 15) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(15) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 18.75) Tj",
+        "(Item 16) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(16) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 20.00) Tj",
+        "(Item 17) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(17) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 21.25) Tj",
+        "(Item 18) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(18) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 22.50) Tj",
+        "(Item 19) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(19) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 23.75) Tj",
+        "(Item 20) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(20) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 25.00) Tj",
+        "(Item 21) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(21) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 26.25) Tj",
+        "(Item 22) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(22) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 27.50) Tj",
+        "(Item 23) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(23) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 28.75) Tj",
+        "(Item 24) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(24) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 30.00) Tj",
+        "(Item 25) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(25) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 31.25) Tj",
+        "(Item 26) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(26) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 32.50) Tj",
+        "(Item 27) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(27) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 33.75) Tj",
+        "(Item 28) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(28) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 35.00) Tj",
+        "(Item 29) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(29) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 36.25) Tj",
+      ],
+    },
+    {
+      "contentSha256": "4eb9123f82b5f97801700719b3319f0434706f4e45069ea3b107b0f1979bc88a",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 30) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(30) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 37.50) Tj",
+        "(Item 31) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(31) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 38.75) Tj",
+        "(Item 32) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(32) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 40.00) Tj",
+        "(Item 33) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(33) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 41.25) Tj",
+        "(Item 34) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(34) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 42.50) Tj",
+        "(Item 35) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(35) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 43.75) Tj",
+        "(Item 36) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(36) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 45.00) Tj",
+        "(Item 37) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(37) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 46.25) Tj",
+        "(Item 38) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(38) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 47.50) Tj",
+        "(Item 39) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(39) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 48.75) Tj",
+        "(Item 40) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(40) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 50.00) Tj",
+        "(Item 41) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(41) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 51.25) Tj",
+        "(Item 42) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(42) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 52.50) Tj",
+        "(Item 43) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(43) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 53.75) Tj",
+        "(Item 44) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(44) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 55.00) Tj",
+        "(Item 45) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(45) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 56.25) Tj",
+        "(Item 46) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(46) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 57.50) Tj",
+        "(Item 47) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(47) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 58.75) Tj",
+      ],
+    },
+    {
+      "contentSha256": "63c1697ada158081e2fd184e24b805a5b8143b07c53757abeaf9b1002050ffc2",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 48) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(48) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 60.00) Tj",
+        "(Item 49) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(49) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 61.25) Tj",
+        "(Item 50) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(50) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 62.50) Tj",
+        "(Item 51) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(51) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 63.75) Tj",
+        "(Item 52) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(52) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 65.00) Tj",
+        "(Item 53) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(53) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 66.25) Tj",
+        "(Item 54) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(54) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 67.50) Tj",
+        "(Item 55) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(55) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 68.75) Tj",
+        "(Item 56) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(56) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 70.00) Tj",
+        "(Item 57) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(57) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 71.25) Tj",
+        "(Item 58) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(58) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 72.50) Tj",
+        "(Item 59) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(59) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 73.75) Tj",
+        "(Item 60) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(60) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 75.00) Tj",
+        "(Item 61) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(61) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 76.25) Tj",
+        "(Item 62) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(62) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 77.50) Tj",
+        "(Item 63) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(63) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 78.75) Tj",
+        "(Item 64) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(64) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 80.00) Tj",
+        "(Item 65) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(65) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 81.25) Tj",
+      ],
+    },
+    {
+      "contentSha256": "3e3b7864d0cd9251460878c1f2a69bb12a3276d9dd5e8e5844fd68de91468350",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 66) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(66) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 82.50) Tj",
+        "(Item 67) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(67) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 83.75) Tj",
+        "(Item 68) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(68) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 85.00) Tj",
+        "(Item 69) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(69) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 86.25) Tj",
+        "(Item 70) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(70) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 87.50) Tj",
+        "(Item 71) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(71) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 88.75) Tj",
+        "(Item 72) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(72) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 90.00) Tj",
+        "(Item 73) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(73) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 91.25) Tj",
+        "(Item 74) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(74) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 92.50) Tj",
+        "(Item 75) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(75) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 93.75) Tj",
+        "(Item 76) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(76) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 95.00) Tj",
+        "(Item 77) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(77) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 96.25) Tj",
+        "(Item 78) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(78) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 97.50) Tj",
+        "(Item 79) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(79) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 98.75) Tj",
+        "(Item 80) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(80) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 100.00) Tj",
+        "(Item 81) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(81) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 101.25) Tj",
+        "(Item 82) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(82) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 102.50) Tj",
+        "(Item 83) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(83) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 103.75) Tj",
+      ],
+    },
+    {
+      "contentSha256": "af9eca749c585a5d4352471b77c90912a9d8f3cafc4d27b5ba0732a8fc9af687",
+      "resources": "<<
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+/Font <<
+/F1 15 0 R
+/F2 16 0 R
+/F3 17 0 R
+/F4 18 0 R
+/F5 19 0 R
+/F6 20 0 R
+/F7 21 0 R
+/F8 22 0 R
+/F9 23 0 R
+/F10 24 0 R
+/F11 25 0 R
+/F12 26 0 R
+/F13 27 0 R
+/F14 28 0 R
+>>
+/XObject <<
+>>
+>>",
+      "size": {
+        "height": 841.89,
+        "width": 595.28,
+      },
+      "text": [
+        "(Product) Tj",
+        "(Quantity) Tj",
+        "(Unit Price) Tj",
+        "(Tax) Tj",
+        "(Total) Tj",
+        "(Item 84) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(84) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 105.00) Tj",
+        "(Item 85) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(85) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 106.25) Tj",
+        "(Item 86) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(86) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 107.50) Tj",
+        "(Item 87) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(87) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 108.75) Tj",
+        "(Item 88) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(88) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 110.00) Tj",
+        "(Item 89) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(89) Tj",
+        "( 1.25) Tj",
+        "() Tj",
+        "( 111.25) Tj",
+        "(Item 90) Tj",
+        "(Description wrapping and fixed variant) Tj",
+        "(90) Tj",
+        "( 1.25) Tj",
+        "(10%) Tj",
+        "( 112.50) Tj",
+        "(Invoice Summary) Tj",
+        "(Subtotal) Tj",
+        "( 5,118.75) Tj",
+        "(Tax) Tj",
+        "( 258.75) Tj",
+        "(Total) Tj",
+        "( 5,377.50) Tj",
+        "(Notes) Tj",
+        "(Fixed notes) Tj",
+        "(Second line) Tj",
+      ],
+    },
+  ],
+  "subject": "Invoice",
+  "title": "Invoice-0042",
+  "type": "application/pdf",
+}
+`;

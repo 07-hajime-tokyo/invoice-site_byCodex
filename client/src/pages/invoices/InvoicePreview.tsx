@@ -1,3 +1,5 @@
+import { calculateInvoiceTotals } from "@shared/invoiceAmounts";
+import { invoiceCurrencySymbol, formatInvoiceAmount } from "./amountFormat";
 import type { InvoicePreviewProps } from "./types";
 
 export function InvoicePreview({
@@ -6,20 +8,12 @@ export function InvoicePreview({
   senderSettings,
 }: InvoicePreviewProps) {
   const accent = form.accentColor || "#db8b1a";
-  const currencySymbol = form.currency === "USD" ? "$" : form.currency === "EUR" ? "€" : form.currency === "GBP" ? "£" : form.currency === "JPY" ? "¥" : form.currency;
-  const fmt = (n: number) => {
-    if (form.currency === "JPY") return n.toLocaleString();
-    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  };
+  const currencySymbol = invoiceCurrencySymbol(form.currency);
+  const fmt = (n: number) => formatInvoiceAmount(n, form.currency);
   const contactLineStyle = { margin: "2px 0", lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" } as const;
   const formatContactLine = (line: string) => line.replace(/([:：])(?=\S)/g, "$1 ");
 
-  const subtotal = form.items.reduce((s, item) => s + item.quantity * item.unitPrice, 0);
-  const taxTotal = form.items.reduce((s, item) => {
-    const rate = (item.tax ?? 0) / 100;
-    return s + item.quantity * item.unitPrice * rate;
-  }, 0);
-  const total = subtotal + taxTotal;
+  const { subtotal, taxTotal, total } = calculateInvoiceTotals(form.items);
 
   return (
     <div
