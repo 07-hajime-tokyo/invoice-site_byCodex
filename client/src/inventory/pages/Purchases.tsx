@@ -1,3 +1,8 @@
+import {
+  isInboundActivePurchase,
+  getEffectivePurchaseStatus as getEffectivePurchaseStatusKey,
+  isPurchaseInboundComplete,
+} from "@shared/purchaseVisibility";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Label } from "@/components/ui/label";
@@ -147,8 +152,6 @@ const PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter-v2";
 const LEGACY_PURCHASE_STATUS_FILTER_KEY = "purchases-statusFilter";
 // T22: 分類タブの選択状態
 const PURCHASE_INBOUND_TAB_KEY = "purchases-inboundTab-v1";
-// 2026-06-18の入庫ワークフロー刷新以前（6/19以前）の旧運用データを非表示にする
-const INBOUND_CUTOFF_DATE = "2026-06-20";
 
 /** 入庫管理CSVエクスポート */
 function exportPurchasesCSV(purchases: Purchase[]) {
@@ -248,37 +251,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
     return () => window.clearTimeout(timer);
   }, [value, delayMs]);
   return debounced;
-}
-
-function normalizeDateOnly(value: string | Date | null | undefined): string | null {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
-  }
-  const trimmed = value.trim();
-  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
-}
-
-function isInboundCutoffVisible(purchase: Purchase): boolean {
-  const filterDate =
-    normalizeDateOnly(purchase.purchaseDate) ??
-    normalizeDateOnly(purchase.purchase_date) ??
-    normalizeDateOnly(purchase.created_at) ??
-    normalizeDateOnly(purchase.createdAt);
-  return filterDate == null || filterDate >= INBOUND_CUTOFF_DATE;
-}
-
-function isInboundActivePurchase(purchase: Purchase): boolean {
-  return purchase.status !== "purchased" && isInboundCutoffVisible(purchase);
-}
-
-function getEffectivePurchaseStatusKey(purchase: Purchase) {
-  if (purchase.status !== "purchased" && purchase.extra?.trackingNumber) return "shipped";
-  return purchase.status;
-}
-
-function isPurchaseInboundComplete(purchase: Purchase): boolean {
-  return isInboundComplete(purchase.inboundClass ?? null, purchase.stage ?? "received");
 }
 
 type InboundTabCountKey = "unclassified" | InboundClass;
