@@ -441,3 +441,8 @@ node_modules/.bin/tsc -p server/invoices/tsconfig.tests.json --noEmit
 CI=1 TZ=Asia/Tokyo node_modules/.bin/vitest run server/invoices/invoicePersistenceRules.test.ts shared/invoiceAmounts.test.ts shared/invoiceKey.test.ts client/src/pages/invoices
 node_modules/.bin/tsc -p server/invoices/tsconfig.tests.json --noEmit
 ```
+
+
+## I11：UI副作用の最終監査（2026-09-30）
+
+ユーザー指定の実用的な完了基準で最終監査した。今回の変更・正本・残す画面責務・検証・外部接続の制約は、進捗の正本 [refactor-roadmap.md](./refactor-roadmap.md#現在の2領域の完了基準と最終監査2026-09-30) を参照。この領域のローカル整理は今回の基準で完了とし、過去の「次候補」をすべて追加分割する予定にはしない。

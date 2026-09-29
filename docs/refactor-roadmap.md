@@ -44,7 +44,7 @@
 | 領域 | 主な入口・配置 | 状態 | 整理前に固定する動作 |
 | --- | --- | --- | --- |
 | 入庫一覧 | `Purchases.tsx`、inventory APIの一覧処理 | P01〜P09済 | 検索・表示・集計・編集・CSV。検証範囲と残る制約は下記 |
-| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | R01〜R16済 | 型・表示・追跡・管理番号・検索・ラベル/QR・在庫提案・商品照合/集計・利益予測。引当グループと充足表示も整理。登録・発送の実行は後続 |
+| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | 済（R01〜R17・今回の完了基準） | UI調整・編集・業務規則・発注作成/発注管理APIを分離。下記の最終監査参照。荷受取消・出庫/海外発送サービス自体は各領域で扱う |
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 未着手 | 受入・ラベル・工程更新・取消 |
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
@@ -52,7 +52,7 @@
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 未着手 | 箱・送り状・申告・発送状態・エラー時の扱い |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
-| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f・I08a〜b・I09〜I10済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。API保存入力/行変換は正本化済。UI副作用と領域全体の監査は後続 |
+| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | 済（I01〜I11・今回の完了基準） | 保存入力/行変換・金額・分割・顧客・PDF・表示の正本とUI副作用を監査。画面固有の状態/イベント調整は維持。実外部AI等の接続検証は未実施 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | M01一部済 | 集計・締め・保存・再取得・日付境界 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 未着手 | 対象限定・復元・履歴保持・再実行。専用データのみで検証 |
@@ -321,3 +321,35 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - 商品編集の旧新全体DOM一致。追跡番号は先行した商品更新で背景数量/金額が変わるため、対象Dialog部分を比較して一致。商品Cを数量4/単価450へ、商品BをTEST-ROUND12-Bへ保存し、再読込UIと専用DB実値で保持を確認。
 - 独立したM01を含む統合543単体＋51 HTTP/API/専用MySQL回帰＝594件成功。アプリ/回帰＋推移テストの型・build・差分チェック成功。新規ファイルだけ整形。実AI/カメラ/外部発送/実印刷は未検証。
 - DB回帰後に架空7件へseedし、手動編集・在庫数量1の比較fixture・請求書を撤去。全体1済・3一部済・12未着手。main/push/Vercel/本番DBキー操作なし。次は請求書UI副作用と発注APIの実コード監査/整理。
+
+
+## 現在の2領域の完了基準と最終監査（2026-09-30）
+
+ユーザー指定の1〜3を適用し、4の追加並行作業は行わない。全16領域の自動継続は停止したまま。
+
+1. 全体を監査し、同じ意味の重複と、変更理由の異なる業務処理の混在を整理する。行数だけで分割しない。
+2. 変更箇所とルールの正本が明確なら、この段階の整理を完了とする。画面のstate/query/イベント調整は画面に残してよい。
+3. 変更に応じて検証する。純粋移動は旧実コードとのAST比較と既存回帰を利用。保存・数量は実HTTP/API/専用DBでも確認する。
+
+### 発注登録 R17
+
+- `inventory.orderManagement` の8 APIを `server/inventory/orderManagementRouter.ts`、`inventory.zaico.createOrderedPurchase` を `createOrderedPurchase.ts` へ移動。同一階層のため動的import先も不変。URL/キー/認証/入力/返却値/取得・更新順を保持。
+- 取引行・既存例外取引の展開は `orderTradeRows`、発注商品照合は `orderProductMatching`、配送明細のインボイス引当は `deliveryInvoiceAttribution`、発送進捗取得と単一cacheは `shipmentProgressSheets`、申告照合は `shipmentDeclarationRules`。複数領域から同じ関数を直接importし、ルーターへの逆参照や処理コピーを作らない。
+- `publicProcedure` は従来から `protectedProcedure` の別名。新ファイルでもprotectedの別名importを維持し、公開APIに変えていない。
+- 発注作成はローカル/外部連携の既存分岐・管理番号による更新・ラベル発行を一つの手続きとして保持。画面の検索/選択/印刷調整、既に業務別に分かれた各パネルは追加分割しない。
+- 荷受取消・出庫・梱包・外部送り状発行そのものは一覧の別領域。今回それらのサービス全体を整理済みとはしない。発注画面からの既存呼出は維持する。
+
+### インボイス I11
+
+- Editorの保存は `editorPayload`/金額・分割規則とserverの `invoiceInput`/`invoiceRows`/`invoiceWrites` が正本。Editorに残る保存→画面状態更新→通知、AI結果のフォーム反映、PDF保存前の保存確認は画面固有の調整として保持。
+- Listの絞込・表示/金額・保存済み請求書からフォームへの変換、顧客選択、PDF描画は既存専用モジュールを参照。一覧と編集の異なる通知や採番は無理に統一しない。
+- KnowledgeBaseDialogは既に入力/履歴/会話表示と型が分離されており、ファイル/会話の選択stateやmutationの配線をさらにhook化しない。ブラウザー印刷の小さな画面専用handlerも維持する。
+- この監査で追加すべき重複ルールは見つからなかったため、請求書コードは今回変更しない。第12回のUI一致・保存再読込・DB確認を再利用する。
+
+### 検証と引き渡し
+
+- `e03b493` と比較し、移動37宣言、9 API手続きの実行AST一致、残存124宣言も2か所の参照置換以外一致。整形による括弧とexportだけを正規化。schema/SQL/認証・更新順は維持。
+- 単体543件＋既存HTTP/API/専用MySQL51件成功。発注作成/同番号更新/不正数量拒否と、個体受入/再読取の二重計上防止/全数完了/無関係レコード保持の2回帰を追加し、旧実装・移動後の両方で成功。合計596件。
+- アプリ型検査、回帰テスト型検査、build、差分検査成功。既存bundleサイズ警告あり。UIは無変更なので、今回新たな全画面ブラウザー比較は行わない。実Google Sheets/Zaico/AI、カメラ/プリンターへの実接続は未検証。
+- 検証後は専用DBを架空7件へ戻す。ローカルコミットまで。本番・main・push・Vercel・本番DB/鍵は操作しない。
+- 今回の基準で **3領域済・1領域一部済（月次）・12領域未着手**。この領域数は作業量が均等ではないため、工数の完了率には換算しない。残る領域やClaudeとの分担はこのターンでは開始しない。
