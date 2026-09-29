@@ -394,3 +394,19 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.knowledge-tests.json
 - KnowledgeBaseの残る責務はファイル取込（選択/貼り付け/読込）、会話状態（選択・永続履歴同期・作成削除・送信）、番号抽出。今回は副作用hookを追加せず、次回これらの境界を個別に検討する。
 - InvoicePage側には編集/一覧の保存、印刷/PDF操作、削除済み/検知結果モーダル等が残る。インボイス領域全体の完了ではない。
 - I07d〜fをローカルコミットで引き渡して停止する。push/deploy/本番DB操作は行っていない。
+
+## 第10回：I08a〜b 編集・一覧を業務画面単位で移動
+
+基準`c39ab42`を`d74ee94`でmerge。`InvoiceEditor.tsx`（609行）と`InvoiceList.tsx`（521行）へ実関数をそのまま移し、必要なquery/UI/顧客/送信者/PDF等の依存を直接importした。InvoicePageは1,279行から136行の画面切替・読込入口になった。既存propsを維持し、大量の依存注入・内部hook分割は行っていない。共用型は既存types等を参照し、TODAY/EMPTY_FORMは利用元の入口だけに残す。
+
+- 旧git基準と移動した2関数の本体は文字列一致（export追加のみ）、実行ASTも一致。入口の関数・View型・初期値定数も元の文字列と一致。保存/AI/PDF/queryの順序は変更なし。
+- `editorControlsReference.tsx`と`listReference.tsx`の現行読込先を移動先へ変更。現行JSXと親イベントを既存テストが引き続き実行する。移動だけのfixture/snapshotは追加していない。
+- インボイス対象8ファイル・121テスト成功。入口/両画面/参照helperを含む対象型検査とdiffチェック成功。全体検証・実UI・DBは統合担当へ集約。
+- 次の責務境界はEditorの保存・AI入力・PDF処理、Listの一覧操作・削除済み/検知結果・preview/PDF処理。今回の移動だけで内部副作用の整理完了とはしない。
+
+```sh
+CI=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.screen-tests.json --noEmit
+```
+
+ローカルコミットを引き渡して停止。push/deploy/本番DB操作なし。

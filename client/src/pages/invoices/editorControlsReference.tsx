@@ -11,7 +11,7 @@ export const controlsBaseline=JSON.parse(readFileSync(new URL("./editor-controls
 export function loadEditorControls(current:Record<string,unknown>={}){
  let blocks=controlsBaseline;
  if(Object.keys(current).length){
-  const source=readFileSync(new URL("../InvoicePage.tsx",import.meta.url),"utf8"),ast=ts.createSourceFile("x.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  const source=readFileSync(new URL("./InvoiceEditor.tsx",import.meta.url),"utf8"),ast=ts.createSourceFile("x.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
   function find(n:ts.Node,start:number):ts.Node|undefined {if((ts.isJsxElement(n)||ts.isJsxSelfClosingElement(n))&&n.getStart(ast)>=start)return n;let result:ts.Node|undefined;ts.forEachChild(n,c=>{if(!result)result=find(c,start)});return result;}
   blocks={};for(const[name,marker]of Object.entries({toolbar:'{/* Toolbar */}',over:'{/* 100万円超過確認ダイアログ */}',split:'{/* 分割インボイスプレビューダイアログ */}',contact:'{/* Client selection */}'}))blocks[name]=find(ast,source.indexOf(marker)+marker.length)!.getText(ast);
   blocks.notes="";

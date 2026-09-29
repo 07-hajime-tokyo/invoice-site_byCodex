@@ -25,7 +25,7 @@ export function referenceRules(invoiceList: unknown[], eurRate: unknown, usdRate
 export function loadListMarkup(current?: { InvoiceCard: unknown }) {
   let markup = listBaseline.list;
   if (current) {
-    const source = readFileSync(new URL("../InvoicePage.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./InvoiceList.tsx", import.meta.url), "utf8");
     markup = source.slice(source.indexOf('      {/* List */}') + '      {/* List */}'.length, source.indexOf('      <ClientManagerDialog open={showClientManager}')).trim();
   }
   return evaluate(`${listBaseline.badge}\nexport function ListMarkup(props:any) {
