@@ -1,8 +1,73 @@
+import {
+  matchesStatus,
+  countPurchaseRows,
+  withVisiblePurchaseItems,
+  normalizePurchaseRegistrationRows,
+} from "./purchase-registration/rowFilters";
+import {
+  itemQuantity,
+  itemStockQuantity,
+  sumQuantity,
+  getItemLabels,
+} from "./purchase-registration/purchaseItems";
+import {
+  isReceived,
+  normalizedLabelStatus,
+  purchaseRowStatusKind,
+  statusLabel,
+  statusClass,
+} from "./purchase-registration/rowStatus";
+import { comparePurchaseRegistrationOrder } from "./purchase-registration/rowOrder";
+import type {
+  InventoryItemLabel,
+  PurchaseItem,
+  PurchaseRow,
+  InventoryItem,
+} from "./purchase-registration/dataTypes";
+import type {
+  StatusFilter,
+  WorkflowTab,
+  StockViewMode,
+  TrackingFormState,
+  PurchaseEditFormState,
+  StockEditFormState,
+} from "./purchase-registration/formTypes";
+import type {
+  SupplierView,
+  LabelView,
+  LabelPrintRequest,
+  StockItemView,
+  StockProposalDetail,
+  StockProposalProduct,
+  StockProposalGroup,
+  ShippingItemView,
+  ProductSummary,
+  InvoiceProductSummary,
+  PurchaseRegistrationInvoice,
+  ProductDetailFilter,
+  AllocationGroup,
+} from "./purchase-registration/viewTypes";
+import {
+  toNumber,
+  formatCurrency,
+  formatTradePrice,
+  normalizeCurrencyLabel,
+  formatDate,
+} from "./purchase-registration/format";
+import {
+  TRACKING_CARRIER_LABELS,
+  TRACKING_CARRIER_KEYS,
+  TRACKING_CARRIER_OPTIONS,
+  normalizedTrackingNumber,
+  getPurchaseTrackingMeta,
+  purchaseTrackingNumber,
+  hasPurchaseTracking,
+} from "./purchase-registration/tracking";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { detectCarrier, getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
+import { getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import {
   extractManagementHints,
   extractModel,
@@ -13,7 +78,6 @@ import {
 } from "@shared/productMatching";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
 import { classifyOutboundScan, normalizeOutboundScan, OUTBOUND_BOX_CODE_PATTERN } from "@shared/outboundBoxes";
-import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,247 +116,7 @@ import {
   Truck,
 } from "lucide-react";
 
-interface InventoryItemLabel {
-  id?: number;
-  labelId: string;
-  status?: string | null;
-  legacyManagementNo?: string | null;
-  localInventoryId?: number | null;
-}
-
-interface PurchaseItem {
-  id: number;
-  inventory_id?: number | null;
-  title: string;
-  quantity: string;
-  unit?: string;
-  unit_price?: string | number | null;
-  status?: string;
-  purchase_date?: string | null;
-  estimated_purchase_date?: string | null;
-  etc?: string | null;
-  category?: string | null;
-  itemLabels?: InventoryItemLabel[];
-  currentInventoryQuantity?: string | number | null;
-}
-
-interface PurchaseRow {
-  id: number;
-  num?: string | null;
-  purchase_date?: string | null;
-  purchaseDate?: string | Date | null;
-  created_at?: string | null;
-  createdAt?: string | Date | null;
-  status?: string | null;
-  inboundClass?: InboundClass | null;
-  stage?: string | null;
-  csvSupplierName?: string | null;
-  csvSupplierUrl?: string | null;
-  extra?: { shipDate?: string | null; trackingNumber?: string | null; carrier?: string | null; note?: string | null } | null;
-  purchase_items: PurchaseItem[];
-}
-
-interface InventoryItem {
-  id: number;
-  title: string;
-  quantity?: string | number | null;
-  unit?: string | null;
-  category?: string | null;
-  categories?: string[] | null;
-  place?: string | null;
-  etc?: string | null;
-  unit_price?: string | number | null;
-  purchase_unit_price?: string | number | null;
-  last_purchase_date?: string | null;
-  updated_at?: string | null;
-  supplierUrl?: string | null;
-  supplierName?: string | null;
-  itemLabels?: InventoryItemLabel[];
-}
-
-type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
-type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
-type StockViewMode = "list" | "proposal";
-type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
-
-type PurchaseEditFormState = {
-  title: string;
-  managementNo: string;
-  category: string;
-  quantity: string;
-  unitPrice: string;
-  estimatedDate: string;
-  supplierName: string;
-  supplierUrl: string;
-  shipDate: string;
-  trackingNumber: string;
-  carrier: "auto" | Carrier;
-};
-
-type StockEditFormState = {
-  title: string;
-  managementNo: string;
-  category: string;
-  quantity: string;
-  unit: string;
-  place: string;
-  unitPrice: string;
-  supplierName: string;
-  supplierUrl: string;
-};
-
-interface SupplierView {
-  name: string;
-  url: string;
-}
-
-interface LabelView {
-  key: string;
-  labelId: string;
-  rawStatus: string;
-  status: string;
-  title: string;
-  printTitle: string;
-  category: string;
-  legacyManagementNo: string;
-  allocationLabel: string;
-  unitPrice: number;
-  supplier: SupplierView;
-  purchaseDate: string;
-  rowId: number;
-  itemId: number;
-  inventoryId?: number | null;
-  trackingNumber?: string | null;
-  carrier?: string | null;
-}
-
-type LabelPrintRequest = (labels: LabelView[]) => void;
-
-interface StockItemView {
-  key: string;
-  inventoryId: number;
-  labelId: string | null;
-  status: string;
-  title: string;
-  category: string;
-  legacyManagementNo: string;
-  allocationLabel: string;
-  unitPrice: number;
-  quantity: number;
-  supplier: SupplierView;
-  purchaseDate: string;
-  inboundWaiting?: boolean;
-}
-
-interface StockProposalDetail {
-  source: "stock" | "waiting";
-  managementNo: string;
-  labelId?: string | null;
-  quantity: number;
-  unitPrice: number;
-  status: string;
-  supplier: SupplierView;
-  date: string;
-}
-
-interface StockProposalProduct {
-  key: string;
-  title: string;
-  model: string;
-  stockQuantity: number;
-  waitingQuantity: number;
-  totalQuantity: number;
-  unitPriceTotal: number;
-  unitPriceQuantity: number;
-  minUnitPrice: number | null;
-  maxUnitPrice: number | null;
-  details: StockProposalDetail[];
-  searchText: string;
-}
-
-interface StockProposalGroup {
-  model: string;
-  stockQuantity: number;
-  waitingQuantity: number;
-  totalQuantity: number;
-  unitPriceTotal: number;
-  unitPriceQuantity: number;
-  products: StockProposalProduct[];
-}
-
-interface ShippingItemView {
-  key: string;
-  inventoryId: number;
-  labelId: string | null;
-  rawStatus: string;
-  status: string;
-  canShip: boolean;
-  title: string;
-  legacyManagementNo: string;
-  allocationLabel: string;
-  unitPrice: number;
-  supplier: SupplierView;
-  quantity: number;
-  maxQuantity: number;
-}
-
-interface ProductSummary {
-  key: string;
-  title: string;
-  managementNos?: string[];
-  matchTexts?: string[];
-  invoiceOrdered?: number;
-  invoiceShipped?: number;
-  required: number;
-  secured: number;
-  waiting: number;
-  unitPriceTotal: number;
-  unitPriceCount: number;
-  sellingPrice?: number | null;
-  sellingPriceJpy?: number | null;
-  sellingCurrency?: string | null;
-}
-
-type InvoiceProductSummary = {
-  productName: string;
-  orderQty: number;
-  deliveredQty: number;
-  sellingPrice?: number | null;
-  sellingPriceJpy?: number | null;
-  currency?: string | null;
-};
-
 const EMPTY_INVOICE_PRODUCTS: InvoiceProductSummary[] = [];
-
-type PurchaseRegistrationInvoice = {
-  invoiceNo: string;
-  partner: string;
-  totalOrderQty: number;
-  totalDeliveredQty: number;
-  remainingQty: number;
-};
-
-type ProductDetailFilter = {
-  productKey?: string;
-  productTitle: string;
-  mode: "stock" | "waiting";
-};
-
-interface AllocationGroup {
-  key: string;
-  label: string;
-  partner: string;
-  rows: PurchaseRow[];
-  products: ProductSummary[];
-  labels: LabelView[];
-  required: number;
-  secured: number;
-  waiting: number;
-  purchaseTotal: number;
-  invoiceOrderQty?: number;
-  invoiceDeliveredQty?: number;
-  invoiceRemainingQty?: number;
-}
 
 const workflowTabs: Array<{ value: WorkflowTab; label: string; icon: typeof PackagePlus }> = [
   { value: "order", label: "発注登録", icon: PackagePlus },
@@ -312,45 +136,9 @@ const EBAY_GROUP_KEY = "invoice-ebay";
 const EBAY_GROUP_LABEL = "eBay";
 type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
 const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
-const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
-  yamato: "ヤマト運輸",
-  sagawa: "佐川急便",
-  japanpost: "日本郵便",
-  amazon: "Amazon",
-  seino: "西濃運輸",
-  fukuyama: "福山通運",
-  ecohai: "エコ配",
-  unknown: "追跡",
-};
-
-const TRACKING_CARRIER_KEYS = new Set<Carrier>([
-  "yamato",
-  "sagawa",
-  "japanpost",
-  "amazon",
-  "seino",
-  "fukuyama",
-  "ecohai",
-  "unknown",
-]);
-
-const TRACKING_CARRIER_OPTIONS: Array<{ value: "auto" | Carrier; label: string }> = [
-  { value: "auto", label: "自動判別" },
-  { value: "japanpost", label: "日本郵便" },
-  { value: "yamato", label: "ヤマト運輸" },
-  { value: "sagawa", label: "佐川急便" },
-  { value: "amazon", label: "Amazon" },
-  { value: "seino", label: "西濃運輸" },
-  { value: "ecohai", label: "エコ配" },
-  { value: "fukuyama", label: "福山通運" },
-];
 
 function todayInputDate(): string {
   return new Date().toLocaleDateString("sv-SE");
-}
-
-function normalizedTrackingNumber(trackingNumber: string): string {
-  return trackingNumber.trim().replace(/[\s-]/g, "");
 }
 
 function openEcohaiTracking(trackingNumber: string) {
@@ -369,62 +157,6 @@ function openEcohaiTracking(trackingNumber: string) {
   document.body.appendChild(form);
   form.submit();
   document.body.removeChild(form);
-}
-
-function normalizeCarrierKey(value: string | null | undefined, fallback: Carrier): Carrier {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (!normalized || normalized === "auto") return fallback;
-  if (TRACKING_CARRIER_KEYS.has(normalized as Carrier)) return normalized as Carrier;
-  if (value?.includes("ヤマト")) return "yamato";
-  if (value?.includes("佐川")) return "sagawa";
-  if (value?.includes("日本郵便") || value?.includes("郵便")) return "japanpost";
-  if (value?.includes("西濃")) return "seino";
-  if (value?.includes("福山")) return "fukuyama";
-  if (value?.includes("エコ配")) return "ecohai";
-  return fallback;
-}
-
-function getTrackingUrlForCarrier(carrier: Carrier, trackingNumber: string, fallbackUrl: string | null): string | null {
-  const num = normalizedTrackingNumber(trackingNumber);
-  if (!num) return null;
-  switch (carrier) {
-    case "yamato":
-      return `https://jizen.kuronekoyamato.co.jp/jizen/servlet/crjz.b.NQ0010?id=${num}`;
-    case "sagawa":
-      return `https://k2k.sagawa-exp.co.jp/p/web/okurijosearch.do?okurijoNo=${num}`;
-    case "japanpost":
-      return `https://trackings.post.japanpost.jp/services/srv/search/direct?reqCodeNo1=${num}&searchKind=S002&locale=ja`;
-    case "amazon":
-      return `https://www.amazon.co.jp/progress-tracker/package/ref=pe_tracking?_encoding=UTF8&from=gp&nodeId=&orderId=&packageIndex=0&shipmentId=${num}`;
-    case "seino":
-      return `https://track.seino.co.jp/cgi-bin/gnpquery.pgm?GNPNO1=${num}`;
-    case "fukuyama":
-      return "https://corp.fukutsu.co.jp/situation/tracking_no_input.html";
-    case "ecohai":
-      return null;
-    default:
-      return fallbackUrl;
-  }
-}
-
-function getPurchaseTrackingMeta(trackingNumber: string, savedCarrier?: string | null) {
-  const autoInfo = detectCarrier(trackingNumber);
-  const carrier = normalizeCarrierKey(savedCarrier, autoInfo.carrier);
-  return {
-    carrier,
-    carrierName: TRACKING_CARRIER_LABELS[carrier] ?? autoInfo.carrierName,
-    trackingUrl: getTrackingUrlForCarrier(carrier, trackingNumber, autoInfo.trackingUrl),
-    isEcohai: carrier === "ecohai",
-    normalizedNumber: normalizedTrackingNumber(trackingNumber),
-  };
-}
-
-function purchaseTrackingNumber(row: PurchaseRow): string {
-  return row.extra?.trackingNumber?.trim() ?? "";
-}
-
-function hasPurchaseTracking(row: PurchaseRow): boolean {
-  return purchaseTrackingNumber(row).length > 0;
 }
 
 function cleanLegacyManagementNo(value?: string | null): string {
@@ -463,42 +195,6 @@ function getInventoryManagementNo(etc?: string | null): string {
 
 function getInventoryCategory(inventory: InventoryItem): string {
   return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
-}
-
-function toNumber(value: unknown): number {
-  const numberValue = Number(value ?? 0);
-  return Number.isFinite(numberValue) ? numberValue : 0;
-}
-
-function formatCurrency(value: unknown): string {
-  const numberValue = toNumber(value);
-  return `¥${numberValue.toLocaleString()}`;
-}
-
-function formatEuro(value: unknown): string {
-  const numberValue = toNumber(value);
-  if (numberValue <= 0) return "-";
-  return `€${numberValue.toLocaleString()}`;
-}
-
-function formatTradePrice(value: unknown, currency?: string | null): string {
-  const numberValue = toNumber(value);
-  if (numberValue <= 0) return "-";
-  const normalizedCurrency = (currency ?? "").toLowerCase();
-  if (normalizedCurrency.includes("eur") || normalizedCurrency.includes("ユーロ")) {
-    return `€${numberValue.toLocaleString()}`;
-  }
-  if (normalizedCurrency.includes("usd") || normalizedCurrency.includes("ドル")) {
-    return `$${numberValue.toLocaleString()}`;
-  }
-  return numberValue.toLocaleString();
-}
-
-function normalizeCurrencyLabel(currency?: string | null): string {
-  const normalizedCurrency = (currency ?? "").toLowerCase();
-  if (normalizedCurrency.includes("eur") || normalizedCurrency.includes("ユーロ")) return "EUR";
-  if (normalizedCurrency.includes("usd") || normalizedCurrency.includes("ドル")) return "USD";
-  return currency?.trim() || "";
 }
 
 function buildForecastSummary(products: ProductSummary[], purchaseTotal: number) {
@@ -551,23 +247,6 @@ function buildForecastSummary(products: ProductSummary[], purchaseTotal: number)
   };
 }
 
-function formatDate(value?: string | null): string {
-  if (!value) return "-";
-  return value.slice(0, 10);
-}
-
-function itemQuantity(item: PurchaseItem): number {
-  return toNumber(item.quantity);
-}
-
-function itemStockQuantity(item: PurchaseItem): number {
-  return Math.max(0, toNumber(item.currentInventoryQuantity));
-}
-
-function sumQuantity(items: PurchaseItem[]): number {
-  return items.reduce((total, item) => total + itemQuantity(item), 0);
-}
-
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -596,10 +275,6 @@ function uniqueManagementNos(values: string[]): string[] {
     result.push(value);
   }
   return result;
-}
-
-function getItemLabels(items: PurchaseItem[]): InventoryItemLabel[] {
-  return items.flatMap((item) => item.itemLabels ?? []).filter((label) => label.labelId);
 }
 
 function preferredManagementNo(currentManagementNo?: string | null, labelManagementNo?: string | null, fallback = "-"): string {
@@ -665,98 +340,6 @@ function getSupplier(row: PurchaseRow): SupplierView {
     name: row.csvSupplierName?.trim() || parsed.supplierSite || "-",
     url: row.csvSupplierUrl?.trim() || "",
   };
-}
-
-function isReceived(row: PurchaseRow): boolean {
-  return row.status === "purchased" || row.purchase_items.some((item) => item.status === "purchased");
-}
-
-function matchesStatus(row: PurchaseRow, filter: StatusFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "missing_tracking") return !hasPurchaseTracking(row);
-  const kind = purchaseRowStatusKind(row);
-  if (filter === "received") return kind === "received" || kind === "partial_shipped" || kind === "shipped";
-  return kind === "ordered" || kind === "inbound_shipped";
-}
-
-type PurchaseRowCounts = {
-  all: number;
-  ordered: number;
-  received: number;
-  missingTracking: number;
-  quantity: number;
-};
-
-function countPurchaseRows(rows: PurchaseRow[]): PurchaseRowCounts {
-  return rows.reduce(
-    (acc, row) => {
-      acc.all += 1;
-      const statusKind = purchaseRowStatusKind(row);
-      if (statusKind === "ordered" || statusKind === "inbound_shipped") acc.ordered += 1;
-      else acc.received += 1;
-      if (!hasPurchaseTracking(row)) acc.missingTracking += 1;
-      acc.quantity += sumQuantity(row.purchase_items);
-      return acc;
-    },
-    { all: 0, ordered: 0, received: 0, missingTracking: 0, quantity: 0 },
-  );
-}
-
-function visiblePurchaseItems(row: PurchaseRow): PurchaseItem[] {
-  const kind = purchaseRowStatusKind(row);
-  if (kind === "ordered" || kind === "inbound_shipped" || kind === "partial_shipped" || kind === "shipped") return row.purchase_items;
-  return row.purchase_items.filter((item) => itemStockQuantity(item) > 0);
-}
-
-function withVisiblePurchaseItems(row: PurchaseRow): PurchaseRow | null {
-  const purchaseItems = visiblePurchaseItems(row);
-  if (purchaseItems.length === 0) return null;
-  return purchaseItems.length === row.purchase_items.length ? row : { ...row, purchase_items: purchaseItems };
-}
-
-const PURCHASE_REGISTRATION_CUTOFF_DATE = "2026-06-20";
-
-function normalizePurchaseRegistrationDate(value: string | Date | null | undefined): string | null {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
-  }
-  const trimmed = value.trim();
-  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
-}
-
-function isPurchaseRegistrationCutoffVisible(row: PurchaseRow): boolean {
-  const filterDate =
-    normalizePurchaseRegistrationDate(row.purchaseDate) ??
-    normalizePurchaseRegistrationDate(row.purchase_date) ??
-    normalizePurchaseRegistrationDate(row.created_at) ??
-    normalizePurchaseRegistrationDate(row.createdAt);
-  return filterDate == null || filterDate >= PURCHASE_REGISTRATION_CUTOFF_DATE;
-}
-
-function isPurchaseRegistrationRowComplete(row: PurchaseRow): boolean {
-  return isInboundComplete(row.inboundClass ?? null, row.stage ?? "received");
-}
-
-function normalizePurchaseRegistrationRows(rows: PurchaseRow[]): PurchaseRow[] {
-  return rows.flatMap((row) => {
-    if (row.status === "purchased") return [];
-    if (!isPurchaseRegistrationCutoffVisible(row)) return [];
-    if (isPurchaseRegistrationRowComplete(row)) return [];
-    const visibleRow = withVisiblePurchaseItems(row);
-    return visibleRow ? [visibleRow] : [];
-  });
-}
-
-function purchaseRegistrationOrderValue(row: PurchaseRow): number {
-  const rawDate = row.createdAt ?? row.created_at ?? row.purchaseDate ?? row.purchase_date ?? null;
-  const time = rawDate ? new Date(rawDate).getTime() : Number.NaN;
-  return Number.isFinite(time) ? time : row.id;
-}
-
-function comparePurchaseRegistrationOrder(a: PurchaseRow, b: PurchaseRow): number {
-  const byDate = purchaseRegistrationOrderValue(b) - purchaseRegistrationOrderValue(a);
-  return byDate || b.id - a.id;
 }
 
 function productKey(title: string): string {
@@ -1148,58 +731,6 @@ function buildSearchText(row: PurchaseRow): string {
   ]
     .join("\n")
     .toLowerCase();
-}
-
-type PurchaseRowStatusKind = "ordered" | "inbound_shipped" | "received" | "partial_shipped" | "shipped";
-
-function normalizedLabelStatus(status?: string | null): string {
-  return (status ?? "").trim().toLowerCase();
-}
-
-function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
-  const labels = getItemLabels(row.purchase_items);
-  if (labels.length > 0) {
-    const statuses = labels.map((label) => normalizedLabelStatus(label.status));
-    const shippedCount = statuses.filter((status) => status === "shipped").length;
-    if (shippedCount === labels.length) return "shipped";
-    if (shippedCount > 0) return "partial_shipped";
-    if (statuses.some((status) => status === "received" || status === "stocked")) return "received";
-  }
-  if (isReceived(row)) return "received";
-  if (row.status === "shipped" || hasPurchaseTracking(row)) return "inbound_shipped";
-  return "ordered";
-}
-
-function statusLabel(row: PurchaseRow): string {
-  switch (purchaseRowStatusKind(row)) {
-    case "inbound_shipped":
-      return "発送済み / 入庫待ち";
-    case "shipped":
-      return "出庫済み";
-    case "partial_shipped":
-      return "一部出庫済み";
-    case "received":
-      return "入庫済み";
-    case "ordered":
-    default:
-      return "発注済み";
-  }
-}
-
-function statusClass(row: PurchaseRow): string {
-  switch (purchaseRowStatusKind(row)) {
-    case "inbound_shipped":
-      return "border-cyan-200 bg-cyan-50 text-cyan-700";
-    case "shipped":
-      return "border-blue-200 bg-blue-50 text-blue-700";
-    case "partial_shipped":
-      return "border-indigo-200 bg-indigo-50 text-indigo-700";
-    case "received":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "ordered":
-    default:
-      return "border-amber-200 bg-amber-50 text-amber-700";
-  }
 }
 
 function labelStatusLabel(status?: string | null): string {
