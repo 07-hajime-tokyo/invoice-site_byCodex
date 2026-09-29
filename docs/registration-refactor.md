@@ -384,3 +384,58 @@ git diff --check
 ```
 
 全体型チェック・全アプリテスト・ビルド・DB・ブラウザー比較は統合担当へ集約する。この担当では重複実行せず、ローカルcommit後に引き渡す。push、本番操作、main編集は行わない。
+
+## 第6回：引当グループ規則と充足表示（R10）
+
+共通基準 `7db6054` をcleanな作業枝にmergeし、競合なし。次の3単位を分離した。
+
+| 単位 | モジュール | 内容 |
+| --- | --- | --- |
+| 引当グループ規則 | `allocationGroups.ts` | インボイス未完了判定、購入行のグループ作成、同キー統合、表示行選択 |
+| 同上の依存元 | `labelMerging.ts` / `registrationLabelViews.ts` | ラベル重複統合と出庫可能状態判定、既存ラベルbuilderの構成 |
+| 充足表 | `ProductFulfillmentTable.tsx` | 旧表とV2のJSX/CSS・クリック/キーボード通知をそのまま移動 |
+| 統計カード | `StatCard.tsx` | 充足・仕入合計・想定売上・粗利のカード表示 |
+
+画面は7,017行から6,510行。`OrderDashboard` は `PurchaseRegistrationCard` / `StockDetailCard` / `EmptyState` と編集・追跡・削除イベントに依存するため画面に残した。表/カードをimportする以外に、ダッシュボードの宣言・hook状態・effect依存・props・コールバック配線は変えていない。ラベルbuilderの既存構成宣言を独立させ、グループ規則から画面をimportしない一方向の依存にした。shared変更なし。
+
+### 保持した意味と利用状況
+
+- `invoiceSummaries` 未指定なら購入行由来の全インボイスを扱い、空配列指定なら通常のインボイスグループを除外する。在庫/eBayは別条件で保持する。
+- サマリーだけ存在する空グループの生成、重複サマリー、数値を考慮する逆順、eBay/在庫の末尾配置、相手名の優先順位を維持する。
+- ラベルIDのtrim/大文字化、空ID除外、既存在庫IDの優先、出庫可能状態の保持、追加順を変えない。副作用のある出庫処理自体は移動しない。
+- 同キー統合ではラベルがある場合に必要/確保/残数をラベル数へ置き換える。ラベルなしの数値加算、nullishによるインボイス情報の継承、元グループ/行/ラベルの参照保持も従来どおり。
+- 旧 `ProductFulfillmentTable` はアプリ内呼出0件。削除せずexportしたまま保管・比較する。旧表の不足数は0下限、V2は入庫待ちも差し引き負数を表示し得るため、計算を共通化しない。
+- V2は `OrderDashboard` と `ShippingPanel` の2か所、`StatCard` はダッシュボードの4か所で使用する。V2のdesktop/mobile分岐、stockOnly列数、空表示、選択色、button/role/tabIndex、Enter/SpaceのpreventDefault順を保持する。
+- コンポーネントはモジュール直下で定義し、hookやinline componentを新設していない。`vercel:react-best-practices` の観点で直接import、状態境界、既存キーボード操作、型を確認した。UI改善を混ぜず移動に限定した。
+
+### 固定基準と対象検証
+
+`allocation-baseline-source.txt` は `7db6054` の実宣言10件（移動9件＋残す `OrderDashboard` 1件）の固定fixture。
+SHA-256：`b2a2ddbe75891b45ed1d2fe62c3e5be38e09227f5caf8b6a5ff507d46cf019c9`。
+アプリ編集前に旧実装で9テスト・10スナップショットを保存し、移動後は更新せず比較した。通常テストでGitは不要。現在側は新モジュールを直接実行し、旧実装へのfallbackはない。
+
+- 新規9テストと既存ラベル9テスト、計18テストが成功。新10件＋既存11件のスナップショットが一致。
+- グループ集計72条件、ラベルの状態/在庫ID優先320条件、未完了数量35条件を旧実装と比較。
+- V2の空/非空、stockOnly、選択6状態、ハンドラー有無の96条件で、desktop/mobileを含む生成HTML全体が旧実装と完全一致。スナップショットにはHTMLのSHA-256・表示文字・操作要素のクラス/role/tabIndexを保存。
+- クリック通知、Enter/SpaceのpreventDefaultと通知順、Escapeと未指定ハンドラーの無操作を比較。
+- `OrderDashboard` の宣言全体を固定fixtureと完全一致比較し、状態初期値・更新・effect依存・JSX・イベントの維持を確認。
+- 基準コミットからfixture再抽出完全一致、および元画面91宣言すべてのexport修飾子以外の完全一致を確認。builder構成宣言も同一。
+- 対象 `tsconfig.tests.json` の型チェックが成功。新TSXは対象テストからimportされるため型チェックに含まれる。
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/allocation.test.ts client/src/inventory/pages/purchase-registration/labels.test.ts
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+git diff --check
+```
+
+全体型チェック・全テスト・build・DB・実ブラウザーでの状態保持/表示比較は統合担当へ集約する。担当のHTML/イベント比較は実ブラウザー検証の代替完了報告ではない。ローカルcommitまでとし、push/main編集/Vercel/本番キー・DB操作は行わない。
+
+### 残る大きな責務と次の候補
+
+画面には発注/在庫カード、OrderDashboard、追跡一覧、印刷と永続設定、カメラスキャン、在庫提案/一覧、出庫箱・申告・発送・返品、最上位のquery/mutationとダイアログ状態が残る。R10で登録画面全体を完了したわけではない。
+
+次の3バッチ候補（親の指定を受けて着手）：
+
+1. `PurchaseRegistrationCard` / `StockDetailCard` / `EmptyState` の依存元を分離してから `OrderDashboard` を移動。編集・追跡・削除コールバックと表示状態を保持する。
+2. `StockProposalPanel` / 分類カード / 商品行と `StockPanel` の表示境界を整理。検索・展開状態・引当イベントの所属は維持する。
+3. `LabelChecklistView` / 印刷用紙 / 印刷CSSなどの表示部分を先に分離し、`LabelPrintPanel` の設定保存・印刷副作用との境界を整理。スキャン/発送の実行処理へは同時に広げない。

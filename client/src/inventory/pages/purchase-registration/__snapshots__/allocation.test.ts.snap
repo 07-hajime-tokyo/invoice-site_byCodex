@@ -1,0 +1,602 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures V2 desktop/mobile markup, stock-only columns, selection classes and empty state 1`] = `
+[
+  {
+    "controls": [
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-emerald-50 hover:text-emerald-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-amber-50 hover:text-amber-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-50 text-emerald-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-50 text-emerald-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+    ],
+    "hash": "444e4965a894b5844adc309f10f3f7d32b1c7a7885564c1ef672a51e933c37b6",
+    "text": "充足状況 Product インボイス発注数 5 出庫数 2 必要 3 現在庫 1 入庫まち 1 仕入れ不足 1 平均仕入 ¥101 売価 €20 Product インボイス発注数 - 出庫数 - 必要 3 現在庫 0 入庫まち - 仕入れ不足 3 平均仕入 - 売価 - Product インボイス発注数 - 出庫数 - 必要 3 現在庫 5 入庫まち 2 仕入れ不足 -4 平均仕入 ¥101 売価 €20 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 Product 5 2 3 1 1 1 ¥101 €20 Product - - 3 0 - 3 - - Product - - 3 5 2 -4 ¥101 €20",
+  },
+  {
+    "controls": [
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-emerald-50 hover:text-emerald-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-amber-50 hover:text-amber-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-50 text-emerald-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-50 text-emerald-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+    ],
+    "hash": "8f1ffb6b242636e9626200d3c759ab335f859e3606c7f709ffcbe730aa0f79fc",
+    "text": "充足状況 Product 現在庫 1 入庫まち 1 Product 現在庫 0 入庫まち - Product 現在庫 5 入庫まち 2 品目 現在庫 入庫まち Product 1 1 Product 0 - Product 5 2",
+  },
+  {
+    "controls": [
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold bg-emerald-100 text-emerald-900",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold text-amber-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-emerald-50 hover:text-emerald-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "px-4 py-3 text-right font-medium cursor-pointer select-none transition hover:bg-amber-50 hover:text-amber-700",
+        "keydown": true,
+        "role": "button",
+        "tabIndex": 0,
+        "type": "th",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-100 text-emerald-800",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100 bg-emerald-50 text-emerald-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+      {
+        "className": "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100 bg-amber-50 text-amber-700",
+        "keydown": false,
+        "role": undefined,
+        "tabIndex": undefined,
+        "type": "button",
+      },
+    ],
+    "hash": "16f907d6aece2614edd9178f5915432b6e63ab26fd90d21ff4a6d8d367149dee",
+    "text": "充足状況 Product インボイス発注数 5 出庫数 2 必要 3 現在庫 1 入庫まち 1 仕入れ不足 1 平均仕入 ¥101 売価 €20 Product インボイス発注数 - 出庫数 - 必要 3 現在庫 0 入庫まち - 仕入れ不足 3 平均仕入 - 売価 - Product インボイス発注数 - 出庫数 - 必要 3 現在庫 5 入庫まち 2 仕入れ不足 -4 平均仕入 ¥101 売価 €20 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 Product 5 2 3 1 1 1 ¥101 €20 Product - - 3 0 - 3 - - Product - - 3 5 2 -4 ¥101 €20",
+  },
+]
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures V2 desktop/mobile markup, stock-only columns, selection classes and empty state 2`] = `
+{
+  "controls": [
+    {
+      "className": "px-4 py-3 text-right font-medium",
+      "keydown": true,
+      "role": undefined,
+      "tabIndex": undefined,
+      "type": "th",
+    },
+    {
+      "className": "px-4 py-3 text-right font-medium",
+      "keydown": true,
+      "role": undefined,
+      "tabIndex": undefined,
+      "type": "th",
+    },
+  ],
+  "hash": "bd1de4f99467d644824e97675919fc9b3cf09ea5c03b84e90694f24b2c070164",
+  "text": "充足状況 表示できる商品がありません 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 表示できる商品がありません",
+}
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures group merging with label counts versus numeric totals and nullish metadata 1`] = `
+[
+  {
+    "invoiceDeliveredQty": 2,
+    "invoiceOrderQty": 0,
+    "invoiceRemainingQty": 2,
+    "key": "invoice-405",
+    "label": "No.405 相手",
+    "labels": [
+      {
+        "allocationLabel": "405",
+        "category": "",
+        "inventoryId": 3,
+        "itemId": 1,
+        "key": "l",
+        "labelId": "l1",
+        "legacyManagementNo": "405_相手_3DSLL",
+        "printTitle": "Product",
+        "purchaseDate": "",
+        "rawStatus": "stocked",
+        "rowId": 1,
+        "status": "現在庫",
+        "supplier": {
+          "name": "supplier",
+          "url": "",
+        },
+        "title": "Product",
+        "unitPrice": 100,
+      },
+      {
+        "allocationLabel": "405",
+        "category": "",
+        "itemId": 1,
+        "key": "l",
+        "labelId": "B",
+        "legacyManagementNo": "405_相手_3DSLL",
+        "printTitle": "Product",
+        "purchaseDate": "",
+        "rawStatus": "stocked",
+        "rowId": 1,
+        "status": "現在庫",
+        "supplier": {
+          "name": "supplier",
+          "url": "",
+        },
+        "title": "Product",
+        "unitPrice": 100,
+      },
+    ],
+    "partner": "相手",
+    "products": [
+      {
+        "key": "p",
+        "required": 3,
+        "secured": 1,
+        "sellingCurrency": "EUR",
+        "sellingPrice": 20,
+        "title": "Product",
+        "unitPriceCount": 2,
+        "unitPriceTotal": 201,
+        "waiting": 1,
+      },
+      {
+        "key": "p",
+        "required": 3,
+        "secured": 1,
+        "sellingCurrency": "EUR",
+        "sellingPrice": 20,
+        "title": "Product",
+        "unitPriceCount": 2,
+        "unitPriceTotal": 201,
+        "waiting": 1,
+      },
+      {
+        "key": "p",
+        "required": 3,
+        "secured": 1,
+        "sellingCurrency": "EUR",
+        "sellingPrice": 20,
+        "title": "Product",
+        "unitPriceCount": 2,
+        "unitPriceTotal": 201,
+        "waiting": 1,
+      },
+    ],
+    "purchaseTotal": 900,
+    "required": 2,
+    "rows": [
+      {
+        "id": 1,
+        "purchase_items": [
+          {
+            "currentInventoryQuantity": "1",
+            "etc": "405_相手_3DSLLホワイト",
+            "id": 1,
+            "quantity": "3",
+            "title": "3DS LL ホワイト",
+            "unit_price": "100",
+          },
+        ],
+        "status": "ordered",
+      },
+      {
+        "id": 1,
+        "purchase_items": [
+          {
+            "currentInventoryQuantity": "1",
+            "etc": "405_相手_3DSLLホワイト",
+            "id": 1,
+            "quantity": "3",
+            "title": "3DS LL ホワイト",
+            "unit_price": "100",
+          },
+        ],
+        "status": "ordered",
+      },
+    ],
+    "secured": 2,
+    "waiting": 6,
+  },
+  {
+    "key": "other",
+    "label": "No.405 相手",
+    "labels": [],
+    "partner": "相手",
+    "products": [
+      {
+        "key": "p",
+        "required": 3,
+        "secured": 1,
+        "sellingCurrency": "EUR",
+        "sellingPrice": 20,
+        "title": "Product",
+        "unitPriceCount": 2,
+        "unitPriceTotal": 201,
+        "waiting": 1,
+      },
+    ],
+    "purchaseTotal": -10,
+    "required": -2,
+    "rows": [
+      {
+        "id": 1,
+        "purchase_items": [
+          {
+            "currentInventoryQuantity": "1",
+            "etc": "405_相手_3DSLLホワイト",
+            "id": 1,
+            "quantity": "3",
+            "title": "3DS LL ホワイト",
+            "unit_price": "100",
+          },
+        ],
+        "status": "ordered",
+      },
+    ],
+    "secured": 1,
+    "waiting": 2,
+  },
+]
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures invoice availability, numeric order, partners, ebay and inventory groups 1`] = `
+[
+  "[{"key":"invoice-405","label":"No.405 相手 / 別相手","partner":"相手 / 別相手","rows":[{"id":1,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":2,"status":"ordered","purchase_items":[{"id":1,"title":"PSP3000","quantity":"2.5","currentInventoryQuantity":"1","unit_price":"100","etc":"405_別相手_PSP3000"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["405_相手_3DSLLホワイト"],"matchTexts":["3DS LL ホワイト","405_相手_3DSLLホワイト","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":100,"unitPriceCount":1},{"key":"psp 3000 ランダムカラー","title":"PSP 3000 ランダムカラー","managementNos":["405_別相手_PSP3000"],"matchTexts":["PSP3000","405_別相手_PSP3000","PSP 3000 ランダムカラー"],"required":2.5,"secured":1,"waiting":1.5,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":5.5,"secured":2,"waiting":3.5,"purchaseTotal":550},{"key":"invoice-010","label":"No.010 相手","partner":"相手","rows":[{"id":3,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"010_相手_3DSLL"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["010_相手_3DSLL"],"matchTexts":["3DS LL ホワイト","010_相手_3DSLL","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":3,"secured":1,"waiting":2,"purchaseTotal":300},{"key":"invoice-ebay","label":"eBay","partner":"eBay","rows":[{"id":4,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":-20,"etc":"ebay_001"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["ebay_001"],"matchTexts":["3DS LL ホワイト","ebay_001","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":0,"unitPriceCount":0}],"labels":[],"required":3,"secured":1,"waiting":2,"purchaseTotal":-60},{"key":"invoice-other","label":"在庫","partner":"在庫","rows":[{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"-2","currentInventoryQuantity":"1","unit_price":"100","etc":"在庫001"}]},{"id":6,"status":"ordered","purchase_items":[]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["在庫001"],"matchTexts":["3DS LL ホワイト","在庫001","3DS LL ランダムカラー"],"required":-2,"secured":-2,"waiting":0,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":-2,"secured":-2,"waiting":0,"purchaseTotal":-200}]",
+  "[{"key":"invoice-ebay","label":"eBay","partner":"eBay","rows":[{"id":4,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":-20,"etc":"ebay_001"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["ebay_001"],"matchTexts":["3DS LL ホワイト","ebay_001","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":0,"unitPriceCount":0}],"labels":[],"required":3,"secured":1,"waiting":2,"purchaseTotal":-60},{"key":"invoice-other","label":"在庫","partner":"在庫","rows":[{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"-2","currentInventoryQuantity":"1","unit_price":"100","etc":"在庫001"}]},{"id":6,"status":"ordered","purchase_items":[]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["在庫001"],"matchTexts":["3DS LL ホワイト","在庫001","3DS LL ランダムカラー"],"required":-2,"secured":-2,"waiting":0,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":-2,"secured":-2,"waiting":0,"purchaseTotal":-200}]",
+  "[{"key":"invoice-1000","label":"No.1000 相手","partner":"相手","rows":[],"products":[],"labels":[],"required":0,"secured":0,"waiting":0,"purchaseTotal":0,"invoiceOrderQty":4,"invoiceDeliveredQty":1,"invoiceRemainingQty":3},{"key":"invoice-405","label":"No.405 InvoicePartner","partner":"InvoicePartner","rows":[{"id":1,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":2,"status":"ordered","purchase_items":[{"id":1,"title":"PSP3000","quantity":"2.5","currentInventoryQuantity":"1","unit_price":"100","etc":"405_別相手_PSP3000"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["405_相手_3DSLLホワイト"],"matchTexts":["3DS LL ホワイト","405_相手_3DSLLホワイト","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":100,"unitPriceCount":1},{"key":"psp 3000 ランダムカラー","title":"PSP 3000 ランダムカラー","managementNos":["405_別相手_PSP3000"],"matchTexts":["PSP3000","405_別相手_PSP3000","PSP 3000 ランダムカラー"],"required":2.5,"secured":1,"waiting":1.5,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":5.5,"secured":2,"waiting":3.5,"purchaseTotal":550,"invoiceOrderQty":4,"invoiceDeliveredQty":1,"invoiceRemainingQty":3},{"key":"invoice-009","label":"No.009 相手","partner":"相手","rows":[],"products":[],"labels":[],"required":0,"secured":0,"waiting":0,"purchaseTotal":0,"invoiceOrderQty":4,"invoiceDeliveredQty":1,"invoiceRemainingQty":3},{"key":"invoice-009","label":"No.009 duplicate","partner":"duplicate","rows":[],"products":[],"labels":[],"required":0,"secured":0,"waiting":0,"purchaseTotal":0,"invoiceOrderQty":4,"invoiceDeliveredQty":1,"invoiceRemainingQty":3},{"key":"invoice-ebay","label":"eBay","partner":"eBay","rows":[{"id":4,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":-20,"etc":"ebay_001"}]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["ebay_001"],"matchTexts":["3DS LL ホワイト","ebay_001","3DS LL ランダムカラー"],"required":3,"secured":1,"waiting":2,"unitPriceTotal":0,"unitPriceCount":0}],"labels":[],"required":3,"secured":1,"waiting":2,"purchaseTotal":-60},{"key":"invoice-other","label":"在庫","partner":"在庫","rows":[{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"-2","currentInventoryQuantity":"1","unit_price":"100","etc":"在庫001"}]},{"id":6,"status":"ordered","purchase_items":[]}],"products":[{"key":"3ds ll ランダムカラー","title":"3DS LL ランダムカラー","managementNos":["在庫001"],"matchTexts":["3DS LL ホワイト","在庫001","3DS LL ランダムカラー"],"required":-2,"secured":-2,"waiting":0,"unitPriceTotal":100,"unitPriceCount":1}],"labels":[],"required":-2,"secured":-2,"waiting":0,"purchaseTotal":-200}]",
+]
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures label merge priority, canonical IDs, insertion order and blank IDs 1`] = `
+[
+  {
+    "allocationLabel": "405",
+    "category": "",
+    "inventoryId": 3,
+    "itemId": 1,
+    "key": "l",
+    "labelId": " l1 ",
+    "legacyManagementNo": "405_相手_3DSLL",
+    "printTitle": "Product",
+    "purchaseDate": "",
+    "rawStatus": "stocked",
+    "rowId": 1,
+    "status": "現在庫",
+    "supplier": {
+      "name": "supplier",
+      "url": "",
+    },
+    "title": "next",
+    "unitPrice": 100,
+  },
+  {
+    "allocationLabel": "405",
+    "category": "",
+    "inventoryId": 2,
+    "itemId": 1,
+    "key": "l",
+    "labelId": "B",
+    "legacyManagementNo": "405_相手_3DSLL",
+    "printTitle": "Product",
+    "purchaseDate": "",
+    "rawStatus": "stocked",
+    "rowId": 1,
+    "status": "現在庫",
+    "supplier": {
+      "name": "supplier",
+      "url": "",
+    },
+    "title": "Product",
+    "unitPrice": 100,
+  },
+  {
+    "allocationLabel": "405",
+    "category": "",
+    "itemId": 1,
+    "key": "l",
+    "labelId": "C",
+    "legacyManagementNo": "405_相手_3DSLL",
+    "printTitle": "Product",
+    "purchaseDate": "",
+    "rawStatus": "stocked",
+    "rowId": 1,
+    "status": "現在庫",
+    "supplier": {
+      "name": "supplier",
+      "url": "",
+    },
+    "title": "Product",
+    "unitPrice": 100,
+  },
+]
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures stat cards and preserves the unused legacy table including its different shortage formula 1`] = `
+{
+  "controls": [],
+  "hash": "22a24d7fae94b73eca85b116f38622b19fb12359dad19595dcabcc7199f4ed2a",
+  "text": "想定売上 1,200 € 補足",
+}
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > captures stat cards and preserves the unused legacy table including its different shortage formula 2`] = `
+{
+  "controls": [],
+  "hash": "220bd07cd6f4014787175009943eb32d7bd148845a70b05604ef174d670cd968",
+  "text": "充足状況 品目 必要 確保 仕入れ不足 平均仕入 売価 Product 3 5 0 ¥101 €20",
+}
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > keeps OrderDashboard state, effect dependencies, JSX and parent callback wiring verbatim 1`] = `"8a4f5d8152ad449ae4f17e50904f1e4e9d2124669e81dcd0bae2df1d7ee1b9a7"`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > keeps open-quantity semantics and row fallback references 1`] = `
+[
+  true,
+  true,
+  true,
+  true,
+  true,
+  false,
+  false,
+  true,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  true,
+  true,
+  true,
+  false,
+  false,
+  true,
+  true,
+  true,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  true,
+  true,
+  true,
+  true,
+  false,
+]
+`;
+
+exports[`allocation groups and fulfillment UI against 7db6054 > preserves click payloads and Enter/Space preventDefault ordering on table headers 1`] = `
+[
+  {
+    "mode": "stock",
+    "productKey": "p",
+    "productTitle": "Product",
+  },
+  {
+    "mode": "waiting",
+    "productKey": "p",
+    "productTitle": "Product",
+  },
+  {
+    "mode": "stock",
+    "productTitle": "現在庫",
+  },
+  "prevent:Enter",
+  {
+    "mode": "stock",
+    "productTitle": "現在庫",
+  },
+  "prevent: ",
+  {
+    "mode": "stock",
+    "productTitle": "現在庫",
+  },
+  {
+    "mode": "waiting",
+    "productTitle": "入庫まち",
+  },
+  "prevent:Enter",
+  {
+    "mode": "waiting",
+    "productTitle": "入庫まち",
+  },
+  "prevent: ",
+  {
+    "mode": "waiting",
+    "productTitle": "入庫まち",
+  },
+  {
+    "mode": "stock",
+    "productKey": "p",
+    "productTitle": "Product",
+  },
+  {
+    "mode": "waiting",
+    "productKey": "p",
+    "productTitle": "Product",
+  },
+]
+`;

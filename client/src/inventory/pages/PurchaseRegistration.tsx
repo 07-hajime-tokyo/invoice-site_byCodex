@@ -1,3 +1,8 @@
+import { isShippableLabelStatus, mergeLabelViewsById } from "./purchase-registration/labelMerging";
+import { hasOpenInvoiceQuantity, buildAllocationGroups, mergeAllocationGroupsByKey, getAllRowsFromGroup } from "./purchase-registration/allocationGroups";
+import { StatCard } from "./purchase-registration/StatCard";
+import { ProductFulfillmentTableV2 } from "./purchase-registration/ProductFulfillmentTable";
+import { buildLabelViews, buildClosedInvoiceInventoryLabelViews } from "./purchase-registration/registrationLabelViews";
 import { actualProductTitle } from "./purchase-registration/productTitles";
 import { filterRowsByProductDetail, filterStockItemsByProductDetail, filterStockItemsByInvoiceProductDetail, productDetailFilterLabel } from "./purchase-registration/productDetailFilters";
 import { buildProductSummaries, buildInvoiceStockProductSummaries, filterInvoiceStockItems, withInvoiceProductCounts, withInvoiceStockCountsFromItems } from "./purchase-registration/productSummaries";
@@ -9,7 +14,6 @@ import { buildStockItemViewsFromInventories, buildStockItemGroups } from "./purc
 import { isStockProposalAccessory, isFulfillmentStockItem } from "./purchase-registration/stockProposalRules";
 import { proposalAveragePrice, stockProposalPriceLabel, stockProposalManagementLabel } from "./purchase-registration/stockProposalDisplay";
 import { buildForecastSummary } from "./purchase-registration/stockForecast";
-import { createPurchaseLabelBuilders } from "./purchase-registration/purchaseLabelViews";
 import { getInventoryCategory, stockModelName } from "./purchase-registration/productPresentation";
 import {
   labelStatusLabel,
@@ -82,7 +86,7 @@ import type {
   StockEditFormState,
 } from "./purchase-registration/formTypes";
 import type { LabelView, LabelPrintRequest, StockItemView, StockProposalProduct, StockProposalGroup, ShippingItemView, ProductSummary, InvoiceProductSummary, PurchaseRegistrationInvoice, ProductDetailFilter, AllocationGroup } from "./purchase-registration/viewTypes";
-import { toNumber, formatCurrency, formatTradePrice, formatDate } from "./purchase-registration/format";
+import { toNumber, formatCurrency, formatDate } from "./purchase-registration/format";
 import {
   TRACKING_CARRIER_LABELS,
   TRACKING_CARRIER_KEYS,
@@ -262,7 +266,7 @@ function formatScanTime(value: string): string {
   return new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-const { buildLabelViews, buildClosedInvoiceInventoryLabelViews } = createPurchaseLabelBuilders(actualProductTitle);
+
 
 function ProductQrCode({ value }: { value: string }) {
   const matrix = useMemo(() => createQrMatrix(value), [value]);
@@ -355,11 +359,6 @@ function detectShipmentSheetNameForGroup(
   );
 }
 
-function isShippableLabelStatus(status?: string | null): boolean {
-  const normalized = (status ?? "").trim().toLowerCase();
-  return normalized === "received" || normalized === "stocked";
-}
-
 function isReceivableScanCandidate(label: LabelView): boolean {
   const status = normalizedLabelStatus(label.rawStatus);
   return (
@@ -373,42 +372,6 @@ function isReceivableScanCandidate(label: LabelView): boolean {
 
 function isShippableLabel(label: LabelView): boolean {
   return Boolean(label.labelId.trim()) && isShippableLabelStatus(label.rawStatus);
-}
-
-function mergeLabelViewsById(...groups: LabelView[][]): LabelView[] {
-  const map = new Map<string, LabelView>();
-  for (const labels of groups) {
-    for (const label of labels) {
-      const key = label.labelId.trim().toUpperCase();
-      if (!key) continue;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, label);
-        continue;
-      }
-      const existingShippable = isShippableLabelStatus(existing.rawStatus);
-      const nextShippable = isShippableLabelStatus(label.rawStatus);
-      if (existing.inventoryId && !label.inventoryId) {
-        map.set(key, { ...label, ...existing });
-        continue;
-      }
-      if (existingShippable && !nextShippable) {
-        map.set(key, {
-          ...label,
-          inventoryId: label.inventoryId ?? existing.inventoryId,
-          rawStatus: existing.rawStatus,
-          status: existing.status,
-        });
-        continue;
-      }
-      map.set(key, {
-        ...existing,
-        ...label,
-        inventoryId: label.inventoryId ?? existing.inventoryId,
-      });
-    }
-  }
-  return Array.from(map.values());
 }
 
 function groupKeyFromLabel(label: LabelView): string {
@@ -472,144 +435,6 @@ function historyItemsToFedexItems(
       managementNo: item.managementNo ?? null,
     }))
     .filter((item) => item.quantity > 0);
-}
-
-function hasOpenInvoiceQuantity(product: ProductSummary): boolean {
-  if (product.invoiceOrdered == null) return true;
-  return Math.max(0, product.invoiceOrdered - (product.invoiceShipped ?? 0)) > 0;
-}
-
-function buildAllocationGroups(
-  rows: PurchaseRow[],
-  invoiceSummaries?: PurchaseRegistrationInvoice[],
-): AllocationGroup[] {
-  const map = new Map<string, PurchaseRow[]>();
-  for (const row of rows) {
-    const key = getInvoiceInfo(row).key;
-    const current = map.get(key) ?? [];
-    current.push(row);
-    map.set(key, current);
-  }
-
-  const invoiceSummaryByKey = new Map<string, PurchaseRegistrationInvoice>(
-    (invoiceSummaries ?? []).map((summary) => [`invoice-${summary.invoiceNo}`, summary]),
-  );
-  const shouldFilterClosedInvoices = invoiceSummaries !== undefined;
-
-  const groups = Array.from(map.entries())
-    .flatMap(([key, groupRows]) => {
-      if (
-        key !== OTHER_INVOICE_KEY &&
-        key !== EBAY_GROUP_KEY &&
-        shouldFilterClosedInvoices &&
-        !invoiceSummaryByKey.has(key)
-      ) return [];
-      const first = groupRows[0];
-      const supplier = getSupplier(first);
-      const products = buildProductSummaries(groupRows);
-      const labels = buildLabelViews(groupRows);
-      const required = products.reduce((total, item) => total + item.required, 0);
-      const secured = products.reduce((total, item) => total + item.secured, 0);
-      const waiting = products.reduce((total, item) => total + item.waiting, 0);
-      const purchaseTotal = groupRows.reduce(
-        (total, row) =>
-          total +
-          row.purchase_items.reduce(
-            (rowTotal, item) => rowTotal + toNumber(item.unit_price) * itemQuantity(item),
-            0,
-          ),
-        0,
-      );
-      const invoiceInfo = getInvoiceInfo(first);
-      const invoiceSummary = invoiceSummaryByKey.get(key);
-      const partners = unique(groupRows.map((row) => getInvoiceInfo(row).partner).filter(Boolean));
-      const partnerLabel = invoiceSummary?.partner || partners.join(" / ");
-      const isEbayGroup = invoiceInfo.key === EBAY_GROUP_KEY;
-      const label =
-        invoiceInfo.key === OTHER_INVOICE_KEY
-          ? "在庫"
-          : isEbayGroup
-            ? EBAY_GROUP_LABEL
-            : `No.${invoiceInfo.invoiceNo}${partnerLabel ? ` ${partnerLabel}` : ""}`;
-      return [{
-        key,
-        label,
-        partner: invoiceInfo.key === OTHER_INVOICE_KEY ? "在庫" : partnerLabel || supplier.name,
-        rows: groupRows,
-        products,
-        labels,
-        required,
-        secured,
-        waiting,
-        purchaseTotal,
-        invoiceOrderQty: invoiceSummary?.totalOrderQty,
-        invoiceDeliveredQty: invoiceSummary?.totalDeliveredQty,
-        invoiceRemainingQty: invoiceSummary?.remainingQty,
-      }];
-    });
-
-  for (const summary of invoiceSummaries ?? []) {
-    const key = `invoice-${summary.invoiceNo}`;
-    if (map.has(key)) continue;
-    groups.push({
-      key,
-      label: `No.${summary.invoiceNo}${summary.partner ? ` ${summary.partner}` : ""}`,
-      partner: summary.partner,
-      rows: [],
-      products: [],
-      labels: [],
-      required: 0,
-      secured: 0,
-      waiting: 0,
-      purchaseTotal: 0,
-      invoiceOrderQty: summary.totalOrderQty,
-      invoiceDeliveredQty: summary.totalDeliveredQty,
-      invoiceRemainingQty: summary.remainingQty,
-    });
-  }
-
-  return groups.sort((a, b) => {
-    if (a.key === OTHER_INVOICE_KEY) return 1;
-    if (b.key === OTHER_INVOICE_KEY) return -1;
-    if (a.key === EBAY_GROUP_KEY) return 1;
-    if (b.key === EBAY_GROUP_KEY) return -1;
-    return b.key.localeCompare(a.key, "ja", { numeric: true });
-  });
-}
-
-function mergeAllocationGroupsByKey(groups: AllocationGroup[]): AllocationGroup[] {
-  const result: AllocationGroup[] = [];
-  const indexByKey = new Map<string, number>();
-  for (const group of groups) {
-    const index = indexByKey.get(group.key);
-    if (index === undefined) {
-      indexByKey.set(group.key, result.length);
-      result.push(group);
-      continue;
-    }
-
-    const current = result[index];
-    const labels = mergeLabelViewsById(current.labels, group.labels);
-    result[index] = {
-      ...current,
-      rows: [...current.rows, ...group.rows],
-      products: [...current.products, ...group.products],
-      labels,
-      required: labels.length > 0 ? labels.length : current.required + group.required,
-      secured: labels.length > 0 ? labels.length : current.secured + group.secured,
-      waiting: current.waiting + group.waiting,
-      purchaseTotal: current.purchaseTotal + group.purchaseTotal,
-      invoiceOrderQty: current.invoiceOrderQty ?? group.invoiceOrderQty,
-      invoiceDeliveredQty: current.invoiceDeliveredQty ?? group.invoiceDeliveredQty,
-      invoiceRemainingQty: labels.length > 0 ? labels.length : (current.invoiceRemainingQty ?? group.invoiceRemainingQty),
-    };
-  }
-  return result;
-}
-
-function getAllRowsFromGroup(group: AllocationGroup | null, fallbackRows: PurchaseRow[]): PurchaseRow[] {
-  if (!group) return fallbackRows;
-  return group.rows;
 }
 
 function purchaseRowInventoryId(row: PurchaseRow): number | null {
@@ -1078,338 +903,6 @@ function StockDetailCard({
         </div>
       </div>
     </section>
-  );
-}
-
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="min-w-0 rounded-md border bg-background p-3 md:p-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 break-words text-lg font-semibold tracking-tight md:text-xl">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
-    </div>
-  );
-}
-
-function ProductFulfillmentTable({ products }: { products: ProductSummary[] }) {
-  return (
-    <div className="overflow-hidden rounded-md border bg-background">
-      <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] text-sm">
-          <thead className="border-b text-xs text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium">品目</th>
-              <th className="px-4 py-3 text-right font-medium">必要</th>
-              <th className="px-4 py-3 text-right font-medium">確保</th>
-              <th className="px-4 py-3 text-right font-medium">仕入れ不足</th>
-              <th className="px-4 py-3 text-right font-medium">平均仕入</th>
-              <th className="px-4 py-3 text-right font-medium">売価</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                  充足状況を表示できる商品がありません
-                </td>
-              </tr>
-            ) : (
-              products.map((product) => {
-                const shortage = Math.max(product.required - product.secured, 0);
-                const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
-                return (
-                  <tr key={product.key} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-medium">{product.title}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="inline-flex min-w-7 justify-center rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                        {product.required.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">{product.secured.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className={cn("font-medium", shortage > 0 ? "text-rose-600" : "text-foreground")}>
-                        {shortage.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function ProductFulfillmentTableV2({
-  products,
-  selectedFilter,
-  onProductFilter,
-  stockOnly = false,
-}: {
-  products: ProductSummary[];
-  selectedFilter?: ProductDetailFilter | null;
-  onProductFilter?: (filter: ProductDetailFilter) => void;
-  stockOnly?: boolean;
-}) {
-  const stockHeaderActive = selectedFilter?.mode === "stock" && !selectedFilter.productKey;
-  const waitingHeaderActive = selectedFilter?.mode === "waiting" && !selectedFilter.productKey;
-
-  return (
-    <div className="overflow-hidden rounded-md border bg-background">
-      <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">充足状況</div>
-      <div className="divide-y md:hidden">
-        {products.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            表示できる商品がありません
-          </div>
-        ) : (
-          products.map((product) => {
-            const shortage = product.required - product.secured - product.waiting;
-            const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
-            const stockFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "stock";
-            const waitingFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "waiting";
-            return (
-              <div key={product.key} className="p-4">
-                <div className="font-medium">{product.title}</div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  {!stockOnly ? (
-                    <>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">インボイス発注数</div>
-                        <div className="mt-1 font-semibold">{product.invoiceOrdered == null ? "-" : product.invoiceOrdered.toLocaleString()}</div>
-                      </div>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">出庫数</div>
-                        <div className="mt-1 font-semibold">{product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}</div>
-                      </div>
-                      <div className="rounded-md bg-blue-50 p-2">
-                        <div className="text-xs text-blue-700">必要</div>
-                        <div className="mt-1 font-semibold text-blue-800">{product.required.toLocaleString()}</div>
-                      </div>
-                    </>
-                  ) : null}
-                  <div className="rounded-md bg-emerald-50 p-2">
-                    <div className="text-xs text-emerald-700">現在庫</div>
-                    {product.secured > 0 && onProductFilter ? (
-                      <button
-                        type="button"
-                        className={cn(
-                          "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold",
-                          stockFilterActive ? "bg-emerald-100 text-emerald-900" : "text-emerald-800",
-                        )}
-                        onClick={() => onProductFilter({ productKey: product.key, productTitle: product.title, mode: "stock" })}
-                      >
-                        {product.secured.toLocaleString()}
-                      </button>
-                    ) : (
-                      <div className="mt-1 font-semibold text-emerald-800">{product.secured.toLocaleString()}</div>
-                    )}
-                  </div>
-                  <div className="rounded-md bg-amber-50 p-2">
-                    <div className="text-xs text-amber-700">入庫まち</div>
-                    {product.waiting > 0 && onProductFilter ? (
-                      <button
-                        type="button"
-                        className={cn(
-                          "mt-1 inline-flex rounded px-2 py-1 text-sm font-semibold",
-                          waitingFilterActive ? "bg-amber-100 text-amber-900" : "text-amber-800",
-                        )}
-                        onClick={() => onProductFilter({ productKey: product.key, productTitle: product.title, mode: "waiting" })}
-                      >
-                        {product.waiting.toLocaleString()}
-                      </button>
-                    ) : (
-                      <div className="mt-1 font-semibold text-amber-800">{product.waiting > 0 ? product.waiting.toLocaleString() : "-"}</div>
-                    )}
-                  </div>
-                  {!stockOnly ? (
-                    <>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">仕入れ不足</div>
-                        <div className={cn("mt-1 font-semibold", shortage > 0 ? "text-rose-600" : "text-foreground")}>{shortage.toLocaleString()}</div>
-                      </div>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">平均仕入</div>
-                        <div className="mt-1 font-semibold">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</div>
-                      </div>
-                      <div className="rounded-md bg-slate-50 p-2">
-                        <div className="text-xs text-muted-foreground">売価</div>
-                        <div className="mt-1 font-semibold">{formatTradePrice(product.sellingPrice, product.sellingCurrency)}</div>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-      <div className="hidden overflow-x-auto md:block">
-        <table className={cn("w-full text-sm", stockOnly ? "min-w-[480px]" : "min-w-[960px]")}>
-          <thead className="border-b text-xs text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium">品目</th>
-              {!stockOnly ? (
-                <>
-                  <th className="px-4 py-3 text-right font-medium">インボイス発注数</th>
-                  <th className="px-4 py-3 text-right font-medium">出庫数</th>
-                  <th className="px-4 py-3 text-right font-medium">必要</th>
-                </>
-              ) : null}
-              <th
-                className={cn(
-                  "px-4 py-3 text-right font-medium",
-                  onProductFilter && "cursor-pointer select-none transition hover:bg-emerald-50 hover:text-emerald-700",
-                  stockHeaderActive && "bg-emerald-50 text-emerald-700",
-                )}
-                role={onProductFilter ? "button" : undefined}
-                tabIndex={onProductFilter ? 0 : undefined}
-                onClick={() => onProductFilter?.({ productTitle: "現在庫", mode: "stock" })}
-                onKeyDown={(event) => {
-                  if (!onProductFilter) return;
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onProductFilter({ productTitle: "現在庫", mode: "stock" });
-                  }
-                }}
-              >
-                {onProductFilter ? (
-                  <span className="inline-flex rounded px-2 py-1">現在庫</span>
-                ) : (
-                  "現在庫"
-                )}
-              </th>
-              <th
-                className={cn(
-                  "px-4 py-3 text-right font-medium",
-                  onProductFilter && "cursor-pointer select-none transition hover:bg-amber-50 hover:text-amber-700",
-                  waitingHeaderActive && "bg-amber-50 text-amber-700",
-                )}
-                role={onProductFilter ? "button" : undefined}
-                tabIndex={onProductFilter ? 0 : undefined}
-                onClick={() => onProductFilter?.({ productTitle: "入庫まち", mode: "waiting" })}
-                onKeyDown={(event) => {
-                  if (!onProductFilter) return;
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onProductFilter({ productTitle: "入庫まち", mode: "waiting" });
-                  }
-                }}
-              >
-                {onProductFilter ? (
-                  <span className="inline-flex rounded px-2 py-1">入庫まち</span>
-                ) : (
-                  "入庫まち"
-                )}
-              </th>
-              {!stockOnly ? (
-                <>
-                  <th className="px-4 py-3 text-right font-medium">仕入れ不足</th>
-                  <th className="px-4 py-3 text-right font-medium">平均仕入</th>
-                  <th className="px-4 py-3 text-right font-medium">売価</th>
-                </>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody>
-            {products.length === 0 ? (
-              <tr>
-                <td colSpan={stockOnly ? 3 : 9} className="px-4 py-8 text-center text-muted-foreground">
-                  表示できる商品がありません
-                </td>
-              </tr>
-            ) : (
-              products.map((product) => {
-                const shortage = product.required - product.secured - product.waiting;
-                const average = product.unitPriceCount > 0 ? product.unitPriceTotal / product.unitPriceCount : 0;
-                const stockFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "stock";
-                const waitingFilterActive = selectedFilter?.productKey === product.key && selectedFilter.mode === "waiting";
-                return (
-                  <tr key={product.key} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-medium">{product.title}</td>
-                    {!stockOnly ? (
-                      <>
-                        <td className="px-4 py-3 text-right">
-                          {product.invoiceOrdered == null ? "-" : product.invoiceOrdered.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {product.invoiceShipped == null ? "-" : product.invoiceShipped.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="inline-flex min-w-7 justify-center rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                            {product.required.toLocaleString()}
-                          </span>
-                        </td>
-                      </>
-                    ) : null}
-                    <td className="px-4 py-3 text-right">
-                      {product.secured > 0 && onProductFilter ? (
-                        <button
-                          type="button"
-                          className={cn(
-                            "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-emerald-100",
-                            stockFilterActive ? "bg-emerald-100 text-emerald-800" : "bg-emerald-50 text-emerald-700",
-                          )}
-                          onClick={() =>
-                            onProductFilter({ productKey: product.key, productTitle: product.title, mode: "stock" })
-                          }
-                        >
-                          {product.secured.toLocaleString()}
-                        </button>
-                      ) : (
-                        product.secured.toLocaleString()
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {product.waiting > 0 ? (
-                        onProductFilter ? (
-                          <button
-                            type="button"
-                            className={cn(
-                              "inline-flex min-w-7 justify-center rounded px-2 py-1 text-xs font-semibold transition hover:bg-amber-100",
-                              waitingFilterActive ? "bg-amber-100 text-amber-800" : "bg-amber-50 text-amber-700",
-                            )}
-                            onClick={() =>
-                              onProductFilter({ productKey: product.key, productTitle: product.title, mode: "waiting" })
-                            }
-                          >
-                            {product.waiting.toLocaleString()}
-                          </button>
-                        ) : (
-                          <span className="inline-flex min-w-7 justify-center rounded bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                            {product.waiting.toLocaleString()}
-                          </span>
-                        )
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    {!stockOnly ? (
-                      <>
-                        <td className={cn("px-4 py-3 text-right font-medium", shortage > 0 ? "text-rose-600" : "text-foreground")}>
-                          {shortage.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">{average > 0 ? formatCurrency(Math.round(average)) : "-"}</td>
-                        <td className="px-4 py-3 text-right">
-                          {formatTradePrice(product.sellingPrice, product.sellingCurrency)}
-                        </td>
-                      </>
-                    ) : null}
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
