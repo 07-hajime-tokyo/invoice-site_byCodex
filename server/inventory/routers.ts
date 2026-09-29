@@ -1,3 +1,7 @@
+import { toInventoryItemLabelView, isReceivedLabelStatus, type InventoryItemLabelView } from "./labelViews";
+import { getPurchaseItemManagementNo, localPurchaseItems } from "./purchases/items";
+import { filterLabelsByManagementNo, labelsForPurchaseItem } from "./purchases/labels";
+import { getLocalPurchaseDisplayStatus } from "./purchases/displayStatus";
 import { createExternalPurchaseMaps, buildExternalPurchasePageRows, buildExternalPurchaseAllRows } from "./purchases/externalRows";
 import { fillCsvPurchaseSuppliers } from "./purchases/csvSuppliers";
 import { loadLocalPurchaseListData, refreshPurchaseInventoryMap } from "./purchases/localData";
@@ -1145,13 +1149,7 @@ type LocalPurchaseRow = Awaited<ReturnType<typeof getLocalPurchases>>[number];
 type LocalPurchaseItemLabelRow = NonNullable<LocalPurchaseRow["itemLabels"]>[number];
 type PurchaseHistoryRow = Awaited<ReturnType<typeof getPurchaseHistories>>[number];
 type InventoryMemoRow = Awaited<ReturnType<typeof getInventoryMemos>>[number];
-type InventoryItemLabelView = {
-  id?: number;
-  labelId: string;
-  status?: string | null;
-  legacyManagementNo?: string | null;
-  localInventoryId?: number | null;
-};
+
 
 type InventoryItemLabelForEnsure = InventoryItemLabelView & {
   title?: string | null;
@@ -2432,15 +2430,6 @@ setTimeout(() => {
   void runInventoryOneTimeRepairsOnce();
 }, 0);
 
-function toInventoryItemLabelView(label: InventoryItemLabelView): InventoryItemLabelView {
-  return {
-    id: label.id,
-    labelId: label.labelId,
-    status: label.status,
-    legacyManagementNo: label.legacyManagementNo,
-    localInventoryId: label.localInventoryId,
-  };
-}
 
 async function ensureStockLabelsForInventories<T extends {
   id: number;
@@ -2499,90 +2488,6 @@ function getInventoryEtcPart(etc: string | null | undefined, index: number) {
   return String(etc ?? "").split(",")[index]?.trim() ?? "";
 }
 
-function getPurchaseItemLabels(row: LocalPurchaseRow): InventoryItemLabelView[] {
-  const labels = (row as { itemLabels?: InventoryItemLabelView[] }).itemLabels;
-  return Array.isArray(labels) ? labels : [];
-}
-
-function uniqueInventoryItemLabelViews(labels: InventoryItemLabelView[]): InventoryItemLabelView[] {
-  const map = new Map<string, InventoryItemLabelView>();
-  for (const label of labels) {
-    const key = label.labelId?.trim().toUpperCase();
-    if (!key) continue;
-    const existing = map.get(key);
-    if (existing?.localInventoryId && !label.localInventoryId) continue;
-    map.set(key, toInventoryItemLabelView(label));
-  }
-  return Array.from(map.values());
-}
-
-function getPurchaseItemManagementNo(row: LocalPurchaseRow, item: Record<string, unknown>): string {
-  const direct = item.managementNo ?? item.management_no ?? item.legacyManagementNo;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
-  const etc = String(item.etc ?? row.managementNo ?? "").trim();
-  return etc.split(",")[0]?.trim() ?? "";
-}
-
-function filterLabelsByManagementNo<T extends { legacyManagementNo?: string | null }>(
-  labels: T[],
-  managementNo: string,
-): T[] {
-  const normalized = managementNo.trim();
-  if (!normalized) return labels;
-  return labels.filter((label) => {
-    const labelManagementNo = String(label.legacyManagementNo ?? "").trim();
-    return !labelManagementNo || labelManagementNo === normalized;
-  });
-}
-
-function labelsForPurchaseItem(
-  row: LocalPurchaseRow,
-  item: Record<string, unknown>,
-  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
-): InventoryItemLabelView[] {
-  const labels = getPurchaseItemLabels(row);
-  const rawInventoryId = item.inventory_id ?? item.inventoryId ?? row.localInventoryId;
-  const inventoryId = Number(rawInventoryId);
-  const managementNo = getPurchaseItemManagementNo(row, item);
-  const inventoryLabels = Number.isFinite(inventoryId)
-    ? filterLabelsByManagementNo(inventoryLabelMap?.get(inventoryId) ?? [], managementNo)
-    : [];
-  const scopedLabels = filterLabelsByManagementNo(labels, managementNo);
-  if (scopedLabels.length === 0) return uniqueInventoryItemLabelViews(inventoryLabels);
-  if (Number.isFinite(inventoryId)) {
-    const labelsByInventory = scopedLabels.filter((label) => Number(label.localInventoryId) === inventoryId);
-    if (labelsByInventory.length > 0) return uniqueInventoryItemLabelViews([...labelsByInventory, ...inventoryLabels]);
-  }
-  return uniqueInventoryItemLabelViews([...scopedLabels, ...inventoryLabels]);
-}
-
-function isReceivedLabelStatus(status: unknown): boolean {
-  return ["received", "stocked", "shipped"].includes(String(status ?? "").trim().toLowerCase());
-}
-
-function localPurchaseItems(row: LocalPurchaseRow): Record<string, unknown>[] {
-  try {
-    const parsed = JSON.parse(row.itemsJson ?? "[]");
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed as Record<string, unknown>[];
-  } catch {
-    // Malformed legacy JSON falls back to the purchase row fields below.
-  }
-  return [{
-    inventory_id: row.localInventoryId,
-    inventoryId: row.localInventoryId,
-    etc: row.managementNo,
-    quantity: row.quantity,
-  }];
-}
-
-function localPurchaseLabelViews(
-  row: LocalPurchaseRow,
-  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
-): InventoryItemLabelView[] {
-  return uniqueInventoryItemLabelViews(
-    localPurchaseItems(row).flatMap((item) => labelsForPurchaseItem(row, item, inventoryLabelMap)),
-  );
-}
 
 async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
   let changed = false;
@@ -2614,37 +2519,6 @@ async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): 
   return changed ? getLocalPurchases() : rows;
 }
 
-function isLocalPurchaseReceivedFromLabels(
-  row: LocalPurchaseRow,
-  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
-): boolean {
-  if (row.status === "purchased") return true;
-  const labels = localPurchaseLabelViews(row, inventoryLabelMap);
-  if (labels.length === 0) return false;
-  const requiredQuantity = Math.max(1, Math.floor(Number(row.quantity ?? 1)) || 1);
-  const receivedCount = labels.filter((label) => isReceivedLabelStatus(label.status)).length;
-  return receivedCount >= Math.min(requiredQuantity, labels.length);
-}
-
-function getLocalPurchaseDisplayStatus(
-  row: LocalPurchaseRow,
-  inventoryLabelMap?: Map<number, InventoryItemLabelView[]>,
-  purchasedZaicoIds?: Set<number>,
-): string {
-  if (row.status !== "purchased" && (String(row.trackingNumber ?? "").trim() || row.status === "shipped")) {
-    return "shipped";
-  }
-  if (shouldKeepRecoveredPurchaseOrdered(row)) return "ordered";
-  const localId = row.zaicoId ?? row.id;
-  if (
-    row.status === "purchased" ||
-    (purchasedZaicoIds?.has(localId) ?? false) ||
-    isLocalPurchaseReceivedFromLabels(row, inventoryLabelMap)
-  ) {
-    return "purchased";
-  }
-  return row.status || "ordered";
-}
 
 function localPurchaseMatchesInventoryLabel(
   row: LocalPurchaseRow,
@@ -2706,19 +2580,9 @@ function canRecoverOrphanLabelPurchase(managementNo: string): boolean {
   return RECOVERABLE_ORPHAN_LABEL_MANAGEMENT_NOS.has(managementNo.trim());
 }
 
-const ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS = new Set([
-  "402_マキシム_2/2",
-]);
 
 const MAXIM_SECOND_LABEL_ID = "NRFZKRM";
 
-function shouldKeepRecoveredPurchaseOrdered(row: LocalPurchaseRow): boolean {
-  const rowManagementNo = String(row.managementNo ?? "").trim();
-  if (ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS.has(rowManagementNo)) return true;
-  return localPurchaseItems(row).some((item) =>
-    ORDERED_RECOVERED_PURCHASE_MANAGEMENT_NOS.has(getPurchaseItemManagementNo(row, item)),
-  );
-}
 
 function getRecoveredPurchaseOverrides(managementNo: string) {
   if (managementNo === "402_マキシム_1/2") {
@@ -2947,8 +2811,7 @@ async function cleanupAllowedRecoveredPurchaseIssues(
 }
 
 function localPurchaseStatusFromLabelStatus(status: unknown): string {
-  const normalized = String(status ?? "").trim().toLowerCase();
-  return ["received", "stocked", "shipped"].includes(normalized) ? "purchased" : "ordered";
+  return isReceivedLabelStatus(status) ? "purchased" : "ordered";
 }
 
 async function restoreMissingLocalPurchasesFromOrphanLabels(

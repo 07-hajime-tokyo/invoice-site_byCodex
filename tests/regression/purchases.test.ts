@@ -34,6 +34,99 @@ afterAll(async () => {
 });
 
 describe("入庫一覧: 整理前のHTTP/API/DBの振る舞い", () => {
+  it("管理番号が一致するラベルだけで入庫済みを判定し、状態の表示だけでは保存状態を変えない", async () => {
+    for (const [labelId, managementNo, status] of [
+      ["TESTAAQ", "TEST-A", "received"],
+      ["TESTAAR", "TEST-A", "ordered"],
+      ["TESTAAS", "OTHER", "received"],
+    ]) {
+      await db.query("INSERT INTO inventory_item_labels SET ?", {
+        labelId,
+        purchaseId: 910001,
+        localInventoryId: 910001,
+        legacyManagementNo: managementNo,
+        title: "【テスト】携帯ゲーム機A",
+        status,
+      });
+    }
+    const before =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(before.items[0].status).toBe("ordered");
+    expect(
+      before.items[0].purchase_items[0].itemLabels
+        .map(label => label.labelId)
+        .sort()
+    ).toEqual(["TESTAAQ", "TESTAAR"]);
+    await db.query(
+      "UPDATE inventory_item_labels SET status='stocked' WHERE labelId='TESTAAR'"
+    );
+    const after =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(after.items[0].status).toBe("purchased");
+    const plain = await api.client.inventory.zaico.getPurchases.query();
+    expect(plain.find(row => row.id === 910001)?.status).toBe("purchased");
+    const [stored] = await db.query<RowDataPacket[]>(
+      "SELECT status FROM local_purchases WHERE id=910001"
+    );
+    expect(stored[0].status).toBe("ordered");
+    const [labels] = await db.query<RowDataPacket[]>(
+      "SELECT labelId FROM inventory_item_labels ORDER BY labelId"
+    );
+    expect(labels.map(row => row.labelId)).toEqual([
+      "TESTAAQ",
+      "TESTAAR",
+      "TESTAAS",
+    ]);
+  });
+
+  it("保存状態が入庫済みでない場合は追跡番号による発送済み表示をラベルより優先する", async () => {
+    await db.query("INSERT INTO inventory_item_labels SET ?", {
+      labelId: "TESTAAT",
+      purchaseId: 910001,
+      localInventoryId: 910001,
+      legacyManagementNo: "TEST-A",
+      title: "【テスト】携帯ゲーム機A",
+      status: "received",
+    });
+    await db.query(
+      "UPDATE local_purchases SET trackingNumber='TRACK-LABEL' WHERE id=910001"
+    );
+    const shipped =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(shipped.items[0].status).toBe("shipped");
+    await db.query(
+      "UPDATE local_purchases SET status='purchased' WHERE id=910001"
+    );
+    const purchased =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(purchased.items[0].status).toBe("purchased");
+  });
+
+  it("ラベル数が発注数量より少なくても既存ラベルが全て受領済みなら入庫済みとする現行動作", async () => {
+    await db.query("INSERT INTO inventory_item_labels SET ?", {
+      labelId: "TESTAAU",
+      purchaseId: 910001,
+      localInventoryId: 910001,
+      legacyManagementNo: "TEST-A",
+      title: "【テスト】携帯ゲーム機A",
+      status: "shipped",
+    });
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(page.items[0].status).toBe("purchased");
+    expect(page.items[0].purchase_items[0].itemLabels).toHaveLength(1);
+  });
+
   it("在庫の仕入先・出品URL・数量の変更を次の一覧取得に反映する", async () => {
     await db.query(
       "UPDATE local_purchases SET supplierName=NULL, supplierUrl=NULL WHERE id=910001"
