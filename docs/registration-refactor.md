@@ -538,3 +538,53 @@ git diff --check
 
 在庫提案・一覧の指定表示領域は分離済み。画面にはラベル印刷/チェックリスト/印刷CSSと設定、追跡不足一覧、カメラスキャン、出庫箱・申告・発送・返品、最上位query/mutation・ダイアログが残る。
 次候補は①印刷用紙/チェックリスト/CSS、②その依存元を使うLabelPrintPanelと設定境界、③追跡不足一覧と追跡ダイアログ表示。スキャン/発送/引当実行を同じバッチへ広げず、親の次指示を待つ。
+
+## 第9回：印刷用紙・チェックリスト・QR表示（R13）
+
+共通基準 `8cfcd9d` をcleanな作業枝へmergeし、競合なし。次の3単位を依存順に分離した。
+
+| 単位 | モジュール | 内容 |
+| --- | --- | --- |
+| QR表示 | `ProductQrCode.tsx` | 既存QR行列/パス生成、useMemo、SVGとaria-label |
+| ラベル印刷表示 | `LabelPrintStyles.tsx` / `PrintableLabelSheet.tsx` | 印刷CSS全文、開始面/改ページ/箱枠、body portal |
+| チェックリスト表示 | `LabelChecklists.tsx` | 画面用一覧と印刷用一覧、既存カテゴリ/管理番号順 |
+
+画面は5,588行から5,237行。`LabelView`、`labelPrintLayout` の定数/位置/分割/グルーピング、既存 `qr`、sharedの箱IDパターンをそのまま再利用した。shared変更なし。新props・設定state・factoryは追加せず直接importする。
+
+`LabelPrintPanel` は画面に残し、宣言全体を旧fixtureと比較して変更がないことを確認した。選択・タイトル編集・設定保存・印刷処理・呼出順に手を加えていない。スキャンのQRプレビューも同じ分離後componentを参照する。
+
+### 維持した印刷仕様
+
+- A4の寸法、余白、3列×8段、各面寸法、QR寸法、ページ区切り、最後のページ、印刷対象を除くbody直下要素の非表示、docpack除外を含むCSS全文を維持。
+- 空白IDの除外、開始位置のclamp、小数・非有限数の既存扱い、先頭空送り面と24面ごとの分割を保持。
+- 黒枠は既存 `OUTBOUND_BOX_CODE_PATTERN` に一致する箱IDだけ。Bで始まる通常商品ID、桁数違い、大文字小文字や周辺空白の扱いを変更しない。
+- 商品ラベルは `printTitle`、チェックリストは `title` を使う違いを保持。印刷見出し件数とグループ化も既存処理のまま。
+- documentがない場合は用紙要素、ある場合は同じ `document.body` へのportalを返す。空用紙はportalを作らずnullを返す。
+- QRの行列とpathのuseMemo依存、quiet zone、SVG viewBox、path文字列、aria-label、白背景と描画色を保持。QR規則の再実装はしない。
+- React確認ではモジュール直下定義、既存hook/portal境界、直接import、型、印刷DOM階層を維持し、表示改善を混ぜていない。
+
+### 固定基準と対象比較
+
+`print-ui-baseline-source.txt` は `8cfcd9d` の実宣言6件（移動5件＋残すLabelPrintPanel）の固定fixture。
+SHA-256：`7a01751de8ea0d0fcbe41aa895064cfa85d320df20bc113b4a3cf03779763589`。
+編集前に旧実装で6テスト・7スナップショットを保存し、移動後は更新せず比較した。通常テストはGit不要で、現行側は新モジュールを直接実行する。
+
+- 新6テスト＋既存ラベル/QR規則9テスト、計15テストが成功。新7件と既存11件のスナップショットが一致。
+- 7入力でQR SVG全体と容量境界の挙動を比較。CSS全文は旧出力と完全一致し、そのままスナップショット保存。
+- ラベル数6条件×開始位置10条件の60組で用紙HTML全体一致。ページ数・空面数・箱枠数・HTMLのSHA-256を固定。
+- 空白IDと箱ID境界、画面/印刷チェックリストの空/通常/逆順入力、タイトル差と並び順、入力非変更を比較。
+- fake documentのbodyを対象に実 `createPortal` が作るportalのcontainer/key/type/childrenを旧実装と比較。実印刷やウィンドウ操作は行わない。
+- LabelPrintPanelの宣言全体が旧fixtureと完全一致。元画面67宣言すべてexport修飾子以外完全一致、基準コミットからfixture再抽出完全一致を確認。
+- 対象 `tsconfig.tests.json` の型チェック成功。新TSXは対象テストからimportされるため検査に含まれる。
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/print-ui.test.ts client/src/inventory/pages/purchase-registration/labels.test.ts
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+git diff --check
+```
+
+全体test/type/build/DB/browserは統合担当へ集約。HTML/portal比較はブラウザーの印刷表示確認を代替したという報告ではない。担当はローカルcommitで停止し、main/push/Vercel/本番キー・DBへは触れない。
+
+### 残る責務と次候補
+
+印刷用紙/CSS/QR/チェックリストの指定表示は分離済み。印刷パネルの選択・タイトルoverride・日付範囲・開始位置・保存/print副作用は画面に残る。次候補は①印刷設定の読書きと日付規則、②LabelPrintPanelのstate/表示境界、③追跡不足一覧/追跡ダイアログ。スキャン/出庫箱/申告/発送/返品と最上位query/mutationも残り、次の親指示で範囲を決める。

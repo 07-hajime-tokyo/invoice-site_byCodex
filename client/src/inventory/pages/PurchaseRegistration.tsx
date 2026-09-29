@@ -1,3 +1,7 @@
+import { ProductQrCode } from "./purchase-registration/ProductQrCode";
+import { LabelPrintStyles } from "./purchase-registration/LabelPrintStyles";
+import { PrintableLabelSheet } from "./purchase-registration/PrintableLabelSheet";
+import { LabelChecklistView, PrintableChecklistSheet } from "./purchase-registration/LabelChecklists";
 import { fieldClass } from "./purchase-registration/fieldStyles";
 import { StockPanel } from "./purchase-registration/StockPanel";
 import { openEcohaiTracking } from "./purchase-registration/trackingNavigation";
@@ -31,21 +35,8 @@ import {
   normalizeLabelTitleKey,
   applyLabelTitleOverride,
 } from "./purchase-registration/labelTitleOverrides";
-import {
-  LABELS_PER_SHEET,
-  clampLabelStartPosition,
-  nextLabelStartPosition,
-  chunkArray,
-  isWithinLabelScope,
-  buildLabelPrintGroups,
-  buildChecklistRows,
-} from "./purchase-registration/labelPrintLayout";
+import { LABELS_PER_SHEET, clampLabelStartPosition, nextLabelStartPosition, isWithinLabelScope, buildLabelPrintGroups } from "./purchase-registration/labelPrintLayout";
 import { buildInventoryLabelViews } from "./purchase-registration/inventoryLabelViews";
-import {
-  createQrMatrix,
-  QR_QUIET_ZONE,
-  buildQrPath,
-} from "./purchase-registration/qr";
 import { cleanLegacyManagementNo, parsePurchaseEtc as parseEtc } from "@shared/purchaseMetadata";
 import { getManagementNos } from "./purchase-registration/managementNumbers";
 import { buildEtcWithManagementNo } from "./purchase-registration/purchaseEtc";
@@ -84,13 +75,12 @@ import type {
 import type { LabelView, LabelPrintRequest, ShippingItemView, ProductSummary, InvoiceProductSummary, ProductDetailFilter, AllocationGroup } from "./purchase-registration/viewTypes";
 import { formatCurrency } from "./purchase-registration/format";
 import { TRACKING_CARRIER_LABELS, TRACKING_CARRIER_KEYS, TRACKING_CARRIER_OPTIONS, normalizedTrackingNumber, getPurchaseTrackingMeta, hasPurchaseTracking } from "./purchase-registration/tracking";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { getCarrierColor, type Carrier } from "@/inventory/lib/tracking";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
-import { classifyOutboundScan, normalizeOutboundScan, OUTBOUND_BOX_CODE_PATTERN } from "@shared/outboundBoxes";
+import { classifyOutboundScan, normalizeOutboundScan } from "@shared/outboundBoxes";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -205,20 +195,6 @@ function formatScanTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" }).format(date);
-}
-
-
-
-function ProductQrCode({ value }: { value: string }) {
-  const matrix = useMemo(() => createQrMatrix(value), [value]);
-  const path = useMemo(() => buildQrPath(matrix), [matrix]);
-  const size = matrix.length + QR_QUIET_ZONE * 2;
-  return (
-    <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`QR ${value}`} className="h-full w-full bg-white">
-      <rect width={size} height={size} fill="white" />
-      {path ? <path d={path} fill="#0f172a" shapeRendering="crispEdges" /> : null}
-    </svg>
-  );
 }
 
 function todayCompact(): string {
@@ -546,50 +522,6 @@ function loadLabelScopeFrom(): string {
   } catch {
     return LABEL_SCOPE_FROM_DEFAULT;
   }
-}
-
-function LabelChecklistView({ labels }: { labels: LabelView[] }) {
-  const groups = buildChecklistRows(labels);
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        付箋の旧管理番号から商品IDを引くための一覧です。チェックした商品IDだけを載せます（未選択なら表示中のすべて）。
-      </p>
-      <div className="overflow-hidden rounded-md border bg-background">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-              <tr>
-                <th className="w-10 px-3 py-2 text-left font-medium">✓</th>
-                <th className="w-32 px-3 py-2 text-left font-medium">商品ID</th>
-                <th className="px-3 py-2 text-left font-medium">旧管理番号</th>
-                <th className="px-3 py-2 text-left font-medium">商品名</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => (
-                <Fragment key={group.name}>
-                  <tr className="border-b bg-slate-50">
-                    <td colSpan={4} className="px-3 py-2 text-xs font-medium text-muted-foreground">
-                      {group.name} - {group.labels.length}件
-                    </td>
-                  </tr>
-                  {group.labels.map((label) => (
-                    <tr key={label.key} className="border-b last:border-b-0">
-                      <td className="px-3 py-2 text-muted-foreground">□</td>
-                      <td className="px-3 py-2 font-mono font-semibold text-slate-950">{label.labelId}</td>
-                      <td className="px-3 py-2">{label.legacyManagementNo}</td>
-                      <td className="px-3 py-2">{label.title}</td>
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 /** Asia/Tokyo の「今日」を YYYY-MM-DD で返す。ブラウザのタイムゾーンに引きずられないようにする。 */
@@ -966,289 +898,6 @@ function LabelPrintPanel({
       )}
     </div>
   );
-}
-
-function LabelPrintStyles() {
-  return (
-    <style>{`
-      .label-print-root {
-        display: none;
-      }
-
-      .checklist-print-root {
-        display: none;
-      }
-
-      @media print {
-        @page {
-          size: 210mm 297mm;
-          margin: 0;
-        }
-
-        html,
-        body {
-          width: 210mm !important;
-          min-width: 210mm !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #fff !important;
-        }
-
-        body {
-          overflow: visible !important;
-        }
-
-        body > *:not(.label-print-root):not(.checklist-print-root):not(.docpack-print-root) {
-          display: none !important;
-        }
-
-        .label-print-root {
-          display: block !important;
-          position: static !important;
-          box-sizing: border-box;
-          width: 210mm !important;
-          min-height: 0;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #fff !important;
-          color: #0f172a !important;
-        }
-
-        .label-print-sheet {
-          box-sizing: border-box;
-          display: grid !important;
-          grid-template-columns: repeat(3, 66mm);
-          grid-template-rows: repeat(8, 33.9mm);
-          column-gap: 3mm;
-          row-gap: 0;
-          width: 210mm !important;
-          height: 297mm !important;
-          min-height: 297mm !important;
-          margin: 0 !important;
-          padding: 12.9mm 3mm;
-          align-content: start;
-          justify-content: start;
-          overflow: hidden;
-        }
-
-        .label-print-sheet:not(:last-child) {
-          break-after: page;
-          page-break-after: always;
-        }
-
-        .label-print-sheet:last-child {
-          break-after: auto;
-          page-break-after: auto;
-        }
-
-        .label-print-item {
-          box-sizing: border-box;
-          display: grid !important;
-          grid-template-columns: minmax(0, 1fr) 20mm;
-          column-gap: 2mm;
-          align-items: center;
-          width: 66mm;
-          height: 33.9mm;
-          overflow: hidden;
-          padding: 2.4mm 2.8mm;
-          break-inside: avoid;
-          page-break-inside: avoid;
-          color: #0f172a;
-          background: #fff;
-          font-family: Arial, sans-serif;
-        }
-
-        .label-print-box {
-          border: 1.2mm solid #0f172a;
-          padding: 1.4mm 1.8mm;
-        }
-
-        .label-print-box .label-print-id {
-          font-size: 17pt;
-          letter-spacing: 0.12em;
-        }
-
-        .label-print-id {
-          margin-bottom: 1.2mm;
-          font-family: Consolas, "Courier New", monospace;
-          font-size: 13pt;
-          font-weight: 700;
-          line-height: 1.05;
-          letter-spacing: 0.08em;
-        }
-
-        .label-print-ref {
-          margin-bottom: 1mm;
-          overflow: hidden;
-          font-size: 6.6pt;
-          line-height: 1.15;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .label-print-title {
-          max-height: 11mm;
-          overflow: hidden;
-          font-size: 7.3pt;
-          font-weight: 700;
-          line-height: 1.18;
-        }
-
-        .label-print-qr {
-          width: 20mm;
-          height: 20mm;
-          justify-self: end;
-        }
-
-        .label-print-qr svg {
-          display: block !important;
-          width: 100% !important;
-          height: 100% !important;
-        }
-
-        .checklist-print-root {
-          display: block !important;
-          box-sizing: border-box;
-          width: 210mm !important;
-          padding: 10mm 8mm;
-          color: #0f172a !important;
-          background: #fff !important;
-          font-family: Arial, sans-serif;
-        }
-
-        .checklist-print-head {
-          margin-bottom: 4mm;
-          font-size: 11pt;
-          font-weight: 700;
-        }
-
-        .checklist-print-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 8.6pt;
-        }
-
-        .checklist-print-table th,
-        .checklist-print-table td {
-          border: 0.2mm solid #94a3b8;
-          padding: 1.3mm 1.6mm;
-          text-align: left;
-        }
-
-        /* ページをまたいでも見出し行を繰り返す */
-        .checklist-print-table thead {
-          display: table-header-group;
-        }
-
-        .checklist-print-table tr {
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .checklist-print-group td {
-          background: #e2e8f0;
-          font-weight: 700;
-        }
-
-        .checklist-print-check {
-          width: 9mm;
-        }
-
-        .checklist-print-idcol {
-          width: 26mm;
-          font-family: Consolas, "Courier New", monospace;
-          font-weight: 700;
-        }
-      }
-    `}</style>
-  );
-}
-
-function PrintableLabelSheet({ labels, startPosition = 1 }: { labels: LabelView[]; startPosition?: number }) {
-  const printableLabels = labels.filter((label) => label.labelId.trim());
-  if (printableLabels.length === 0) return null;
-
-  // 使いかけシートの手前の面は空送りする。
-  const blankCount = clampLabelStartPosition(startPosition) - 1;
-  const slots: Array<LabelView | null> = [...Array<null>(blankCount).fill(null), ...printableLabels];
-  const labelPages = chunkArray(slots, LABELS_PER_SHEET);
-  const sheet = (
-    <div className="label-print-root" aria-hidden="true">
-      {labelPages.map((pageSlots, pageIndex) => (
-        <div key={`label-page-${pageIndex}`} className="label-print-sheet">
-          {pageSlots.map((label, slotIndex) =>
-            label ? (
-              <div
-                key={label.key}
-                className={cn(
-                  "label-print-item",
-                  // 箱ID（B+6桁）だけ枠を付ける。商品IDは英字7文字なので B 始まりが普通にある
-                  // （BARDNSY など）。startsWith("B") だと商品ラベルまで黒枠になっていた。
-                  OUTBOUND_BOX_CODE_PATTERN.test(label.labelId) && "label-print-box",
-                )}
-              >
-                <div>
-                  <div className="label-print-id">{label.labelId}</div>
-                  {label.allocationLabel ? <div className="label-print-ref">{label.allocationLabel}</div> : null}
-                  <div className="label-print-title">{label.printTitle}</div>
-                </div>
-                <div className="label-print-qr">
-                  <ProductQrCode value={label.labelId} />
-                </div>
-              </div>
-            ) : (
-              <div key={`label-blank-${pageIndex}-${slotIndex}`} className="label-print-item label-print-blank" />
-            ),
-          )}
-        </div>
-      ))}
-    </div>
-  );
-
-  return typeof document === "undefined" ? sheet : createPortal(sheet, document.body);
-}
-
-// 付箋の旧管理番号から商品IDを引くための一覧。棚を回る順に見られるようカテゴリごとにまとめ、
-// その中は旧管理番号の順に並べる。
-function PrintableChecklistSheet({ labels }: { labels: LabelView[] }) {
-  const groups = buildChecklistRows(labels);
-  if (groups.length === 0) return null;
-  const sheet = (
-    <div className="checklist-print-root" aria-hidden="true">
-      <div className="checklist-print-head">商品IDと旧管理番号の確認シート（{labels.length}件）</div>
-      <table className="checklist-print-table">
-        <thead>
-          <tr>
-            <th className="checklist-print-check">✓</th>
-            <th className="checklist-print-idcol">商品ID</th>
-            <th>旧管理番号</th>
-            <th>商品名</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group) => (
-            <Fragment key={group.name}>
-              <tr className="checklist-print-group">
-                <td colSpan={4}>
-                  {group.name} - {group.labels.length}件
-                </td>
-              </tr>
-              {group.labels.map((label) => (
-                <tr key={label.key}>
-                  <td className="checklist-print-check" />
-                  <td className="checklist-print-idcol">{label.labelId}</td>
-                  <td>{label.legacyManagementNo}</td>
-                  <td>{label.title}</td>
-                </tr>
-              ))}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  return typeof document === "undefined" ? sheet : createPortal(sheet, document.body);
 }
 
 function ScannedLabelPreview({ label }: { label: LabelView }) {
