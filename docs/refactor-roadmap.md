@@ -44,7 +44,7 @@
 | 領域 | 主な入口・配置 | 状態 | 整理前に固定する動作 |
 | --- | --- | --- | --- |
 | 入庫一覧 | `Purchases.tsx`、inventory APIの一覧処理 | P01〜P09済 | 検索・表示・集計・編集・CSV。検証範囲と残る制約は下記 |
-| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | R01〜R14済 | 型・表示・追跡・管理番号・検索・ラベル/QR・在庫提案・商品照合/集計・利益予測。引当グループと充足表示も整理。登録・発送の実行は後続 |
+| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | R01〜R15済 | 型・表示・追跡・管理番号・検索・ラベル/QR・在庫提案・商品照合/集計・利益予測。引当グループと充足表示も整理。登録・発送の実行は後続 |
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 未着手 | 受入・ラベル・工程更新・取消 |
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
@@ -52,7 +52,7 @@
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 未着手 | 箱・送り状・申告・発送状態・エラー時の扱い |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
-| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f・I08a〜b済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。保存実行/採番/AI等は後続 |
+| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f・I08a〜b・I09済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。保存実行/採番/AI等は後続 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 未着手 | 集計・締め・保存・再取得・日付境界 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 未着手 | 対象限定・復元・履歴保持・再実行。専用データのみで検証 |
@@ -299,3 +299,11 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - `6e0716c` → `11d21b9`。印刷設定・LabelPrintPanel・MissingTrackingOverviewを分離。全62宣言（移動13）はexport以外一致。
 - 統合534テスト、アプリ型検査、build、差分チェック成功。印刷パネルと開始位置24の確認シートDOMは第9回の基準に完全一致。開始位置1へ戻し、追跡未登録2件→登録済み1件の切替も確認（DB更新なし）。ブラウザーの連続locator操作が別タブへ入ったためAX操作で確認し直した。
 - API/DB実行無変更のため第8回DB48件の結果を再利用。第11回は発注のスキャン/箱/発送/返品と、請求書API3ルーターを担当分離して開始。全領域完了ではない。
+
+## 第11回：業務画面・請求書API（2026-09-30）
+
+- 発注 `0fa4f80` → `fe8e724`：入庫スキャン、箱/申告、発送/返品と共用読取・発送規則を分離。元49宣言（移動44）はexport以外一致。既存の箱発行公開importをre-exportで保持。親の取得/保存/ダイアログは残る。
+- 請求書 `e5ff0d4` → `9b2925b`：顧客/請求書/差出人APIと解析/採番helperを分離。ルーター本体は一致、storageの相対importだけ同じ参照先へ補正。入力/保存の共通化とUI内部の責務監査は残る。
+- `3a82cb2`で保存/更新/重複拒否/複製/削除復元/分割/採番の回帰3件を追加し、整理前51件成功を基準化。初回期待値はDBの小数2桁表現へ修正（アプリ変更なし）。接続EPERMはローカル接続権限取得後に解消。
+- 統合534単体＋51 HTTP/API/専用MySQL回帰＝585件、アプリ/回帰型、build、差分チェック成功。実UIはスキャン待機、箱モード/従来出庫、ラベル選択で出庫1件が有効になること、返品対象の表示を確認。カメラ/実印刷/FedEx/返品確定は未実行。純粋移動の一致証拠と代表UIを組み合わせた検証。
+- DB回帰後に架空7件へseed。実UI用に架空在庫910001のみ数量1・ラベルstockedへ変更して保持（ラベルQKNALGY）。請求書テストデータは撤去済み。全体は1領域済・2一部済・13未着手。main/push/Vercel/本番DBキー操作なし。
