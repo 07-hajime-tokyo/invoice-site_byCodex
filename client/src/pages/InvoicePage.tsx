@@ -66,6 +66,9 @@ import { InvoicePreview } from "./invoices/InvoicePreview";
 import { generateInvoicePdf } from "./invoices/generateInvoicePdf";
 import { SenderSettingsDialog } from "./invoices/SenderSettingsDialog";
 import { ClientManagerDialog } from "./invoices/ClientManagerDialog";
+import { storedInvoiceToForm, storedInvoiceToEditForm } from "./invoices/storedInvoiceForm";
+import { invoiceListCurrencies, buildInvoiceRateMap } from "./invoices/listRules";
+import { InvoiceCard } from "./invoices/InvoiceCard";
 
 // ─── Sender Settings Dialog ──────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -85,19 +88,7 @@ const EMPTY_FORM: InvoiceFormData = {
 };
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    draft: { label: "下書き", className: "bg-gray-100 text-gray-600 border-gray-200" },
-    sent: { label: "送付済み", className: "bg-blue-50 text-blue-600 border-blue-200" },
-    paid: { label: "支払済み", className: "bg-emerald-50 text-emerald-600 border-emerald-200" },
-  };
-  const s = map[status] ?? map.draft;
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${s.className}`}>
-      {s.label}
-    </span>
-  );
-}
+
 
 // ─── Client Manager Dialog ────────────────────────────────────────────────────
 // ─── Invoice Preview (print-ready) ───────────────────────────────────────────
@@ -1794,10 +1785,7 @@ function InvoiceList({  onNew,
   const { data: senderSettings } = trpc.invoiceSettings.get.useQuery();
 
   // 為替レート取得（インボイス一覧に使用する通貨を収集して一括取得）
-  const currencies = useMemo(() => {
-    const set = new Set(invoiceList.map(inv => inv.currency).filter(c => c !== "JPY"));
-    return Array.from(set);
-  }, [invoiceList]);
+  const currencies = useMemo(() => invoiceListCurrencies(invoiceList), [invoiceList]);
 
   // 通貨ごとに為替レートを取得（EUR, USD, GBP等）
   const { data: eurRate } = trpc.invoices.getExchangeRate.useQuery(
@@ -1818,21 +1806,7 @@ function InvoiceList({  onNew,
   );
 
   // 通貨→レートのマップ
-  const rateMap = useMemo(() => {
-    const map: Record<string, number> = { JPY: 1 };
-    if (eurRate) map["EUR"] = eurRate.rate;
-    if (usdRate) map["USD"] = usdRate.rate;
-    if (gbpRate) map["GBP"] = gbpRate.rate;
-    if (chfRate) map["CHF"] = chfRate.rate;
-    return map;
-  }, [eurRate, usdRate, gbpRate, chfRate]);
-
-  // 円換算金額を計算するヘルパー
-  const calcJpy = useCallback((totalAmount: number, currency: string): number | null => {
-    const rate = rateMap[currency];
-    if (rate == null) return null;
-    return Math.round(totalAmount * rate);
-  }, [rateMap]);
+  const rateMap = useMemo(() => buildInvoiceRateMap(eurRate, usdRate, gbpRate, chfRate), [eurRate, usdRate, gbpRate, chfRate]);
 
   const handlePreviewOpen = async (invId: number) => {
     setPreviewInvId(invId);
@@ -1840,27 +1814,7 @@ function InvoiceList({  onNew,
     try {
       const inv = await utils.invoices.get.fetch({ id: invId });
       if (!inv) { toast.error("請求書データが取得できませんでした"); return; }
-      const form: InvoiceFormData = {
-        invoiceNumber: inv.invoiceNumber,
-        clientId: inv.clientId ?? null,
-        invoiceDate: inv.invoiceDate ?? "",
-        dueDate: inv.dueDate ?? "",
-        currency: inv.currency,
-        showAmounts: inv.showAmounts,
-        notes: inv.notes ?? "",
-        rawChat: inv.rawChat ?? "",
-        status: inv.status,
-        accentColor: (inv as unknown as { accentColor?: string | null }).accentColor ?? "#db8b1a",
-        items: (inv.items ?? []).map((item: { description: string; variant?: string | null; quantity: string | number; unitPrice: string | number; currency?: string | null; sortOrder?: number | null; tax?: string | number | null }) => ({
-          description: item.description,
-          subText: item.variant ?? undefined,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.unitPrice),
-          currency: item.currency ?? undefined,
-          sortOrder: item.sortOrder ?? undefined,
-          tax: item.tax != null ? Number(item.tax) : undefined,
-        })),
-      };
+      const form: InvoiceFormData = storedInvoiceToForm(inv);
       const selectedClient = inv.clientId
         ? clients.find(c => c.id === inv.clientId) ?? null
         : null;
@@ -1881,27 +1835,7 @@ function InvoiceList({  onNew,
       const inv = await utils.invoices.get.fetch({ id: invId });
       if (!inv) { toast.error("請求書データが取得できませんでした"); return; }
 
-      const form: InvoiceFormData = {
-        invoiceNumber: inv.invoiceNumber,
-        clientId: inv.clientId ?? null,
-        invoiceDate: inv.invoiceDate ?? "",
-        dueDate: inv.dueDate ?? "",
-        currency: inv.currency,
-        showAmounts: inv.showAmounts,
-        notes: inv.notes ?? "",
-        rawChat: inv.rawChat ?? "",
-        status: inv.status,
-        accentColor: (inv as unknown as { accentColor?: string | null }).accentColor ?? "#db8b1a",
-        items: (inv.items ?? []).map((item: { description: string; variant?: string | null; quantity: string | number; unitPrice: string | number; currency?: string | null; sortOrder?: number | null; tax?: string | number | null }) => ({
-          description: item.description,
-          subText: item.variant ?? undefined,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.unitPrice),
-          currency: item.currency ?? undefined,
-          sortOrder: item.sortOrder ?? undefined,
-          tax: item.tax != null ? Number(item.tax) : undefined,
-        })),
-      };
+      const form: InvoiceFormData = storedInvoiceToForm(inv);
 
       const selectedClient = inv.clientId
         ? clients.find(c => c.id === inv.clientId) ?? null
@@ -2033,109 +1967,25 @@ function InvoiceList({  onNew,
         </div>
       ) : (
         <div className="space-y-2">
-          {invoiceList.map((inv) => {
-            const client = inv.clientId ? clientMap.get(inv.clientId) : null;
-            const invWithExtras = inv as typeof inv & { itemCount?: number; totalAmount?: number };
-            const totalAmount = invWithExtras.totalAmount ?? 0;
-            const itemCount = invWithExtras.itemCount ?? 0;
-            const jpyAmount = calcJpy(totalAmount, inv.currency);
-            const isOver1M = jpyAmount != null && jpyAmount >= 1_000_000;
-            return (
-              <div
-                key={inv.id}
-                className="flex flex-col gap-3 p-4 bg-background border border-border rounded-lg hover:bg-muted/20 transition-colors sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-foreground truncate">{inv.invoiceNumber}</span>
-                    <StatusBadge status={inv.status} />
-                    {jpyAmount != null && (
-                      <span className={`flex items-center gap-1 text-xs font-medium ${
-                        isOver1M ? "text-orange-500" : "text-muted-foreground"
-                      }`}>
-                        {isOver1M && <AlertCircle size={12} className="text-orange-500" />}
-                        ¥{jpyAmount.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    {client && <span>{client.name}</span>}
-                    {inv.invoiceDate && <span>{inv.invoiceDate}</span>}
-                    <span>{itemCount}件の明細</span>
-                    <span>{inv.currency}</span>
-                    {totalAmount > 0 && (
-                      <span className="font-medium text-foreground/70">{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {inv.currency}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex w-full flex-wrap items-center gap-1 sm:ml-3 sm:w-auto sm:flex-shrink-0">
-                  <Select
-                    value={inv.status}
-                    onValueChange={v => updateStatusMutation.mutate({ id: inv.id, status: v as "draft" | "sent" | "paid" })}
-                  >
-                    <SelectTrigger className="h-8 w-full text-xs border-border sm:h-7 sm:w-24">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="draft">下書き</SelectItem>
-                      <SelectItem value="sent">送付済み</SelectItem>
-                      <SelectItem value="paid">支払済み</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                    title="プレビュー"
-                    onClick={() => handlePreviewOpen(inv.id)}
-                    disabled={previewLoading && previewInvId === inv.id}
-                  >
-                    {previewLoading && previewInvId === inv.id
-                      ? <Loader2 size={13} className="animate-spin" />
-                      : <Eye size={13} />}
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onEdit(inv.id)} title="編集">
-                    <Pencil size={13} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                    title="PDF保存"
-                    onClick={() => handleListPdf(inv.id, inv.invoiceNumber)}
-                    disabled={pdfLoadingId === inv.id}
-                  >
-                    {pdfLoadingId === inv.id
-                      ? <Loader2 size={13} className="animate-spin" />
-                      : <FileDown size={13} />}
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                    title="クローン（最新番号+1で複製）"
-                    onClick={() => cloneMutation.mutate({ id: inv.id })}
-                    disabled={cloneMutation.isPending}
-                  >
-                    <Copy size={13} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    title="削除"
-                    onClick={() => {
-                      if (confirm(`「${inv.invoiceNumber}」を削除しますか？`)) {
-                        deleteMutation.mutate({ id: inv.id });
-                      }
-                    }}
-                  >
-                    <Trash2 size={13} />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+          {invoiceList.map((inv) => (
+            <InvoiceCard
+              key={inv.id}
+              inv={inv}
+              client={inv.clientId ? clientMap.get(inv.clientId) : null}
+              rateMap={rateMap}
+              previewBusy={previewLoading && previewInvId === inv.id}
+              pdfBusy={pdfLoadingId === inv.id}
+              clonePending={cloneMutation.isPending}
+              actions={{
+                onStatusChange: input => updateStatusMutation.mutate(input),
+                onPreview: handlePreviewOpen,
+                onEdit,
+                onPdf: handleListPdf,
+                onClone: input => cloneMutation.mutate(input),
+                onDelete: input => deleteMutation.mutate(input),
+              }}
+            />
+          ))}
         </div>
       )}
 
@@ -2462,26 +2312,7 @@ export default function InvoicePage({ initialEditId }: { initialEditId?: number 
     );
   }
 
-  const editForm: InvoiceFormData = {
-    invoiceNumber: editInvoice.invoiceNumber,
-    clientId: editInvoice.clientId ?? null,
-    invoiceDate: editInvoice.invoiceDate ?? "",
-    dueDate: editInvoice.dueDate ?? "",
-    currency: editInvoice.currency,
-    showAmounts: editInvoice.showAmounts,
-    notes: editInvoice.notes ?? "",
-    rawChat: editInvoice.rawChat ?? "",
-    status: editInvoice.status,
-    accentColor: (editInvoice as unknown as { accentColor?: string | null }).accentColor ?? "#db8b1a",
-    items: (editInvoice.items ?? []).map(item => ({
-      description: item.description,
-      subText: (item as unknown as { variant?: string | null }).variant ?? undefined,
-      quantity: Number(item.quantity),
-      unitPrice: Number(item.unitPrice),
-      currency: item.currency ?? undefined,
-      sortOrder: item.sortOrder,
-    })),
-  };
+  const editForm: InvoiceFormData = storedInvoiceToEditForm(editInvoice);
 
   return (
     <InvoiceEditor

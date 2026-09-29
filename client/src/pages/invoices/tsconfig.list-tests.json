@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["./storedInvoiceForm.ts", "./listRules.ts", "./StatusBadge.tsx", "./InvoiceCard.tsx", "./listReference.tsx", "./list.test.tsx"],
+  "exclude": []
+}
