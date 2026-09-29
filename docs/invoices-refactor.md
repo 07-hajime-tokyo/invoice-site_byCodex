@@ -318,3 +318,40 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-controls-test
 - Dialog/Select等は固定HTMLタグによる比較。実Radixのopen/close・ポータル・focus・実保存/DBを保証しない。全体テスト/型/build/DB/browserは担当で実施せず統合担当へ引き継ぐ。
 - 次候補はKnowledgeBaseDialogのファイル/履歴/チャット表示と固定依存での入力契約。続いて残る編集・一覧の副作用、削除済み/検知結果モーダル、印刷/PDF操作の境界を整理する。
 - UIの大きな3ブロックは今回分離済みだが、インボイス領域全体の完了ではない。I06j〜lをローカルコミットして引き渡し、今回の担当作業を停止する。
+
+## 第8回：I07a〜c KnowledgeBaseのファイル・履歴・チャット表示
+
+共通基準`b04b91d`を`9d98f8d`でmergeし、関連3単位を整理した。
+
+| 単位 | 境界 |
+| --- | --- |
+| I07a | `KnowledgeFilePicker.tsx`と`KnowledgePendingFiles.tsx`：ファイル選択、待機一覧、名前/撮影日編集 |
+| I07b | `KnowledgeHistory.tsx`：学習済み一覧と削除確認 |
+| I07c | `KnowledgeChat.tsx`：会話未選択/空/メッセージ/pending表示、候補質問、入力欄 |
+
+状態、query/mutation、FileReader、貼り付けlistener、送信payload作成、送信順序は親に保持。会話サイドバーと最新インボイス番号抽出も親に残した。追加DOMラッパーは作らず、新部品と親の該当呼出しのみ整形。InvoicePageは1,797行から1,650行へ縮小。待機ファイルとチャットメッセージのexport型を親子で共用し、親の配列・読込結果の型注釈も同じ定義から参照する。
+
+### 元の実関数との比較
+
+`knowledge-baseline.txt`はb04b91dの実KnowledgeBaseDialog全体を固定したfixture。`knowledgeReference.tsx`は旧実関数または現在の親実関数を読み、固定hooks/API/FileReader/時計/UI依存で実行する。外部通信は行わず、fetchは呼ばれたら失敗する設定とした。
+
+- 対象10テスト・17スナップショットが旧実装と分離後で一致。対象型チェックと`git diff --check`成功。
+- 空/複数の学習履歴、ファイル待機表示、会話未選択/空/複数メッセージ/pendingのHTMLを比較。
+- ファイル読込順序、10MiBちょうどの許可/超過除外、読込失敗後の継続、MIME fallback、KB丸め、撮影日、アップロードpayload、成功/失敗通知とrefetchを確認。
+- 名前のEnter確定/Escape取消、撮影日更新、待機ファイル削除、drag/drop/選択クリック、画像貼り付けのtype判定/null除外/cleanupを確認。
+- 履歴削除の確認取消/承認、ID、成功/失敗通知とrefetchを確認。
+- チャット入力trim、直前10件の履歴（今回追加するuserメッセージを含めない）、送信時入力解除、成功/失敗メッセージ、候補質問、Shift+Enter、pending時の送信抑止を確認。
+- AST比較でfixtureが元実関数と一致し、親KnowledgeBaseDialogのreturn以外は共用型を参照する型注釈のみ変更し、型を除去した実行コードが一致することを確認。他の全画面宣言は無変更。
+
+```sh
+INVOICE_KNOWLEDGE_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/knowledge.test.tsx
+TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/knowledge.test.tsx
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.knowledge-tests.json --noEmit
+```
+
+### 制約と残る境界
+
+- ファイル選択には10MiB制限があるが画像貼り付けには同じ制限がない。スクショ名は秒単位の時刻から作るため同一秒では重複しうる。今回これらの既存挙動は修正しない。
+- hooks/effectは固定アダプター、Dialog等は固定HTMLタグ。実React lifecycle、Radixのfocus/portal、実ブラウザーのFileReader/clipboard、アップロード/AI接続を保証しない。全体テスト/型/build/DB/browserは統合担当へ引き継ぐ。
+- 残る境界は会話一覧/最新番号抽出の表示、KnowledgeBaseの親側副作用、編集/一覧の保存・印刷/PDF操作、削除済み/検知結果モーダル。インボイス領域全体の完了ではない。
+- I07a〜cをローカルコミットで引き渡し、今回の担当作業を停止する。

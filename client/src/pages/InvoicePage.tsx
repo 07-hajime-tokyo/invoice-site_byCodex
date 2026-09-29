@@ -71,6 +71,12 @@ import { BackConfirmDialog } from "./invoices/BackConfirmDialog";
 import { OverLimitDialog } from "./invoices/OverLimitDialog";
 import { SplitPreviewDialog } from "./invoices/SplitPreviewDialog";
 import { InvoiceContacts } from "./invoices/InvoiceContacts";
+import { KnowledgeFilePicker } from "./invoices/KnowledgeFilePicker";
+import { KnowledgePendingFiles } from "./invoices/KnowledgePendingFiles";
+import { KnowledgeHistory } from "./invoices/KnowledgeHistory";
+import { KnowledgeChat } from "./invoices/KnowledgeChat";
+import type { KnowledgeChatMessage } from "./invoices/KnowledgeChat";
+import type { PendingKnowledgeFile } from "./invoices/KnowledgePendingFiles";
 
 // ─── Sender Settings Dialog ──────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -688,7 +694,7 @@ function KnowledgeBaseDialog({
   onNewWithNumber: (num: string, items?: InvoiceItem[]) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingFiles, setPendingFiles] = useState<Array<{ name: string; base64: string; mimeType: string; sizeKB: number; screenshotDate?: string }>>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingKnowledgeFile[]>([]);
   const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
   const [editingNameValue, setEditingNameValue] = useState<string>("");
   const [isDragging, setIsDragging] = useState(false);
@@ -696,7 +702,7 @@ function KnowledgeBaseDialog({
   const [chatInput, setChatInput] = useState("");
   // Conversation session management
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
-  const [chatHistory, setChatHistory] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [chatHistory, setChatHistory] = useState<KnowledgeChatMessage[]>([]);
   const [latestNumberResult, setLatestNumberResult] = useState<{ invoiceNumber: number | null; nextNumber: number | null; message: string } | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -788,7 +794,7 @@ function KnowledgeBaseDialog({
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
-  const readFile = useCallback((file: File): Promise<{ name: string; base64: string; mimeType: string; sizeKB: number }> => {
+  const readFile = useCallback((file: File): Promise<Omit<PendingKnowledgeFile, "screenshotDate">> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -802,7 +808,7 @@ function KnowledgeBaseDialog({
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const items: Array<{ name: string; base64: string; mimeType: string; sizeKB: number; screenshotDate?: string }> = [];
+    const items: PendingKnowledgeFile[] = [];
     for (const file of Array.from(files)) {
       if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} は10MBを超えています`); continue; }
       try {
@@ -824,7 +830,7 @@ function KnowledgeBaseDialog({
       const imageItems = Array.from(items).filter(item => item.type.startsWith("image/"));
       if (imageItems.length === 0) return;
       e.preventDefault();
-      const newFiles: Array<{ name: string; base64: string; mimeType: string; sizeKB: number; screenshotDate?: string }> = [];
+      const newFiles: PendingKnowledgeFile[] = [];
       for (const item of imageItems) {
         const file = item.getAsFile();
         if (!file) continue;
@@ -899,93 +905,33 @@ function KnowledgeBaseDialog({
           {activeTab === "upload" && (
             <div className="p-4 space-y-4">
               {/* Drop zone */}
-              <div
-                className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors ${
-                  isDragging ? "border-[#075E54] bg-[#075E54]/5" : "border-border hover:border-[#075E54]/50 hover:bg-muted/30"
-                }`}
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileSelect(e.dataTransfer.files); }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium">ファイルをドロップ または クリックして選択</p>
-                <p className="text-xs text-muted-foreground mt-1">.txt（チャット履歴）/ 画像（スクショ）/ .pdf（インボイス）· 最大10MB</p>
-                <p className="text-xs text-muted-foreground mt-0.5">💡 スクリーンショットは <kbd className="bg-muted border border-border rounded px-1 py-0.5 text-[10px] font-mono">Ctrl</kbd> / <kbd className="bg-muted border border-border rounded px-1 py-0.5 text-[10px] font-mono">⌘</kbd> + <kbd className="bg-muted border border-border rounded px-1 py-0.5 text-[10px] font-mono">V</kbd> で貼り付け可能</p>
-                <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,image/*" className="hidden" onChange={(e) => handleFileSelect(e.target.files)} />
-              </div>
+              <KnowledgeFilePicker
+                isDragging={isDragging}
+                setIsDragging={setIsDragging}
+                handleFileSelect={handleFileSelect}
+                fileInputRef={fileInputRef}
+              />
 
               {/* Pending files */}
-              {pendingFiles.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold">アップロード待ち ({pendingFiles.length}件)</p>
-                  {pendingFiles.map((f, i) => (
-                    <div key={i} className="bg-muted/40 rounded px-2 py-1.5 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <FileText size={13} className="text-muted-foreground flex-shrink-0" />
-                        {/* ファイル名インライン編集 */}
-                        {editingNameIdx === i ? (
-                          <input
-                            type="text"
-                            autoFocus
-                            className="text-xs flex-1 border border-[#075E54] rounded px-1.5 py-0.5 bg-background text-foreground"
-                            value={editingNameValue}
-                            onChange={(e) => setEditingNameValue(e.target.value)}
-                            onBlur={() => {
-                              const trimmed = editingNameValue.trim();
-                              if (trimmed) setPendingFiles(prev => prev.map((pf, j) => j === i ? { ...pf, name: trimmed } : pf));
-                              setEditingNameIdx(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                const trimmed = editingNameValue.trim();
-                                if (trimmed) setPendingFiles(prev => prev.map((pf, j) => j === i ? { ...pf, name: trimmed } : pf));
-                                setEditingNameIdx(null);
-                              } else if (e.key === "Escape") {
-                                setEditingNameIdx(null);
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span
-                            className="text-xs flex-1 truncate cursor-pointer hover:text-[#075E54] group flex items-center gap-1"
-                            title="クリックして名前を変更"
-                            onClick={() => { setEditingNameIdx(i); setEditingNameValue(f.name); }}
-                          >
-                            {f.name}
-                            <Pencil size={10} className="text-muted-foreground opacity-0 group-hover:opacity-100 flex-shrink-0" />
-                          </span>
-                        )}
-                        <span className="text-[10px] text-muted-foreground flex-shrink-0">{f.sizeKB}KB</span>
-                        <button onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}>
-                          <X size={12} className="text-muted-foreground hover:text-destructive" />
-                        </button>
-                      </div>
-                      {/* Date input for screenshots */}
-                      {f.mimeType.startsWith("image/") && (
-                        <div className="flex items-center gap-1.5 pl-5">
-                          <label className="text-[10px] text-muted-foreground whitespace-nowrap">撮影日:</label>
-                          <input
-                            type="date"
-                            className="text-[10px] border border-border rounded px-1.5 py-0.5 bg-background text-foreground flex-1"
-                            value={f.screenshotDate ?? ""}
-                            onChange={(e) => setPendingFiles(prev => prev.map((pf, j) => j === i ? { ...pf, screenshotDate: e.target.value } : pf))}
-                          />
-                          <span className="text-[9px] text-muted-foreground">日付を入力するとAIが時刻を正確に解釈</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <Button
-                    className="w-full bg-[#075E54] hover:bg-[#075E54]/90 text-white"
-                    size="sm"
-                    onClick={() => uploadMutation.mutate({ files: pendingFiles.map(f => ({ name: f.name, base64: f.base64, mimeType: f.mimeType, screenshotDate: f.screenshotDate })) })}
-                    disabled={uploadMutation.isPending}
-                  >
-                    {uploadMutation.isPending ? <><RefreshCw size={13} className="animate-spin mr-1.5" />AI解析中...</> : <><Upload size={13} className="mr-1.5" />知識ベースに追加 ({pendingFiles.length}件)</>}
-                  </Button>
-                </div>
-              )}
+              <KnowledgePendingFiles
+                pendingFiles={pendingFiles}
+                setPendingFiles={setPendingFiles}
+                editingNameIdx={editingNameIdx}
+                editingNameValue={editingNameValue}
+                setEditingNameIdx={setEditingNameIdx}
+                setEditingNameValue={setEditingNameValue}
+                onUpload={() =>
+                  uploadMutation.mutate({
+                    files: pendingFiles.map(f => ({
+                      name: f.name,
+                      base64: f.base64,
+                      mimeType: f.mimeType,
+                      screenshotDate: f.screenshotDate,
+                    })),
+                  })
+                }
+                isUploading={uploadMutation.isPending}
+              />
 
               {/* Latest invoice number extraction */}
               <div className="bg-muted/30 rounded-lg p-3 space-y-2">
@@ -1025,35 +971,10 @@ function KnowledgeBaseDialog({
               </div>
 
               {/* Knowledge list */}
-              <div>
-                <p className="text-xs font-semibold mb-2">学習済みデータ ({knowledgeList.length}件)</p>
-                {knowledgeList.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <p className="text-xs">まだデータがありません。上からファイルをアップロードしてください。</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {knowledgeList.map((item: any) => (
-                      <div key={item.id} className="flex items-center gap-2 bg-muted/30 rounded px-2 py-1.5">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                          item.sourceType === "chat_text" ? "bg-green-100 text-green-700" :
-                          item.sourceType === "screenshot" ? "bg-blue-100 text-blue-700" :
-                          "bg-red-100 text-red-700"
-                        }`}>
-                          {item.sourceType === "chat_text" ? "テキスト" : item.sourceType === "screenshot" ? "スクショ" : "PDF"}
-                        </span>
-                        <span className="text-xs flex-1 truncate">{item.sourceLabel ?? "不明"}</span>
-                        <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                          {new Date(item.createdAt).toLocaleDateString("ja-JP")}
-                        </span>
-                        <button onClick={() => { if (confirm(`「${item.sourceLabel}」を削除しますか？`)) deleteMutation.mutate({ id: item.id }); }}>
-                          <Trash2 size={12} className="text-muted-foreground hover:text-destructive" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <KnowledgeHistory
+                knowledgeList={knowledgeList}
+                onDelete={input => deleteMutation.mutate(input)}
+              />
             </div>
           )}
 
@@ -1109,84 +1030,16 @@ function KnowledgeBaseDialog({
               </div>
 
               {/* Right: chat area */}
-              <div className="flex-1 flex flex-col min-w-0">
-                {activeConversationId === null ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6">
-                    <MessageSquare size={36} className="mb-3 opacity-20" />
-                    <p className="text-sm font-medium">会話を選択してください</p>
-                    <p className="text-xs mt-1">左のリストから選択、または「新規チャット」で新しい会話を開始</p>
-                    {knowledgeList.length === 0 && (
-                      <p className="text-xs mt-3 text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                        ⚠️ まだ知識ベースが空です。「アップロード・管理」タブからファイルをアップロードしてください。
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    {/* Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {chatHistory.length === 0 && (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <p className="text-sm font-medium">AIに質問してみましょう</p>
-                          <div className="mt-3 space-y-2">
-                            {[
-                              "Vita2000の価格について最近ルカさんとどんな会話をしましたか？",
-                              "未払いのインボイスはありますか？",
-                              "最近の注文内容を教えてください",
-                            ].map((s, i) => (
-                              <button key={i} className="block w-full text-left text-xs bg-muted/40 hover:bg-muted/70 rounded-lg px-3 py-2 transition-colors" onClick={() => setChatInput(s)}>
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {chatHistory.map((msg, i) => (
-                        <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs ${
-                            msg.role === "user" ? "bg-[#075E54] text-white rounded-tr-sm" : "bg-muted text-foreground rounded-tl-sm"
-                          }`}>
-                            <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                      {chatMutation.isPending && (
-                        <div className="flex justify-start">
-                          <div className="bg-muted rounded-2xl rounded-tl-sm px-3 py-2">
-                            <div className="flex gap-1 items-center">
-                              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:0ms]" />
-                              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:150ms]" />
-                              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce [animation-delay:300ms]" />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      <div ref={chatBottomRef} />
-                    </div>
-                    {/* Input */}
-                    <div className="border-t border-border p-3 flex-shrink-0">
-                      <div className="flex gap-2">
-                        <Textarea
-                          value={chatInput}
-                          onChange={(e) => setChatInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                          placeholder="質問を入力... (Enter で送信、Shift+Enter で改行)"
-                          className="resize-none text-sm min-h-[52px] max-h-[100px]"
-                          rows={2}
-                        />
-                        <Button
-                          className="bg-[#075E54] hover:bg-[#075E54]/90 text-white px-3 self-end"
-                          size="sm"
-                          onClick={handleSendChat}
-                          disabled={!chatInput.trim() || chatMutation.isPending}
-                        >
-                          <Send size={14} />
-                        </Button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <KnowledgeChat
+                activeConversationId={activeConversationId}
+                knowledgeCount={knowledgeList.length}
+                chatHistory={chatHistory}
+                chatPending={chatMutation.isPending}
+                chatBottomRef={chatBottomRef}
+                chatInput={chatInput}
+                setChatInput={setChatInput}
+                handleSendChat={handleSendChat}
+              />
             </div>
           )}
         </div>

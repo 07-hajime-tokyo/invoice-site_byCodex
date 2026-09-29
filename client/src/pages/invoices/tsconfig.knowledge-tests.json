@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["./KnowledgeFilePicker.tsx", "./KnowledgePendingFiles.tsx", "./KnowledgeHistory.tsx", "./KnowledgeChat.tsx", "./knowledgeReference.tsx", "./knowledge.test.tsx"],
+  "exclude": []
+}
