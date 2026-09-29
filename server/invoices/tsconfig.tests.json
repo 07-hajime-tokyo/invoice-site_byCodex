@@ -7,7 +7,8 @@
   "include": [
     "./*.ts",
     "../routers.ts",
-    "../../tests/regression/invoiceContacts.test.ts"
+    "../../tests/regression/invoiceContacts.test.ts",
+    "../../tests/regression/invoicePersistence.test.ts"
   ],
   "exclude": []
 }

@@ -426,3 +426,18 @@ node_modules/.bin/tsc -p server/invoices/tsconfig.tests.json --noEmit
 ```
 
 ローカルコミットを引き渡して停止。push/deploy/本番DBキー利用なし。
+
+## 第12回：保存入力・保存行の正本化とAPI接続の整理
+
+基準`2d23089`を`e6bbf92`でmerge。`invoiceInput.ts`でcreate/update/splitの同義フィールドと明細schemaを共用し、型もschemaから導出。`invoiceRows.ts`に請求書行と明細行の純粋変換を集約した。`invoicesRouter.ts`は70行のAPI接続とし、読取・保存・外部解析/レート取得・採番を`invoiceReads.ts`/`invoiceWrites.ts`/`invoiceAnalysis.ts`/`invoiceNumbering.ts`へ配置。直接importで接続し、repository層や汎用依存注入は導入していない。
+
+- createのみ既存番号を拒否。updateは明細全削除→挿入、create/splitの明細挿入前はgetDb再取得のまま。splitのtrim→数字のみ4桁pad、cloneの先頭3〜6桁を拾う別採番・draft化・保存済み小数文字列保持を統一しない。
+- 旧Gitの実schemaとcallbackを直接評価する4テストで、default/null/空文字/0/不正値/unknown key除去/エラー順、保存行、getDbを含む操作順、空明細、重複拒否、DB取得失敗、split連続作成、cloneの別規則を比較。DBは固定の記録用adapterであり実DB検証ではない。fixture/snapshot追加なし。
+- 全18 APIのキー順/query・mutation区分を維持。移動したhandlerはcreate/update/splitの保存行式を共通関数へ置き換えた6か所以外、実行AST一致（整形による括弧・プロパティ名引用符を正規化）。SQL条件/DB実行順/外部解析プロンプトも保持。
+- 対象11ファイル・144テスト、対象型検査、diffチェック成功。既存invoiceContacts/invoicePersistence回帰テストは型検査対象に含めたが、本体を変更せずDB実行は統合担当へ引き継ぐ。
+- UI副作用は今回未変更。残件は統合DB確認と後続UI監査。ローカルコミットで引き渡して停止する。
+
+```sh
+CI=1 TZ=Asia/Tokyo node_modules/.bin/vitest run server/invoices/invoicePersistenceRules.test.ts shared/invoiceAmounts.test.ts shared/invoiceKey.test.ts client/src/pages/invoices
+node_modules/.bin/tsc -p server/invoices/tsconfig.tests.json --noEmit
+```
