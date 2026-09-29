@@ -44,7 +44,7 @@
 | 領域 | 主な入口・配置 | 状態 | 整理前に固定する動作 |
 | --- | --- | --- | --- |
 | 入庫一覧 | `Purchases.tsx`、inventory APIの一覧処理 | P01〜P09済 | 検索・表示・集計・編集・CSV。検証範囲と残る制約は下記 |
-| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | R01〜R13済 | 型・表示・追跡・管理番号・検索・ラベル/QR・在庫提案・商品照合/集計・利益予測。引当グループと充足表示も整理。登録・発送の実行は後続 |
+| 発注登録 | `PurchaseRegistration.tsx`、発注作成API | R01〜R14済 | 型・表示・追跡・管理番号・検索・ラベル/QR・在庫提案・商品照合/集計・利益予測。引当グループと充足表示も整理。登録・発送の実行は後続 |
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 未着手 | 受入・ラベル・工程更新・取消 |
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
@@ -52,7 +52,7 @@
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 未着手 | 箱・送り状・申告・発送状態・エラー時の扱い |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
-| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。保存実行/採番/AI等は後続 |
+| インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f・I08a〜b済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。保存実行/採番/AI等は後続 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 未着手 | 集計・締め・保存・再取得・日付境界 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 未着手 | 対象限定・復元・履歴保持・再実行。専用データのみで検証 |
@@ -293,3 +293,9 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - `28e5676` → `69167e6`。InvoiceEditor / InvoiceListを業務画面単位で分離。関数本体はexport以外一致、既存121対象テストを再利用。新規フォームDOM一致と一覧復帰を確認。
 - 統合版534テスト、アプリ/回帰型検査、build成功。API/DB実行無変更のため第8回DB回帰48件を再利用。内部の保存/AI/PDF責務と全体監査は残る。
 - 発注側 `6e0716c` は引渡し済み、次の統合対象。承認待ち表示は実際の権限要求ではないと担当が確認。全16領域の完了状態は据置。ローカルのみ。
+
+## 第10回・発注側の統合確認（2026-09-30）
+
+- `6e0716c` → `11d21b9`。印刷設定・LabelPrintPanel・MissingTrackingOverviewを分離。全62宣言（移動13）はexport以外一致。
+- 統合534テスト、アプリ型検査、build、差分チェック成功。印刷パネルと開始位置24の確認シートDOMは第9回の基準に完全一致。開始位置1へ戻し、追跡未登録2件→登録済み1件の切替も確認（DB更新なし）。ブラウザーの連続locator操作が別タブへ入ったためAX操作で確認し直した。
+- API/DB実行無変更のため第8回DB48件の結果を再利用。第11回は発注のスキャン/箱/発送/返品と、請求書API3ルーターを担当分離して開始。全領域完了ではない。
