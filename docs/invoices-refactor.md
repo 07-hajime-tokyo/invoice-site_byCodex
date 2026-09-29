@@ -410,3 +410,19 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.screen-tests.json --
 ```
 
 ローカルコミットを引き渡して停止。push/deploy/本番DB操作なし。
+
+## 第11回：サーバーの顧客・インボイス・送信者設定を分離
+
+基準`11d21b9`を`efc45e7`でmerge。`server/invoices/`へ`invoiceClientsRouter.ts`、`invoicesRouter.ts`、`invoiceSettingsRouter.ts`を抽出し、appRouterの同じキーへ直接接続した。画像解析は`imageAnalysis.ts`、チャット解析は`chatParsing.ts`、日付＋乱数の既存採番helperは`numbering.ts`へ移動。sanitizeTextは顧客ルーター専用として同ファイルに保持。
+
+- detectPaymentsFromChatはinvoicesとwhatsappHistory、generateInvoiceNumberはinvoicesとquoteProxyが元々同じ関数を呼んでいたため、移動後も同一実装をimportする。ルーターごとに異なるgetNextNumber/clone等の採番規則は統合しない。
+- 旧git基準と3ルーターの式、12個のhelper/type/定数がソースおよび実行ASTで一致。例外はuploadLogoの動的import `./storage`→`../storage`のみ（同じファイルを指す）。バリデーション、SQL/DB操作順、APIキーと順序を保持。他のルーター本体と残るトップレベル宣言は文字列一致。
+- 対象既存12ファイル・153テスト成功。新サーバーモジュール/appRouter/既存invoiceContacts回帰テストを含む対象型検査とdiffチェック成功。invoiceContactsのテスト本体は未変更。DB接続を使う回帰実行は統合担当へ引き継ぐ。新規fixture/snapshotは追加していない。
+- 残件はUI内部副作用の監査、および必要に応じたサーバー内保存・採番・画像解析の境界検討。今回は純粋移動に限定した。
+
+```sh
+CI=1 TZ=Asia/Tokyo node_modules/.bin/vitest run server/auth.logout.test.ts server/whatsappConversations.test.ts shared/invoiceAmounts.test.ts shared/invoiceKey.test.ts client/src/pages/invoices
+node_modules/.bin/tsc -p server/invoices/tsconfig.tests.json --noEmit
+```
+
+ローカルコミットを引き渡して停止。push/deploy/本番DBキー利用なし。
