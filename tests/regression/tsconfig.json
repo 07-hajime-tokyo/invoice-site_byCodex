@@ -6,6 +6,8 @@
     "./support/*.mjs",
     "../../server/inventory/purchases/*.test.ts",
     "../../shared/purchaseVisibility.test.ts",
+    "../../shared/purchaseMetadata.test.ts",
+    "../../shared/invoiceAmounts.test.ts",
     "../../client/**/*.test.ts",
     "../../client/**/*.test.tsx"
   ],

@@ -1,21 +1,9 @@
 import { type PurchaseItem, type Purchase } from "./types";
 
-export function cleanManagementNo(value?: string | null): string {
-  const firstPart = (value ?? "").split(",")[0]?.trim() ?? "";
-  return firstPart.split(/\s+\/\s+/)[0]?.trim() ?? firstPart;
-}
-
-export function parseEtc(etc?: string | null): {
-  managementNo: string;
-  supplierSite: string;
-} {
-  if (!etc) return { managementNo: "", supplierSite: "" };
-  const parts = etc.split(",").map(p => p.trim());
-  return {
-    managementNo: cleanManagementNo(parts[0]),
-    supplierSite: parts[2] ?? "",
-  };
-}
+export {
+  cleanLegacyManagementNo as cleanManagementNo,
+  parsePurchaseEtc as parseEtc,
+} from "@shared/purchaseMetadata";
 
 export function getPurchaseItemLabelIds(item: PurchaseItem): string[] {
   return (item.itemLabels ?? []).map(label => label.labelId).filter(Boolean);
