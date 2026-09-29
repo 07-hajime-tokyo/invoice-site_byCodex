@@ -1,4 +1,4 @@
-import { INBOUND_INSPECTION_OUTCOMES } from "@shared/inboundDesk";
+import { INBOUND_INSPECTION_OUTCOMES, type InspectionOutcome } from "@shared/inboundDesk";
 import { TRPCError } from "@trpc/server";
 import { and, eq, lt } from "drizzle-orm";
 import { z } from "zod";
@@ -19,13 +19,12 @@ import {
   DEFECT_PHOTO_KINDS,
   DEFECT_TAGS,
   type DefectPhoto,
-  type ListingKind,
-} from "./defectiveListing";
+} from "@shared/defectInspection";
+import type { ListingKind } from "./defectiveListing";
 import { syncDefectiveListingByLabelId } from "./defectiveSync";
 import {
   invoiceAllocation,
   requireDb,
-  InspectionOutcome,
   normalizeStatus,
   findPurchaseForLabel,
   labelWasAlreadyCounted,

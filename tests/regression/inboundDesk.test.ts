@@ -33,14 +33,14 @@ afterAll(async () => {
 async function rows(sql: string, values: unknown[] = []) {
   return (await db.query<RowDataPacket[]>(sql, values))[0];
 }
-async function prepare() {
+async function prepare(managementNo = "999_架空_検品") {
   const created = await api.client.inventory.zaico.createOrderedPurchase.mutate(
     {
       inventoryId: 910001,
       title: "【テスト】荷受検品",
       quantity: 2,
       unitPrice: 321,
-      managementNo: "999_架空_検品",
+      managementNo,
       supplierName: "架空仕入先",
     }
   );
@@ -249,5 +249,188 @@ describe("荷受・検品・取消の保存契約", () => {
     ).toMatchObject([
       { detail: expect.stringContaining("完了済みのため記録を保持") },
     ]);
+  });
+});
+
+// 一括処理は在庫調整ではない。対象選択と再実行、周辺データの保持を実DBで確認する。
+async function backlogProtectedRows() {
+  return Promise.all([
+    rows("SELECT * FROM local_inventories ORDER BY id"),
+    rows("SELECT * FROM purchase_histories ORDER BY id"),
+    rows("SELECT * FROM action_items ORDER BY id"),
+  ]);
+}
+
+describe("過去分の一括整理の保存契約", () => {
+  it("検品待ちは日本時間の境界より前だけ閉じ、プレビューは保存せず、再実行も在庫を動かさない", async () => {
+    const c = api.client.inventory.inboundDesk;
+    const first = await prepare();
+    const second = await prepare("998_架空_境界");
+    const ids = [...first.ids, ...second.ids];
+    expect(new Set(ids).size).toBe(4);
+    const boundary = new Date("2026-09-30T00:00:00+09:00");
+    for (const [index, id] of ids.entries()) {
+      await db.query(
+        "UPDATE inventory_item_labels SET status=?,receivedAt=? WHERE labelId=?",
+        [
+          index === 3 ? "shipped" : "received",
+          // Drizzleのtimestamp書込と同じUTC表現を使う（mysql2のDate引数は端末TZに依存）。
+          new Date(boundary.getTime() + [-1000, 0, 1000, -1000][index])
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " "),
+          id,
+        ]
+      );
+    }
+    const before = await rows(
+      "SELECT * FROM inventory_item_labels ORDER BY id"
+    );
+    const purchases = await rows("SELECT * FROM local_purchases ORDER BY id");
+    const protectedRows = await backlogProtectedRows();
+    const logs = await rows("SELECT * FROM work_logs ORDER BY id");
+    expect(
+      await c.closeInspectionBacklog.mutate({ receivedBefore: "2026-09-30" })
+    ).toEqual({ dryRun: true, count: 1, labelIds: [ids[0]] });
+    expect(
+      await rows("SELECT * FROM inventory_item_labels ORDER BY id")
+    ).toEqual(before);
+    expect(await rows("SELECT * FROM work_logs ORDER BY id")).toEqual(logs);
+    expect(
+      await c.closeInspectionBacklog.mutate({
+        receivedBefore: "2026-09-30",
+        dryRun: false,
+      })
+    ).toMatchObject({ dryRun: false, count: 1, closed: 1 });
+    expect(await stored(ids[0])).toMatchObject({
+      status: "stocked",
+      inspectionOutcome: "stocked",
+      inspectionQuantityDelta: 0,
+      inspectionSourceInventoryId: null,
+      inspectionInventoryId: null,
+      inspectionPurchaseHistoryId: null,
+      inspectionActionItemId: null,
+    });
+    for (const id of ids.slice(1)) {
+      expect(await stored(id)).toEqual(before.find(row => row.labelId === id));
+    }
+    expect(
+      await c.closeInspectionBacklog.mutate({
+        receivedBefore: "2026-09-30",
+        dryRun: false,
+      })
+    ).toMatchObject({ count: 0, closed: 0 });
+    expect(await backlogProtectedRows()).toEqual(protectedRows);
+    expect(await rows("SELECT * FROM local_purchases ORDER BY id")).toEqual(
+      purchases
+    );
+    expect(
+      await rows(
+        "SELECT quantity FROM work_logs WHERE sourceType='inbound-backlog-close' ORDER BY id"
+      )
+    ).toEqual([{ quantity: 1 }, { quantity: 0 }]);
+  });
+
+  it("到着予定は整形した追跡番号が同じ未受領発注をラベルなしでも閉じ、他の発注と個体・在庫を保持する", async () => {
+    const c = api.client.inventory.inboundDesk;
+    await db.query(
+      "UPDATE local_purchases SET trackingNumber=?,status='ordered',receivedDate=NULL WHERE id=910001",
+      ["ＴＥＳＴ－１２３４"]
+    );
+    await db.query(
+      "UPDATE local_purchases SET trackingNumber=?,status='ordered',receivedDate=NULL WHERE id=910002",
+      ["test 1234"]
+    );
+    await db.query(
+      "UPDATE local_purchases SET trackingNumber=?,status='purchased',receivedDate='2026-09-01' WHERE id=910003",
+      ["TEST-1234"]
+    );
+    const before = await rows("SELECT * FROM local_purchases ORDER BY id");
+    const labels = await rows(
+      "SELECT * FROM inventory_item_labels ORDER BY id"
+    );
+    const protectedRows = await backlogProtectedRows();
+    expect(
+      await c.closeArrivingBacklog.mutate({
+        trackingNumber: "test-1234",
+        receivedDate: "2026-09-29",
+      })
+    ).toEqual({ closedPurchases: 2, closed: [], skipped: [] });
+    expect(
+      await rows(
+        "SELECT id,status,receivedDate FROM local_purchases WHERE id IN (910001,910002) ORDER BY id"
+      )
+    ).toEqual(
+      [910001, 910002].map(id => ({
+        id,
+        status: "purchased",
+        receivedDate: "2026-09-29",
+      }))
+    );
+    expect(
+      await rows(
+        "SELECT * FROM local_purchases WHERE id NOT IN (910001,910002) ORDER BY id"
+      )
+    ).toEqual(before.filter(row => ![910001, 910002].includes(row.id)));
+    expect(
+      await c.closeArrivingBacklog.mutate({
+        trackingNumber: "test-1234",
+        receivedDate: "2026-09-30",
+      })
+    ).toMatchObject({ closedPurchases: 0 });
+    expect(
+      await rows("SELECT * FROM inventory_item_labels ORDER BY id")
+    ).toEqual(labels);
+    expect(await backlogProtectedRows()).toEqual(protectedRows);
+    expect(
+      await rows("SELECT receivedDate FROM local_purchases WHERE id=910001")
+    ).toEqual([{ receivedDate: "2026-09-29" }]);
+  });
+
+  it("個体指定の到着予定整理は重複をまとめ、未登録と受領済みを区別し、個体・在庫を変更しない", async () => {
+    const c = api.client.inventory.inboundDesk;
+    const { ids, purchaseId } = await prepare();
+    const labels = await rows(
+      "SELECT * FROM inventory_item_labels ORDER BY id"
+    );
+    const protectedRows = await backlogProtectedRows();
+    const unrelated = await rows(
+      "SELECT * FROM local_purchases WHERE id<>? ORDER BY id",
+      [purchaseId]
+    );
+    expect(
+      await c.closeArrivingBacklog.mutate({
+        labelIds: [ids[0].toLowerCase(), ids[0], ids[1], "MISSING"],
+        receivedDate: "2026-09-29",
+      })
+    ).toEqual({
+      closedPurchases: 1,
+      closed: ids,
+      skipped: [{ labelId: "MISSING", reason: "個体が見つかりません" }],
+    });
+    expect(
+      await c.closeArrivingBacklog.mutate({
+        labelIds: ids,
+        receivedDate: "2026-09-30",
+      })
+    ).toEqual({
+      closedPurchases: 0,
+      closed: [],
+      skipped: ids.map(labelId => ({ labelId, reason: "すでに入庫済みです" })),
+    });
+    expect(
+      await rows("SELECT status,receivedDate FROM local_purchases WHERE id=?", [
+        purchaseId,
+      ])
+    ).toEqual([{ status: "purchased", receivedDate: "2026-09-29" }]);
+    expect(
+      await rows("SELECT * FROM local_purchases WHERE id<>? ORDER BY id", [
+        purchaseId,
+      ])
+    ).toEqual(unrelated);
+    expect(
+      await rows("SELECT * FROM inventory_item_labels ORDER BY id")
+    ).toEqual(labels);
+    expect(await backlogProtectedRows()).toEqual(protectedRows);
   });
 });

@@ -1,3 +1,4 @@
+import type { DefectTag } from "@shared/defectInspection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,6 @@ import { toast } from "sonner";
 import {
   DefectiveInspectionDialog,
   fileAsBase64,
-  type DefectTag,
 } from "@/inventory/components/DefectiveInspectionDialog";
 import {
   InspectionDraft,

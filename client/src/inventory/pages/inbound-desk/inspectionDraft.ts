@@ -1,8 +1,5 @@
-import {
-  type DefectTag,
-  type UploadedDefectPhoto,
-} from "@/inventory/components/DefectiveInspectionDialog";
-import { DefectDestination, InspectionOutcome } from "./presentation";
+import type { DefectTag, DefectPhoto } from "@shared/defectInspection";
+import type { DefectDestination, InspectionOutcome } from "@shared/inboundDesk";
 
 /** 動作確認の入力途中を端末に残しておくキー（QR印刷などへ移動しても消えないように） */
 export const INSPECTION_DRAFT_STORAGE_KEY = "inbound-desk-inspection-draft-v1";
@@ -12,7 +9,7 @@ export type InspectionDecision = {
   requestReplacement: boolean;
   defectTags?: DefectTag[];
   defectNote?: string;
-  defectPhotos?: UploadedDefectPhoto[];
+  defectPhotos?: DefectPhoto[];
 };
 
 export type InspectionDraft = Record<string, InspectionDecision>;

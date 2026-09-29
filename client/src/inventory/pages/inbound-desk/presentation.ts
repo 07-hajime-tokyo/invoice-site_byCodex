@@ -1,5 +1,5 @@
-import type { InspectionOutcome } from "@shared/inboundDesk";
-export type { InspectionOutcome } from "@shared/inboundDesk";
+import type { DefectDestination, InspectionOutcome } from "@shared/inboundDesk";
+export type { DefectDestination, InspectionOutcome } from "@shared/inboundDesk";
 import {
   invoiceAllocation,
   type InboundBox,
@@ -7,9 +7,6 @@ import {
 } from "@/inventory/lib/inboundDesk";
 
 export type Phase = "receive" | "inspect" | "review";
-
-/** 不良と判定したときの仕分け先 */
-export type DefectDestination = "junk" | "returned";
 
 /**
  * 数字は3本とも別の母数を数える。

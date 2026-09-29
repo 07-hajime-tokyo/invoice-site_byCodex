@@ -7,6 +7,9 @@ export const INBOUND_INSPECTION_OUTCOMES = [
 ] as const;
 export type InspectionOutcome = (typeof INBOUND_INSPECTION_OUTCOMES)[number];
 
+/** 不良と判定したときの仕分け先（旧データのdefectiveとは区別）。 */
+export type DefectDestination = "junk" | "returned";
+
 /** 荷受の割当は3桁の番号のみ。別領域の3〜5桁の照合とは契約が異なる。 */
 export function inboundInvoiceAllocation(
   managementNo: string | null | undefined
