@@ -3,7 +3,10 @@
   "include": [
     "./*.ts",
     "./LabelPrintPanel.tsx",
-    "./MissingTrackingOverview.tsx"
+    "./MissingTrackingOverview.tsx",
+    "./InboundScan.tsx",
+    "./OutboundBoxes.tsx",
+    "./ShippingPanels.tsx"
   ],
   "exclude": [],
   "compilerOptions": {

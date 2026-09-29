@@ -599,3 +599,14 @@ git diff --check
 - 残り：追跡ダイアログと保存mutation、スキャン/出庫箱/申告/発送/返品、最上位query/mutationと画面状態。今回の範囲には広げない。
 
 全体test/type/build/DB/browserは親へ集約。ローカルcommitで引渡して停止、main/push/Vercel/本番DBキー操作なし。
+
+## 第11回：スキャン・出庫箱/申告・発送/返品
+
+`11d21b9` を取り込み、業務単位で `InboundScan.tsx`、`OutboundBoxes.tsx`、`ShippingPanels.tsx` へ直接移動。複数業務が利用するカメラ/読取は `scanInput.ts`、発送番号・シート判定・shipping集計/型は `shippingRules.ts` を正本とした。計44宣言を移動し、元49宣言すべてがexport以外完全一致。循環・deps注入・意味の異なる規則の統合はなし。
+
+- 親componentのstate/mutation/イベント配線は宣言全体を維持。各業務パネル内のquery/mutation・カメラ・印刷・通信・保存処理も元の位置/順で移動し、機能は変更しない。
+- `InboundDesk` がlazy importする `OutboundBoxIssuer` は元の画面パスでre-exportし互換を維持。`ReceivedDateLabelPrint` は元画面に残す。
+- 旧Git基準のAST宣言比較を実施。新fixture/snapshotなし、既存対象22テスト・対象型チェック・差分チェック成功。対象型設定に新3業務TSXを明示。
+- 親へ残す責務：最上位query/mutation・検索/選択/ダイアログ状態と配線、荷受日印刷の公開component。画面4,639→1,852行は結果であり目標にはしていない。
+
+全体検証/代表UIは親へ集約。ローカルcommitで引渡して停止。server/main/push/Vercel/本番接続は操作しない。
