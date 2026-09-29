@@ -59,7 +59,8 @@ node scripts/test-local-regression.mjs seed
 | support/database.ts               | 専用DBを確認して初期化・架空データ投入             |
 | purchase-fixtures.ts              | APIテストと画面確認で共有する架空データの定義      |
 | support/api.ts                    | 実際のExpress/tRPCをローカルHTTPで起動・終了       |
-| purchases.test.ts                 | 通常一覧・全件取得・編集に対する21件の期待結果      |
+| purchases.test.ts                 | 通常一覧・全件取得・編集・ラベル状態に対する24件の期待結果      |
+| purchaseMaintenance.test.ts      | 分類保存・ラベル調整・発注補完に対する6件の期待結果 |
 | test-target.test.ts               | 接続先の相違を拒否する1件の安全性テスト            |
 | seed.ts                           | 画面確認用データの復元入口                         |
 | vitest.config.ts / tsconfig.json  | 実行対象・型チェック対象の設定                     |
@@ -83,6 +84,9 @@ node scripts/test-local-regression.mjs seed
 - 全件取得の作成日時、有効/取消済み入庫履歴による状態の違い
 - 追加情報の空欄補完、壊れたJSONの復元、空配列/配列以外のJSONの扱い
 - 在庫変更の再取得への反映、削除済み在庫の仕入先補完、空DB、各工程の計測順序
+- 管理番号に合うラベルの受領判定、追跡番号の優先、既存の数量閾値
+- 自動分類の保存・手動分類と工程の保護・nullと空文字の差・設定した相手名
+- 余剰ラベルの調整時の発送済み/受領済み保持、シャフト発注補完の対象・重複防止・対象外保持
 
 現在のAPIでは検索時に分類等の条件を越えて入庫済みの行も返します。
 これは今回修正せず現行動作として固定しています。画面にはさらに表示条件があるため、

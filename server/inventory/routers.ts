@@ -1,3 +1,7 @@
+import { ensureShaftPurchases } from "./purchases/shaftBackfill";
+import { getInventoryManagementNo } from "./managementNo";
+import { getDirectPartnerNames, resolveInboundInfoMap } from "./purchases/inboundClassification";
+import { reconcileLocalPurchaseLabelQuantities } from "./purchases/reconcileLabels";
 import { toInventoryItemLabelView, isReceivedLabelStatus, type InventoryItemLabelView } from "./labelViews";
 import { getPurchaseItemManagementNo, localPurchaseItems } from "./purchases/items";
 import { filterLabelsByManagementNo, labelsForPurchaseItem } from "./purchases/labels";
@@ -5,7 +9,7 @@ import { getLocalPurchaseDisplayStatus } from "./purchases/displayStatus";
 import { createExternalPurchaseMaps, buildExternalPurchasePageRows, buildExternalPurchaseAllRows } from "./purchases/externalRows";
 import { fillCsvPurchaseSuppliers } from "./purchases/csvSuppliers";
 import { loadLocalPurchaseListData, refreshPurchaseInventoryMap } from "./purchases/localData";
-import { buildLocalPurchaseRow, createPurchaseInventoryMap, attachPurchaseInventoryInfo, type InboundInfo } from "./purchases/localRows";
+import { buildLocalPurchaseRow, createPurchaseInventoryMap, attachPurchaseInventoryInfo } from "./purchases/localRows";
 import { purchasePageInputSchema } from "./purchases/input";
 import { buildPurchasePageResponse } from "./purchases/page";
 import { z } from "zod";
@@ -29,14 +33,11 @@ import {
   type TradeShipmentProgressEntry,
 } from "@shared/tradeSheetStatus";
 import {
-  classifyInbound,
   nextStage,
   isInboundClass,
   isRegisterStage,
-  extractInvoicePrefix,
   getStagesForClass,
   INBOUND_CLASS_ORDER,
-  DEFAULT_DIRECT_PARTNER_NAMES,
   DIRECT_PARTNER_NAMES_SETTING_KEY,
   type InboundClass,
 } from "@shared/inboundPipeline";
@@ -126,7 +127,6 @@ import {
   updateLocalPurchaseStage,
   getLocalPurchaseById,
   insertLocalPurchase,
-  getPublishedInvoiceNumberSet,
   getSystemSetting,
   setSystemSetting,
   isZaicoEnabled,
@@ -1155,9 +1155,6 @@ type InventoryItemLabelForEnsure = InventoryItemLabelView & {
   title?: string | null;
 };
 
-function getInventoryManagementNo(etc: string | null | undefined) {
-  return String(etc ?? "").split(",")[0]?.trim() ?? "";
-}
 
 function historyDateFrom(value: unknown, fallback = new Date()): string {
   const date = value ? new Date(value as string | number | Date) : fallback;
@@ -2484,40 +2481,6 @@ async function ensureStockLabelsForInventories<T extends {
   }));
 }
 
-function getInventoryEtcPart(etc: string | null | undefined, index: number) {
-  return String(etc ?? "").split(",")[index]?.trim() ?? "";
-}
-
-
-async function reconcileLocalPurchaseLabelQuantities(rows: LocalPurchaseRow[]): Promise<LocalPurchaseRow[]> {
-  let changed = false;
-
-  for (const row of rows) {
-    for (const item of localPurchaseItems(row)) {
-      const desiredQuantity = Math.max(1, Math.floor(Number(item.quantity ?? row.quantity ?? 1)) || 1);
-      const labels = labelsForPurchaseItem(row, item);
-      if (labels.length <= desiredQuantity) continue;
-
-      const rawInventoryId = Number(item.inventory_id ?? item.inventoryId ?? row.localInventoryId);
-      const localInventoryId = Number.isFinite(rawInventoryId) && rawInventoryId > 0 ? rawInventoryId : null;
-      const managementNo = getPurchaseItemManagementNo(row, item) || row.managementNo || null;
-      const title = String(item.title ?? row.title ?? "").trim();
-
-      await ensureInventoryItemLabels({
-        purchaseId: row.id,
-        localInventoryId,
-        legacyManagementNo: managementNo,
-        title: title || row.title || managementNo || "商品",
-        quantity: desiredQuantity,
-        status: row.status === "purchased" ? "received" : "ordered",
-        sourceKey: managementNo ? `management:${managementNo}` : null,
-      });
-      changed = true;
-    }
-  }
-
-  return changed ? getLocalPurchases() : rows;
-}
 
 
 function localPurchaseMatchesInventoryLabel(
@@ -2929,166 +2892,6 @@ async function restoreMissingLocalPurchasesFromOrphanLabels(
 
   if (!repaired) return localPurchaseRows;
   return cleanupAllowedRecoveredPurchaseIssues(await getLocalPurchases());
-}
-
-async function ensureShaftPurchases(
-  localPurchaseRows: LocalPurchaseRow[],
-  localInventoryRows: LocalInventoryRow[],
-): Promise<LocalPurchaseRow[]> {
-  const existingManagementNos = new Set<string>();
-  for (const purchase of localPurchaseRows) {
-    const purchaseManagementNo = String(purchase.managementNo ?? "").trim();
-    if (purchaseManagementNo) existingManagementNos.add(purchaseManagementNo);
-    try {
-      const items = JSON.parse(purchase.itemsJson ?? "[]");
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          const itemManagementNo = String(item?.etc ?? "").split(",")[0]?.trim() ?? "";
-          if (itemManagementNo) existingManagementNos.add(itemManagementNo);
-        }
-      }
-    } catch {
-      // ignore malformed legacy JSON
-    }
-  }
-
-  const missingShaftInventories = localInventoryRows.filter((inventory) => {
-    if (inventory.isDeleted) return false;
-    if (getEbayStockType(inventory.etc) !== "shaft") return false;
-    const managementNo = getInventoryManagementNo(inventory.etc);
-    return managementNo && !existingManagementNos.has(managementNo);
-  });
-
-  if (missingShaftInventories.length === 0) return localPurchaseRows;
-
-  let repaired = false;
-  for (const inventory of missingShaftInventories) {
-    const managementNo = getInventoryManagementNo(inventory.etc);
-    if (!managementNo) continue;
-    const quantity = Math.max(1, Number(inventory.quantity ?? 1) || 1);
-    try {
-      await upsertLocalPurchase({
-        zaicoId: null,
-        purchaseNum: managementNo,
-        status: "ordered",
-        itemsJson: JSON.stringify([{
-          id: 0,
-          inventory_id: inventory.id,
-          title: inventory.title,
-          quantity: String(quantity),
-          unit_price: inventory.unitPrice ?? null,
-          etc: managementNo,
-          status: "ordered",
-          category: inventory.category ?? null,
-        }]),
-        localInventoryId: inventory.id,
-        title: inventory.title,
-        category: inventory.category ?? null,
-        quantity,
-        unitPrice: inventory.unitPrice ?? null,
-        managementNo,
-        purchaseDate: getInventoryEtcPart(inventory.etc, 1) || null,
-        receivedDate: null,
-        supplierUrl: inventory.supplierUrl ?? null,
-        supplierName: inventory.supplierName ?? null,
-      });
-      repaired = true;
-    } catch (error) {
-      console.warn("[inventory] failed to backfill shaft purchase", {
-        inventoryId: inventory.id,
-        managementNo,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return repaired ? getLocalPurchases() : localPurchaseRows;
-}
-
-// ============================================================
-// T22: 入庫仕訳のenrich（読み取り時の自動判定＋バックフィル）
-// ============================================================
-
-/** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ, サイモン, マキシム, ネレ） */
-async function getDirectPartnerNames(): Promise<string[]> {
-  try {
-    const raw = await getSystemSetting(DIRECT_PARTNER_NAMES_SETTING_KEY);
-    if (!raw) return [...DEFAULT_DIRECT_PARTNER_NAMES];
-    const names = raw
-      .split(/[,、\n]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (names.length === 0) return [...DEFAULT_DIRECT_PARTNER_NAMES];
-    return Array.from(new Set([...DEFAULT_DIRECT_PARTNER_NAMES, ...names]));
-  } catch {
-    return [...DEFAULT_DIRECT_PARTNER_NAMES];
-  }
-}
-
-/**
- * local_purchases 行の集合に対し、分類（inboundClass）を解決してマップで返す。
- * - classSource=manual の行は保存値を尊重（自動再判定しない＝人間の判断を守る）
- * - それ以外は classifyInbound() で判定し、保存値と異なれば DB を更新（オンリードのバックフィル）
- * 併せて stage / stageUpdatedBy / shaftParentPurchaseId も返す。
- * 読み取り経路（Zaico OFF）専用。DBが無ければ保存値のみで組み立てる。
- */
-async function resolveInboundInfoMap(
-  localPurchaseRows: LocalPurchaseRow[],
-  localInventoryRows: LocalInventoryRow[],
-): Promise<Map<number, InboundInfo>> {
-  const map = new Map<number, InboundInfo>();
-  if (localPurchaseRows.length === 0) return map;
-
-  const invById = new Map<number, LocalInventoryRow>();
-  for (const inv of localInventoryRows) invById.set(inv.id, inv);
-
-  const [partnerNames, invoiceNumberSet] = await Promise.all([
-    getDirectPartnerNames(),
-    getPublishedInvoiceNumberSet().catch(() => new Set<number>()),
-  ]);
-
-  for (const p of localPurchaseRows) {
-    const storedClass = (p.inboundClass ?? null) as InboundClass | null;
-    const storedSource = (p.classSource === "manual" ? "manual" : "auto") as "auto" | "manual";
-    const stage = p.stage ?? "received";
-    const stageUpdatedBy = p.stageUpdatedBy ?? null;
-    const shaftParentPurchaseId = p.shaftParentPurchaseId ?? null;
-
-    // manual は保存値をそのまま採用（domestic のシャフト分離行も manual 固定なので保護される）
-    if (storedSource === "manual") {
-      map.set(p.id, { inboundClass: storedClass, classSource: "manual", stage, stageUpdatedBy, shaftParentPurchaseId });
-      continue;
-    }
-
-    // auto: 判定材料を集めて再分類
-    const inv = p.localInventoryId != null ? invById.get(p.localInventoryId) : undefined;
-    const managementNo = p.managementNo ?? getInventoryManagementNo(inv?.etc);
-    const place = inv?.place ?? null;
-    const ebayOrderUrl = inv?.ebayOrderUrl ?? null;
-    const invoicePrefix = extractInvoicePrefix(managementNo);
-    const hasLinkedInvoice = invoicePrefix != null && invoiceNumberSet.has(Number(invoicePrefix));
-
-    const computed = classifyInbound({
-      managementNo,
-      place,
-      ebayOrderUrl,
-      directPartnerNames: partnerNames,
-      hasLinkedInvoice,
-    });
-
-    // 保存値と異なればバックフィル（auto のまま更新）。DBが無い場合はスキップ。
-    if (computed !== storedClass) {
-      try {
-        await setLocalPurchaseInboundClass(p.id, computed, "auto");
-      } catch {
-        // DB未接続やダンプ経路では保存できないが、表示は computed を使う
-      }
-    }
-
-    map.set(p.id, { inboundClass: computed, classSource: "auto", stage, stageUpdatedBy, shaftParentPurchaseId });
-  }
-
-  return map;
 }
 
 type PurchaseTrackingSyncInput = {
