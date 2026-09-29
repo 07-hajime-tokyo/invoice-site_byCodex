@@ -588,3 +588,14 @@ git diff --check
 ### 残る責務と次候補
 
 印刷用紙/CSS/QR/チェックリストの指定表示は分離済み。印刷パネルの選択・タイトルoverride・日付範囲・開始位置・保存/print副作用は画面に残る。次候補は①印刷設定の読書きと日付規則、②LabelPrintPanelのstate/表示境界、③追跡不足一覧/追跡ダイアログ。スキャン/出庫箱/申告/発送/返品と最上位query/mutationも残り、次の親指示で範囲を決める。
+
+## 第10回：印刷設定・印刷パネル・追跡一覧
+
+`c39ab42` を取り込み、`labelPrintSettings.ts`（既存キー/読書き/スコープ日付/Tokyo日付）、`LabelPrintPanel.tsx`、`MissingTrackingOverview.tsx` の3責務へ直接移動。画面5,237→4,639行。設定・型は既存正本を再利用し、設定ごとに異なる例外処理や日付の意味を変更しない。query/state/イベント/保存値/副作用順序も元のまま。
+
+- 新fixture/snapshotは追加しない。旧Git基準 `c39ab42` と移動先を含む全62宣言を比較し、export以外完全一致（移動13宣言）。
+- 既存print-uiのLabelPrintPanel参照を移動先へ更新。print-ui/labels/dashboardの22テストが成功、既存snapshot更新なし。
+- 対象型設定に新しい2つのTSXを明示した型チェックが成功。対象差分チェックも成功。
+- 残り：追跡ダイアログと保存mutation、スキャン/出庫箱/申告/発送/返品、最上位query/mutationと画面状態。今回の範囲には広げない。
+
+全体test/type/build/DB/browserは親へ集約。ローカルcommitで引渡して停止、main/push/Vercel/本番DBキー操作なし。

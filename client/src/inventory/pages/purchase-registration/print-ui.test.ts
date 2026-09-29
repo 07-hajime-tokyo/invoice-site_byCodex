@@ -74,8 +74,8 @@ describe(`print presentation against ${PRINT_UI_BASELINE_COMMIT}`, () => {
     expect(outputs).toMatchSnapshot();
   });
   it("keeps print-panel selection, persistence, callbacks and print effects verbatim", () => {
-    function declaration(source: string) { const tree = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX); const node = tree.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "LabelPrintPanel"); if (!node) throw Error("Missing print panel"); return node.getText(tree); }
-    const actual = declaration(readFileSync(new URL("../PurchaseRegistration.tsx", import.meta.url), "utf8"));
+    function declaration(source: string) { const tree = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX); const node = tree.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "LabelPrintPanel"); if (!node) throw Error("Missing print panel"); return node.getText(tree).replace(/^export /, ""); }
+    const actual = declaration(readFileSync(new URL("./LabelPrintPanel.tsx", import.meta.url), "utf8"));
     expect(actual).toBe(declaration(readFileSync(new URL("./print-ui-baseline-source.txt", import.meta.url), "utf8")));
     expect(hash(actual)).toMatchSnapshot();
   });

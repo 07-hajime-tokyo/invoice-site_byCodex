@@ -1,6 +1,12 @@
 {
   "extends": "../../../../../tsconfig.json",
-  "include": ["./*.ts"],
+  "include": [
+    "./*.ts",
+    "./LabelPrintPanel.tsx",
+    "./MissingTrackingOverview.tsx"
+  ],
   "exclude": [],
-  "compilerOptions": { "incremental": false }
+  "compilerOptions": {
+    "incremental": false
+  }
 }
