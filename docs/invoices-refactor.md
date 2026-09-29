@@ -110,3 +110,53 @@ TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices shared/invo
 - URL作成後のクリック失敗ではcleanupタイマーに到達しない既存挙動も維持。修正は別作業。
 - 編集画面の保存→生成、一覧画面の取得→生成、エラー文言・ローディング解除は元画面に保持し、この回では変更しない。
 - I05顧客/差出人ダイアログ、I06編集・一覧・AI・保存・採番・分割は引き続き未着手。
+
+## 第3回：I05 差出人設定・顧客管理ダイアログ
+
+統合済み`ef808dc`をクリーンな担当ブランチへ`3fbfd5e`でmergeして開始。担当外ファイルはこの取り込み以外変更していない。
+
+| ファイル | 責務 |
+| --- | --- |
+| `SenderSettingsDialog.tsx` | 差出人設定の入力・ロゴ・保存ボタンのUI |
+| `useSenderSettings.ts` | query、既存タイミングの初期化、FileReader、ロゴupload→設定保存、通知/閉じ方 |
+| `ClientManagerDialog.tsx` | 顧客一覧・作成/編集フォーム・削除ボタンのUI |
+| `useClientManager.ts` | query、編集/作成状態、入力検証、CRUD mutation、invalidateと通知 |
+| `clientForm.ts` | 従来3か所にあった同一の空フォームを毎回新しいオブジェクトとして生成 |
+
+ダイアログ外部へのpropsは引き続き`open/onClose`のみ。汎用フォーム部品や共有側の変更は追加していない。ClientFormは親コンポーネント内の定義を保持した。外へ移すと入力時の既存remount挙動が変わるため、今回のUI不変条件では移動しない。InvoicePageは2,868行から2,494行へ縮小。
+
+### 整理前基準とテスト方法
+
+`dialog-baseline-source.txt`は`ef808dc`の実SenderSettingsDialog/ClientManagerDialog宣言をそのまま保存したfixture。`dialogReference.ts`で実行し、整理後と同じAPI・状態・ブラウザー依存の固定アダプターを使う。元コミットとのソース完全一致と、InvoicePageに残した他のトップレベル宣言が無変更であることをASTで確認。
+
+既存依存にjsdom/happy-dom/react-test-renderer/testing-libraryがないため、新規依存は追加していない。テストは実コンポーネントが返した要素の実onChange/onClick/onOpenChangeを呼び、useState/useRefの決定的なアダプターで次の描画まで進める。query/mutationは固定応答と手動の成功/失敗通知。フォームの実payloadと通知・invalidate・閉じる呼出し順を記録する。
+
+UI基盤のDialog/Button/Input/Labelは固定HTMLタグへ置き換え、アプリ側JSXの文言・属性・条件分岐を比較する。**実RadixのHTML、React DOMのライフサイクル、フォーカス、ポータル、ブラウザーのファイル選択を保証するテストではない。** これらは統合担当の実UI検証対象。
+
+```sh
+# 旧実コンポーネントと固定スナップショットを比較（更新しない）
+INVOICE_DIALOG_REFERENCE=1 node_modules/.bin/vitest run client/src/pages/invoices/dialogs.test.tsx
+# 整理後と既存のプレビュー/PDFも確認
+TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices
+```
+
+旧実装だけで最初の基準を記録し、分離後はスナップショット更新なしで一致を確認。追加した境界条件も旧実装側で先に記録した。
+
+### 検証結果
+
+- ダイアログ18テスト・21スナップショット：空一覧/読込中/登録済み/作成/編集/差出人初期値のHTML、入力→保存payload、名前の必須判定と空白保持、作成/更新/削除の成功失敗、削除確認の取消、編集取消、外側の閉じ直し、pending表示。
+- 差出人：非同期データ到着時の初期化、再取得時の編集保持、閉じ直した際の再初期化、全入力値保存、FileReader完了後の状態、空ファイル/2MiB境界、ロゴupload待機・成功・失敗・空URL、選択取消、ロゴ削除時のpayload、save成功/失敗、invalidate→通知→closeの順序。
+- 整理前18テスト成功。整理後は既存13プレビュー＋27PDF＋18ダイアログ＝58テスト成功。既存基準も一致。
+- 最後の境界条件2件を含め、アプリ/テストの型チェックは両方成功（終了コード0）。`git diff --check`も成功。
+- DB・実外部ロゴupload・サーバー起動は未実施。新規依存、shared/server、API契約、保存形式の変更なし。
+
+### 既存挙動として保持した点と統合UIチェック
+
+- 初期化はuseEffectに変更せず、`open && settings && !initialized`でのrender中更新を保持。settingsが無いまま選択したlogoFileは、閉じてもinitializedがfalseなら残る。
+- 設定にlogoUrlが無い場合は既存logoPreviewを消さない。UIのロゴ削除も保存payloadに削除値を付けず、プレビュー/選択ファイルだけを消す。
+- ロゴ説明はPNG/JPGだがacceptはGIF/WebPも含む。2MiBちょうどは許容。FileReaderの読込失敗用ハンドラーは既存同様追加しない。
+- saveMutation.mutateはawaitせず、ロゴuploadの待機とsaveMutation.isPendingを組み合わせる。通知文言・エラーの捕捉範囲を維持。
+- 顧客notesは画面に入力欄が無いが、編集時は既存値を保持して保存する。名前のtrimは必須判定だけに使い、保存値自体はtrimしない。
+- 顧客フォームのモード/下書きは外側の閉じ直しだけではresetしない。フォーム内キャンセルで作成/編集を解除し、新規開始で空フォームに戻す。
+- 統合UIでは顧客の作成→入力→保存、編集→保存/取消、削除確認→取消/削除、差出人の閉じ直しと再初期化、ロゴ選択/削除/保存を確認する。実upload成功は外部送信しないため固定応答比較まで。実DOM・フォーカス・DB永続化は担当テストの検証範囲外。
+- I06編集・一覧・AI・保存・採番・分割は未着手。I05の引き渡し後は停止する。
