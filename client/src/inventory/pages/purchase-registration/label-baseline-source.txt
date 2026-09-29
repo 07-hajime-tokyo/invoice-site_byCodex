@@ -1,0 +1,810 @@
+function getInventoryCategory(inventory: InventoryItem): string {
+  return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
+}
+
+function compactProductText(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+}
+
+function hasAnyProductText(value: string, keywords: string[]): boolean {
+  const compact = compactProductText(value);
+  return keywords.some((keyword) => compact.includes(compactProductText(keyword)));
+}
+
+function displayProductTitle(item: PurchaseItem): string {
+  const title = item.title?.trim() || "-";
+  const managementNo = parseEtc(item.etc).managementNo;
+  const text = `${managementNo} ${title}`;
+
+  if (hasAnyProductText(text, ["モンスターボール", "monster ball", "monsterball"])) {
+    if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) {
+      return "New 2DS LL モンスターボール";
+    }
+    return title;
+  }
+
+  if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) {
+    if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL どうぶつの森";
+    return "3DS LL どうぶつの森";
+  }
+  if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) return "New 2DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds", "new3ds"])) return "New 3DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds ll", "3dsll", "3ds xl", "3dsxl"])) return "3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["2ds"])) return "2DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds"])) return "3DS ランダムカラー";
+
+  if (
+    hasAnyProductText(text, [
+      "ps vita 1000",
+      "psvita1000",
+      "vita 1000",
+      "vita1000",
+      "ps vita 1100",
+      "psvita1100",
+      "vita 1100",
+      "vita1100",
+    ])
+  ) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ", "クリスタルブラック", "crystal black"])
+      ? "PS Vita 1000 ブラック"
+      : "PS Vita 1000 レッド・ブルー・ホワイト";
+  }
+  if (hasAnyProductText(text, ["ps vita 2000", "psvita2000", "vita 2000", "vita2000"])) {
+    return "PS Vita 2000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp go", "pspgo"])) return "PSP Go";
+  if (hasAnyProductText(text, ["psp 3000", "psp3000"])) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ"])
+      ? "PSP 3000 ブラック"
+      : "PSP 3000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp 2000", "psp2000"])) {
+    return hasAnyProductText(text, ["ホワイト", "白", "white", "セラミック"])
+      ? "PSP 2000 ホワイト"
+      : "PSP 2000 ランダムカラー";
+  }
+
+  return title;
+}
+
+function actualProductTitle(item: PurchaseItem): string {
+  return item.title?.trim() || displayProductTitle(item);
+}
+
+function labelStatusLabel(status?: string | null): string {
+  switch ((status ?? "").toLowerCase()) {
+    case "received":
+      return "入庫済み";
+    case "stocked":
+      return "在庫";
+    case "shipped":
+      return "出庫済み";
+    case "returned":
+      return "返品";
+    case "cancelled":
+      return "取消";
+    case "ordered":
+      return "発注済み";
+    default:
+      return status || "未入庫";
+  }
+}
+
+function labelAllocationLabel(managementNo: string): string {
+  const parsed = parseInvoiceFromManagementNo(managementNo);
+  if (!parsed) return "一般在庫";
+  const orderTitle = labelOrderTitleFromManagementNo(managementNo);
+  return orderTitle ? `No.${parsed.invoiceNo}-${orderTitle}` : `No.${parsed.invoiceNo}`;
+}
+
+function labelOrderTitleFromManagementNo(managementNo: string): string {
+  const normalized = managementNo.normalize("NFKC");
+  const parts = normalized.split(/[_\s*]+/).filter(Boolean);
+  const hint = parts.find((part, index) => index >= 2 && !/^\d+\s*\/\s*\d+$/.test(part));
+  return hint ? formatLabelOrderTitle(hint) : "";
+}
+
+function formatLabelOrderTitle(value: string): string {
+  const compact = compactProductText(value);
+  if (compact.includes("ホワイトベース") || compact.includes("whitebase")) return "3DSLL White base";
+  if (compact.includes("モンスターボール") || compact.includes("monsterball")) return "New2DSLL Monster Ball";
+  if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New3DSLL Random color";
+  if (compact.includes("new3ds")) return "New3DS Random color";
+  if (compact.includes("new2dsll") || compact.includes("new2dsxl")) return "New2DSLL Random color";
+  if (compact.includes("3dsll") || compact.includes("3dsxl")) return "3DSLL Random color";
+  if (compact.includes("2ds")) return "2DS Random color";
+  if (compact.includes("3ds")) return "3DS Random color";
+  if (
+    compact.includes("psvita1000") ||
+    compact.includes("psvita1100") ||
+    compact.includes("vita1000") ||
+    compact.includes("vita1100")
+  ) {
+    return "Vita1000 Random color";
+  }
+  if (compact.includes("psvita2000") || compact.includes("vita2000")) return "Vita2000 Random color";
+  if (compact.includes("psp3000")) return "PSP3000 Random color";
+  if (compact.includes("psp2000")) return "PSP2000 Random color";
+  if (compact.includes("pspgo")) return "PSP Go";
+  return value
+    .replace(/ランダムカラー/g, "Random color")
+    .replace(/ホワイトベース/g, "White base")
+    .replace(/[＿_]+/g, " ")
+    .trim();
+}
+
+function formatLabelPrintTitleLegacy(value: string): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/ランダムカラー/g, "Random color"],
+    [/ホワイトベース/g, "White base"],
+    [/限定版/g, "Limited edition"],
+    [/ミント\s*[×xXＸｘ]\s*ホワイト/g, "Mint x White"],
+    [/ホワイト\s*[×xXＸｘ]\s*ミント/g, "White x Mint"],
+    [/パール\s*ホワイト/g, "Pearl White"],
+    [/クリア\s*ブラック/g, "Clear Black"],
+    [/クリア\s*ブルー/g, "Clear Blue"],
+    [/クリア\s*レッド/g, "Clear Red"],
+    [/コスモ\s*ブラック/g, "Cosmo Black"],
+    [/メタリック\s*ブラック/g, "Metallic Black"],
+    [/メタリック\s*ブルー/g, "Metallic Blue"],
+    [/メタリック\s*レッド/g, "Metallic Red"],
+    [/アクア\s*[・･]?\s*ブルー/g, "Aqua Blue"],
+    [/サファイア\s*[・･]?\s*ブルー/g, "Sapphire Blue"],
+    [/クリスタル\s*[・･]?\s*ブラック/g, "Crystal Black"],
+    [/クリスタル\s*[・･]?\s*ホワイト/g, "Crystal White"],
+    [/ピアノ\s*[・･]?\s*ブラック/g, "Piano Black"],
+    [/セラミック\s*[・･]?\s*ホワイト/g, "Ceramic White"],
+    [/ミスティ\s*ピンク/g, "Misty Pink"],
+    [/コズミック\s*[・･]?\s*ブラック/g, "Cosmic Black"],
+    [/コズミック\s*[・･]?\s*レッド/g, "Cosmic Red"],
+    [/ライム\s*[・･]?\s*グリーン/g, "Lime Green"],
+    [/グレイシャー\s*[・･]?\s*ホワイト/g, "Glacier White"],
+    [/バイブラント\s*[・･]?\s*ブルー/g, "Vibrant Blue"],
+    [/ラディアント\s*[・･]?\s*レッド/g, "Radiant Red"],
+    [/コバルト\s*[・･]?\s*ブルー/g, "Cobalt Blue"],
+    [/ライト\s*[・･]?\s*ブルー/g, "Light Blue"],
+    [/レッド\s*[・･]\s*ブルー\s*[・･]\s*ホワイト/g, "Red, Blue, White"],
+    [/ブルー\s*[・･]\s*ホワイト/g, "Blue, White"],
+    [/レッド\s*[・･]\s*ホワイト/g, "Red, White"],
+    [/レッド\s*[・･]\s*ブルー/g, "Red, Blue"],
+    [/コズミック/g, "Cosmic"],
+    [/クリスタル/g, "Crystal"],
+    [/ライム/g, "Lime"],
+    [/グレイシャー/g, "Glacier"],
+    [/バイブラント/g, "Vibrant"],
+    [/ラディアント/g, "Radiant"],
+    [/コバルト/g, "Cobalt"],
+    [/ライト\s*ブルー/g, "Light Blue"],
+    [/ブラック/g, "Black"],
+    [/ホワイト/g, "White"],
+    [/ブルー/g, "Blue"],
+    [/レッド/g, "Red"],
+    [/グリーン/g, "Green"],
+    [/イエロー/g, "Yellow"],
+    [/オレンジ/g, "Orange"],
+    [/シルバー/g, "Silver"],
+    [/ゴールド/g, "Gold"],
+    [/ラベンダー/g, "Lavender"],
+    [/ミント/g, "Mint"],
+  ];
+
+  return replacements
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value.trim())
+    .replace(/\s*×\s*/g, " x ")
+    .replace(/[＿_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function replaceAllText(value: string, search: string, replacement: string): string {
+  return value.split(search).join(replacement);
+}
+
+function formatLabelPrintTitle(value: string): string {
+  const legacyFormatted = formatLabelPrintTitleLegacy(value);
+  const replacements: Array<[RegExp, string]> = [
+    [/\u30e9\u30f3\u30c0\u30e0\u30ab\u30e9\u30fc/g, "Random color"],
+    [/\u30db\u30ef\u30a4\u30c8\u30d9\u30fc\u30b9/g, "White base"],
+    [/\u9650\u5b9a\u7248/g, "Limited edition"],
+    [/\u3069\u3046\u3076\u3064\u306e\u68ee/g, "Animal Crossing"],
+    [/\u30df\u30f3\u30c8\s*[\u00d7xX\uFF38\uFF58]\s*\u30db\u30ef\u30a4\u30c8/g, "Mint x White"],
+    [/\u30db\u30ef\u30a4\u30c8\s*[\u00d7xX\uFF38\uFF58]\s*\u30df\u30f3\u30c8/g, "White x Mint"],
+    [/\u30df\u30f3\u30c8\s*\u30db\u30ef\u30a4\u30c8/g, "Mint x White"],
+    [/\u30db\u30ef\u30a4\u30c8\s*\u30df\u30f3\u30c8/g, "White x Mint"],
+    [/\u30d1\u30fc\u30eb\s*\u30db\u30ef\u30a4\u30c8/g, "Pearl White"],
+    [/\u30af\u30ea\u30a2\s*\u30d6\u30e9\u30c3\u30af/g, "Clear Black"],
+    [/\u30af\u30ea\u30a2\s*\u30d6\u30eb\u30fc/g, "Clear Blue"],
+    [/\u30af\u30ea\u30a2\s*\u30ec\u30c3\u30c9/g, "Clear Red"],
+    [/\u30b3\u30b9\u30e2\s*\u30d6\u30e9\u30c3\u30af/g, "Cosmo Black"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30d6\u30e9\u30c3\u30af/g, "Metallic Black"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30d6\u30eb\u30fc/g, "Metallic Blue"],
+    [/\u30e1\u30bf\u30ea\u30c3\u30af\s*\u30ec\u30c3\u30c9/g, "Metallic Red"],
+    [/\u30a2\u30af\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Aqua Blue"],
+    [/\u30b5\u30d5\u30a1\u30a4\u30a2\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Sapphire Blue"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Crystal Black"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Crystal White"],
+    [/\u30d4\u30a2\u30ce\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Piano Black"],
+    [/\u30bb\u30e9\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Ceramic White"],
+    [/\u30df\u30b9\u30c6\u30a3\s*\u30d4\u30f3\u30af/g, "Misty Pink"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30d6\u30e9\u30c3\u30af/g, "Cosmic Black"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af\s*[\u30fb\u00b7]?\s*\u30ec\u30c3\u30c9/g, "Cosmic Red"],
+    [/\u30e9\u30a4\u30e0\s*[\u30fb\u00b7]?\s*\u30b0\u30ea\u30fc\u30f3/g, "Lime Green"],
+    [/\u30b0\u30ec\u30a4\u30b7\u30e3\u30fc\s*[\u30fb\u00b7]?\s*\u30db\u30ef\u30a4\u30c8/g, "Glacier White"],
+    [/\u30d0\u30a4\u30d6\u30e9\u30f3\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Vibrant Blue"],
+    [/\u30e9\u30c7\u30a3\u30a2\u30f3\u30c8\s*\u30ec\u30c3\u30c9/g, "Radiant Red"],
+    [/\u30b3\u30d0\u30eb\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Cobalt Blue"],
+    [/\u30e9\u30a4\u30c8\s*[\u30fb\u00b7]?\s*\u30d6\u30eb\u30fc/g, "Light Blue"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, Blue, White"],
+    [/\u30d6\u30eb\u30fc\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Blue, White"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30db\u30ef\u30a4\u30c8/g, "Red, White"],
+    [/\u30ec\u30c3\u30c9\s*[\u30fb\u00b7]\s*\u30d6\u30eb\u30fc/g, "Red, Blue"],
+    [/\u30b3\u30ba\u30df\u30c3\u30af/g, "Cosmic"],
+    [/\u30af\u30ea\u30b9\u30bf\u30eb/g, "Crystal"],
+    [/\u30e9\u30a4\u30e0/g, "Lime"],
+    [/\u30b0\u30ec\u30a4\u30b7\u30e3\u30fc/g, "Glacier"],
+    [/\u30d0\u30a4\u30d6\u30e9\u30f3\u30c8/g, "Vibrant"],
+    [/\u30e9\u30c7\u30a3\u30a2\u30f3\u30c8/g, "Radiant"],
+    [/\u30b3\u30d0\u30eb\u30c8/g, "Cobalt"],
+    [/\u30e9\u30a4\u30c8\s*\u30d6\u30eb\u30fc/g, "Light Blue"],
+    [/\u30d6\u30e9\u30c3\u30af/g, "Black"],
+    [/\u30db\u30ef\u30a4\u30c8/g, "White"],
+    [/\u30d6\u30eb\u30fc/g, "Blue"],
+    [/\u30ec\u30c3\u30c9/g, "Red"],
+    [/\u30b0\u30ea\u30fc\u30f3/g, "Green"],
+    [/\u30a4\u30a8\u30ed\u30fc/g, "Yellow"],
+    [/\u30aa\u30ec\u30f3\u30b8/g, "Orange"],
+    [/\u30b7\u30eb\u30d0\u30fc/g, "Silver"],
+    [/\u30b4\u30fc\u30eb\u30c9/g, "Gold"],
+    [/\u30e9\u30d9\u30f3\u30c0\u30fc/g, "Lavender"],
+    [/\u30df\u30f3\u30c8/g, "Mint"],
+  ];
+
+  let formatted = replacements.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    legacyFormatted || value.trim(),
+  );
+  formatted = replaceAllText(formatted, "\u00d7", " x ");
+  formatted = replaceAllText(formatted, "\uFF38", " x ");
+  formatted = replaceAllText(formatted, "\uFF58", " x ");
+  formatted = formatted
+    .replace(/[・･_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return formatted || legacyFormatted;
+}
+
+function emptyLabelTitleOverrides(): LabelTitleOverrideState {
+  return { byLabelId: {}, byTitleKey: {} };
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, text]) => [key, text]),
+  );
+}
+
+function normalizeLabelTitleKey(value: string): string {
+  return compactProductText(value).replace(/\s+/g, "");
+}
+
+function labelBadgeClass(status?: string | null): string {
+  switch (normalizedLabelStatus(status)) {
+    case "shipped":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "received":
+    case "stocked":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "ordered":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "returned":
+      return "border-purple-200 bg-purple-50 text-purple-800";
+    case "cancelled":
+      return "border-rose-200 bg-rose-50 text-rose-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function applyLabelTitleOverride(label: LabelView, overrides: LabelTitleOverrideState): LabelView {
+  const rawTitle = label.title || label.printTitle;
+  const titleKey = normalizeLabelTitleKey(rawTitle);
+  const override = overrides.byLabelId[label.labelId]?.trim() || overrides.byTitleKey[titleKey]?.trim();
+  const autoTitle = formatLabelPrintTitle(rawTitle);
+  return {
+    ...label,
+    printTitle: override ? formatLabelPrintTitle(override) : autoTitle,
+  };
+}
+
+const LABELS_PER_SHEET = 24;
+
+function clampLabelStartPosition(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.floor(value), 1), LABELS_PER_SHEET);
+}
+
+function nextLabelStartPosition(startPosition: number, count: number): number {
+  return ((clampLabelStartPosition(startPosition) - 1 + count) % LABELS_PER_SHEET) + 1;
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
+  return rows.flatMap((row) => {
+    const supplier = getSupplier(row);
+    return row.purchase_items.flatMap((item) => {
+      const managementNo = parseEtc(item.etc).managementNo;
+      const title = actualProductTitle(item);
+      return (item.itemLabels ?? []).map((label) => {
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+        return {
+          key: `${row.id}-${item.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          rawStatus: label.status ?? "",
+          status: labelStatusLabel(label.status),
+          title,
+          printTitle: formatLabelPrintTitle(title),
+          category: (item.category ?? "").trim() || stockModelName(title),
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice: toNumber(item.unit_price),
+          supplier,
+          purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
+          rowId: row.id,
+          itemId: item.id,
+          inventoryId: label.localInventoryId ?? item.inventory_id ?? null,
+          trackingNumber: row.extra?.trackingNumber ?? null,
+          carrier: row.extra?.carrier ?? null,
+        };
+      });
+    });
+  });
+}
+
+function isInventoryPrintableLabel(label: InventoryItemLabel): boolean {
+  if (!label.labelId?.trim()) return false;
+  const status = (label.status ?? "").trim().toLowerCase();
+  return !status || status === "stocked" || status === "received";
+}
+
+function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
+  return inventories.flatMap((inventory) => {
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity <= 0) return [];
+    const title = inventory.title;
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const supplier = {
+      name: inventory.supplierName?.trim() || "-",
+      url: inventory.supplierUrl?.trim() || "",
+    };
+    return (inventory.itemLabels ?? [])
+      .filter(isInventoryPrintableLabel)
+      .slice(0, stockQuantity)
+      .map((label) => {
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+        return {
+          key: `inventory-${inventory.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          rawStatus: label.status || "stocked",
+          status: labelStatusLabel(label.status || "stocked"),
+          title,
+          printTitle: formatLabelPrintTitle(title),
+          category: getInventoryCategory(inventory) || stockModelName(title),
+          legacyManagementNo,
+          allocationLabel: "",
+          unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
+          supplier,
+          purchaseDate: inventory.last_purchase_date ?? inventory.updated_at ?? "",
+          rowId: -inventory.id,
+          itemId: -inventory.id,
+          inventoryId: inventory.id,
+          trackingNumber: null,
+          carrier: null,
+        };
+      });
+  });
+}
+
+function buildClosedInvoiceInventoryLabelViews(
+  rows: PurchaseRow[],
+  invoiceSummaries?: PurchaseRegistrationInvoice[],
+): LabelView[] {
+  if (invoiceSummaries === undefined) return [];
+  const openInvoiceKeys = new Set(invoiceSummaries.map((summary) => `invoice-${summary.invoiceNo}`));
+  return rows.flatMap((row) => {
+    const invoiceInfo = getInvoiceInfo(row);
+    if (invoiceInfo.key === OTHER_INVOICE_KEY || invoiceInfo.key === EBAY_GROUP_KEY) return [];
+    if (openInvoiceKeys.has(invoiceInfo.key)) return [];
+
+    const supplier = getSupplier(row);
+    return row.purchase_items.flatMap((item) => {
+      const stockQuantity = Math.max(0, Math.floor(itemStockQuantity(item)));
+      if (stockQuantity <= 0) return [];
+      const title = actualProductTitle(item);
+      const managementNo = parseEtc(item.etc).managementNo;
+      return (item.itemLabels ?? [])
+        .filter(isInventoryPrintableLabel)
+        .slice(0, stockQuantity)
+        .map((label) => {
+          const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+          return {
+            key: `closed-invoice-stock-${row.id}-${item.id}-${label.id ?? label.labelId}`,
+            labelId: label.labelId,
+            rawStatus: label.status || "stocked",
+            status: labelStatusLabel(label.status || "stocked"),
+            title,
+            printTitle: formatLabelPrintTitle(title),
+            category: (item.category ?? "").trim() || stockModelName(title),
+            legacyManagementNo,
+            allocationLabel: "",
+            unitPrice: toNumber(item.unit_price),
+            supplier,
+            purchaseDate: row.purchase_date ?? item.estimated_purchase_date ?? "",
+            rowId: row.id,
+            itemId: item.id,
+            inventoryId: label.localInventoryId ?? item.inventory_id ?? null,
+            trackingNumber: row.extra?.trackingNumber ?? null,
+            carrier: row.extra?.carrier ?? null,
+          };
+        });
+    });
+  });
+}
+
+function initQrTables(): { exp: number[]; log: number[] } {
+  const exp = Array<number>(512).fill(0);
+  const log = Array<number>(256).fill(0);
+  let value = 1;
+  for (let index = 0; index < 255; index++) {
+    exp[index] = value;
+    log[value] = index;
+    value <<= 1;
+    if (value & 0x100) value ^= 0x11d;
+  }
+  for (let index = 255; index < 512; index++) exp[index] = exp[index - 255];
+  return { exp, log };
+}
+
+const QR_TABLES = initQrTables();
+
+function qrMultiply(left: number, right: number): number {
+  if (left === 0 || right === 0) return 0;
+  return QR_TABLES.exp[QR_TABLES.log[left] + QR_TABLES.log[right]];
+}
+
+function qrGeneratorPolynomial(degree: number): number[] {
+  let poly = [1];
+  for (let index = 0; index < degree; index++) {
+    const next = Array<number>(poly.length + 1).fill(0);
+    for (let polyIndex = 0; polyIndex < poly.length; polyIndex++) {
+      next[polyIndex] ^= poly[polyIndex];
+      next[polyIndex + 1] ^= qrMultiply(poly[polyIndex], QR_TABLES.exp[index]);
+    }
+    poly = next;
+  }
+  return poly;
+}
+
+function qrEncodeBytes(value: string): number[] {
+  const bytes = Array.from(value.trim().toUpperCase()).map((char) => char.charCodeAt(0) & 0xff);
+  const bits: number[] = [];
+  const pushBits = (data: number, length: number) => {
+    for (let bit = length - 1; bit >= 0; bit--) bits.push((data >> bit) & 1);
+  };
+
+  pushBits(0b0100, 4);
+  pushBits(bytes.length, 8);
+  bytes.forEach((byte) => pushBits(byte, 8));
+
+  const capacityBits = 19 * 8;
+  const terminatorLength = Math.min(4, capacityBits - bits.length);
+  for (let index = 0; index < terminatorLength; index++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+
+  const dataCodewords: number[] = [];
+  for (let index = 0; index < bits.length; index += 8) {
+    dataCodewords.push(bits.slice(index, index + 8).reduce((sum, bit) => (sum << 1) | bit, 0));
+  }
+  const pads = [0xec, 0x11];
+  let padIndex = 0;
+  while (dataCodewords.length < 19) {
+    dataCodewords.push(pads[padIndex % pads.length]);
+    padIndex++;
+  }
+
+  const generator = qrGeneratorPolynomial(7);
+  const ecc = Array<number>(7).fill(0);
+  dataCodewords.forEach((codeword) => {
+    const factor = codeword ^ ecc[0];
+    ecc.shift();
+    ecc.push(0);
+    for (let index = 0; index < ecc.length; index++) {
+      ecc[index] ^= qrMultiply(generator[index + 1], factor);
+    }
+  });
+
+  return [...dataCodewords, ...ecc];
+}
+
+function createQrMatrix(value: string): boolean[][] {
+  const size = 21;
+  const matrix = Array.from({ length: size }, () => Array<boolean | null>(size).fill(null));
+  const reserved = Array.from({ length: size }, () => Array<boolean>(size).fill(false));
+  const setModule = (x: number, y: number, dark: boolean, reserve = true) => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    matrix[y][x] = dark;
+    if (reserve) reserved[y][x] = true;
+  };
+  const drawFinder = (x: number, y: number) => {
+    for (let dy = -1; dy <= 7; dy++) {
+      for (let dx = -1; dx <= 7; dx++) {
+        const xx = x + dx;
+        const yy = y + dy;
+        const inPattern = dx >= 0 && dx <= 6 && dy >= 0 && dy <= 6;
+        const dark =
+          inPattern &&
+          (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+        setModule(xx, yy, dark);
+      }
+    }
+  };
+
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+  for (let index = 8; index < size - 8; index++) {
+    setModule(index, 6, index % 2 === 0);
+    setModule(6, index, index % 2 === 0);
+  }
+  setModule(8, 13, true);
+
+  const formatBits = "111011111000100";
+  const formatCoords1 = [
+    [8, 0],
+    [8, 1],
+    [8, 2],
+    [8, 3],
+    [8, 4],
+    [8, 5],
+    [8, 7],
+    [8, 8],
+    [7, 8],
+    [5, 8],
+    [4, 8],
+    [3, 8],
+    [2, 8],
+    [1, 8],
+    [0, 8],
+  ];
+  const formatCoords2 = [
+    [8, 20],
+    [8, 19],
+    [8, 18],
+    [8, 17],
+    [8, 16],
+    [8, 15],
+    [8, 14],
+    [13, 8],
+    [14, 8],
+    [15, 8],
+    [16, 8],
+    [17, 8],
+    [18, 8],
+    [19, 8],
+    [20, 8],
+  ];
+  [...formatCoords1, ...formatCoords2].forEach(([x, y]) => {
+    reserved[y][x] = true;
+  });
+
+  const codewords = qrEncodeBytes(value || "-");
+  const dataBits = codewords.flatMap((codeword) =>
+    Array.from({ length: 8 }, (_, index) => (codeword >> (7 - index)) & 1),
+  );
+  let bitIndex = 0;
+  let upward = true;
+  for (let x = size - 1; x > 0; x -= 2) {
+    if (x === 6) x--;
+    for (let row = 0; row < size; row++) {
+      const y = upward ? size - 1 - row : row;
+      for (let dx = 0; dx < 2; dx++) {
+        const xx = x - dx;
+        if (reserved[y][xx]) continue;
+        const rawBit = bitIndex < dataBits.length ? dataBits[bitIndex] === 1 : false;
+        bitIndex++;
+        setModule(xx, y, rawBit !== ((xx + y) % 2 === 0), false);
+      }
+    }
+    upward = !upward;
+  }
+
+  formatCoords1.forEach(([x, y], index) => setModule(x, y, formatBits[index] === "1"));
+  formatCoords2.forEach(([x, y], index) => setModule(x, y, formatBits[index] === "1"));
+
+  return matrix.map((row) => row.map(Boolean));
+}
+
+const QR_QUIET_ZONE = 2;
+
+function buildQrPath(matrix: boolean[][]): string {
+  let path = "";
+  for (let y = 0; y < matrix.length; y += 1) {
+    const row = matrix[y];
+    for (let x = 0; x < row.length; x += 1) {
+      if (row[x]) path += `M${x + QR_QUIET_ZONE} ${y + QR_QUIET_ZONE}h1v1h-1z`;
+    }
+  }
+  return path;
+}
+
+function stockModelName(title: string): string {
+  const compact = compactProductText(title);
+  const normalized = title.normalize("NFKC").toLowerCase();
+  if (compact.includes("new3dsll") || compact.includes("new3dsxl")) return "New 3DS LL";
+  if (compact.includes("new3ds")) return "New 3DS";
+  if (compact.includes("new2dsll") || compact.includes("new2dsxl")) return "New 2DS LL";
+  if (compact.includes("3dsll") || compact.includes("3dsxl")) return "3DS LL";
+  if (compact.includes("2ds")) return "2DS";
+  if (compact.includes("3ds")) return "3DS";
+  if (compact.includes("dslite") || compact.includes("dsl")) return "DSLite";
+  if (
+    compact.includes("ゲームボーイプレーヤー") ||
+    compact.includes("ゲームボーイプレイヤー") ||
+    compact.includes("gameboyplayer")
+  ) return "GC";
+  if (compact.includes("gba") || compact.includes("gameboyadvance") || compact.includes("ゲームボーイアドバンス")) return "GBA";
+  if (compact.includes("vita2000") || compact.includes("psvita2000")) return "PS Vita 2000";
+  if (
+    compact.includes("vita1000") ||
+    compact.includes("psvita1000") ||
+    compact.includes("vita1100") ||
+    compact.includes("psvita1100")
+  ) return "PS Vita 1000";
+  if (compact.includes("psp3000")) return "PSP 3000";
+  if (compact.includes("psp2000")) return "PSP 2000";
+  if (compact.includes("psp1000")) return "PSP 1000";
+  if (
+    compact.includes("callaway") ||
+    compact.includes("taylormade") ||
+    compact.includes("キャロウェイ") ||
+    compact.includes("テーラーメイド") ||
+    /(^|[\s　])ping(?=($|[\s　a-z0-9]))/u.test(normalized) ||
+    /(^|[\s　])ピン(?=($|[\s　a-z0-9]))/u.test(normalized)
+  ) {
+    return "ゴルフ";
+  }
+  if (compact.includes("switch") || compact.includes("スイッチ")) return "Switch";
+  if (compact.includes("shaft") || compact.includes("シャフト")) return "シャフト";
+  return "その他";
+}
+
+const STOCK_MODEL_ORDER = [
+  "New 3DS LL",
+  "New 3DS",
+  "New 2DS LL",
+  "3DS LL",
+  "3DS",
+  "2DS",
+  "DSLite",
+  "GBA",
+  "GC",
+  "PS Vita 2000",
+  "PS Vita 1000",
+  "PSP 3000",
+  "PSP 2000",
+  "PSP 1000",
+  "Switch",
+  "ゴルフ",
+  "シャフト",
+  "その他",
+];
+
+function buildStockItemViewsFromInventories(inventories: InventoryItem[]): StockItemView[] {
+  return inventories.flatMap((inventory) => {
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity <= 0) return [];
+
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const category = getInventoryCategory(inventory);
+    const supplier = {
+      name: inventory.supplierName?.trim() || "-",
+      url: inventory.supplierUrl?.trim() || "",
+    };
+    const unitPrice = toNumber(inventory.purchase_unit_price ?? inventory.unit_price);
+    const purchaseDate = inventory.last_purchase_date ?? inventory.updated_at ?? "";
+    const labels = (inventory.itemLabels ?? [])
+      .filter((label) => {
+        if (!label.labelId?.trim()) return false;
+        const status = (label.status ?? "").trim().toLowerCase();
+        return !status || status === "stocked" || status === "received";
+      })
+      .slice(0, stockQuantity)
+      .map((label) => {
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+        return {
+          key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          inventoryId: inventory.id,
+          status: labelStatusLabel(label.status || "stocked"),
+          title: inventory.title,
+          category,
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice,
+          quantity: 1,
+          supplier,
+          purchaseDate,
+        };
+      });
+
+    const missingLabelQuantity = Math.max(0, stockQuantity - labels.length);
+    if (missingLabelQuantity <= 0) return labels;
+
+    return [
+      ...labels,
+      {
+        key: `inventory-unlabeled-${inventory.id}`,
+        inventoryId: inventory.id,
+        labelId: null,
+        status: "\u5728\u5eab",
+        title: inventory.title,
+        category,
+        legacyManagementNo: managementNo,
+        allocationLabel: labelAllocationLabel(managementNo),
+        unitPrice,
+        quantity: missingLabelQuantity,
+        supplier,
+        purchaseDate,
+      },
+    ];
+  });
+}
+
+function isWithinLabelScope(label: LabelView, fromDate: string): boolean {
+  // 在庫から作ったラベルは、現物にもう貼り終えている。既定では見ない
+  if (label.rowId < 0) return false;
+  const purchaseDate = label.purchaseDate?.trim() ?? "";
+  // 仕入日が空のものは、隠すと気づけなくなるので残す
+  if (!purchaseDate) return true;
+  return purchaseDate.slice(0, 10) >= fromDate;
+}
+
+function buildLabelPrintGroups(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
+  const map = new Map<string, LabelView[]>();
+  for (const label of labels) {
+    const name = label.category || stockModelName(label.title) || "その他";
+    const current = map.get(name) ?? [];
+    current.push(label);
+    map.set(name, current);
+  }
+  return Array.from(map.entries())
+    .map(([name, groupLabels]) => ({ name, labels: groupLabels }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.name.localeCompare(b.name, "ja", { numeric: true });
+    });
+}
+
+function buildChecklistRows(labels: LabelView[]): { name: string; labels: LabelView[] }[] {
+  return buildLabelPrintGroups(labels).map((group) => ({
+    name: group.name,
+    labels: [...group.labels].sort((a, b) =>
+      a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", { numeric: true }),
+    ),
+  }));
+}

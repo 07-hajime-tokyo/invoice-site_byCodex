@@ -178,3 +178,85 @@ git diff --check
 
 DB・ブラウザー・ビルドの確認は統合担当へ引き渡す。この担当では実施していない。
 R05完了後は次領域へ着手せず、ラベル表示/印刷、在庫集計、特殊商品照合、注文照合・在庫引当・発送などは未着手のまま引き渡す。
+
+## 第3回：R06 ラベル表示・一覧・印刷規則・QR（2026-09-30）
+
+クリーンな担当ブランチへ統合基準 `ef808dc` をmergeした（`a2dcf23`、衝突なし）。
+統合担当がfetch済みの基準を利用し、担当側ではfetch/push/main変更/Vercel操作をしていない。
+新たなshared変更は不要だった。第1回・第2回で未着手と記録したラベルのうち、本節の純粋規則を完了した。
+
+### 分離した責務
+
+| ファイル | 内容 |
+| --- | --- |
+| `productText.ts` | `compactProductText`。画面内の既存全呼出元が同じ正規化を参照 |
+| `productPresentation.ts` | `stockModelName`、`getInventoryCategory`、`STOCK_MODEL_ORDER`。ラベルと在庫表示で共用する分類表示 |
+| `labelStatus.ts` | 状態の表示文字列とバッジ色。trim有無の差は維持 |
+| `labelTitles.ts` | 管理番号由来の注文名、印刷名の旧変換と追加変換、割当先の表示名 |
+| `labelTitleOverrides.ts` | override型、空状態、文字列辞書の選別、キー正規化、override適用。保存処理は含めない |
+| `inventoryLabelViews.ts` | 印刷可能なラベルの判定、在庫由来ラベルの組立 |
+| `purchaseLabelViews.ts` | 発注由来・完了インボイス由来の2ビルダー。既存の商品名resolverを受け取るfactory |
+| `labelPrintLayout.ts` | 24面設定、開始/次位置、配列分割、表示日付範囲、印刷グループ、確認一覧の並び順 |
+| `qr.ts` | 既存の有限体テーブル、バイト列、固定行列、SVGパス生成。公開は行列・パス・余白値 |
+
+元画面は8,728行から8,069行へ。UI部品・CSS・portal・印刷操作は移動していない。
+`actualProductTitle` と特殊商品名fallbackは画面に残し、`createPurchaseLabelBuilders(actualProductTitle)` をモジュール初期化で1回だけ構成する。
+構成時にresolverは実行せず、旧関数本体が従来と同じ場所で同じ明細参照を渡す。引数を欠いたtitleやnullのfallbackも維持する。
+QRは副作用のない独立計算だったため今回に含めた。テーブルは引き続きモジュール初期化で1度だけ作られる。
+
+同画面の `buildStockItemViewsFromInventories` にあった完全同義のinline filterも、新設 `isInventoryPrintableLabel` に統一した。
+在庫数量・ラベル不足分の補完など、その関数の他の処理は変更していない。
+
+### 既存正本と仕様差の確認
+
+- 管理番号・etc・インボイス識別・仕入先・数値化は前回までの既存正本を参照。今回の新モジュールから画面へimportする循環依存は作らない。
+- 一般の商品名変換 `inventory/lib/productNameUtils.ts` は機種・色・表記の体系が違う。印刷名の2段階の置換順序や独自名称を置換しない。
+- `server/inventory/labelViews.ts` はDBラベルの公開項目、重複排除、受領判定の規則。画面の数量制限・表示名・印刷可否とは別のため流用しない。
+- 出庫箱のコード判定は引き続き `shared/outboundBoxes`。QR行列/パス生成と同義の既存実装は見つからなかった。
+- 状態文字列の表示は小文字化のみ、バッジ色と印刷可否はtrimも使う。空白だけの状態や空IDの扱いは経路ごとの既存仕様を残す。
+- 発注由来ラベルは空IDも組立結果に残す。在庫/完了インボイス由来は空IDと対象外状態を除き、有限値化・floorした在庫数で上限を切る。
+- `invoiceSummaries === undefined` は未取得として空配列、`[]` は未完了インボイスなしとして扱う。eBay/一般在庫は完了インボイス経路へ入れない。
+- 在庫経路の管理番号fallback `-`、仕入先・価格・日付のnullish/空文字優先、IDの0値、labelの重複は修正しない。
+- overrideはラベルID、タイトルキー、自動名の順。新しいラベルオブジェクトを返すが仕入先などの参照は維持する。
+- 印刷グループは分類優先順、未定義分類は日本語numeric順。確認一覧だけ管理番号のnumeric順に複製配列を並べ替え、元ラベルは共有する。
+- 日付範囲は負のrowIdを除外、日付なしは表示、その他は先頭10文字の比較。一般の日付パーサへ変更しない。
+- QRは21×21、固定マスク/余白、trim/大文字化、文字コード下位8bitを使う既存実装。長文/非ASCIIの扱いやQR規格適合性を改善する回ではない。
+- `chunkArray` の非空配列＋0/負のsizeは元実装が停止しない。今回も仕様修正せず、それらの実行は避ける。実画面は固定24を使う。
+
+### 整理前基準と確認結果
+
+`label-baseline-source.txt` は `ef808dc` から実宣言をそのまま抽出した固定fixture（39宣言）。
+初回38宣言に、同義filterへの参照変更を検証する旧 `buildStockItemViewsFromInventories` も同じコミットから追加した。
+最終SHA-256：`bb23ab0437347261ff2811604c9496327074ad315040e9fe812c6c1f1863c23c`。
+`label-baseline.ts` は指定した純粋依存だけを渡して評価し、通常テストにGit履歴や外部通信は不要。
+第1回の任意再抽出確認のパスを `label-baseline-source.txt`、コミットを `ef808dc` に替えると完全一致を確認できる。実行済み。
+
+アプリ編集前に旧実関数から11スナップショットを取得した。新実装から期待値を生成していない。
+現行側の `current` は新モジュールだけで構成し、旧実装へのfallbackを持たない。
+画面に残したresolverは `current-page-labels.ts` が現行ソースから必要な純粋宣言だけをAST抽出する。旧resolverで現行動作を代用せず、UI全体やAPIもロードしない。
+
+- R06対象9テスト・11スナップショットが成功。表示名の置換順、全半角、日本語・英語、記号、空欄、状態の空白、overrideの優先順位を確認。
+- ラベルの状態/ID/数量429通りで、発注・在庫・完了インボイス・既存在庫表示の全出力を旧関数と比較。未取得/空/未完了インボイスの違いも比較。
+- resolverの構成時未評価、呼出時期、受け取る明細参照、未指定/null/空のtitleを確認。
+- 120発注・600ラベル、重複ID、350ラベルのグループ化、23/24/25/48/49/1001件の分割、負数・小数・非有限数の位置計算を比較。
+- 入力非変更、行内での仕入先オブジェクト共有、行間の独立、override後の参照保持、グループ/ページ内のラベル参照保持を確認。
+- QRは空/空白、箱ID、17/18文字境界、1,000文字、非ASCII等12例の全行列とパスSHA-256を旧実装で固定。別途300入力で行列と完全なパス文字列を比較し、入力行列を変更しないことも確認。
+- R01〜R05、入庫一覧、sharedを含む関連10ファイル109テストが成功。新11件、前回まで16件、入庫一覧23件のスナップショットが一致。
+- アプリ全体と対象テストを含む型チェックが成功（`--noEmit --incremental false`）。
+- 宣言比較では移動を含め175宣言がexport修飾子と空白以外同一。消失なし。唯一の既存関数本体変更は在庫表示内filterの同義正本参照で、関数全体の比較で検証済み。
+
+再実行コマンド：
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/labels.test.ts client/src/inventory/pages/purchase-registration/metadata.test.ts client/src/inventory/pages/purchase-registration/rules.test.ts shared/purchaseMetadata.test.ts shared/purchaseVisibility.test.ts shared/invoiceKey.test.ts shared/productMatching.test.ts shared/outboundBoxes.test.ts client/src/inventory/pages/purchases/contracts.test.ts client/src/inventory/pages/purchases/presentation.test.tsx
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+node_modules/.bin/tsc --noEmit --incremental false
+git diff --check
+```
+
+### 未検証・未着手
+
+DB回帰、ブラウザー、ビルドは統合担当へ引き渡す。この担当では操作していない。
+実プリンター出力、カメラ/スキャナーの読取、全QRの規格適合性は今回の比較テストの保証範囲ではない。
+localStorageのload/saveとキー、カメラ、React部品/印刷実行、ラベルの発送優先マージ、注文照合・在庫引当・発送は画面側に残した。
+本節の区切りで停止し、次領域へ進まない。
