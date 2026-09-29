@@ -1,10 +1,13 @@
+import { createInboundWaitingStockBuilder } from "./purchase-registration/stockWaiting";
+import { createStockProposalBuilder } from "./purchase-registration/stockProposalGroups";
+import { unique } from "./purchase-registration/stringValues";
+import { compactProductText, productKey, hasAnyProductText } from "./purchase-registration/productText";
+import { buildStockItemViewsFromInventories, buildStockItemGroups } from "./purchase-registration/stockViews";
+import { isStockProposalAccessory, isFulfillmentStockItem } from "./purchase-registration/stockProposalRules";
+import { proposalAveragePrice, stockProposalPriceLabel, stockProposalManagementLabel } from "./purchase-registration/stockProposalDisplay";
+import { buildForecastSummary } from "./purchase-registration/stockForecast";
 import { createPurchaseLabelBuilders } from "./purchase-registration/purchaseLabelViews";
-import { compactProductText } from "./purchase-registration/productText";
-import {
-  getInventoryCategory,
-  stockModelName,
-  STOCK_MODEL_ORDER,
-} from "./purchase-registration/productPresentation";
+import { getInventoryCategory, stockModelName } from "./purchase-registration/productPresentation";
 import {
   labelStatusLabel,
   labelBadgeClass,
@@ -29,18 +32,14 @@ import {
   buildLabelPrintGroups,
   buildChecklistRows,
 } from "./purchase-registration/labelPrintLayout";
-import { buildInventoryLabelViews, isInventoryPrintableLabel } from "./purchase-registration/inventoryLabelViews";
+import { buildInventoryLabelViews } from "./purchase-registration/inventoryLabelViews";
 import {
   createQrMatrix,
   QR_QUIET_ZONE,
   buildQrPath,
 } from "./purchase-registration/qr";
 import { cleanLegacyManagementNo, parsePurchaseEtc as parseEtc } from "@shared/purchaseMetadata";
-import { extractManagementNo as getInventoryManagementNo } from "@shared/ebayInventory";
-import {
-  preferredManagementNo,
-  getManagementNos,
-} from "./purchase-registration/managementNumbers";
+import { getManagementNos } from "./purchase-registration/managementNumbers";
 import { buildEtcWithManagementNo } from "./purchase-registration/purchaseEtc";
 import {
   OTHER_INVOICE_KEY,
@@ -76,12 +75,7 @@ import {
   statusClass,
 } from "./purchase-registration/rowStatus";
 import { comparePurchaseRegistrationOrder } from "./purchase-registration/rowOrder";
-import type {
-  InventoryItemLabel,
-  PurchaseItem,
-  PurchaseRow,
-  InventoryItem,
-} from "./purchase-registration/dataTypes";
+import type { PurchaseItem, PurchaseRow, InventoryItem } from "./purchase-registration/dataTypes";
 import type {
   StatusFilter,
   WorkflowTab,
@@ -90,27 +84,8 @@ import type {
   PurchaseEditFormState,
   StockEditFormState,
 } from "./purchase-registration/formTypes";
-import type {
-  LabelView,
-  LabelPrintRequest,
-  StockItemView,
-  StockProposalDetail,
-  StockProposalProduct,
-  StockProposalGroup,
-  ShippingItemView,
-  ProductSummary,
-  InvoiceProductSummary,
-  PurchaseRegistrationInvoice,
-  ProductDetailFilter,
-  AllocationGroup,
-} from "./purchase-registration/viewTypes";
-import {
-  toNumber,
-  formatCurrency,
-  formatTradePrice,
-  normalizeCurrencyLabel,
-  formatDate,
-} from "./purchase-registration/format";
+import type { LabelView, LabelPrintRequest, StockItemView, StockProposalProduct, StockProposalGroup, ShippingItemView, ProductSummary, InvoiceProductSummary, PurchaseRegistrationInvoice, ProductDetailFilter, AllocationGroup } from "./purchase-registration/viewTypes";
+import { toNumber, formatCurrency, formatTradePrice, formatDate } from "./purchase-registration/format";
 import {
   TRACKING_CARRIER_LABELS,
   TRACKING_CARRIER_KEYS,
@@ -211,69 +186,6 @@ function openEcohaiTracking(trackingNumber: string) {
   document.body.appendChild(form);
   form.submit();
   document.body.removeChild(form);
-}
-
-function buildForecastSummary(products: ProductSummary[], purchaseTotal: number) {
-  let originalTotal = 0;
-  let jpyTotal = 0;
-  let currency: string | null = null;
-  let hasOriginalPrice = false;
-  let hasJpyPrice = false;
-  let hasMixedCurrency = false;
-
-  for (const product of products) {
-    const quantity = Math.max(0, product.required);
-    if (quantity <= 0) continue;
-
-    const sellingPrice = toNumber(product.sellingPrice);
-    const sellingPriceJpy = toNumber(product.sellingPriceJpy);
-    if (sellingPrice > 0) {
-      hasOriginalPrice = true;
-      originalTotal += sellingPrice * quantity;
-      const productCurrency = normalizeCurrencyLabel(product.sellingCurrency);
-      if (!currency) {
-        currency = productCurrency;
-      } else if (productCurrency && productCurrency !== currency) {
-        hasMixedCurrency = true;
-      }
-    }
-    if (sellingPriceJpy > 0) {
-      hasJpyPrice = true;
-      jpyTotal += sellingPriceJpy * quantity;
-    }
-  }
-
-  const roundedJpyTotal = Math.round(jpyTotal);
-  const salesValue = hasOriginalPrice && !hasMixedCurrency
-    ? formatTradePrice(Math.round(originalTotal), currency)
-    : hasJpyPrice
-      ? formatCurrency(roundedJpyTotal)
-      : "-";
-  const salesSub = hasJpyPrice && hasOriginalPrice && !hasMixedCurrency ? formatCurrency(roundedJpyTotal) : undefined;
-  const grossProfit = hasJpyPrice ? Math.round(jpyTotal - purchaseTotal) : null;
-  const grossProfitRate = hasJpyPrice && jpyTotal > 0 && grossProfit != null
-    ? `${Math.round((grossProfit / jpyTotal) * 100)}%`
-    : undefined;
-
-  return {
-    salesValue,
-    salesSub,
-    grossValue: grossProfit == null ? "-" : formatCurrency(grossProfit),
-    grossSub: grossProfitRate,
-  };
-}
-
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)));
-}
-
-function productKey(title: string): string {
-  return title.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function hasAnyProductText(value: string, keywords: string[]): boolean {
-  const compact = compactProductText(value);
-  return keywords.some((keyword) => compact.includes(compactProductText(keyword)));
 }
 
 const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
@@ -737,354 +649,10 @@ function ProductQrCode({ value }: { value: string }) {
   );
 }
 
-function buildStockItemViewsFromInventories(inventories: InventoryItem[]): StockItemView[] {
-  return inventories.flatMap((inventory) => {
-    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
-    if (stockQuantity <= 0) return [];
+const buildInboundWaitingStockItemViewsFromRows = createInboundWaitingStockBuilder(actualProductTitle);
 
-    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory);
-    const supplier = {
-      name: inventory.supplierName?.trim() || "-",
-      url: inventory.supplierUrl?.trim() || "",
-    };
-    const unitPrice = toNumber(inventory.purchase_unit_price ?? inventory.unit_price);
-    const purchaseDate = inventory.last_purchase_date ?? inventory.updated_at ?? "";
-    const labels = (inventory.itemLabels ?? [])
-      .filter(isInventoryPrintableLabel)
-      .slice(0, stockQuantity)
-      .map((label) => {
-        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
-        return {
-          key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
-          labelId: label.labelId,
-          inventoryId: inventory.id,
-          status: labelStatusLabel(label.status || "stocked"),
-          title: inventory.title,
-          category,
-          legacyManagementNo,
-          allocationLabel: labelAllocationLabel(legacyManagementNo),
-          unitPrice,
-          quantity: 1,
-          supplier,
-          purchaseDate,
-        };
-      });
 
-    const missingLabelQuantity = Math.max(0, stockQuantity - labels.length);
-    if (missingLabelQuantity <= 0) return labels;
-
-    return [
-      ...labels,
-      {
-        key: `inventory-unlabeled-${inventory.id}`,
-        inventoryId: inventory.id,
-        labelId: null,
-        status: "\u5728\u5eab",
-        title: inventory.title,
-        category,
-        legacyManagementNo: managementNo,
-        allocationLabel: labelAllocationLabel(managementNo),
-        unitPrice,
-        quantity: missingLabelQuantity,
-        supplier,
-        purchaseDate,
-      },
-    ];
-  });
-}
-
-function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockItemView[] {
-  return rows.flatMap((row) => {
-    const rowStatus = purchaseRowStatusKind(row);
-    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped") return [];
-
-    const supplier = getSupplier(row);
-    const status = statusLabel(row);
-    return row.purchase_items.flatMap((item) => {
-      const inventoryId = Number(item.inventory_id);
-      if (!Number.isFinite(inventoryId) || inventoryId <= 0) return [];
-      if (itemStockQuantity(item) > 0) return [];
-
-      const quantity = Math.max(0, Math.floor(itemQuantity(item)));
-      if (quantity <= 0) return [];
-
-      const title = actualProductTitle(item);
-      if (isStockProposalAccessory(title, item.category)) return [];
-
-      const rowManagementNos = getManagementNos(row.purchase_items);
-      const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
-      return [
-        {
-          key: `inbound-waiting-stock-${row.id}-${item.id}-${inventoryId}`,
-          inventoryId,
-          labelId: null,
-          status,
-          title,
-          category: (item.category ?? "").trim() || stockModelName(title),
-          legacyManagementNo: managementNo,
-          allocationLabel: labelAllocationLabel(managementNo),
-          unitPrice: toNumber(item.unit_price),
-          quantity,
-          supplier,
-          purchaseDate: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
-          inboundWaiting: true,
-        },
-      ];
-    });
-  });
-}
-
-function buildStockItemGroups(items: StockItemView[]): { name: string; items: StockItemView[]; quantity: number }[] {
-  const map = new Map<string, StockItemView[]>();
-  for (const item of items) {
-    const name = item.category || stockModelName(item.title);
-    const current = map.get(name) ?? [];
-    current.push(item);
-    map.set(name, current);
-  }
-  return Array.from(map.entries())
-    .map(([name, groupItems]) => ({
-      name,
-      items: groupItems.sort((a, b) => {
-        const titleCompare = a.title.localeCompare(b.title, "ja", { numeric: true });
-        if (titleCompare !== 0) return titleCompare;
-        return a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", { numeric: true });
-      }),
-      quantity: groupItems.reduce((total, item) => total + item.quantity, 0),
-    }))
-    .sort((a, b) => {
-      const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
-      const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
-      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
-      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
-      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
-      return a.name.localeCompare(b.name, "ja", { numeric: true });
-    });
-}
-
-function normalizeStockProposalTitle(title: string): string {
-  let normalizedTitle = title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim();
-  if (!normalizedTitle) return "-";
-  normalizedTitle = normalizedTitle.replace(/\b(?:ps\s*)?vita\s*1[01]00\b/gi, "Vita 1000");
-  normalizedTitle = normalizedTitle.replace(/\bnew\s*3ds\s*(?:ll|xl)\b/gi, "New 3DS LL");
-  normalizedTitle = normalizedTitle.replace(/\b3ds\s*(?:ll|xl)\b/gi, "3DS LL");
-  return normalizedTitle;
-}
-
-function stockProposalModelName(title: string, category?: string | null): string {
-  const fromTitle = stockModelName(title);
-  if (fromTitle !== "その他") return fromTitle;
-  const fromCategory = stockModelName(category ?? "");
-  return fromCategory !== "その他" ? fromCategory : "その他";
-}
-
-const STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES = ["403_ネレ"];
-const STOCK_PROPOSAL_ACCESSORY_KEYWORDS = [
-  "付属品",
-  "アクセサリ",
-  "アクセサリー",
-  "ケーブル",
-  "コード",
-  "バッテリー",
-  "タッチペン",
-  "充電器",
-  "充電ケーブル",
-  "usbケーブル",
-  "acアダプタ",
-  "acアダプター",
-  "アダプタ",
-  "アダプター",
-  "電源",
-  "ケース",
-  "ポーチ",
-  "カバー",
-  "メモリーカード",
-  "メモリースティック",
-  "sdカード",
-];
-
-const STOCK_BODY_KEYWORDS = [
-  "本体",
-  "本体のみ",
-  "console",
-  "unit",
-  "body",
-];
-
-function isExcludedStockProposalManagementNo(managementNo?: string | null): boolean {
-  const normalized = (managementNo ?? "").trim();
-  return STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-}
-
-function isUnfinishedInvoiceManagementNo(managementNo: string | null | undefined, unfinishedInvoiceNos: Set<string>): boolean {
-  const parsed = parseInvoiceFromManagementNo(cleanLegacyManagementNo(managementNo ?? ""));
-  return parsed ? unfinishedInvoiceNos.has(parsed.invoiceNo) : false;
-}
-
-function isStockProposalAccessory(title: string, category?: string | null): boolean {
-  const text = `${title} ${category ?? ""}`;
-  if (!hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS)) return false;
-  return !hasAnyProductText(title, STOCK_BODY_KEYWORDS);
-}
-
-function isFulfillmentStockItem(item: StockItemView): boolean {
-  return !isStockProposalAccessory(item.title, item.category);
-}
-
-function isStockWaitingPurchaseRow(row: PurchaseRow, unfinishedInvoiceNos: Set<string>): boolean {
-  const kind = purchaseRowStatusKind(row);
-  if (kind !== "ordered" && kind !== "inbound_shipped") return false;
-  return getManagementNos(row.purchase_items).some((managementNo) => {
-    const normalized = managementNo.trim();
-    if (isUnfinishedInvoiceManagementNo(normalized, unfinishedInvoiceNos)) return false;
-    return normalized.startsWith("在庫") && !isExcludedStockProposalManagementNo(normalized);
-  });
-}
-
-function addStockProposalPrice(product: StockProposalProduct, unitPrice: number, quantity: number) {
-  if (unitPrice <= 0 || quantity <= 0) return;
-  product.unitPriceTotal += unitPrice * quantity;
-  product.unitPriceQuantity += quantity;
-  product.minUnitPrice = product.minUnitPrice == null ? unitPrice : Math.min(product.minUnitPrice, unitPrice);
-  product.maxUnitPrice = product.maxUnitPrice == null ? unitPrice : Math.max(product.maxUnitPrice, unitPrice);
-}
-
-function appendStockProposalDetail(product: StockProposalProduct, detail: StockProposalDetail) {
-  product.details.push(detail);
-  product.searchText = [
-    product.searchText,
-    detail.managementNo,
-    detail.labelId ?? "",
-    detail.supplier.name,
-    detail.status,
-  ]
-    .join("\n")
-    .toLowerCase();
-}
-
-function getOrCreateStockProposalProduct(
-  map: Map<string, StockProposalProduct>,
-  title: string,
-  model: string,
-): StockProposalProduct {
-  const normalizedTitle = normalizeStockProposalTitle(title);
-  const key = `${model}::${productKey(normalizedTitle)}`;
-  const current = map.get(key);
-  if (current) return current;
-  const created: StockProposalProduct = {
-    key,
-    title: normalizedTitle,
-    model,
-    stockQuantity: 0,
-    waitingQuantity: 0,
-    totalQuantity: 0,
-    unitPriceTotal: 0,
-    unitPriceQuantity: 0,
-    minUnitPrice: null,
-    maxUnitPrice: null,
-    details: [],
-    searchText: [model, normalizedTitle].join("\n").toLowerCase(),
-  };
-  map.set(key, created);
-  return created;
-}
-
-function buildStockProposalGroups(
-  stockItems: StockItemView[],
-  purchaseRows: PurchaseRow[],
-  searchText: string,
-  unfinishedInvoices: PurchaseRegistrationInvoice[] = [],
-): StockProposalGroup[] {
-  const productMap = new Map<string, StockProposalProduct>();
-  const unfinishedInvoiceNos = new Set(unfinishedInvoices.map((invoice) => invoice.invoiceNo.trim()).filter(Boolean));
-
-  for (const item of stockItems) {
-    if (isUnfinishedInvoiceManagementNo(item.legacyManagementNo, unfinishedInvoiceNos)) continue;
-    if (isExcludedStockProposalManagementNo(item.legacyManagementNo)) continue;
-    if (isStockProposalAccessory(item.title, item.category)) continue;
-    const model = stockProposalModelName(item.title, item.category);
-    const product = getOrCreateStockProposalProduct(productMap, item.title, model);
-    product.stockQuantity += item.quantity;
-    product.totalQuantity += item.quantity;
-    addStockProposalPrice(product, item.unitPrice, item.quantity);
-    appendStockProposalDetail(product, {
-      source: "stock",
-      managementNo: item.legacyManagementNo,
-      labelId: item.labelId,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      status: item.status,
-      supplier: item.supplier,
-      date: item.purchaseDate,
-    });
-  }
-
-  for (const row of purchaseRows) {
-    if (!isStockWaitingPurchaseRow(row, unfinishedInvoiceNos)) continue;
-    const supplier = getSupplier(row);
-    const rowStatus = statusLabel(row);
-    for (const item of row.purchase_items) {
-      const quantity = itemQuantity(item);
-      if (quantity <= 0) continue;
-      const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || getManagementNos(row.purchase_items)[0] || "-";
-      const title = actualProductTitle(item);
-      if (isUnfinishedInvoiceManagementNo(managementNo, unfinishedInvoiceNos)) continue;
-      if (isExcludedStockProposalManagementNo(managementNo)) continue;
-      if (isStockProposalAccessory(title, item.category)) continue;
-      const model = stockProposalModelName(title, item.category);
-      const product = getOrCreateStockProposalProduct(productMap, title, model);
-      const unitPrice = toNumber(item.unit_price);
-      product.waitingQuantity += quantity;
-      product.totalQuantity += quantity;
-      addStockProposalPrice(product, unitPrice, quantity);
-      appendStockProposalDetail(product, {
-        source: "waiting",
-        managementNo,
-        quantity,
-        unitPrice,
-        status: rowStatus,
-        supplier,
-        date: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
-      });
-    }
-  }
-
-  const normalizedSearch = searchText.trim().toLowerCase();
-  const products = Array.from(productMap.values())
-    .filter((product) => !normalizedSearch || product.searchText.includes(normalizedSearch))
-    .sort((a, b) => {
-      const modelCompare = a.model.localeCompare(b.model, "ja", { numeric: true });
-      if (modelCompare !== 0) return modelCompare;
-      return a.title.localeCompare(b.title, "ja", { numeric: true });
-    });
-
-  const groupMap = new Map<string, StockProposalProduct[]>();
-  for (const product of products) {
-    const current = groupMap.get(product.model) ?? [];
-    current.push(product);
-    groupMap.set(product.model, current);
-  }
-
-  return Array.from(groupMap.entries())
-    .map(([model, groupProducts]) => ({
-      model,
-      products: groupProducts,
-      stockQuantity: groupProducts.reduce((total, product) => total + product.stockQuantity, 0),
-      waitingQuantity: groupProducts.reduce((total, product) => total + product.waitingQuantity, 0),
-      totalQuantity: groupProducts.reduce((total, product) => total + product.totalQuantity, 0),
-      unitPriceTotal: groupProducts.reduce((total, product) => total + product.unitPriceTotal, 0),
-      unitPriceQuantity: groupProducts.reduce((total, product) => total + product.unitPriceQuantity, 0),
-    }))
-    .sort((a, b) => {
-      const orderA = STOCK_MODEL_ORDER.indexOf(a.model);
-      const orderB = STOCK_MODEL_ORDER.indexOf(b.model);
-      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
-      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
-      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
-      return a.model.localeCompare(b.model, "ja", { numeric: true });
-    });
-}
+const buildStockProposalGroups = createStockProposalBuilder(actualProductTitle);
 
 function buildProductSummaries(
   rows: PurchaseRow[],
@@ -4091,10 +3659,6 @@ function ScanHistorySidebar({ entries, onClear }: { entries: ScanHistoryEntry[];
   );
 }
 
-function proposalAveragePrice(total: number, quantity: number): number {
-  return quantity > 0 ? Math.round(total / quantity) : 0;
-}
-
 function StockProposalPanel({ groups }: { groups: StockProposalGroup[] }) {
   const [averageModelFilter, setAverageModelFilter] = useState("all");
   const productCount = groups.reduce((total, group) => total + group.products.length, 0);
@@ -4226,24 +3790,6 @@ function StockProposalGroupCard({ group, defaultOpen }: { group: StockProposalGr
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-function stockProposalPriceLabel(product: StockProposalProduct): { main: string; sub: string } {
-  const average = proposalAveragePrice(product.unitPriceTotal, product.unitPriceQuantity);
-  if (average <= 0) return { main: "-", sub: "" };
-  const min = product.minUnitPrice ?? average;
-  const max = product.maxUnitPrice ?? average;
-  return {
-    main: `平均 ${formatCurrency(average)}`,
-    sub: min === max ? "" : `${formatCurrency(min)} - ${formatCurrency(max)}`,
-  };
-}
-
-function stockProposalManagementLabel(product: StockProposalProduct): string {
-  const values = unique(product.details.map((detail) => detail.managementNo).filter((value) => value && value !== "-"));
-  if (values.length === 0) return "-";
-  const visible = values.slice(0, 4).join(" / ");
-  return values.length > 4 ? `${visible} / ほか${values.length - 4}件` : visible;
 }
 
 function StockProposalProductRow({ product }: { product: StockProposalProduct }) {

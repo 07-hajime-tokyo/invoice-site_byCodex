@@ -1,0 +1,495 @@
+function buildForecastSummary(products: ProductSummary[], purchaseTotal: number) {
+  let originalTotal = 0;
+  let jpyTotal = 0;
+  let currency: string | null = null;
+  let hasOriginalPrice = false;
+  let hasJpyPrice = false;
+  let hasMixedCurrency = false;
+
+  for (const product of products) {
+    const quantity = Math.max(0, product.required);
+    if (quantity <= 0) continue;
+
+    const sellingPrice = toNumber(product.sellingPrice);
+    const sellingPriceJpy = toNumber(product.sellingPriceJpy);
+    if (sellingPrice > 0) {
+      hasOriginalPrice = true;
+      originalTotal += sellingPrice * quantity;
+      const productCurrency = normalizeCurrencyLabel(product.sellingCurrency);
+      if (!currency) {
+        currency = productCurrency;
+      } else if (productCurrency && productCurrency !== currency) {
+        hasMixedCurrency = true;
+      }
+    }
+    if (sellingPriceJpy > 0) {
+      hasJpyPrice = true;
+      jpyTotal += sellingPriceJpy * quantity;
+    }
+  }
+
+  const roundedJpyTotal = Math.round(jpyTotal);
+  const salesValue = hasOriginalPrice && !hasMixedCurrency
+    ? formatTradePrice(Math.round(originalTotal), currency)
+    : hasJpyPrice
+      ? formatCurrency(roundedJpyTotal)
+      : "-";
+  const salesSub = hasJpyPrice && hasOriginalPrice && !hasMixedCurrency ? formatCurrency(roundedJpyTotal) : undefined;
+  const grossProfit = hasJpyPrice ? Math.round(jpyTotal - purchaseTotal) : null;
+  const grossProfitRate = hasJpyPrice && jpyTotal > 0 && grossProfit != null
+    ? `${Math.round((grossProfit / jpyTotal) * 100)}%`
+    : undefined;
+
+  return {
+    salesValue,
+    salesSub,
+    grossValue: grossProfit == null ? "-" : formatCurrency(grossProfit),
+    grossSub: grossProfitRate,
+  };
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function productKey(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function hasAnyProductText(value: string, keywords: string[]): boolean {
+  const compact = compactProductText(value);
+  return keywords.some((keyword) => compact.includes(compactProductText(keyword)));
+}
+
+function displayProductTitle(item: PurchaseItem): string {
+  const title = item.title?.trim() || "-";
+  const managementNo = parseEtc(item.etc).managementNo;
+  const text = `${managementNo} ${title}`;
+
+  if (hasAnyProductText(text, ["モンスターボール", "monster ball", "monsterball"])) {
+    if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) {
+      return "New 2DS LL モンスターボール";
+    }
+    return title;
+  }
+
+  if (hasAnyProductText(text, ["どうぶつの森", "animal crossing"])) {
+    if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL どうぶつの森";
+    return "3DS LL どうぶつの森";
+  }
+  if (hasAnyProductText(text, ["new 2ds ll", "new2dsll", "new 2ds xl", "new2dsxl"])) return "New 2DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds ll", "new3dsll", "new 3ds xl", "new3dsxl"])) return "New 3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["new 3ds", "new3ds"])) return "New 3DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds ll", "3dsll", "3ds xl", "3dsxl"])) return "3DS LL ランダムカラー";
+  if (hasAnyProductText(text, ["2ds"])) return "2DS ランダムカラー";
+  if (hasAnyProductText(text, ["3ds"])) return "3DS ランダムカラー";
+
+  if (
+    hasAnyProductText(text, [
+      "ps vita 1000",
+      "psvita1000",
+      "vita 1000",
+      "vita1000",
+      "ps vita 1100",
+      "psvita1100",
+      "vita 1100",
+      "vita1100",
+    ])
+  ) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ", "クリスタルブラック", "crystal black"])
+      ? "PS Vita 1000 ブラック"
+      : "PS Vita 1000 レッド・ブルー・ホワイト";
+  }
+  if (hasAnyProductText(text, ["ps vita 2000", "psvita2000", "vita 2000", "vita2000"])) {
+    return "PS Vita 2000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp go", "pspgo"])) return "PSP Go";
+  if (hasAnyProductText(text, ["psp 3000", "psp3000"])) {
+    return hasAnyProductText(text, ["ブラック", "黒", "black", "ピアノ"])
+      ? "PSP 3000 ブラック"
+      : "PSP 3000 ランダムカラー";
+  }
+  if (hasAnyProductText(text, ["psp 2000", "psp2000"])) {
+    return hasAnyProductText(text, ["ホワイト", "白", "white", "セラミック"])
+      ? "PSP 2000 ホワイト"
+      : "PSP 2000 ランダムカラー";
+  }
+
+  return title;
+}
+
+function actualProductTitle(item: PurchaseItem): string {
+  return item.title?.trim() || displayProductTitle(item);
+}
+
+function buildStockItemViewsFromInventories(inventories: InventoryItem[]): StockItemView[] {
+  return inventories.flatMap((inventory) => {
+    const stockQuantity = Math.max(0, Math.floor(toNumber(inventory.quantity)));
+    if (stockQuantity <= 0) return [];
+
+    const managementNo = getInventoryManagementNo(inventory.etc) || "-";
+    const category = getInventoryCategory(inventory);
+    const supplier = {
+      name: inventory.supplierName?.trim() || "-",
+      url: inventory.supplierUrl?.trim() || "",
+    };
+    const unitPrice = toNumber(inventory.purchase_unit_price ?? inventory.unit_price);
+    const purchaseDate = inventory.last_purchase_date ?? inventory.updated_at ?? "";
+    const labels = (inventory.itemLabels ?? [])
+      .filter(isInventoryPrintableLabel)
+      .slice(0, stockQuantity)
+      .map((label) => {
+        const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
+        return {
+          key: `inventory-label-${inventory.id}-${label.id ?? label.labelId}`,
+          labelId: label.labelId,
+          inventoryId: inventory.id,
+          status: labelStatusLabel(label.status || "stocked"),
+          title: inventory.title,
+          category,
+          legacyManagementNo,
+          allocationLabel: labelAllocationLabel(legacyManagementNo),
+          unitPrice,
+          quantity: 1,
+          supplier,
+          purchaseDate,
+        };
+      });
+
+    const missingLabelQuantity = Math.max(0, stockQuantity - labels.length);
+    if (missingLabelQuantity <= 0) return labels;
+
+    return [
+      ...labels,
+      {
+        key: `inventory-unlabeled-${inventory.id}`,
+        inventoryId: inventory.id,
+        labelId: null,
+        status: "\u5728\u5eab",
+        title: inventory.title,
+        category,
+        legacyManagementNo: managementNo,
+        allocationLabel: labelAllocationLabel(managementNo),
+        unitPrice,
+        quantity: missingLabelQuantity,
+        supplier,
+        purchaseDate,
+      },
+    ];
+  });
+}
+
+function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockItemView[] {
+  return rows.flatMap((row) => {
+    const rowStatus = purchaseRowStatusKind(row);
+    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped") return [];
+
+    const supplier = getSupplier(row);
+    const status = statusLabel(row);
+    return row.purchase_items.flatMap((item) => {
+      const inventoryId = Number(item.inventory_id);
+      if (!Number.isFinite(inventoryId) || inventoryId <= 0) return [];
+      if (itemStockQuantity(item) > 0) return [];
+
+      const quantity = Math.max(0, Math.floor(itemQuantity(item)));
+      if (quantity <= 0) return [];
+
+      const title = actualProductTitle(item);
+      if (isStockProposalAccessory(title, item.category)) return [];
+
+      const rowManagementNos = getManagementNos(row.purchase_items);
+      const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
+      return [
+        {
+          key: `inbound-waiting-stock-${row.id}-${item.id}-${inventoryId}`,
+          inventoryId,
+          labelId: null,
+          status,
+          title,
+          category: (item.category ?? "").trim() || stockModelName(title),
+          legacyManagementNo: managementNo,
+          allocationLabel: labelAllocationLabel(managementNo),
+          unitPrice: toNumber(item.unit_price),
+          quantity,
+          supplier,
+          purchaseDate: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
+          inboundWaiting: true,
+        },
+      ];
+    });
+  });
+}
+
+function buildStockItemGroups(items: StockItemView[]): { name: string; items: StockItemView[]; quantity: number }[] {
+  const map = new Map<string, StockItemView[]>();
+  for (const item of items) {
+    const name = item.category || stockModelName(item.title);
+    const current = map.get(name) ?? [];
+    current.push(item);
+    map.set(name, current);
+  }
+  return Array.from(map.entries())
+    .map(([name, groupItems]) => ({
+      name,
+      items: groupItems.sort((a, b) => {
+        const titleCompare = a.title.localeCompare(b.title, "ja", { numeric: true });
+        if (titleCompare !== 0) return titleCompare;
+        return a.legacyManagementNo.localeCompare(b.legacyManagementNo, "ja", { numeric: true });
+      }),
+      quantity: groupItems.reduce((total, item) => total + item.quantity, 0),
+    }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.name);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.name);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.name.localeCompare(b.name, "ja", { numeric: true });
+    });
+}
+
+function normalizeStockProposalTitle(title: string): string {
+  let normalizedTitle = title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim();
+  if (!normalizedTitle) return "-";
+  normalizedTitle = normalizedTitle.replace(/\b(?:ps\s*)?vita\s*1[01]00\b/gi, "Vita 1000");
+  normalizedTitle = normalizedTitle.replace(/\bnew\s*3ds\s*(?:ll|xl)\b/gi, "New 3DS LL");
+  normalizedTitle = normalizedTitle.replace(/\b3ds\s*(?:ll|xl)\b/gi, "3DS LL");
+  return normalizedTitle;
+}
+
+function stockProposalModelName(title: string, category?: string | null): string {
+  const fromTitle = stockModelName(title);
+  if (fromTitle !== "その他") return fromTitle;
+  const fromCategory = stockModelName(category ?? "");
+  return fromCategory !== "その他" ? fromCategory : "その他";
+}
+
+const STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES = ["403_ネレ"];
+
+const STOCK_PROPOSAL_ACCESSORY_KEYWORDS = [
+  "付属品",
+  "アクセサリ",
+  "アクセサリー",
+  "ケーブル",
+  "コード",
+  "バッテリー",
+  "タッチペン",
+  "充電器",
+  "充電ケーブル",
+  "usbケーブル",
+  "acアダプタ",
+  "acアダプター",
+  "アダプタ",
+  "アダプター",
+  "電源",
+  "ケース",
+  "ポーチ",
+  "カバー",
+  "メモリーカード",
+  "メモリースティック",
+  "sdカード",
+];
+
+const STOCK_BODY_KEYWORDS = [
+  "本体",
+  "本体のみ",
+  "console",
+  "unit",
+  "body",
+];
+
+function isExcludedStockProposalManagementNo(managementNo?: string | null): boolean {
+  const normalized = (managementNo ?? "").trim();
+  return STOCK_PROPOSAL_EXCLUDED_MANAGEMENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function isUnfinishedInvoiceManagementNo(managementNo: string | null | undefined, unfinishedInvoiceNos: Set<string>): boolean {
+  const parsed = parseInvoiceFromManagementNo(cleanLegacyManagementNo(managementNo ?? ""));
+  return parsed ? unfinishedInvoiceNos.has(parsed.invoiceNo) : false;
+}
+
+function isStockProposalAccessory(title: string, category?: string | null): boolean {
+  const text = `${title} ${category ?? ""}`;
+  if (!hasAnyProductText(text, STOCK_PROPOSAL_ACCESSORY_KEYWORDS)) return false;
+  return !hasAnyProductText(title, STOCK_BODY_KEYWORDS);
+}
+
+function isFulfillmentStockItem(item: StockItemView): boolean {
+  return !isStockProposalAccessory(item.title, item.category);
+}
+
+function isStockWaitingPurchaseRow(row: PurchaseRow, unfinishedInvoiceNos: Set<string>): boolean {
+  const kind = purchaseRowStatusKind(row);
+  if (kind !== "ordered" && kind !== "inbound_shipped") return false;
+  return getManagementNos(row.purchase_items).some((managementNo) => {
+    const normalized = managementNo.trim();
+    if (isUnfinishedInvoiceManagementNo(normalized, unfinishedInvoiceNos)) return false;
+    return normalized.startsWith("在庫") && !isExcludedStockProposalManagementNo(normalized);
+  });
+}
+
+function addStockProposalPrice(product: StockProposalProduct, unitPrice: number, quantity: number) {
+  if (unitPrice <= 0 || quantity <= 0) return;
+  product.unitPriceTotal += unitPrice * quantity;
+  product.unitPriceQuantity += quantity;
+  product.minUnitPrice = product.minUnitPrice == null ? unitPrice : Math.min(product.minUnitPrice, unitPrice);
+  product.maxUnitPrice = product.maxUnitPrice == null ? unitPrice : Math.max(product.maxUnitPrice, unitPrice);
+}
+
+function appendStockProposalDetail(product: StockProposalProduct, detail: StockProposalDetail) {
+  product.details.push(detail);
+  product.searchText = [
+    product.searchText,
+    detail.managementNo,
+    detail.labelId ?? "",
+    detail.supplier.name,
+    detail.status,
+  ]
+    .join("\n")
+    .toLowerCase();
+}
+
+function getOrCreateStockProposalProduct(
+  map: Map<string, StockProposalProduct>,
+  title: string,
+  model: string,
+): StockProposalProduct {
+  const normalizedTitle = normalizeStockProposalTitle(title);
+  const key = `${model}::${productKey(normalizedTitle)}`;
+  const current = map.get(key);
+  if (current) return current;
+  const created: StockProposalProduct = {
+    key,
+    title: normalizedTitle,
+    model,
+    stockQuantity: 0,
+    waitingQuantity: 0,
+    totalQuantity: 0,
+    unitPriceTotal: 0,
+    unitPriceQuantity: 0,
+    minUnitPrice: null,
+    maxUnitPrice: null,
+    details: [],
+    searchText: [model, normalizedTitle].join("\n").toLowerCase(),
+  };
+  map.set(key, created);
+  return created;
+}
+
+function buildStockProposalGroups(
+  stockItems: StockItemView[],
+  purchaseRows: PurchaseRow[],
+  searchText: string,
+  unfinishedInvoices: PurchaseRegistrationInvoice[] = [],
+): StockProposalGroup[] {
+  const productMap = new Map<string, StockProposalProduct>();
+  const unfinishedInvoiceNos = new Set(unfinishedInvoices.map((invoice) => invoice.invoiceNo.trim()).filter(Boolean));
+
+  for (const item of stockItems) {
+    if (isUnfinishedInvoiceManagementNo(item.legacyManagementNo, unfinishedInvoiceNos)) continue;
+    if (isExcludedStockProposalManagementNo(item.legacyManagementNo)) continue;
+    if (isStockProposalAccessory(item.title, item.category)) continue;
+    const model = stockProposalModelName(item.title, item.category);
+    const product = getOrCreateStockProposalProduct(productMap, item.title, model);
+    product.stockQuantity += item.quantity;
+    product.totalQuantity += item.quantity;
+    addStockProposalPrice(product, item.unitPrice, item.quantity);
+    appendStockProposalDetail(product, {
+      source: "stock",
+      managementNo: item.legacyManagementNo,
+      labelId: item.labelId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      status: item.status,
+      supplier: item.supplier,
+      date: item.purchaseDate,
+    });
+  }
+
+  for (const row of purchaseRows) {
+    if (!isStockWaitingPurchaseRow(row, unfinishedInvoiceNos)) continue;
+    const supplier = getSupplier(row);
+    const rowStatus = statusLabel(row);
+    for (const item of row.purchase_items) {
+      const quantity = itemQuantity(item);
+      if (quantity <= 0) continue;
+      const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || getManagementNos(row.purchase_items)[0] || "-";
+      const title = actualProductTitle(item);
+      if (isUnfinishedInvoiceManagementNo(managementNo, unfinishedInvoiceNos)) continue;
+      if (isExcludedStockProposalManagementNo(managementNo)) continue;
+      if (isStockProposalAccessory(title, item.category)) continue;
+      const model = stockProposalModelName(title, item.category);
+      const product = getOrCreateStockProposalProduct(productMap, title, model);
+      const unitPrice = toNumber(item.unit_price);
+      product.waitingQuantity += quantity;
+      product.totalQuantity += quantity;
+      addStockProposalPrice(product, unitPrice, quantity);
+      appendStockProposalDetail(product, {
+        source: "waiting",
+        managementNo,
+        quantity,
+        unitPrice,
+        status: rowStatus,
+        supplier,
+        date: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
+      });
+    }
+  }
+
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const products = Array.from(productMap.values())
+    .filter((product) => !normalizedSearch || product.searchText.includes(normalizedSearch))
+    .sort((a, b) => {
+      const modelCompare = a.model.localeCompare(b.model, "ja", { numeric: true });
+      if (modelCompare !== 0) return modelCompare;
+      return a.title.localeCompare(b.title, "ja", { numeric: true });
+    });
+
+  const groupMap = new Map<string, StockProposalProduct[]>();
+  for (const product of products) {
+    const current = groupMap.get(product.model) ?? [];
+    current.push(product);
+    groupMap.set(product.model, current);
+  }
+
+  return Array.from(groupMap.entries())
+    .map(([model, groupProducts]) => ({
+      model,
+      products: groupProducts,
+      stockQuantity: groupProducts.reduce((total, product) => total + product.stockQuantity, 0),
+      waitingQuantity: groupProducts.reduce((total, product) => total + product.waitingQuantity, 0),
+      totalQuantity: groupProducts.reduce((total, product) => total + product.totalQuantity, 0),
+      unitPriceTotal: groupProducts.reduce((total, product) => total + product.unitPriceTotal, 0),
+      unitPriceQuantity: groupProducts.reduce((total, product) => total + product.unitPriceQuantity, 0),
+    }))
+    .sort((a, b) => {
+      const orderA = STOCK_MODEL_ORDER.indexOf(a.model);
+      const orderB = STOCK_MODEL_ORDER.indexOf(b.model);
+      const normalizedA = orderA === -1 ? STOCK_MODEL_ORDER.length : orderA;
+      const normalizedB = orderB === -1 ? STOCK_MODEL_ORDER.length : orderB;
+      if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+      return a.model.localeCompare(b.model, "ja", { numeric: true });
+    });
+}
+
+function proposalAveragePrice(total: number, quantity: number): number {
+  return quantity > 0 ? Math.round(total / quantity) : 0;
+}
+
+function stockProposalPriceLabel(product: StockProposalProduct): { main: string; sub: string } {
+  const average = proposalAveragePrice(product.unitPriceTotal, product.unitPriceQuantity);
+  if (average <= 0) return { main: "-", sub: "" };
+  const min = product.minUnitPrice ?? average;
+  const max = product.maxUnitPrice ?? average;
+  return {
+    main: `平均 ${formatCurrency(average)}`,
+    sub: min === max ? "" : `${formatCurrency(min)} - ${formatCurrency(max)}`,
+  };
+}
+
+function stockProposalManagementLabel(product: StockProposalProduct): string {
+  const values = unique(product.details.map((detail) => detail.managementNo).filter((value) => value && value !== "-"));
+  if (values.length === 0) return "-";
+  const visible = values.slice(0, 4).join(" / ");
+  return values.length > 4 ? `${visible} / ほか${values.length - 4}件` : visible;
+}

@@ -1,0 +1,334 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures average rounding, range and management labels without extra normalization 1`] = `
+[
+  0,
+  0,
+  -1,
+  -0,
+  -0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+  100,
+  50,
+  0,
+  0,
+  0,
+  NaN,
+  NaN,
+  NaN,
+  0,
+  0,
+  Infinity,
+  Infinity,
+  NaN,
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures average rounding, range and management labels without extra normalization 2`] = `
+[
+  {
+    "main": "-",
+    "sub": "",
+  },
+  {
+    "main": "平均 ¥151",
+    "sub": "",
+  },
+  {
+    "main": "平均 ¥150",
+    "sub": "¥100 - ¥200",
+  },
+  {
+    "main": "平均 ¥150",
+    "sub": "",
+  },
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures average rounding, range and management labels without extra normalization 3`] = `
+[
+  "-",
+  "-",
+  " A  / A / a / Ａ / ほか2件",
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures merged proposal counts, weighted prices, detail order and search coverage 1`] = `
+[
+  "{"model":"PS Vita 1000","products":[{"key":"PS Vita 1000::vita 1000","title":"Vita 1000","model":"PS Vita 1000","stockQuantity":6,"waitingQuantity":5,"totalQuantity":11,"unitPriceTotal":902.5,"unitPriceQuantity":8,"minUnitPrice":100,"maxUnitPrice":200,"details":[{"source":"stock","managementNo":"在庫001","labelId":"L1","quantity":2,"unitPrice":100,"status":"在庫","supplier":{"name":"Seller","url":"https://supplier.invalid"},"date":"2026-09-01"},{"source":"stock","managementNo":"在庫001","labelId":"L2","quantity":1,"unitPrice":200,"status":"在庫","supplier":{"name":"Seller","url":"https://supplier.invalid"},"date":"2026-09-01"},{"source":"stock","managementNo":"在庫001","labelId":"L1","quantity":3,"unitPrice":0,"status":"在庫","supplier":{"name":"Seller","url":"https://supplier.invalid"},"date":"2026-09-01"},{"source":"waiting","managementNo":"在庫001","quantity":2.5,"unitPrice":100.5,"status":"発注済み","supplier":{"name":"Supplier","url":""},"date":"2026-09-01"},{"source":"waiting","managementNo":"在庫002","quantity":2.5,"unitPrice":100.5,"status":"発注済み","supplier":{"name":"-","url":""},"date":"2026-09-01"}],"searchText":"ps vita 1000\\nvita 1000\\n在庫001\\nl1\\nseller\\n在庫\\n在庫001\\nl2\\nseller\\n在庫\\n在庫001\\nl1\\nseller\\n在庫\\n在庫001\\n\\nsupplier\\n発注済み\\n在庫002\\n\\n-\\n発注済み"}],"stockQuantity":6,"waitingQuantity":5,"totalQuantity":11,"unitPriceTotal":902.5,"unitPriceQuantity":8}",
+  "{"model":"PSP 3000","products":[{"key":"PSP 3000::psp3000 本体 ケース","title":"PSP3000 本体 ケース","model":"PSP 3000","stockQuantity":-2,"waitingQuantity":0,"totalQuantity":-2,"unitPriceTotal":0,"unitPriceQuantity":0,"minUnitPrice":null,"maxUnitPrice":null,"details":[{"source":"stock","managementNo":"在庫001","labelId":"L1","quantity":-2,"unitPrice":-1,"status":"在庫","supplier":{"name":"Seller","url":"https://supplier.invalid"},"date":"2026-09-01"}],"searchText":"psp 3000\\npsp3000 本体 ケース\\n在庫001\\nl1\\nseller\\n在庫"}],"stockQuantity":-2,"waitingQuantity":0,"totalQuantity":-2,"unitPriceTotal":0,"unitPriceQuantity":0}",
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures stock remainder, waiting quantities, labels, prices and date precedence 1`] = `
+[
+  "{"key":"inventory-label-1-L1","labelId":"L1","inventoryId":1,"status":"入庫済み","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-1","inventoryId":1,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":2,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":" ","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-3","inventoryId":3,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-4","inventoryId":4,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures stock remainder, waiting quantities, labels, prices and date precedence 2`] = `
+[
+  "{"key":"inbound-waiting-stock-1-10-1","inventoryId":1,"labelId":null,"status":"発注済み","title":"PS Vita 1100","category":"PS Vita 1000","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"Supplier","url":""},"purchaseDate":"2026-09-01","inboundWaiting":true}",
+  "{"key":"inbound-waiting-stock-3-10-1","inventoryId":1,"labelId":null,"status":"発注済み","title":"-","category":"その他","legacyManagementNo":"在庫FromLabel","allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"-","url":""},"purchaseDate":"","inboundWaiting":true}",
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures title normalization, accessory/body precedence and invoice exclusions 1`] = `
+[
+  "{"title":"","normalized":"-","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"","category":null,"normalized":"-","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"","category":"","normalized":"-","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"","category":"付属品","normalized":"-","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"","category":"本体","normalized":"-","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"","category":"Vita1000","normalized":"-","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" 登録漏れ PS Vita 1100 ","normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" 登録漏れ PS Vita 1100 ","category":null,"normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" 登録漏れ PS Vita 1100 ","category":"","normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" 登録漏れ PS Vita 1100 ","category":"付属品","normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":true,"fulfillment":false}",
+  "{"title":" 登録漏れ PS Vita 1100 ","category":"本体","normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" 登録漏れ PS Vita 1100 ","category":"Vita1000","normalized":"登録漏れ Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"登録漏れPSVita1000","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"登録漏れPSVita1000","category":null,"normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"登録漏れPSVita1000","category":"","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"登録漏れPSVita1000","category":"付属品","normalized":"Vita 1000","model":"PS Vita 1000","accessory":true,"fulfillment":false}",
+  "{"title":"登録漏れPSVita1000","category":"本体","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"登録漏れPSVita1000","category":"Vita1000","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" Vita 1100","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" Vita 1100","category":null,"normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" Vita 1100","category":"","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" Vita 1100","category":"付属品","normalized":"Vita 1000","model":"PS Vita 1000","accessory":true,"fulfillment":false}",
+  "{"title":" Vita 1100","category":"本体","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":" Vita 1100","category":"Vita1000","normalized":"Vita 1000","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","category":null,"normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","category":"","normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","category":"付属品","normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":true,"fulfillment":false}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","category":"本体","normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"Ｎｅｗ３ＤＳＸＬ","category":"Vita1000","normalized":"Ｎｅｗ３ＤＳＸＬ","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New 3DS XL","normalized":"New 3DS LL","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New 3DS XL","category":null,"normalized":"New 3DS LL","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New 3DS XL","category":"","normalized":"New 3DS LL","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New 3DS XL","category":"付属品","normalized":"New 3DS LL","model":"New 3DS LL","accessory":true,"fulfillment":false}",
+  "{"title":"New 3DS XL","category":"本体","normalized":"New 3DS LL","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New 3DS XL","category":"Vita1000","normalized":"New 3DS LL","model":"New 3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"3ds xl","normalized":"3DS LL","model":"3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"3ds xl","category":null,"normalized":"3DS LL","model":"3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"3ds xl","category":"","normalized":"3DS LL","model":"3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"3ds xl","category":"付属品","normalized":"3DS LL","model":"3DS LL","accessory":true,"fulfillment":false}",
+  "{"title":"3ds xl","category":"本体","normalized":"3DS LL","model":"3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"3ds xl","category":"Vita1000","normalized":"3DS LL","model":"3DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New2DSLL","normalized":"New2DSLL","model":"New 2DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New2DSLL","category":null,"normalized":"New2DSLL","model":"New 2DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New2DSLL","category":"","normalized":"New2DSLL","model":"New 2DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New2DSLL","category":"付属品","normalized":"New2DSLL","model":"New 2DS LL","accessory":true,"fulfillment":false}",
+  "{"title":"New2DSLL","category":"本体","normalized":"New2DSLL","model":"New 2DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"New2DSLL","category":"Vita1000","normalized":"New2DSLL","model":"New 2DS LL","accessory":false,"fulfillment":true}",
+  "{"title":"充電器","normalized":"充電器","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"充電器","category":null,"normalized":"充電器","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"充電器","category":"","normalized":"充電器","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"充電器","category":"付属品","normalized":"充電器","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"充電器","category":"本体","normalized":"充電器","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"充電器","category":"Vita1000","normalized":"充電器","model":"PS Vita 1000","accessory":true,"fulfillment":false}",
+  "{"title":"USBケーブル 本体","normalized":"USBケーブル 本体","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"USBケーブル 本体","category":null,"normalized":"USBケーブル 本体","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"USBケーブル 本体","category":"","normalized":"USBケーブル 本体","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"USBケーブル 本体","category":"付属品","normalized":"USBケーブル 本体","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"USBケーブル 本体","category":"本体","normalized":"USBケーブル 本体","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"USBケーブル 本体","category":"Vita1000","normalized":"USBケーブル 本体","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","normalized":"Console ケース","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","category":null,"normalized":"Console ケース","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","category":"","normalized":"Console ケース","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","category":"付属品","normalized":"Console ケース","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","category":"本体","normalized":"Console ケース","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Console ケース","category":"Vita1000","normalized":"Console ケース","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","normalized":"ケース unit","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","category":null,"normalized":"ケース unit","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","category":"","normalized":"ケース unit","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","category":"付属品","normalized":"ケース unit","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","category":"本体","normalized":"ケース unit","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"ケース unit","category":"Vita1000","normalized":"ケース unit","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+  "{"title":"バッテリー","normalized":"バッテリー","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"バッテリー","category":null,"normalized":"バッテリー","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"バッテリー","category":"","normalized":"バッテリー","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"バッテリー","category":"付属品","normalized":"バッテリー","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"バッテリー","category":"本体","normalized":"バッテリー","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"バッテリー","category":"Vita1000","normalized":"バッテリー","model":"PS Vita 1000","accessory":true,"fulfillment":false}",
+  "{"title":"Switch Lite","normalized":"Switch Lite","model":"Switch","accessory":false,"fulfillment":true}",
+  "{"title":"Switch Lite","category":null,"normalized":"Switch Lite","model":"Switch","accessory":false,"fulfillment":true}",
+  "{"title":"Switch Lite","category":"","normalized":"Switch Lite","model":"Switch","accessory":false,"fulfillment":true}",
+  "{"title":"Switch Lite","category":"付属品","normalized":"Switch Lite","model":"Switch","accessory":true,"fulfillment":false}",
+  "{"title":"Switch Lite","category":"本体","normalized":"Switch Lite","model":"Switch","accessory":false,"fulfillment":true}",
+  "{"title":"Switch Lite","category":"Vita1000","normalized":"Switch Lite","model":"Switch","accessory":false,"fulfillment":true}",
+  "{"title":"Other😀","normalized":"Other😀","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Other😀","category":null,"normalized":"Other😀","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Other😀","category":"","normalized":"Other😀","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Other😀","category":"付属品","normalized":"Other😀","model":"その他","accessory":true,"fulfillment":false}",
+  "{"title":"Other😀","category":"本体","normalized":"Other😀","model":"その他","accessory":false,"fulfillment":true}",
+  "{"title":"Other😀","category":"Vita1000","normalized":"Other😀","model":"PS Vita 1000","accessory":false,"fulfillment":true}",
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > captures title normalization, accessory/body precedence and invoice exclusions 2`] = `
+[
+  [
+    undefined,
+    false,
+    false,
+  ],
+  [
+    null,
+    false,
+    false,
+  ],
+  [
+    "",
+    false,
+    false,
+  ],
+  [
+    "403_ネレ",
+    true,
+    false,
+  ],
+  [
+    "403_ネレ2",
+    true,
+    false,
+  ],
+  [
+    " 403_ネレ ",
+    true,
+    false,
+  ],
+  [
+    "４０３_ネレ",
+    false,
+    false,
+  ],
+  [
+    "405_A",
+    false,
+    true,
+  ],
+  [
+    "４０５_A",
+    false,
+    false,
+  ],
+  [
+    "405",
+    false,
+    false,
+  ],
+  [
+    "1000_A",
+    false,
+    false,
+  ],
+  [
+    "在庫405_A",
+    false,
+    false,
+  ],
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > keeps sorting and grouping quantities while retaining each input object 1`] = `
+[
+  [
+    "その他",
+    98,
+    100,
+  ],
+  [
+    " ",
+    97,
+    100,
+  ],
+  [
+    "棚2",
+    100,
+    100,
+  ],
+  [
+    "棚10",
+    102,
+    100,
+  ],
+]
+`;
+
+exports[`R07-R09 stock rules against actual source at 608f1ea > preserves forecast rounding, empty/unknown/mixed currencies and ignored quantities 1`] = `
+[
+  {
+    "grossSub": undefined,
+    "grossValue": "-",
+    "salesSub": undefined,
+    "salesValue": "-",
+  },
+  {
+    "grossSub": "83%",
+    "grossValue": "¥5,000",
+    "salesSub": "¥6,000",
+    "salesValue": "€40",
+  },
+  {
+    "grossSub": "83%",
+    "grossValue": "¥5,000",
+    "salesSub": undefined,
+    "salesValue": "¥6,000",
+  },
+  {
+    "grossSub": undefined,
+    "grossValue": "-",
+    "salesSub": undefined,
+    "salesValue": "€40",
+  },
+  {
+    "grossSub": "92%",
+    "grossValue": "¥11,000",
+    "salesSub": undefined,
+    "salesValue": "¥12,000",
+  },
+  {
+    "grossSub": "92%",
+    "grossValue": "¥11,000",
+    "salesSub": "¥12,000",
+    "salesValue": "€80",
+  },
+  {
+    "grossSub": "83%",
+    "grossValue": "¥5,000",
+    "salesSub": "¥6,000",
+    "salesValue": "40",
+  },
+  {
+    "grossSub": undefined,
+    "grossValue": "-",
+    "salesSub": undefined,
+    "salesValue": "-",
+  },
+  {
+    "grossSub": "-18952%",
+    "grossValue": "¥-995",
+    "salesSub": "¥5",
+    "salesValue": "€1",
+  },
+]
+`;
