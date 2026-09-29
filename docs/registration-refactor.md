@@ -107,3 +107,74 @@ DBテスト・seed・サーバー起動・ビルド・実画面操作はこの�
 5. 注文照合・在庫引当・発送・DB更新・外部通信は、各経路の整理前基準と専用環境での検証を用意して段階的に扱う。
 
 本領域全体は未完了。本番反映・push・main変更・Vercel操作は行わない。
+
+## 第2回：R05 管理番号・仕入先・検索（2026-09-30）
+
+第1回後の統合基準 `0471a7f` を、クリーンな担当ブランチにmergeした（`f5074e4`、衝突なし）。
+第1回の「R05未着手」は当時の記録。本節でR05を整理・検証した。
+統合担当が許可した共有変更 `e473ae2` は `9a5e3b2` としてそのまま取り込んだ。
+この共有コミットには他担当用のインボイス金額規則等も含まれるが、担当側では追加編集していない。
+
+### 完了範囲
+
+| 分離先・再利用先 | 対象 |
+| --- | --- |
+| `managementNumbers.ts` | `normalizeManagementNoForDisplay`、`isStockManagementNoSuffixAlias`、`uniqueManagementNos`、`preferredManagementNo`、`getManagementNos` |
+| `purchaseEtc.ts` | `buildEtcWithManagementNo`。保存時に使うetc文字列の純粋な組立だけ |
+| `invoiceIdentity.ts` | `parseInvoiceFromManagementNo`、`isEbayManagementNo`、`getInvoiceInfo`、`invoiceNoFromGroupKey`、グループ定数3件 |
+| `supplier.ts` | `getSupplier`。CSV由来表示の優先と先頭明細のetcによる補完 |
+| `search.ts` | `buildSearchText`、`buildStockSearchText`。検索対象文字列の組立のみ |
+| `shared/purchaseMetadata.ts` | 既存の `cleanLegacyManagementNo` と `parsePurchaseEtc` を参照。後者は既存の呼出名 `parseEtc` へalias |
+| `shared/ebayInventory.ts` | 既存の `extractManagementNo` を `getInventoryManagementNo` へalias。旧関数との720通りの比較が一致 |
+
+新しいアプリ用モジュールは5ファイル。元画面は8,871行から8,728行へ。
+既存の呼出箇所は維持し、共有3関数の重複宣言だけを削除した。
+移動した関数の本体は変更していない。商品名の特殊照合、ラベルの商品タイトル変換、注文照合、引当、発送処理は画面側に残した。
+
+### SSOTの一致・違い
+
+- 管理番号の清掃とetc読取は入庫一覧と同義。統合担当が用意した `shared/purchaseMetadata.ts` を正本とし、入庫一覧は互換名を再exportする。
+- 登録側の在庫管理番号はカンマより前を読み、空白より後を落とす。`shared/ebayInventory.extractManagementNo` と同義。一方、`server/inventory/managementNo.ts` は番号内部の空白を保持するため、置換対象ではない。
+- `getManagementNos` はetc内に管理番号がある場合、その明細のラベル管理番号を候補に追加しない。ヒント抽出は既存 `shared/productMatching.extractManagementHints` を参照する。
+- 管理番号の重複判定はNFKC・小文字化を使うが、返す表記は最初の清掃済み値を保持する。「在庫」から始まる候補の末尾と一致する短い別名は除外し、入力配列は変更しない。
+- `preferredManagementNo` は現在値、ラベル値、呼出元のfallbackの順。空文字fallbackも保持する。
+- etc組立は旧来のカンマ分割であり、引用符付きCSVの解析ではない。仕入先 `undefined` は既存値を残し、`null`・空欄は消す。第4要素以降が落ちる既存挙動も維持する。
+- 登録のインボイス解析は半角3桁と `_` が必要。共有 `invoiceKey` のNFKC・3〜5桁仕様に変更していない。管理番号ヒントの段階でNFKC化される経路は、そのまま残す。
+- 登録のeBay判定は `ebay` の後が `_`、`-`、終端の場合。共有eBay在庫判定の `/^E/i` とは別規則であり、`E0814_1` 等の扱いを変えない。
+- `getInvoiceInfo` は候補中の最初のインボイス識別を優先し、その後にeBay、最後に一般在庫へ分類する。これを注文照合の規則として拡張しない。
+- 仕入先名はCSV側のtrim後の非空文字列を優先し、先頭明細etc、`-`の順。URLはCSV側をtrimするだけ。既存supplierライブラリのサイト名整形・URL補正とは同義でない。
+- 発注検索は発注番号、仕入先名/URL、ラベルID、管理番号、明細の商品名/カテゴリ/etcを含む。追跡番号はこのローカル検索文字列には追加しない。API側検索や検索の実行順序も変更しない。
+- 在庫検索はラベルID、商品名、カテゴリ、管理番号、割当ラベル、仕入先名、状態を含む。URL・価格・日付は追加しない。どちらも検索文字列自体は小文字化のみで、全体をNFKC化しない。
+
+### 整理前基準と確認結果
+
+`metadata-baseline-source.txt` は `0471a7f` の画面からASTで抽出した19宣言（16関数・3定数）をそのまま保存したもの。
+SHA-256：`ce9ef2b6819684181c08da7c0eddad971f093e9b376cf5336c65ba73ccc2579d`。
+`metadata-baseline.ts` はテスト専用で、通常テストはこの固定fixtureを読む。過去Git履歴は不要。
+既存の純粋依存 `extractManagementHints` と `getItemLabels` を渡すだけで、画面やAPIは起動しない。
+
+アプリの編集前に旧実関数で9スナップショットを取得した。在庫検索の生文字列に含まれる末尾空白も保持するため、該当1件の保存表現をJSONエスケープへ変更した際は旧fixtureだけから取り直した。現行実装を期待値の生成元にせず、一致を確認した。
+`metadata.test.ts` の `current` は現行モジュールと共有正本のみから作り、旧実装へフォールバックしない。
+
+- R05対象8テスト・9スナップショットが成功。
+- 在庫管理番号の旧関数と既存sharedを720入力で比較し、同義を確認。
+- etc組立1,176通り、現在値/ラベル値/fallbackの優先順位2,700通り、etc/ラベルの組合せ900通りを旧実装と比較。
+- 別名・重複排除、日英・全半角・空/null・不正形式・カンマを含むetc、インボイス/eBay識別、検索対象/対象外を確認。
+- 入力非変更、明細配列・明細オブジェクト・仕入先オブジェクトの参照保持、重複排除が別配列を返すことを確認。
+- 前回R01〜R04、入庫一覧、sharedのメタデータ・表示条件・インボイス番号・商品ヒントを含む8ファイル95テストが成功。新9件、前回7件、入庫一覧23件のスナップショットが一致。
+- アプリ全体と、対象テストを含む型チェックが成功（どちらも `--noEmit --incremental false`）。
+- AST宣言比較で移動を含め192宣言がexport修飾子と空白以外同一。本体の変更はなく、共有参照に置換した3宣言だけが画面から消えている。
+- fixtureの任意再抽出確認でも `0471a7f` と完全一致。第1回の再抽出確認コマンドのパスを `metadata-baseline-source.txt`、コミットを `0471a7f` に替えて再確認できる。
+- `git diff --check` が成功。
+
+再実行コマンド：
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/metadata.test.ts client/src/inventory/pages/purchase-registration/rules.test.ts shared/purchaseMetadata.test.ts shared/purchaseVisibility.test.ts shared/invoiceKey.test.ts shared/productMatching.test.ts client/src/inventory/pages/purchases/contracts.test.ts client/src/inventory/pages/purchases/presentation.test.tsx
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+node_modules/.bin/tsc --noEmit --incremental false
+git diff --check
+```
+
+DB・ブラウザー・ビルドの確認は統合担当へ引き渡す。この担当では実施していない。
+R05完了後は次領域へ着手せず、ラベル表示/印刷、在庫集計、特殊商品照合、注文照合・在庫引当・発送などは未着手のまま引き渡す。

@@ -1,0 +1,802 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`R05 metadata against actual source at 0471a7f > captures exact cleaning, CSV-like etc reading, normalization and invoice grammar 1`] = `
+[
+  {
+    "cleaned": "",
+    "ebay": false,
+    "inventory": "",
+    "invoice": null,
+    "normalized": "",
+    "parsed": {
+      "managementNo": "",
+      "supplierSite": "",
+    },
+    "value": undefined,
+  },
+  {
+    "cleaned": "",
+    "ebay": false,
+    "inventory": "",
+    "invoice": null,
+    "normalized": "",
+    "parsed": {
+      "managementNo": "",
+      "supplierSite": "",
+    },
+    "value": null,
+  },
+  {
+    "cleaned": "",
+    "ebay": false,
+    "inventory": "",
+    "invoice": null,
+    "normalized": "",
+    "parsed": {
+      "managementNo": "",
+      "supplierSite": "",
+    },
+    "value": "",
+  },
+  {
+    "cleaned": "",
+    "ebay": false,
+    "inventory": "",
+    "invoice": null,
+    "normalized": "",
+    "parsed": {
+      "managementNo": "",
+      "supplierSite": "",
+    },
+    "value": " ",
+  },
+  {
+    "cleaned": "405_マキシム_商品",
+    "ebay": false,
+    "inventory": "405_マキシム_商品",
+    "invoice": {
+      "invoiceNo": "405",
+      "partner": "マキシム",
+    },
+    "normalized": "405_マキシム_商品",
+    "parsed": {
+      "managementNo": "405_マキシム_商品",
+      "supplierSite": "",
+    },
+    "value": "405_マキシム_商品",
+  },
+  {
+    "cleaned": "405_Maxim_White",
+    "ebay": false,
+    "inventory": "405_Maxim_White",
+    "invoice": {
+      "invoiceNo": "405",
+      "partner": "Maxim",
+    },
+    "normalized": "405_maxim_white",
+    "parsed": {
+      "managementNo": "405_Maxim_White",
+      "supplierSite": "Seller",
+    },
+    "value": " 405_Maxim_White / 備考 , 2026-09-01, Seller , Tail ",
+  },
+  {
+    "cleaned": "４０５_ＭＡＸＩＭ_白",
+    "ebay": false,
+    "inventory": "４０５_ＭＡＸＩＭ_白",
+    "invoice": null,
+    "normalized": "405_maxim_白",
+    "parsed": {
+      "managementNo": "４０５_ＭＡＸＩＭ_白",
+      "supplierSite": "",
+    },
+    "value": "４０５_ＭＡＸＩＭ_白",
+  },
+  {
+    "cleaned": "在庫0814_1",
+    "ebay": false,
+    "inventory": "在庫0814_1",
+    "invoice": null,
+    "normalized": "在庫0814_1",
+    "parsed": {
+      "managementNo": "在庫0814_1",
+      "supplierSite": "",
+    },
+    "value": "在庫0814_1",
+  },
+  {
+    "cleaned": "0814_1",
+    "ebay": false,
+    "inventory": "0814_1",
+    "invoice": null,
+    "normalized": "0814_1",
+    "parsed": {
+      "managementNo": "0814_1",
+      "supplierSite": "",
+    },
+    "value": "0814_1",
+  },
+  {
+    "cleaned": "在庫０８１４_１",
+    "ebay": false,
+    "inventory": "在庫０８１４_１",
+    "invoice": null,
+    "normalized": "在庫0814_1",
+    "parsed": {
+      "managementNo": "在庫０８１４_１",
+      "supplierSite": "",
+    },
+    "value": "在庫０８１４_１",
+  },
+  {
+    "cleaned": "EBAY_item",
+    "ebay": true,
+    "inventory": "EBAY_item",
+    "invoice": null,
+    "normalized": "ebay_item",
+    "parsed": {
+      "managementNo": "EBAY_item",
+      "supplierSite": "",
+    },
+    "value": "EBAY_item",
+  },
+  {
+    "cleaned": "eBay-item",
+    "ebay": true,
+    "inventory": "eBay-item",
+    "invoice": null,
+    "normalized": "ebay-item",
+    "parsed": {
+      "managementNo": "eBay-item",
+      "supplierSite": "",
+    },
+    "value": "eBay-item",
+  },
+  {
+    "cleaned": "ebay",
+    "ebay": true,
+    "inventory": "ebay",
+    "invoice": null,
+    "normalized": "ebay",
+    "parsed": {
+      "managementNo": "ebay",
+      "supplierSite": "",
+    },
+    "value": "ebay",
+  },
+  {
+    "cleaned": "ebayX",
+    "ebay": false,
+    "inventory": "ebayX",
+    "invoice": null,
+    "normalized": "ebayx",
+    "parsed": {
+      "managementNo": "ebayX",
+      "supplierSite": "",
+    },
+    "value": "ebayX",
+  },
+  {
+    "cleaned": "E0814_1",
+    "ebay": false,
+    "inventory": "E0814_1",
+    "invoice": null,
+    "normalized": "e0814_1",
+    "parsed": {
+      "managementNo": "E0814_1",
+      "supplierSite": "",
+    },
+    "value": "E0814_1",
+  },
+  {
+    "cleaned": "405",
+    "ebay": false,
+    "inventory": "405",
+    "invoice": null,
+    "normalized": "405",
+    "parsed": {
+      "managementNo": "405",
+      "supplierSite": "",
+    },
+    "value": "405",
+  },
+  {
+    "cleaned": "405_",
+    "ebay": false,
+    "inventory": "405_",
+    "invoice": {
+      "invoiceNo": "405",
+      "partner": "",
+    },
+    "normalized": "405_",
+    "parsed": {
+      "managementNo": "405_",
+      "supplierSite": "",
+    },
+    "value": "405_",
+  },
+  {
+    "cleaned": "405__item",
+    "ebay": false,
+    "inventory": "405__item",
+    "invoice": {
+      "invoiceNo": "405",
+      "partner": "",
+    },
+    "normalized": "405__item",
+    "parsed": {
+      "managementNo": "405__item",
+      "supplierSite": "",
+    },
+    "value": "405__item",
+  },
+  {
+    "cleaned": "405*Maxim",
+    "ebay": false,
+    "inventory": "405*Maxim",
+    "invoice": null,
+    "normalized": "405*maxim",
+    "parsed": {
+      "managementNo": "405*Maxim",
+      "supplierSite": "",
+    },
+    "value": "405*Maxim",
+  },
+  {
+    "cleaned": "1000_Maxim_item",
+    "ebay": false,
+    "inventory": "1000_Maxim_item",
+    "invoice": null,
+    "normalized": "1000_maxim_item",
+    "parsed": {
+      "managementNo": "1000_Maxim_item",
+      "supplierSite": "",
+    },
+    "value": "1000_Maxim_item",
+  },
+  {
+    "cleaned": "405_相手 名_商品",
+    "ebay": false,
+    "inventory": "405_相手",
+    "invoice": {
+      "invoiceNo": "405",
+      "partner": "相手",
+    },
+    "normalized": "405_相手 名_商品",
+    "parsed": {
+      "managementNo": "405_相手 名_商品",
+      "supplierSite": "",
+    },
+    "value": "405_相手 名_商品",
+  },
+  {
+    "cleaned": "A B",
+    "ebay": false,
+    "inventory": "A",
+    "invoice": null,
+    "normalized": "a b",
+    "parsed": {
+      "managementNo": "A B",
+      "supplierSite": "C",
+    },
+    "value": " A B, date, C, D ",
+  },
+  {
+    "cleaned": "A/B",
+    "ebay": false,
+    "inventory": "A/B",
+    "invoice": null,
+    "normalized": "a/b",
+    "parsed": {
+      "managementNo": "A/B",
+      "supplierSite": "",
+    },
+    "value": "A/B",
+  },
+  {
+    "cleaned": "A",
+    "ebay": false,
+    "inventory": "A",
+    "invoice": null,
+    "normalized": "a",
+    "parsed": {
+      "managementNo": "A",
+      "supplierSite": "",
+    },
+    "value": "A / B",
+  },
+  {
+    "cleaned": "A	B",
+    "ebay": false,
+    "inventory": "A",
+    "invoice": null,
+    "normalized": "a	b",
+    "parsed": {
+      "managementNo": "A	B",
+      "supplierSite": "",
+    },
+    "value": " A	B ",
+  },
+  {
+    "cleaned": "",
+    "ebay": false,
+    "inventory": "",
+    "invoice": null,
+    "normalized": "",
+    "parsed": {
+      "managementNo": "",
+      "supplierSite": "Supplier",
+    },
+    "value": ",date,Supplier",
+  },
+  {
+    "cleaned": ""A",
+    "ebay": false,
+    "inventory": ""A",
+    "invoice": null,
+    "normalized": ""a",
+    "parsed": {
+      "managementNo": ""A",
+      "supplierSite": "date",
+    },
+    "value": ""A,B",date,"C,D"",
+  },
+  {
+    "cleaned": "A，B、C",
+    "ebay": false,
+    "inventory": "A，B、C",
+    "invoice": null,
+    "normalized": "a,b、c",
+    "parsed": {
+      "managementNo": "A，B、C",
+      "supplierSite": "",
+    },
+    "value": "A，B、C",
+  },
+  {
+    "cleaned": "ｶﾀｶﾅ",
+    "ebay": false,
+    "inventory": "ｶﾀｶﾅ",
+    "invoice": null,
+    "normalized": "カタカナ",
+    "parsed": {
+      "managementNo": "ｶﾀｶﾅ",
+      "supplierSite": "",
+    },
+    "value": "ｶﾀｶﾅ",
+  },
+  {
+    "cleaned": "カタカナ",
+    "ebay": false,
+    "inventory": "カタカナ",
+    "invoice": null,
+    "normalized": "カタカナ",
+    "parsed": {
+      "managementNo": "カタカナ",
+      "supplierSite": "",
+    },
+    "value": "カタカナ",
+  },
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > captures exact cleaning, CSV-like etc reading, normalization and invoice grammar 2`] = `
+[
+  null,
+  null,
+  null,
+  "405",
+  "0405",
+  "4",
+  "10000",
+  null,
+  null,
+  null,
+  null,
+  null,
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > captures management hints, label fallback, supplier priority and search scope 1`] = `
+[
+  {
+    "invoice": {
+      "invoiceNo": "在庫",
+      "key": "invoice-other",
+      "partner": "",
+    },
+    "management": [],
+    "search": "order-a
+-
+",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "在庫",
+      "key": "invoice-other",
+      "partner": "",
+    },
+    "management": [],
+    "search": "order-a
+-
+
+product ａ ｶﾀｶﾅ
+
+",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "在庫",
+      "key": "invoice-other",
+      "partner": "",
+    },
+    "management": [],
+    "search": "
+-
+
+product ａ ｶﾀｶﾅ
+
+",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "405",
+      "key": "invoice-405",
+      "partner": "First",
+    },
+    "management": [
+      "405_First",
+      "406_Second",
+      "ebay_stock",
+    ],
+    "search": "order-a
+csv seller
+https://supplier.invalid/a
+id-a
+405_first
+406_second
+ebay_stock
+product ａ ｶﾀｶﾅ
+class-a
+405_first, date, etc seller, 406_second
+next item
+
+ebay_stock, date, second supplier",
+    "supplier": {
+      "name": "CSV Seller",
+      "url": "https://supplier.invalid/A",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "406",
+      "key": "invoice-406",
+      "partner": "Label",
+    },
+    "management": [
+      "406_Label",
+      "405_Label",
+    ],
+    "search": "order-a
+fallback seller
+
+id-b
+406_label
+405_label
+product ａ ｶﾀｶﾅ
+
+, date, fallback seller",
+    "supplier": {
+      "name": "Fallback Seller",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "405",
+      "key": "invoice-405",
+      "partner": "Invoice",
+    },
+    "management": [
+      "ebay_1",
+      "405_Invoice",
+    ],
+    "search": "order-a
+-
+
+e
+ebay_1
+405_invoice
+product ａ ｶﾀｶﾅ
+
+ebay_1
+product ａ ｶﾀｶﾅ
+
+405_invoice",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "在庫",
+      "key": "invoice-other",
+      "partner": "",
+    },
+    "management": [
+      "E0814_1",
+    ],
+    "search": "order-a
+-
+
+e0814_1
+product ａ ｶﾀｶﾅ
+
+e0814_1",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+  {
+    "invoice": {
+      "invoiceNo": "在庫",
+      "key": "invoice-other",
+      "partner": "",
+    },
+    "management": [
+      "４０５_Ｍａｘｉｍ",
+    ],
+    "search": "order-a
+-
+
+４０５_ｍａｘｉｍ
+product ａ ｶﾀｶﾅ
+
+４０５_ｍａｘｉｍ",
+    "supplier": {
+      "name": "-",
+      "url": "",
+    },
+  },
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > captures management hints, label fallback, supplier priority and search scope 2`] = `
+[
+  {
+    "ids": [
+      0,
+      1,
+      3,
+      4,
+      5,
+      6,
+      7,
+    ],
+    "query": "order-a",
+  },
+  {
+    "ids": [
+      3,
+    ],
+    "query": "csv seller",
+  },
+  {
+    "ids": [
+      3,
+    ],
+    "query": "supplier.invalid/a",
+  },
+  {
+    "ids": [
+      3,
+    ],
+    "query": "id-a",
+  },
+  {
+    "ids": [
+      3,
+    ],
+    "query": "class-a",
+  },
+  {
+    "ids": [
+      3,
+    ],
+    "query": "etc seller",
+  },
+  {
+    "ids": [],
+    "query": "999_ignored",
+  },
+  {
+    "ids": [],
+    "query": "tracking-excluded",
+  },
+  {
+    "ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+    ],
+    "query": "ｶﾀｶﾅ",
+  },
+  {
+    "ids": [],
+    "query": "カタカナ",
+  },
+  {
+    "ids": [],
+    "query": "product a",
+  },
+  {
+    "ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+    ],
+    "query": "product ａ",
+  },
+  {
+    "ids": [],
+    "query": "405_maxim",
+  },
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > preserves current versus label priority and caller-specific fallback 1`] = `
+[
+  "405_Label",
+  "current",
+  "-",
+  "-",
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > preserves etc write precedence including undefined, null, empty supplier and extra commas 1`] = `
+[
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A, , New Seller",
+  "405_A, , Seller, Branch",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A, , New Seller",
+  "405_A, , Seller, Branch",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A, , New Seller",
+  "405_A, , Seller, Branch",
+  "405_A, 2026-09-01, Seller",
+  "405_A, 2026-09-01, ",
+  "405_A, 2026-09-01, ",
+  "405_A, 2026-09-01, ",
+  "405_A, 2026-09-01, New Seller",
+  "405_A, 2026-09-01, Seller, Branch",
+  "405_A, date, ",
+  "405_A, date, ",
+  "405_A, date, ",
+  "405_A, date, ",
+  "405_A, date, New Seller",
+  "405_A, date, Seller, Branch",
+  "405_A, , Seller",
+  "405_A",
+  "405_A",
+  "405_A",
+  "405_A, , New Seller",
+  "405_A, , Seller, Branch",
+  "405_A, id", date",
+  "405_A, id", ",
+  "405_A, id", ",
+  "405_A, id", ",
+  "405_A, id", New Seller",
+  "405_A, id", Seller, Branch",
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > preserves stable deduplication, stock suffix aliases and retained spelling 1`] = `
+[
+  [],
+  [
+    "在庫0814_1",
+  ],
+  [
+    "在庫0814_1",
+  ],
+  [
+    "在庫9123",
+  ],
+  [
+    "A",
+  ],
+  [
+    "カタカナ",
+  ],
+  [
+    "405_A",
+    "405_B",
+  ],
+  [
+    "在庫",
+    "在庫在庫",
+  ],
+  [
+    "/",
+    "在庫",
+  ],
+  [
+    "405_マキシム_商品",
+    "405_Maxim_White",
+    "４０５_ＭＡＸＩＭ_白",
+    "在庫0814_1",
+    "EBAY_item",
+    "eBay-item",
+    "ebay",
+    "ebayX",
+    "E0814_1",
+    "405",
+    "405_",
+    "405__item",
+    "405*Maxim",
+    "1000_Maxim_item",
+    "405_相手 名_商品",
+    "A B",
+    "A/B",
+    "A",
+    "A	B",
+    ""A",
+    "A，B、C",
+    "ｶﾀｶﾅ",
+  ],
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > preserves stock search fields and omissions without width folding 1`] = `
+[
+  ""label-a\\nstock ｂ ｶﾀｶﾅ\\ncategory\\n405_maxim\\nno.405-white\\nseller\\nstocked"",
+  ""\\nstock ｂ ｶﾀｶﾅ\\ncategory\\n\\n\\n\\nstocked"",
+  ""label-a\\nfoo\\nbar ａ\\n category \\n４０５_相手\\nno.405-white\\nyahoo seller\\n received "",
+]
+`;
+
+exports[`R05 metadata against actual source at 0471a7f > preserves stock search fields and omissions without width folding 2`] = `
+[
+  true,
+  true,
+  false,
+  true,
+  true,
+  false,
+  false,
+  true,
+  false,
+]
+`;

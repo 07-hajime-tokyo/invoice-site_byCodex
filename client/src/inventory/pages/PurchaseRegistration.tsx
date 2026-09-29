@@ -1,3 +1,24 @@
+import { cleanLegacyManagementNo, parsePurchaseEtc as parseEtc } from "@shared/purchaseMetadata";
+import { extractManagementNo as getInventoryManagementNo } from "@shared/ebayInventory";
+import {
+  preferredManagementNo,
+  getManagementNos,
+} from "./purchase-registration/managementNumbers";
+import { buildEtcWithManagementNo } from "./purchase-registration/purchaseEtc";
+import {
+  OTHER_INVOICE_KEY,
+  EBAY_GROUP_KEY,
+  EBAY_GROUP_LABEL,
+  parseInvoiceFromManagementNo,
+  isEbayManagementNo,
+  getInvoiceInfo,
+  invoiceNoFromGroupKey,
+} from "./purchase-registration/invoiceIdentity";
+import { getSupplier } from "./purchase-registration/supplier";
+import {
+  buildSearchText,
+  buildStockSearchText,
+} from "./purchase-registration/search";
 import {
   matchesStatus,
   countPurchaseRows,
@@ -33,7 +54,6 @@ import type {
   StockEditFormState,
 } from "./purchase-registration/formTypes";
 import type {
-  SupplierView,
   LabelView,
   LabelPrintRequest,
   StockItemView,
@@ -130,10 +150,7 @@ const workflowTabs: Array<{ value: WorkflowTab; label: string; icon: typeof Pack
 const fieldClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
-const OTHER_INVOICE_KEY = "invoice-other";
 const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
-const EBAY_GROUP_KEY = "invoice-ebay";
-const EBAY_GROUP_LABEL = "eBay";
 type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
 const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
 
@@ -157,40 +174,6 @@ function openEcohaiTracking(trackingNumber: string) {
   document.body.appendChild(form);
   form.submit();
   document.body.removeChild(form);
-}
-
-function cleanLegacyManagementNo(value?: string | null): string {
-  const firstPart = (value ?? "").split(",")[0]?.trim() ?? "";
-  return firstPart.split(/\s+\/\s+/)[0]?.trim() ?? firstPart;
-}
-
-function buildEtcWithManagementNo(
-  managementNo: string,
-  currentEtc?: string | null,
-  supplierName?: string | null,
-): string {
-  const parts = (currentEtc ?? "").split(",").map((part) => part.trim());
-  const nextManagementNo = cleanLegacyManagementNo(managementNo);
-  const datePart = parts[1] ?? "";
-  const supplierPart = supplierName === undefined ? parts[2] ?? "" : (supplierName ?? "").trim();
-  if (!nextManagementNo && !datePart && !supplierPart) return "";
-  if (datePart || supplierPart) return [nextManagementNo, datePart, supplierPart].join(", ");
-  return nextManagementNo;
-}
-
-function parseEtc(etc?: string | null): { managementNo: string; supplierSite: string } {
-  if (!etc) return { managementNo: "", supplierSite: "" };
-  const parts = etc.split(",").map((part) => part.trim());
-  return {
-    managementNo: cleanLegacyManagementNo(parts[0]),
-    supplierSite: parts[2] ?? "",
-  };
-}
-
-function getInventoryManagementNo(etc?: string | null): string {
-  if (!etc) return "";
-  const firstPart = cleanLegacyManagementNo(etc);
-  return firstPart.split(/\s+/)[0]?.trim() ?? "";
 }
 
 function getInventoryCategory(inventory: InventoryItem): string {
@@ -249,97 +232,6 @@ function buildForecastSummary(products: ProductSummary[], purchaseTotal: number)
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
-}
-
-function normalizeManagementNoForDisplay(value: string): string {
-  return cleanLegacyManagementNo(value).normalize("NFKC").trim().toLowerCase();
-}
-
-function isStockManagementNoSuffixAlias(value: string, candidates: string[]): boolean {
-  const normalized = normalizeManagementNoForDisplay(value);
-  if (!normalized || normalized.startsWith("在庫")) return false;
-  return candidates.some((candidate) => {
-    const other = normalizeManagementNoForDisplay(candidate);
-    return other !== normalized && other.startsWith("在庫") && other.endsWith(normalized);
-  });
-}
-
-function uniqueManagementNos(values: string[]): string[] {
-  const cleaned = values.map(cleanLegacyManagementNo).filter(Boolean);
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of cleaned) {
-    const key = normalizeManagementNoForDisplay(value);
-    if (!key || seen.has(key) || isStockManagementNoSuffixAlias(value, cleaned)) continue;
-    seen.add(key);
-    result.push(value);
-  }
-  return result;
-}
-
-function preferredManagementNo(currentManagementNo?: string | null, labelManagementNo?: string | null, fallback = "-"): string {
-  return cleanLegacyManagementNo(currentManagementNo ?? "") || cleanLegacyManagementNo(labelManagementNo ?? "") || fallback;
-}
-
-function getManagementNos(items: PurchaseItem[]): string[] {
-  return uniqueManagementNos(
-    items.flatMap((item) => {
-      const parsed = parseEtc(item.etc);
-      const labelNos = parsed.managementNo
-        ? []
-        : (item.itemLabels ?? []).map((label) => label.legacyManagementNo ?? "");
-      return [parsed.managementNo, ...extractManagementHints(item.etc, parsed.managementNo, ...labelNos), ...labelNos];
-    }),
-  );
-}
-
-function parseInvoiceFromManagementNo(managementNo: string): { invoiceNo: string; partner: string } | null {
-  const trimmed = managementNo.trim();
-  const match = trimmed.match(/^(\d{3})(?:_([^_,\s]+))?/);
-  if (!match || !trimmed.startsWith(`${match[1]}_`)) return null;
-  return {
-    invoiceNo: match[1],
-    partner: match[2] ?? "",
-  };
-}
-
-function isEbayManagementNo(managementNo: string | null | undefined): boolean {
-  return /^ebay(?:[_-]|$)/i.test(cleanLegacyManagementNo(managementNo ?? ""));
-}
-
-function getInvoiceInfo(row: PurchaseRow): { key: string; invoiceNo: string; partner: string } {
-  const managementNos = getManagementNos(row.purchase_items);
-  for (const managementNo of managementNos) {
-    const parsed = parseInvoiceFromManagementNo(managementNo);
-    if (parsed) {
-      return {
-        key: `invoice-${parsed.invoiceNo}`,
-        invoiceNo: parsed.invoiceNo,
-        partner: parsed.partner,
-      };
-    }
-  }
-  if (managementNos.some(isEbayManagementNo)) {
-    return {
-      key: EBAY_GROUP_KEY,
-      invoiceNo: EBAY_GROUP_LABEL,
-      partner: EBAY_GROUP_LABEL,
-    };
-  }
-  return {
-    key: OTHER_INVOICE_KEY,
-    invoiceNo: "在庫",
-    partner: "",
-  };
-}
-
-function getSupplier(row: PurchaseRow): SupplierView {
-  const firstItem = row.purchase_items[0];
-  const parsed = parseEtc(firstItem?.etc);
-  return {
-    name: row.csvSupplierName?.trim() || parsed.supplierSite || "-",
-    url: row.csvSupplierUrl?.trim() || "",
-  };
 }
 
 function productKey(title: string): string {
@@ -715,22 +607,6 @@ function withInvoiceStockCountsFromItems(
 function productDetailFilterLabel(filter: ProductDetailFilter): string {
   if (!filter.productKey) return filter.mode === "stock" ? "現在庫すべて" : "入庫まちすべて";
   return `${filter.productTitle} / ${filter.mode === "stock" ? "現在庫" : "入庫まち"}`;
-}
-
-function buildSearchText(row: PurchaseRow): string {
-  const labels = getItemLabels(row.purchase_items).map((label) => label.labelId);
-  const managementNos = getManagementNos(row.purchase_items);
-  const supplier = getSupplier(row);
-  return [
-    row.num ?? "",
-    supplier.name,
-    supplier.url,
-    ...labels,
-    ...managementNos,
-    ...row.purchase_items.flatMap((item) => [item.title, item.category ?? "", item.etc ?? ""]),
-  ]
-    .join("\n")
-    .toLowerCase();
 }
 
 function labelStatusLabel(status?: string | null): string {
@@ -1831,20 +1707,6 @@ function buildStockProposalGroups(
     });
 }
 
-function buildStockSearchText(item: StockItemView): string {
-  return [
-    item.labelId ?? "",
-    item.title,
-    item.category,
-    item.legacyManagementNo,
-    item.allocationLabel,
-    item.supplier.name,
-    item.status,
-  ]
-    .join("\n")
-    .toLowerCase();
-}
-
 function buildProductSummaries(
   rows: PurchaseRow[],
   invoiceProducts: InvoiceProductSummary[] = [],
@@ -1948,11 +1810,6 @@ function filterInvoiceStockItems(
     if (excludedInventoryIds.has(item.inventoryId)) return false;
     return Boolean(findInvoiceProductNameForStockItem(item, invoiceProducts));
   });
-}
-
-function invoiceNoFromGroupKey(key?: string | null): string | null {
-  const match = key?.match(/^invoice-(\d+)$/);
-  return match?.[1] ?? null;
 }
 
 function todayCompact(): string {
