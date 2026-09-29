@@ -89,6 +89,8 @@ const current = process.env.INVOICE_KNOWLEDGE_REFERENCE
       ...(await import("./KnowledgePendingFiles")),
       ...(await import("./KnowledgeHistory")),
       ...(await import("./KnowledgeChat")),
+      ...(await import("./KnowledgeConversations")),
+      ...(await import("./KnowledgeLatestNumber")),
     };
 const Component = loadKnowledge(current, testTrpc);
 function expand(n: any): any {
@@ -412,5 +414,134 @@ describe("knowledge chat contracts", () => {
     ])
       api.mutations[name].options.onError(Error("fixed"));
     expect(api.events).toMatchSnapshot();
+  });
+});
+
+describe("knowledge conversation and numbering contracts", () => {
+  it("creates and selects conversations, preserves draft, syncs stored history", () => {
+    api.conversations = [
+      { id: 3, title: "First" },
+      { id: 8, title: "Second" },
+    ];
+    const v = mount();
+    v.button("AIチャット").props.onClick();
+    v.render();
+    v.button("新規チャット").props.onClick();
+    expect(api.events.at(-1)).toEqual(["createConversation", {}]);
+    api.mutations.createConversation.options.onSuccess({ id: 3 });
+    v.render();
+    v.find(e => e.type === "textarea").props.onChange({
+      target: { value: "draft" },
+    });
+    api.history = [{ role: "assistant", content: "First history" }];
+    v.render();
+    h.effects[0]();
+    v.render();
+    v.find(
+      e =>
+        e.type === "div" &&
+        e.props.onClick &&
+        text(e.props.children) === "Second"
+    ).props.onClick();
+    v.render();
+    expect(v.find(e => e.type === "textarea").props.value).toBe("draft");
+    expect(v.html()).toMatchSnapshot("selected cleared history draft retained");
+    api.history = [{ role: "user", content: "Second history" }];
+    v.render();
+    h.effects[0]();
+    v.render();
+    expect(v.html()).toMatchSnapshot("selected persisted history");
+    api.mutations.createConversation.isPending = true;
+    v.render();
+    expect(v.button("新規チャット").props.disabled).toBe(true);
+  });
+  it("stops delete propagation, handles cancel, preserves other selection and clears active deletion", () => {
+    api.conversations = [
+      { id: 3, title: "First" },
+      { id: 8, title: "Second" },
+    ];
+    const v = mount();
+    api.mutations.createConversation.options.onSuccess({ id: 3 });
+    v.render();
+    const row = v.find(
+      e =>
+        e.type === "div" &&
+        e.props.onClick &&
+        text(e.props.children) === "Second"
+    );
+    const remove = nodes(row).find(e => e.type === "button")!;
+    const stopPropagation = vi.fn();
+    vi.mocked(confirm).mockReturnValue(false);
+    remove.props.onClick({ stopPropagation });
+    expect(api.events.some(e => e[0] === "deleteConversation")).toBe(false);
+    vi.mocked(confirm).mockReturnValue(true);
+    remove.props.onClick({ stopPropagation });
+    expect(stopPropagation).toHaveBeenCalledTimes(2);
+    expect(api.events.at(-1)).toEqual(["deleteConversation", { id: 8 }]);
+    api.mutations.deleteConversation.options.onSuccess(undefined, { id: 8 });
+    v.render();
+    expect(v.html()).toMatchSnapshot("other conversation deleted");
+    api.mutations.deleteConversation.options.onSuccess(undefined, { id: 3 });
+    v.render();
+    expect(v.html()).toMatchSnapshot("active conversation deleted");
+    expect(api.events).toMatchSnapshot("delete events");
+  });
+  it("extracts latest number, retains truthiness conditions and creates before closing", () => {
+    const v = mount();
+    expect(v.button("最新インボイス番号を抽出").props.disabled).toBe(true);
+    api.list = [
+      {
+        id: 1,
+        sourceType: "chat_text",
+        sourceLabel: "data",
+        createdAt: "2026-09-30",
+      },
+    ];
+    v.render();
+    expect(v.button("最新インボイス番号を抽出").props.disabled).toBe(false);
+    v.button("最新インボイス番号を抽出").props.onClick();
+    expect(api.events.at(-1)).toEqual(["getLatestInvoiceNumber", undefined]);
+    api.mutations.getLatestInvoiceNumber.isPending = true;
+    v.render();
+    expect(v.html()).toMatchSnapshot("number pending");
+    api.mutations.getLatestInvoiceNumber.isPending = false;
+    for (const nextNumber of [null, 0, 123]) {
+      api.mutations.getLatestInvoiceNumber.options.onSuccess({
+        invoiceNumber: nextNumber === 123 ? 122 : null,
+        nextNumber,
+        message: "fixed result",
+      });
+      v.render();
+      expect(v.html()).toMatchSnapshot(`number ${nextNumber}`);
+    }
+    v.button("No.123 でインボイスを作成").props.onClick();
+    expect(api.events.slice(-2)).toEqual([["new", "123"], ["close"]]);
+    expect(api.events).toMatchSnapshot("number events");
+  });
+  it("preserves draft and numbering result across tabs, closes only on false open change", () => {
+    const v = mount();
+    api.mutations.getLatestInvoiceNumber.options.onSuccess({
+      invoiceNumber: 20,
+      nextNumber: 21,
+      message: "stored result",
+    });
+    api.mutations.createConversation.options.onSuccess({ id: 7 });
+    v.render();
+    v.find(e => e.type === "textarea").props.onChange({
+      target: { value: "unsent" },
+    });
+    v.render();
+    v.button("アップロード・管理").props.onClick();
+    v.render();
+    expect(v.button("No.21 でインボイスを作成")).toBeTruthy();
+    v.button("AIチャット").props.onClick();
+    v.render();
+    expect(v.find(e => e.type === "textarea").props.value).toBe("unsent");
+    const dialog = v.find(e => e.type === "section");
+    const count = api.events.length;
+    dialog.props.onOpenChange(true);
+    expect(api.events).toHaveLength(count);
+    dialog.props.onOpenChange(false);
+    expect(api.events.at(-1)).toEqual(["close"]);
   });
 });

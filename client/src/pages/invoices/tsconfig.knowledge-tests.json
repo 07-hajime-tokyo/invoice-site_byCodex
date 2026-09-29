@@ -1,6 +1,18 @@
 {
   "extends": "../../../../tsconfig.json",
-  "compilerOptions": { "incremental": false },
-  "include": ["./KnowledgeFilePicker.tsx", "./KnowledgePendingFiles.tsx", "./KnowledgeHistory.tsx", "./KnowledgeChat.tsx", "./knowledgeReference.tsx", "./knowledge.test.tsx"],
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "./KnowledgeFilePicker.tsx",
+    "./KnowledgePendingFiles.tsx",
+    "./KnowledgeHistory.tsx",
+    "./KnowledgeChat.tsx",
+    "./knowledgeReference.tsx",
+    "./knowledge.test.tsx",
+    "./KnowledgeConversations.tsx",
+    "./KnowledgeLatestNumber.tsx",
+    "./KnowledgeBaseDialog.tsx"
+  ],
   "exclude": []
 }

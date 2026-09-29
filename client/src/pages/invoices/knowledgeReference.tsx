@@ -23,12 +23,20 @@ export function loadKnowledge(
   trpc: unknown
 ) {
   let source = readFileSync(
-    new URL("./knowledge-baseline.txt", import.meta.url),
+    new URL(
+      process.env.INVOICE_KNOWLEDGE_SESSION_REFERENCE
+        ? "./knowledge-session-baseline.txt"
+        : "./knowledge-baseline.txt",
+      import.meta.url
+    ),
     "utf8"
   );
-  if (Object.keys(current).length) {
+  if (
+    Object.keys(current).length &&
+    !process.env.INVOICE_KNOWLEDGE_SESSION_REFERENCE
+  ) {
     const all = readFileSync(
-        new URL("../InvoicePage.tsx", import.meta.url),
+        new URL("./KnowledgeBaseDialog.tsx", import.meta.url),
         "utf8"
       ),
       ast = ts.createSourceFile(
@@ -43,7 +51,8 @@ export function loadKnowledge(
         n =>
           ts.isFunctionDeclaration(n) && n.name?.text === "KnowledgeBaseDialog"
       )!
-      .getText(ast);
+      .getText(ast)
+      .replace(/^export /, "");
   }
   const code = ts.transpileModule(
     `const getTodayStr=()=>new Date().toISOString().slice(0,10);\nexport ${source}`,

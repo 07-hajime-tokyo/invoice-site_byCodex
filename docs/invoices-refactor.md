@@ -355,3 +355,42 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.knowledge-tests.json
 - hooks/effectは固定アダプター、Dialog等は固定HTMLタグ。実React lifecycle、Radixのfocus/portal、実ブラウザーのFileReader/clipboard、アップロード/AI接続を保証しない。全体テスト/型/build/DB/browserは統合担当へ引き継ぐ。
 - 残る境界は会話一覧/最新番号抽出の表示、KnowledgeBaseの親側副作用、編集/一覧の保存・印刷/PDF操作、削除済み/検知結果モーダル。インボイス領域全体の完了ではない。
 - I07a〜cをローカルコミットで引き渡し、今回の担当作業を停止する。
+
+## 第9回：I07d〜f 会話一覧・番号抽出・KnowledgeBaseDialogの配置
+
+共通基準`8cfcd9d`をクリーンな担当ブランチへ`0911271`でmergeし、関連3単位を整理した。
+
+| 単位 | 境界 |
+| --- | --- |
+| I07d | `KnowledgeConversations.tsx`：会話一覧、新規作成/選択/削除確認の表示 |
+| I07e | `KnowledgeLatestNumber.tsx`：最新番号抽出の状態と結果、次番号で作成する表示 |
+| I07f | `KnowledgeBaseDialog.tsx`：既存state/effect/query/mutation/ファイル処理を保持したDialog全体の移動 |
+
+InvoicePageからDialogへの入口は従来どおりopen/onClose/onNewWithNumberの3つ。APIや多数の内部stateを外から注入せず、Dialog自身が従来の状態・副作用を保持する。新しい表示部品は値とイベントだけを受け取り、循環importはない。最新番号結果はexport型をDialogと表示部品で共用。会話は必要なid/titleだけの表示型を使い、既存ファイル/メッセージ型も共用を継続した。InvoicePageは1,650行から1,279行、移動先Dialogは386行。新規ファイルを整形し、旧画面全体の整形は行っていない。
+
+### 編集前の実関数を先に固定した比較
+
+`knowledge-session-baseline.txt`は8cfcd9dの実KnowledgeBaseDialog全体。変更前に新しい会話/番号抽出テストのスナップショットを作成し、その後に分離した。既存`knowledgeReference.tsx`の現行実装読み込み先を`KnowledgeBaseDialog.tsx`へ変更し、実関数と子部品・親callbackの組合せを引き続き比較する。第8回以前の元fixtureも保持。
+
+- 元fixture・今回編集前fixture・移動後実関数で14テスト・27スナップショットが一致。
+- 新規チャットpayload/pending、会話選択時の履歴クリアと永続履歴反映、未送信入力保持、削除時stopPropagation/確認取消/承認を確認。
+- 非選択会話の削除は選択を維持し、選択中会話の削除は選択/履歴を解除。refetchと通知を含む順序を比較。
+- 学習データなし/あり/pendingの抽出ボタン状態、引数なし抽出、nextNumberがnull/0/123の表示・通知、作成番号の文字列化→onNewWithNumber→onCloseの順序を比較。
+- タブ往復で番号抽出結果/未送信入力を保持し、onOpenChange(false)でだけ閉じることを確認。
+- AST比較で今回fixtureが基準実関数と完全一致。他のInvoicePage宣言は無変更。移動したDialogのreturn以外と日付helperは、型を除去したAST構造が一致（整形による括弧差を正規化）。状態・effect・副作用順序は不変。
+- 移動したDialogと新表示部品を含む対象型検査、`git diff --check`成功。型検査は本物のtrpc型を参照し、APIのstub型は作っていない。
+
+```sh
+CI=1 INVOICE_KNOWLEDGE_SESSION_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/knowledge.test.tsx
+CI=1 INVOICE_KNOWLEDGE_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/knowledge.test.tsx
+CI=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/knowledge.test.tsx
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.knowledge-tests.json --noEmit
+```
+
+### 制約と次の境界
+
+- 今回も固定hooks/UI依存による比較であり、実React lifecycle/Radix/ブラウザー/AI/DBの動作保証ではない。全体テスト/型/build/DB/browserは統合担当が実施する。
+- 会話切替後も入力は残る。nextNumberはtruthy判定なので0では作成ボタンが出ず、JSX上は0が表示される。この既存挙動も変更していない。
+- KnowledgeBaseの残る責務はファイル取込（選択/貼り付け/読込）、会話状態（選択・永続履歴同期・作成削除・送信）、番号抽出。今回は副作用hookを追加せず、次回これらの境界を個別に検討する。
+- InvoicePage側には編集/一覧の保存、印刷/PDF操作、削除済み/検知結果モーダル等が残る。インボイス領域全体の完了ではない。
+- I07d〜fをローカルコミットで引き渡して停止する。push/deploy/本番DB操作は行っていない。
