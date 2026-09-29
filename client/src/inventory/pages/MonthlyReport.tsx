@@ -1,3 +1,13 @@
+import {
+  buildSavedReportCsv,
+  buildPreviewReportCsv,
+  downloadReportCsv,
+  type SavedReportCsvInput,
+} from "./monthly-report/csv";
+import {
+  inventoryCategoryTotal,
+  resolveReportCost,
+} from "./monthly-report/model";
 import type { InventorySummaryItem, ProductRow, PurchaseItemForReport, StockItemForReport, DeliveryItemForReport, InvoiceForReport, PreviewData, CostOverrides } from "./monthly-report/types";
 import { fmt, fmtForeign, parseDomesticNote, fmtDate, getCurrentYearMonth } from "./monthly-report/presentation";
 import { useState, useMemo, useEffect } from "react";
@@ -302,17 +312,7 @@ export default function MonthlyReport() {
     return categorySummary.filter((c) => c.category === selectedCategory);
   }, [categorySummary, selectedCategory]);
 
-  const grandTotal = useMemo(() => {
-    let total = 0;
-    for (const cat of categorySummary) {
-      for (const item of cat.items) {
-        const key = `${cat.category}__${item.title}__${cat.items.indexOf(item)}`;
-        const up = item.unitPrice ?? inventoryPriceOverrides[key] ?? null;
-        if (up != null) total += up * item.quantity;
-      }
-    }
-    return total;
-  }, [categorySummary, inventoryPriceOverrides]);
+  const grandTotal = useMemo(() => inventoryCategoryTotal(categorySummary, inventoryPriceOverrides), [categorySummary, inventoryPriceOverrides]);
 
   /**
    * 区分別サマリー
@@ -324,17 +324,7 @@ export default function MonthlyReport() {
     return buildSnapshotBreakdown(previewData.inventorySummary, previewData.invoiceList);
   }, [previewData]);
 
-  const filteredTotal = useMemo(() => {
-    let total = 0;
-    for (const cat of filteredCategorySummary) {
-      for (const item of cat.items) {
-        const key = `${cat.category}__${item.title}__${cat.items.indexOf(item)}`;
-        const up = item.unitPrice ?? inventoryPriceOverrides[key] ?? null;
-        if (up != null) total += up * item.quantity;
-      }
-    }
-    return total;
-  }, [filteredCategorySummary, inventoryPriceOverrides]);
+  const filteredTotal = useMemo(() => inventoryCategoryTotal(filteredCategorySummary, inventoryPriceOverrides), [filteredCategorySummary, inventoryPriceOverrides]);
 
   // インボイスの展開トグル
   const toggleInvoice = (invoiceNo: string) => {
@@ -347,10 +337,7 @@ export default function MonthlyReport() {
   };
 
   // 仕入れ単価の取得（オーバーライド > Zaico単価）
-  const getUnitPrice = (itemKey: string, defaultPrice: number | null): number | null => {
-    if (itemKey in costOverrides) return costOverrides[itemKey];
-    return defaultPrice;
-  };
+  const getUnitPrice = (itemKey: string, defaultPrice: number | null) => resolveReportCost(itemKey, defaultPrice, costOverrides);
 
   // 仕入れ単価の変更
   const handleCostChange = (itemKey: string, value: string) => {
@@ -370,134 +357,14 @@ export default function MonthlyReport() {
   };
 
   // 保存済みレポートのCSV出力
-  const handleExportSavedCSV = (report: { label?: string | null; yearMonth: string; invoiceListJson?: string | null; inventorySummaryJson?: string | null }) => {
-    const invList: InvoiceForReport[] = (() => {
-      try { return JSON.parse(report.invoiceListJson ?? "[]") as InvoiceForReport[]; } catch { return []; }
-    })();
-    const invSummary: InventorySummaryItem[] = (() => {
-      try { return JSON.parse(report.inventorySummaryJson ?? "[]") as InventorySummaryItem[]; } catch { return []; }
-    })();
-
-    const rows: string[][] = [];
-
-    rows.push(["=== 在庫金額サマリー ===", "", "", "", "", ""]);
-    rows.push(["カテゴリ", "管理番号", "商品名", "数量", "仕入単価", "在庫金額"]);
-    for (const item of invSummary) {
-      rows.push([item.category, item.managementNo ?? "", item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
-    }
-    const savedGrandTotal = invSummary.reduce((sum, item) => sum + (item.totalValue ?? 0), 0);
-    rows.push(["", "", "", "", "合計", String(savedGrandTotal)]);
-    rows.push([]);
-
-    rows.push(["=== 支払い済み・未完了インボイス ===", "", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "取引相手", "支払日", "商品名", "発注数", "販売価格", "通貨", "取引金額"]);
-    for (const inv of invList) {
-      for (const p of inv.products) {
-        rows.push([inv.invoiceNo, inv.partner, inv.paymentDate, p.name, String(p.qty), p.sellingPrice != null ? String(p.sellingPrice) : "", p.currency, p.tradeAmount != null ? String(p.tradeAmount) : ""]);
-      }
-    }
-    rows.push([]);
-
-    rows.push(["=== インボイス別仕入れコスト ===", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "種別", "商品名", "数量", "仕入単価", "小計"]);
-    for (const inv of invList) {
-      for (const pi of inv.purchaseItems) {
-        rows.push([inv.invoiceNo, "発注済み", pi.title, String(pi.quantity), pi.unitPrice != null ? String(pi.unitPrice) : "", pi.unitPrice != null ? String(pi.unitPrice * pi.quantity) : ""]);
-      }
-      for (const si of inv.stockItems) {
-        rows.push([inv.invoiceNo, "在庫", si.title, String(si.quantity), si.unitPrice != null ? String(si.unitPrice) : "", si.unitPrice != null ? String(si.unitPrice * si.quantity) : ""]);
-      }
-    }
-    rows.push([]);
-
-    rows.push(["=== 出庫済み商品 ===", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "商品名", "出庫数", "仕入単価", "出庫金額", "出庫日", "出庫No"]);
-    for (const inv of invList) {
-      for (const di of (inv.deliveryItems ?? [])) {
-        rows.push([inv.invoiceNo, di.title, String(di.quantity), di.unitPrice != null ? String(di.unitPrice) : "", di.unitPrice != null ? String(di.unitPrice * di.quantity) : "", di.deliveredAt, di.deliveryNo]);
-      }
-    }
-
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `棚卸しレポート_${report.yearMonth}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportSavedCSV = (report: SavedReportCsvInput) => {
+    downloadReportCsv(buildSavedReportCsv(report), report.yearMonth);
     toast.success("CSVをダウンロードしました");
   };
 
-  // CSV出力
   const handleExportCSV = () => {
     if (!previewData) return;
-    const rows: string[][] = [];
-
-    rows.push(["=== 在庫金額サマリー ===", "", "", "", "", ""]);
-    rows.push(["カテゴリ", "管理番号", "商品名", "数量", "仕入単価", "在庫金額"]);
-    for (const item of previewData.inventorySummary) {
-      rows.push([item.category, item.managementNo ?? "", item.title, String(item.quantity), item.unitPrice != null ? String(item.unitPrice) : "", item.totalValue != null ? String(item.totalValue) : ""]);
-    }
-    rows.push(["", "", "", "", "合計", String(grandTotal)]);
-    rows.push([]);
-
-    rows.push(["=== 支払い済み・未完了インボイス ===", "", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "取引相手", "支払日", "商品名", "発注数", "販売価格", "通貨", "取引金額"]);
-    for (const inv of previewData.invoiceList) {
-      for (const p of inv.products) {
-        rows.push([inv.invoiceNo, inv.partner, inv.paymentDate, p.name, String(p.qty), p.sellingPrice != null ? String(p.sellingPrice) : "", p.currency, p.tradeAmount != null ? String(p.tradeAmount) : ""]);
-      }
-    }
-    rows.push([]);
-
-    rows.push(["=== インボイス別仕入れコスト ===", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "種別", "商品名", "数量", "仕入単価", "小計"]);
-    for (const inv of previewData.invoiceList) {
-      for (const pi of inv.purchaseItems) {
-        const key = `${inv.invoiceNo}__ordered__${pi.zaicoId}`;
-        const up = getUnitPrice(key, pi.unitPrice);
-        rows.push([inv.invoiceNo, "発注済み", pi.title, String(pi.quantity), up != null ? String(up) : "", up != null ? String(up * pi.quantity) : ""]);
-      }
-      for (const si of inv.stockItems) {
-        const key = `${inv.invoiceNo}__stock__${si.inventoryId}`;
-        const up = getUnitPrice(key, si.unitPrice);
-        rows.push([inv.invoiceNo, "在庫", si.title, String(si.quantity), up != null ? String(up) : "", up != null ? String(up * si.quantity) : ""]);
-      }
-    }
-    rows.push([]);
-
-    rows.push(["=== 出庫済み商品 ===", "", "", "", "", ""]);
-    rows.push(["インボイスNo", "商品名", "出庫数", "仕入単価", "出庫金額", "出庫日", "出庫No"]);
-    for (const inv of previewData.invoiceList) {
-      for (const di of (inv.deliveryItems ?? [])) {
-        rows.push([inv.invoiceNo, di.title, String(di.quantity), di.unitPrice != null ? String(di.unitPrice) : "", di.unitPrice != null ? String(di.unitPrice * di.quantity) : "", di.deliveredAt, di.deliveryNo]);
-      }
-    }
-    rows.push([]);
-
-    // 国内卸発注商品セクション
-    if (domesticItemsRaw && domesticItemsRaw.length > 0) {
-      rows.push(["=== 国内卸発注商品 ===", "", "", "", ""]);
-      rows.push(["商品名", "数量", "仕入単価", "小計", "仕入先"]);
-      for (const item of domesticItemsRaw) {
-        const up = item.unitPrice != null ? parseFloat(String(item.unitPrice)) : null;
-        rows.push([item.title, String(item.quantity), up != null ? String(up) : "", up != null ? String(up * item.quantity) : "", item.supplierName ?? ""]);
-      }
-      rows.push(["", "", "小計", String(domesticItemsTotal), ""]);
-    }
-
-
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `棚卸しレポート_${yearMonth}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadReportCsv(buildPreviewReportCsv(previewData, grandTotal, costOverrides, domesticItemsRaw, domesticItemsTotal), yearMonth);
     toast.success("CSVをダウンロードしました");
   };
 
