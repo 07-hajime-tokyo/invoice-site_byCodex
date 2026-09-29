@@ -22,13 +22,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus,
@@ -39,7 +32,6 @@ import {
   MessageSquare,
   Users,
   FileText,
-  ChevronLeft,
   X,
   GripVertical,
   RefreshCw,
@@ -74,6 +66,11 @@ import { computeInvoiceSplits } from "./invoices/splitInvoices";
 import { InvoiceMetadata } from "./invoices/InvoiceMetadata";
 import { InvoiceItemsEditor } from "./invoices/InvoiceItemsEditor";
 import { ScaledPreview, ScaledPreviewFit } from "./invoices/ScaledPreview";
+import { EditorToolbar } from "./invoices/EditorToolbar";
+import { BackConfirmDialog } from "./invoices/BackConfirmDialog";
+import { OverLimitDialog } from "./invoices/OverLimitDialog";
+import { SplitPreviewDialog } from "./invoices/SplitPreviewDialog";
+import { InvoiceContacts } from "./invoices/InvoiceContacts";
 
 // ─── Sender Settings Dialog ──────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -409,230 +406,78 @@ function InvoiceEditor({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => {
+      <EditorToolbar
+        showPreview={showPreview}
+        isPdfLoading={isPdfLoading}
+        isFetchingRate={isFetchingRate}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+        onBack={() => {
           if (isDirty) {
             setShowBackConfirm(true);
           } else {
             onCancel();
           }
-        }} className="h-8 gap-1">
-          <ChevronLeft size={14} /> 一覧に戻る
-        </Button>
-
-        {/* 保存確認ダイアログ */}
-        <Dialog open={showBackConfirm} onOpenChange={setShowBackConfirm}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>変更を保存しますか？</DialogTitle>
-              <DialogDescription>
-                未保存の変更があります。一覧に戻る前に保存しますか？
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="flex gap-2 sm:gap-2">
-              <Button variant="outline" size="sm" onClick={() => { setShowBackConfirm(false); onCancel(); }}>
-                保存せず戻る
-              </Button>
-              <Button size="sm" onClick={() => {
-                setShowBackConfirm(false);
-                handleSave();
-              }} disabled={createMutation.isPending || updateMutation.isPending}>
-                {(createMutation.isPending || updateMutation.isPending) ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Save size={12} className="mr-1" />}
-                保存して戻る
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPreview(!showPreview)} className="h-8 gap-1">
-            <Eye size={13} /> {showPreview ? "編集に戻る" : "プレビュー"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSavePdf}
-            disabled={isPdfLoading}
-            className="h-8 gap-1"
-          >
-            {isPdfLoading ? (
-              <><RefreshCw size={12} className="animate-spin" /> 生成中...</>
-            ) : (
-              <><Download size={13} /> PDFで保存</>
-            )}
-          </Button>
-          {/* 分割して保存ボタン */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleOpenSplitDialog}
-            disabled={isFetchingRate}
-            className="h-8 gap-1 border-orange-400 text-orange-600 hover:bg-orange-50"
-          >
-            {isFetchingRate ? (
-              <><RefreshCw size={12} className="animate-spin" /> 為替取得中...</>
-            ) : (
-              <><Sparkles size={12} /> 分割して保存</>
-            )}
-          </Button>
-          <Button size="sm" onClick={() => handleSave()} disabled={createMutation.isPending || updateMutation.isPending} className="h-8 gap-1">
-            {(createMutation.isPending || updateMutation.isPending) ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />}
-            保存
-          </Button>
-        </div>
-      </div>
+        }}
+        onTogglePreview={() => setShowPreview(!showPreview)}
+        onPdf={handleSavePdf}
+        onSplit={handleOpenSplitDialog}
+        onSave={() => handleSave()}
+      >
+        <BackConfirmDialog
+          open={showBackConfirm}
+          onOpenChange={setShowBackConfirm}
+          isSaving={createMutation.isPending || updateMutation.isPending}
+          onDiscard={() => {
+            setShowBackConfirm(false);
+            onCancel();
+          }}
+          onSave={() => {
+            setShowBackConfirm(false);
+            handleSave();
+          }}
+        />
+      </EditorToolbar>
 
       {/* 100万円超過確認ダイアログ */}
-      <Dialog open={showOverLimitConfirm} onOpenChange={setShowOverLimitConfirm}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle size={18} className="text-orange-500" />
-              金額が100万円を超えています
-            </DialogTitle>
-            <DialogDescription>
-              このインボイスの円換算合計は「¥{overLimitJpy.toLocaleString()}」で、100万円を超えています。分割しますか？
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                setShowOverLimitConfirm(false);
-                if (pendingSavePayload) {
-                  try {
-                    await persistInvoice(pendingSavePayload);
-                    setPendingSavePayload(null);
-                    onSaved();
-                  } catch {
-                    // mutation error toast is handled by tRPC callbacks
-                  }
-                }
-              }}
-            >
-              <Save size={12} className="mr-1" />
-              そのまま保存
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setShowOverLimitConfirm(false);
-                setPendingSavePayload(null);
-                handleOpenSplitDialog();
-              }}
-              className="bg-orange-500 hover:bg-orange-600 text-white"
-            >
-              <Sparkles size={12} className="mr-1" />
-              分割する
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <OverLimitDialog
+        open={showOverLimitConfirm}
+        onOpenChange={setShowOverLimitConfirm}
+        overLimitJpy={overLimitJpy}
+        onSave={async () => {
+          setShowOverLimitConfirm(false);
+          if (pendingSavePayload) {
+            try {
+              await persistInvoice(pendingSavePayload);
+              setPendingSavePayload(null);
+              onSaved();
+            } catch {
+              // mutation error toast is handled by tRPC callbacks
+            }
+          }
+        }}
+        onSplit={() => {
+          setShowOverLimitConfirm(false);
+          setPendingSavePayload(null);
+          handleOpenSplitDialog();
+        }}
+      />
 
       {/* 分割インボイスプレビューダイアログ */}
-      <Dialog open={showSplitDialog} onOpenChange={setShowSplitDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles size={16} className="text-orange-500" />
-              インボイス自動分割プレビュー
-            </DialogTitle>
-            <DialogDescription>
-              {exchangeRateInfo && (
-                <span className="text-xs">
-                  為替レート: 1 {form.currency} = {exchangeRateInfo.rate.toLocaleString()} 円（{exchangeRateInfo.date}）　上限: 100万円/回
-                </span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-
-          {splitPreview.length === 1 ? (
-            <div className="py-4">
-              <div className="flex items-center gap-2 text-green-600 bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle2 size={16} />
-                <div>
-                  <p className="text-sm font-semibold">分割不要です</p>
-                  <p className="text-xs text-muted-foreground">
-                    合計 {splitPreview[0]?.totalJpy.toLocaleString()} 円で100万円以下です。通常の「保存」で登録できます。
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3 py-2">
-              <div className="flex items-center gap-2 text-orange-600 bg-orange-50 border border-orange-200 rounded-lg p-3">
-                <AlertCircle size={16} />
-                <p className="text-sm">
-                  合計金額が100万円を超えるため、<strong>{splitPreview.length}枚</strong>に分割します。
-                </p>
-              </div>
-              {splitPreview.map((group, idx) => (
-                <div key={idx} className="border border-border rounded-lg overflow-hidden">
-                  <div className="bg-muted/50 px-3 py-2 flex items-center justify-between">
-                    <span className="text-sm font-semibold">
-                      インボイス #{group.invoiceNumber}
-                      {idx === 0 ? " (元番号)" : " (連番)"}
-                    </span>
-                    <span className="text-xs font-mono text-orange-600">
-                      約 {Math.round(group.totalJpy).toLocaleString()} 円
-                    </span>
-                  </div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/20">
-                        <th className="text-left px-3 py-1.5 font-medium">商品</th>
-                        <th className="text-right px-3 py-1.5 font-medium">数量</th>
-                        <th className="text-right px-3 py-1.5 font-medium">単価</th>
-                        <th className="text-right px-3 py-1.5 font-medium">小計(円)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((item, iIdx) => (
-                        <tr key={iIdx} className="border-b border-border/50 last:border-0">
-                          <td className="px-3 py-1.5">
-                            {item.description}
-                            {item.subText && <span className="text-muted-foreground ml-1">({item.subText})</span>}
-                          </td>
-                          <td className="text-right px-3 py-1.5">{item.quantity}</td>
-                          <td className="text-right px-3 py-1.5">{form.currency} {item.unitPrice.toLocaleString()}</td>
-                          <td className="text-right px-3 py-1.5">
-                            {Math.round(item.quantity * item.unitPrice * (exchangeRateInfo?.rate ?? 1)).toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowSplitDialog(false)}>
-              キャンセル
-            </Button>
-            {splitPreview.length === 1 ? (
-              <Button size="sm" onClick={() => { setShowSplitDialog(false); handleSave(); }} disabled={createMutation.isPending}>
-                {createMutation.isPending ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Save size={12} className="mr-1" />}
-                そのまま保存
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={handleConfirmSplit}
-                disabled={createSplitMutation.isPending}
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-              >
-                {createSplitMutation.isPending ? (
-                  <><RefreshCw size={12} className="animate-spin mr-1" /> 作成中...</>
-                ) : (
-                  <><Sparkles size={12} className="mr-1" /> {splitPreview.length}枚に分割して保存</>
-                )}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SplitPreviewDialog
+        open={showSplitDialog}
+        onOpenChange={setShowSplitDialog}
+        currency={form.currency}
+        exchangeRateInfo={exchangeRateInfo}
+        splitPreview={splitPreview}
+        isCreating={createMutation.isPending}
+        isSplitting={createSplitMutation.isPending}
+        onCancel={() => setShowSplitDialog(false)}
+        onSave={() => {
+          setShowSplitDialog(false);
+          handleSave();
+        }}
+        onConfirm={handleConfirmSplit}
+      />
 
       {/* 常時レンダリング（PDF生成用）：編集モードでは非表示だが DOMに存在 */}      <div
         ref={previewRef}
@@ -766,39 +611,16 @@ function InvoiceEditor({
             <InvoiceMetadata form={form} setForm={setForm} />
 
             {/* Client selection */}
-            <div className="bg-background border border-border rounded-lg p-4 space-y-3">
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">宛先</h3>
-              <Select
-                value={form.clientId ? String(form.clientId) : "__none__"}
-                onValueChange={handleClientChange}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder="宛先を選択..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">選択しない</SelectItem>
-                  {clients.map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}{c.company ? ` (${c.company})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedClient && (
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  {selectedClient.address && <p>{selectedClient.address}</p>}
-                  {selectedClient.city && <p>{selectedClient.city}{selectedClient.country ? `, ${selectedClient.country}` : ""}</p>}
-                  {selectedClient.email && <p>{selectedClient.email}</p>}
-                  {selectedClient.phone && <p>{selectedClient.phone}</p>}
-                </div>
-              )}
-            </div>
+            <InvoiceContacts
+              form={form}
+              setForm={setForm}
+              clients={clients}
+              selectedClient={selectedClient}
+              handleClientChange={handleClientChange}
+            />
 
             {/* Notes */}
-            <div className="bg-background border border-border rounded-lg p-4 space-y-2">
-              <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">備考</Label>
-              <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="支払い方法、振込先など..." className="text-sm min-h-[80px] resize-y mt-1" />
-            </div>
+
           </div>
 
           {/* Right: items */}

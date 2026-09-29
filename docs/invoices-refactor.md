@@ -281,3 +281,40 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-ui-tests.json
 3. 編集/一覧の残る処理（保存、印刷/PDF操作、削除済み/検知結果モーダル）の責務別整理。大きな汎用hookへ集めず、実行順序・初期化・取消を個別に固定する。
 
 これらは今回未着手。I06g〜iのローカルコミットを引き渡して停止する。
+
+## 第7回：I06j〜l 操作・確認・宛先表示
+
+共通基準`4037f50`をクリーンな担当ブランチへ`64249a3`でmerge。以下の関連3単位をまとめて整理した。
+
+| 単位 | 境界 |
+| --- | --- |
+| I06j | `EditorToolbar.tsx`と`BackConfirmDialog.tsx`：戻る、プレビュー切替、PDF/分割/通常保存、未保存確認の表示 |
+| I06k | `OverLimitDialog.tsx`と`SplitPreviewDialog.tsx`：上限確認と分割結果の表示 |
+| I06l | `InvoiceContacts.tsx`：顧客選択・連絡先・備考。Fragmentで元の2ブロックをそのまま配置 |
+
+各部品は表示値と必要なイベントだけを受け取る。保存/採番/API/AIの実行処理、状態やpending payloadは親に保持。戻る確認はToolbarのchildrenとして元と同じ位置に置き、追加DOMラッパーを作っていない。InvoicePageは1,975行から1,797行へ縮小。不要になったSelect/Select各部品/ ChevronLeftのimportを削除。
+
+### 旧JSXと親イベントの比較
+
+`editor-controls-baseline.json`は4037f50の実toolbar・上限確認・分割確認・顧客・備考JSXを固定したfixture。整理前はそれを実行し、整理後は現在のInvoicePageの実JSX（親イベント式を含む）と新部品を評価する。固定依存でイベントを記録し、部品側だけでなく親からの渡し方も比較する。
+
+- 対象17テスト・9スナップショットが整理前後で一致。
+- 通常/pending/プレビュー表示/複数分割/空分割・レートなし/閉状態のHTMLを比較。
+- dirty時の戻る確認、clean時の直接cancel、保存せず戻る、保存して戻る、プレビュー切替、PDF、分割開始、通常保存の呼出しを確認。
+- 上限超過の保存は閉じる→persist待機→成功時だけpayload解除→onSaved。待機中、payloadなし、失敗時に解除/遷移しないことを確認。分割選択は閉じる→payload解除→分割開始の順を保持。
+- 単一グループの通常保存、分割取消、複数グループの確定、onOpenChange、顧客選択と備考更新、他フォーム値保持を比較。
+- 作成/更新/分割のpending条件を確認。通常/戻る保存はcreate||update、単一分割保存はcreateのみ、上限確認の「そのまま保存」にはdisabledがない既存条件を保持。
+- 対象型チェック成功。AST確認でInvoiceEditorのreturn以外の全宣言と、その他の画面宣言が無変更。新規5部品と親の該当呼出しだけを局所整形し、親の元イベント式も構文上同じであることを確認。`git diff --check`成功。
+
+```sh
+INVOICE_CONTROLS_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editorControls.test.tsx
+TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editorControls.test.tsx
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-controls-tests.json --noEmit
+```
+
+### 制約と残る境界
+
+- 120万円の単一明細でも1グループなら「分割不要」「100万円以下」と表示する旧矛盾を固定テストで確認し、そのまま保持。
+- Dialog/Select等は固定HTMLタグによる比較。実Radixのopen/close・ポータル・focus・実保存/DBを保証しない。全体テスト/型/build/DB/browserは担当で実施せず統合担当へ引き継ぐ。
+- 次候補はKnowledgeBaseDialogのファイル/履歴/チャット表示と固定依存での入力契約。続いて残る編集・一覧の副作用、削除済み/検知結果モーダル、印刷/PDF操作の境界を整理する。
+- UIの大きな3ブロックは今回分離済みだが、インボイス領域全体の完了ではない。I06j〜lをローカルコミットして引き渡し、今回の担当作業を停止する。
