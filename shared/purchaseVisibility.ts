@@ -1,15 +1,22 @@
 import { isInboundComplete, type InboundClass } from "./inboundPipeline";
 
-/** 一覧の表示判定に必要な最小限の状態。DBや画面の型には依存しない。 */
-export type InboundPurchaseState = {
-  status: string;
-  purchaseDate?: string | null;
+/** 日付制限は発送状態を必要としない。発注登録のDate値も同じ規則で扱う。 */
+export type InboundPurchaseDates = {
+  purchaseDate?: string | Date | null;
   purchase_date?: string | null;
   created_at?: string | null;
   createdAt?: string | Date | null;
-  extra?: { trackingNumber?: string | null } | null;
+};
+
+export type InboundPurchaseCompletion = {
   inboundClass?: InboundClass | null;
-  stage?: string;
+  stage?: string | null;
+};
+
+/** 発送状態の表示判定に必要な状態。DBや画面の型には依存しない。 */
+export type InboundPurchaseState = InboundPurchaseDates & InboundPurchaseCompletion & {
+  status: string;
+  extra?: { trackingNumber?: string | null } | null;
 };
 
 // 入庫ワークフロー刷新前（6/19以前）の旧運用データを非表示にする。
@@ -29,7 +36,7 @@ function normalizeDateOnly(
 }
 
 export function isInboundCutoffVisible(
-  purchase: InboundPurchaseState
+  purchase: InboundPurchaseDates
 ): boolean {
   const filterDate =
     normalizeDateOnly(purchase.purchaseDate) ??
@@ -52,7 +59,7 @@ export function getEffectivePurchaseStatus(purchase: InboundPurchaseState) {
 }
 
 export function isPurchaseInboundComplete(
-  purchase: InboundPurchaseState
+  purchase: InboundPurchaseCompletion
 ): boolean {
   return isInboundComplete(
     purchase.inboundClass ?? null,
