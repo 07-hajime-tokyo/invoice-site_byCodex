@@ -1,3 +1,5 @@
+import { createExternalPurchaseMaps, buildExternalPurchasePageRows, buildExternalPurchaseAllRows } from "./purchases/externalRows";
+import { fillCsvPurchaseSuppliers } from "./purchases/csvSuppliers";
 import { loadLocalPurchaseListData, refreshPurchaseInventoryMap } from "./purchases/localData";
 import { buildLocalPurchaseRow, createPurchaseInventoryMap, attachPurchaseInventoryInfo, type InboundInfo } from "./purchases/localRows";
 import { purchasePageInputSchema } from "./purchases/input";
@@ -3964,36 +3966,8 @@ export const inventoryRouter = router({
           getAllInventoryExtras(),
         ]);
         const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
-        const inventoryMap = new Map(inventoriesWithLabels.map((inv) => [inv.id, inv]));
-        const extrasMap = new Map(extras.map((e) => [e.zaicoId, e]));
-        const inventoryExtrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
-        const rows = purchases.map((p) => {
-          const invExtra = p.purchase_items
-            .map((item) => inventoryExtrasMap.get(item.inventory_id))
-            .find((extra) => extra?.supplierName?.trim() || extra?.supplierUrl?.trim()) ?? null;
-          return {
-            ...p,
-            csvSupplierName: invExtra?.supplierName ?? null,
-            csvSupplierUrl: invExtra?.supplierUrl ?? null,
-            extra: extrasMap.get(p.id) ?? null,
-            purchase_items: p.purchase_items.map((item) => {
-              const inv = inventoryMap.get(item.inventory_id);
-              return {
-                ...item,
-                category: inv?.categories?.[0] ?? inv?.category ?? "未分類",
-                currentInventoryQuantity: inv?.quantity ?? null,
-                itemLabels: inv?.itemLabels?.map(toInventoryItemLabelView) ?? [],
-                etc: (() => {
-                  const itemEtc = item.etc?.trim() ?? "";
-                  const invEtc = inv?.etc?.trim() ?? "";
-                  if (itemEtc.includes(",")) return itemEtc;
-                  if (invEtc.includes(",")) return invEtc;
-                  return itemEtc || invEtc || undefined;
-                })(),
-              };
-            }),
-          };
-        });
+        const data = createExternalPurchaseMaps({ inventories: inventoriesWithLabels, extras, inventoryExtras });
+        const rows = buildExternalPurchasePageRows(purchases, data, toInventoryItemLabelView);
 
         return buildPurchasePageResponse(rows, input);
       }),
@@ -4070,65 +4044,19 @@ export const inventoryRouter = router({
         getAllInventoryExtras(),
       ]);
 
-      const inventoryMap = new Map(inventories.map((inv) => [inv.id, inv]));
-      const extrasMap = new Map(extras.map((e) => [e.zaicoId, e]));
-      // inventory_extras.supplierName を inventoryId をキーにマップ化
-      const inventoryExtrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
+      const data = createExternalPurchaseMaps({ inventories, extras, inventoryExtras });
 
       // CSVのN列（仕入先名）をインボイスNoをキーにマップ化
       // invoiceNo（C列=cols[2]） -> supplierName（N列=cols[13]）
       const csvSupplierMap = new Map<string, string>();
       try {
         const text = await fetchGithubCsv();
-        const lines = text.split(/\r?\n/);
-        for (let i = 3; i < lines.length; i++) {
-          const line = lines[i];
-          if (!line.trim()) continue;
-          const cols = parseCSVLine(line).map((col) => col.trim());
-          const invoiceNo = cols[2]?.trim() ?? "";
-          const supplierName = cols[13]?.trim() ?? "";
-          if (!invoiceNo || !/^\d+$/.test(invoiceNo)) continue;
-          // 同一インボイスNoの最初の非空値を採用
-          if (supplierName && !csvSupplierMap.has(invoiceNo)) {
-            csvSupplierMap.set(invoiceNo, supplierName);
-          }
-        }
+        fillCsvPurchaseSuppliers(text, csvSupplierMap, parseCSVLine);
       } catch (e) {
         console.error("CSV supplier fetch error:", e);
       }
 
-      return purchases.map((p) => {
-        // purchase_items の inventory_id から inventory_extras の supplierName/supplierUrl を取得
-        const invExtra = p.purchase_items
-          .map((item) => inventoryExtrasMap.get(item.inventory_id))
-          .find((extra) => extra?.supplierName?.trim() || extra?.supplierUrl?.trim()) ?? null;
-        const invSupplierName = invExtra?.supplierName ?? null;
-        const invSupplierUrl = invExtra?.supplierUrl ?? null;
-        return {
-          ...p,
-          // 優先順位: inventory_extras.supplierName > CSV取引相相手列 > null
-          csvSupplierName: invSupplierName ?? csvSupplierMap.get(p.num) ?? null,
-          csvSupplierUrl: invSupplierUrl ?? null,
-          extra: extrasMap.get(p.id) ?? null,
-          purchase_items: p.purchase_items.map((item) => {
-            const inv = inventoryMap.get(item.inventory_id);
-            return {
-              ...item,
-              category: inv?.categories?.[0] ?? inv?.category ?? "未分類",
-              // 在庫の etc（備考欄）を優先して設定
-              // item.etc が「管理番号のみ」（カンマなし）の場合は在庫の etc（サイト名含む完全形式）を優先する
-              etc: (() => {
-                const itemEtc = item.etc?.trim() ?? "";
-                const invEtc = inv?.etc?.trim() ?? "";
-                // カンマが含まれている = 「管理番号, 日付, サイト名」の完全形式
-                if (itemEtc.includes(",")) return itemEtc;
-                if (invEtc.includes(",")) return invEtc;
-                return itemEtc || invEtc || undefined;
-              })(),
-            };
-          }),
-        };
-      });
+      return buildExternalPurchaseAllRows(purchases, data, csvSupplierMap);
     }),
 
     /**
