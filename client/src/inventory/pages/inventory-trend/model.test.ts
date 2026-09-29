@@ -1,12 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { buildSnapshotBreakdown } from "@shared/inventorySnapshot";
-import { buildTrendChartData, buildTrendTableRows, filterInventoryChangeLogs, type SnapshotRow, type ChangeLogRow } from "./model";
+import {
+  buildTrendChartData,
+  buildTrendTableRows,
+  filterInventoryChangeLogs,
+  type SnapshotRow,
+  type ChangeLogRow,
+} from "./model";
 import { fmt as trendAmount, fmtDateTime } from "./presentation";
-import { fmt as monthlyAmount, fmtForeign, parseDomesticNote, fmtDate } from "../monthly-report/presentation";
+import {
+  fmt as monthlyAmount,
+  fmtForeign,
+  parseDomesticNote,
+  fmtDate,
+} from "../monthly-report/presentation";
 
 function snapshot(id: number, total: number | null): SnapshotRow {
-  return { id, date: `2026-09-${String(id).padStart(2, "0")}`, label: null, createdBy: null, createdAt: new Date(0),
-    breakdown: total === null ? null : buildSnapshotBreakdown([{ category: "test", quantity: 1, unitPrice: total, totalValue: total }], []) };
+  return {
+    id,
+    date: `2026-09-${String(id).padStart(2, "0")}`,
+    label: null,
+    createdBy: null,
+    createdAt: new Date(0),
+    breakdown:
+      total === null
+        ? null
+        : buildSnapshotBreakdown(
+            [
+              {
+                category: "test",
+                quantity: 1,
+                unitPrice: total,
+                totalValue: total,
+              },
+            ],
+            []
+          ),
+  };
 }
 
 describe("在庫推移の表示用モデル", () => {
@@ -20,18 +50,40 @@ describe("在庫推移の表示用モデル", () => {
     expect(rows).toEqual(before);
   });
   it("差分は隣の記録とだけ比較し、nullを飛び越さない", () => {
-    const rows = [snapshot(30, 10.5), snapshot(29, 20), snapshot(28, null), snapshot(27, 0)];
-    expect(buildTrendTableRows(rows).map(row => row.delta)).toEqual([-9.5, null, null, null]);
+    const rows = [
+      snapshot(30, 10.5),
+      snapshot(29, 20),
+      snapshot(28, null),
+      snapshot(27, 0),
+    ];
+    expect(buildTrendTableRows(rows).map(row => row.delta)).toEqual([
+      -9.5,
+      null,
+      null,
+      null,
+    ]);
     expect(buildTrendTableRows([])).toEqual([]);
   });
   it("検索は商品・メモ・操作者・種類を対象にし、空検索は元配列を返す", () => {
     const rows = [
-      { title: "Console", memo: null, operatorName: null, changeType: "created" },
-      { title: null, memo: "Local CHECK", operatorName: "Suzuki", changeType: "set" },
+      {
+        title: "Console",
+        memo: null,
+        operatorName: null,
+        changeType: "created",
+      },
+      {
+        title: null,
+        memo: "Local CHECK",
+        operatorName: "Suzuki",
+        changeType: "set",
+      },
     ] as ChangeLogRow[];
     expect(filterInventoryChangeLogs(rows, " ")).toBe(rows);
-    for (const query of [" console ", "CREATED"]) expect(filterInventoryChangeLogs(rows, query)).toEqual([rows[0]]);
-    for (const query of ["check", "SUZUKI", "set"]) expect(filterInventoryChangeLogs(rows, query)).toEqual([rows[1]]);
+    for (const query of [" console ", "CREATED"])
+      expect(filterInventoryChangeLogs(rows, query)).toEqual([rows[0]]);
+    for (const query of ["check", "SUZUKI", "set"])
+      expect(filterInventoryChangeLogs(rows, query)).toEqual([rows[1]]);
     expect(filterInventoryChangeLogs(rows, "missing")).toEqual([]);
   });
 });
@@ -47,9 +99,18 @@ describe("月次と推移で異なる既存の表示規則", () => {
     expect(fmtForeign(0, "USD")).toBe("0ドル");
   });
   it("国内判定と未解釈の日付を維持する", () => {
-    expect(parseDomesticNote("TOYNET local")).toEqual({ isDomestic: true, detail: "TOYNET local" });
-    expect(parseDomesticNote("overseas")).toEqual({ isDomestic: false, detail: null });
-    expect(parseDomesticNote(null)).toEqual({ isDomestic: false, detail: null });
+    expect(parseDomesticNote("TOYNET local")).toEqual({
+      isDomestic: true,
+      detail: "TOYNET local",
+    });
+    expect(parseDomesticNote("overseas")).toEqual({
+      isDomestic: false,
+      detail: null,
+    });
+    expect(parseDomesticNote(null)).toEqual({
+      isDomestic: false,
+      detail: null,
+    });
     expect(fmtDate("invalid-date")).toBe("invalid-date");
     expect(fmtDateTime("invalid-date")).toBe("invalid-date");
   });

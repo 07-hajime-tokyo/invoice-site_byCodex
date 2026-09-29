@@ -54,7 +54,7 @@
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
 | インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | I01〜I05・I06a〜l・I07a〜f・I08a〜b・I09済 | 型・日付/顧客規則・プレビュー・PDF・顧客/差出人・フォーム変換・通常一覧・明細操作/保存payload/分割計算。基本情報/明細UI・プレビュー寸法も整理。保存実行/採番/AI等は後続 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
-| 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 未着手 | 集計・締め・保存・再取得・日付境界 |
+| 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | M01一部済 | 集計・締め・保存・再取得・日付境界 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 未着手 | 対象限定・復元・履歴保持・再実行。専用データのみで検証 |
 | 作業管理・やること | `WorkManagement.tsx`、`ActionItems.tsx`、対応API | 未着手 | 作成・担当・進行・完了・添付・保存 |
 | 会話履歴・ナレッジ・AI | `WhatsappHistory.tsx`、`KnowledgeBasePage.tsx`、`AiInvestigation.tsx` | 未着手 | 一覧・検索・取込・生成結果の保存・失敗時 |
@@ -307,3 +307,9 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - `3a82cb2`で保存/更新/重複拒否/複製/削除復元/分割/採番の回帰3件を追加し、整理前51件成功を基準化。初回期待値はDBの小数2桁表現へ修正（アプリ変更なし）。接続EPERMはローカル接続権限取得後に解消。
 - 統合534単体＋51 HTTP/API/専用MySQL回帰＝585件、アプリ/回帰型、build、差分チェック成功。実UIはスキャン待機、箱モード/従来出庫、ラベル選択で出庫1件が有効になること、返品対象の表示を確認。カメラ/実印刷/FedEx/返品確定は未実行。純粋移動の一致証拠と代表UIを組み合わせた検証。
 - DB回帰後に架空7件へseed。実UI用に架空在庫910001のみ数量1・ラベルstockedへ変更して保持（ラベルQKNALGY）。請求書テストデータは撤去済み。全体は1領域済・2一部済・13未着手。main/push/Vercel/本番DBキー操作なし。
+
+## M01：在庫推移モデル・月次表示規則（2026-09-30）
+
+- `969e241`：InventoryTrendのグラフ/前日差/検索を純粋モデルへ、月次の型と表示規則を専用モジュールへ移動。API型から推移データ型を参照。共通の在庫金額定義は既存shared/inventorySnapshotを維持。月次の小数表示と推移の整数丸め、ローカル日付とJSTは意味が異なるので統合しない。
+- 旧Gitと月次component/移動関数本体、推移JSX/計算本体の一致確認。5境界テスト＋既存8集計テスト、アプリ型・対象テスト型成功。在庫推移の空画面DOMは前後一致、月次の架空在庫1点・1,500.25円表示も確認。
+- React整理スキルの観点でmemo依存配列・hook順・リクエスト順・UI構造を保持。月次のCSV/保存/プレビュー集計・DB/API、表示パネル分割の監査は未完了。日次保存サービスは既に共有集計を参照するが、永続化回帰は別途必要。全体は1領域済・3一部済・12未着手。
