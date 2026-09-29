@@ -1,6 +1,13 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "incremental": false, "allowJs": true },
-  "include": ["./**/*.ts", "./support/*.mjs", "../../server/inventory/purchases/*.test.ts", "../../shared/purchaseVisibility.test.ts"],
+  "include": [
+    "./**/*.ts",
+    "./support/*.mjs",
+    "../../server/inventory/purchases/*.test.ts",
+    "../../shared/purchaseVisibility.test.ts",
+    "../../client/src/inventory/pages/purchases/*.test.ts",
+    "../../client/src/inventory/pages/purchases/*.test.tsx"
+  ],
   "exclude": ["../../node_modules"]
 }
