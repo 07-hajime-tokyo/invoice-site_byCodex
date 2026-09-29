@@ -1,3 +1,4 @@
+import { buildLocalPurchaseRow, createPurchaseInventoryMap, attachPurchaseInventoryInfo, type InboundInfo } from "./purchases/localRows";
 import { purchasePageInputSchema } from "./purchases/input";
 import { buildPurchasePageResponse } from "./purchases/page";
 import { z } from "zod";
@@ -3142,14 +3143,6 @@ async function ensureShaftPurchases(
 // T22: 入庫仕訳のenrich（読み取り時の自動判定＋バックフィル）
 // ============================================================
 
-type InboundInfo = {
-  inboundClass: InboundClass | null;
-  classSource: "auto" | "manual";
-  stage: string;
-  stageUpdatedBy: string | null;
-  shaftParentPurchaseId: number | null;
-};
-
 /** システム設定から直取の相手名リストを取得（未設定なら初期値: サミー, ルカ, サイモン, マキシム, ネレ） */
 async function getDirectPartnerNames(): Promise<string[]> {
   try {
@@ -3230,40 +3223,6 @@ async function resolveInboundInfoMap(
   }
 
   return map;
-}
-
-type PurchaseExtraView = {
-  zaicoId: number;
-  shipDate?: string | null;
-  trackingNumber?: string | null;
-  carrier?: string | null;
-  note?: string | null;
-};
-
-function getLocalPurchaseStoredExtra(
-  row: Pick<LocalPurchaseRow, "id" | "zaicoId" | "localInventoryId">,
-  extrasByZaicoId: Map<number, PurchaseExtraView>,
-): PurchaseExtraView | null {
-  return (
-    extrasByZaicoId.get(row.id) ??
-    (row.zaicoId ? extrasByZaicoId.get(row.zaicoId) : undefined) ??
-    (row.localInventoryId ? extrasByZaicoId.get(row.localInventoryId) : undefined) ??
-    null
-  );
-}
-
-function mergeLocalPurchaseStoredExtra<T extends LocalPurchaseRow>(
-  row: T,
-  extra: PurchaseExtraView | null | undefined,
-): T {
-  if (!extra) return row;
-  return {
-    ...row,
-    shipDate: String(row.shipDate ?? "").trim() ? row.shipDate : extra.shipDate ?? null,
-    trackingNumber: String(row.trackingNumber ?? "").trim() ? row.trackingNumber : extra.trackingNumber ?? null,
-    carrier: String(row.carrier ?? "").trim() ? row.carrier : extra.carrier ?? null,
-    note: String(row.note ?? "").trim() ? row.note : extra.note ?? null,
-  };
 }
 
 type PurchaseTrackingSyncInput = {
@@ -3973,15 +3932,7 @@ export const inventoryRouter = router({
             getInventoryItemLabelsByInventoryIds(invIds)
           );
           const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
-          const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
-          for (const inv of localInventoryRows) {
-            invSupplierMap.set(inv.id, {
-              supplierName: inv.supplierName ?? null,
-              supplierUrl: inv.supplierUrl ?? null,
-              ebayListingUrl: inv.ebayListingUrl ?? null,
-              quantity: inv.quantity ?? null,
-            });
-          }
+          const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
           t.mark("prepareSupplierMap");
 
           await t.step("supplierMapQuery", async () => {
@@ -4009,78 +3960,18 @@ export const inventoryRouter = router({
             }
           });
 
-          const rows = localPurchaseRows.map((p) => {
-            const purchaseWithExtra = mergeLocalPurchaseStoredExtra(p, getLocalPurchaseStoredExtra(p, purchaseExtraMap));
-            const inv = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
-            const inbound = inboundInfoMap.get(p.id);
-            const displayStatus = getLocalPurchaseDisplayStatus(purchaseWithExtra, inventoryLabelMap);
-            return {
-              id: purchaseWithExtra.zaicoId ?? purchaseWithExtra.id,
-              num: purchaseWithExtra.purchaseNum ?? "",
-              purchase_date: purchaseWithExtra.purchaseDate ?? null,
-              status: displayStatus,
-              csvSupplierName: purchaseWithExtra.supplierName ?? inv?.supplierName ?? null,
-              csvSupplierUrl: purchaseWithExtra.supplierUrl ?? inv?.supplierUrl ?? null,
-              inboundClass: inbound?.inboundClass ?? null,
-              classSource: inbound?.classSource ?? "auto",
-              stage: inbound?.stage ?? "received",
-              stageUpdatedBy: inbound?.stageUpdatedBy ?? null,
-              shaftParentPurchaseId: inbound?.shaftParentPurchaseId ?? null,
-              extra: {
-                shipDate: purchaseWithExtra.shipDate ?? null,
-                trackingNumber: purchaseWithExtra.trackingNumber ?? null,
-                carrier: purchaseWithExtra.carrier ?? null,
-                note: purchaseWithExtra.note ?? null,
-              },
-              purchase_items: (() => {
-                try {
-                  const items = JSON.parse(purchaseWithExtra.itemsJson ?? "[]");
-                  return Array.isArray(items) ? items.map((item: Record<string, unknown>) => {
-                    const parsedInventoryId = Number(item.inventory_id ?? item.inventoryId ?? purchaseWithExtra.localInventoryId);
-                    const inventoryId = Number.isFinite(parsedInventoryId) ? parsedInventoryId : null;
-                    const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
-                    const itemEtc =
-                      typeof item.etc === "string" && item.etc.trim()
-                        ? item.etc
-                        : purchaseWithExtra.managementNo ?? undefined;
-                    return {
-                      ...item,
-                      status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
-                      inventory_id: inventoryId,
-                      etc: itemEtc,
-                      category: purchaseWithExtra.category ?? "未分類",
-                      currentInventoryQuantity: invInfo?.quantity ?? null,
-                      itemLabels: labelsForPurchaseItem(purchaseWithExtra, item, inventoryLabelMap),
-                    };
-                  }) : [];
-                } catch {
-                  const invInfo = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
-                  return [{
-                    id: purchaseWithExtra.id,
-                    title: purchaseWithExtra.title,
-                    quantity: String(purchaseWithExtra.quantity ?? 1),
-                    unit_price: purchaseWithExtra.unitPrice ?? null,
-                    etc: purchaseWithExtra.managementNo ?? null,
-                    status: displayStatus,
-                    inventory_id: purchaseWithExtra.localInventoryId ?? null,
-                    category: purchaseWithExtra.category ?? "未分類",
-                    currentInventoryQuantity: invInfo?.quantity ?? null,
-                    itemLabels: labelsForPurchaseItem(purchaseWithExtra, { inventory_id: purchaseWithExtra.localInventoryId }, inventoryLabelMap),
-                  }];
-                }
-              })(),
-            };
-          });
+          const rows = localPurchaseRows.map((p) =>
+            buildLocalPurchaseRow(p, {
+              extrasById: purchaseExtraMap,
+              inventoryById: invSupplierMap,
+              inbound: inboundInfoMap.get(p.id),
+              getDisplayStatus: (purchase) => getLocalPurchaseDisplayStatus(purchase, inventoryLabelMap),
+              getItemLabels: (purchase, item) => labelsForPurchaseItem(purchase, item, inventoryLabelMap),
+            })
+          );
           t.mark("mapRows");
 
-          for (const row of rows) {
-            for (const item of row.purchase_items as Array<Record<string, unknown>>) {
-              const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
-              const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
-              item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
-              item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
-            }
-          }
+          attachPurchaseInventoryInfo(rows, invSupplierMap);
           t.mark("attachItemInventoryInfo");
 
           const response = buildPurchasePageResponse(rows, input);
@@ -4176,15 +4067,7 @@ export const inventoryRouter = router({
           getInventoryItemLabelsByInventoryIds(invIds)
         );
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
-        const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
-        for (const inv of localInventoryRows) {
-          invSupplierMap.set(inv.id, {
-            supplierName: inv.supplierName ?? null,
-            supplierUrl: inv.supplierUrl ?? null,
-            ebayListingUrl: inv.ebayListingUrl ?? null,
-            quantity: inv.quantity ?? null,
-          });
-        }
+        const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
         t.mark("prepareSupplierMap");
         await t.step("supplierMapQuery", async () => {
           if (invIds.length > 0) {
@@ -4210,82 +4093,20 @@ export const inventoryRouter = router({
             }
           }
         });
-        const rows = localPurchaseRows.map((p) => {
-          const purchaseWithExtra = mergeLocalPurchaseStoredExtra(p, getLocalPurchaseStoredExtra(p, purchaseExtraMap));
-          const inv = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
-          const inbound = inboundInfoMap.get(p.id);
-          // local_purchasesのstatusがpurchased、またはpurchase_historiesに有効な入庫履歴があればpurchased
-          const localId = purchaseWithExtra.zaicoId ?? purchaseWithExtra.id;
-          const displayStatus = getLocalPurchaseDisplayStatus(purchaseWithExtra, inventoryLabelMap, purchasedZaicoIds);
-          return {
-            id: localId,
-            num: purchaseWithExtra.purchaseNum ?? "",
-            purchase_date: purchaseWithExtra.purchaseDate ?? null,
-            createdAt: purchaseWithExtra.createdAt ?? null,
-            created_at: purchaseWithExtra.createdAt instanceof Date ? purchaseWithExtra.createdAt.toISOString() : (purchaseWithExtra.createdAt ? String(purchaseWithExtra.createdAt) : null),
-            status: displayStatus,
-            // local_purchases自体のsupplierName/Urlを優先、なければlocal_inventoriesから取得
-            csvSupplierName: purchaseWithExtra.supplierName ?? inv?.supplierName ?? null,
-            csvSupplierUrl: purchaseWithExtra.supplierUrl ?? inv?.supplierUrl ?? null,
-            inboundClass: inbound?.inboundClass ?? null,
-            classSource: inbound?.classSource ?? "auto",
-            stage: inbound?.stage ?? "received",
-            stageUpdatedBy: inbound?.stageUpdatedBy ?? null,
-            shaftParentPurchaseId: inbound?.shaftParentPurchaseId ?? null,
-            extra: {
-              shipDate: purchaseWithExtra.shipDate ?? null,
-              trackingNumber: purchaseWithExtra.trackingNumber ?? null,
-              carrier: purchaseWithExtra.carrier ?? null,
-              note: purchaseWithExtra.note ?? null,
-            },
-            purchase_items: (() => {
-              try {
-                const items = JSON.parse(purchaseWithExtra.itemsJson ?? "[]");
-                return Array.isArray(items) ? items.map((item: Record<string, unknown>) => {
-                  const parsedInventoryId = Number(item.inventory_id ?? item.inventoryId ?? purchaseWithExtra.localInventoryId);
-                  const inventoryId = Number.isFinite(parsedInventoryId) ? parsedInventoryId : null;
-                  const invInfo = inventoryId != null ? invSupplierMap.get(inventoryId) : null;
-                  const itemEtc =
-                    typeof item.etc === "string" && item.etc.trim()
-                      ? item.etc
-                      : purchaseWithExtra.managementNo ?? undefined;
-                  return {
-                    ...item,
-                    status: displayStatus === "purchased" || displayStatus === "shipped" ? displayStatus : item.status,
-                    inventory_id: inventoryId,
-                    etc: itemEtc,
-                    category: purchaseWithExtra.category ?? "未分類",
-                    currentInventoryQuantity: invInfo?.quantity ?? null,
-                    itemLabels: labelsForPurchaseItem(purchaseWithExtra, item, inventoryLabelMap),
-                  };
-                }) : [];
-              } catch {
-                const invInfo = purchaseWithExtra.localInventoryId ? invSupplierMap.get(purchaseWithExtra.localInventoryId) : null;
-                return [{
-                  id: purchaseWithExtra.id,
-                  title: purchaseWithExtra.title,
-                  quantity: String(purchaseWithExtra.quantity ?? 1),
-                  unit_price: purchaseWithExtra.unitPrice ?? null,
-                  etc: purchaseWithExtra.managementNo ?? null,
-                  status: displayStatus,
-                  inventory_id: purchaseWithExtra.localInventoryId ?? null,
-                  category: purchaseWithExtra.category ?? "未分類",
-                  currentInventoryQuantity: invInfo?.quantity ?? null,
-                  itemLabels: labelsForPurchaseItem(purchaseWithExtra, { inventory_id: purchaseWithExtra.localInventoryId }, inventoryLabelMap),
-                }];
-              }
-            })(),
-          };
-        });
+        const rows = localPurchaseRows.map((p) => ({
+          ...buildLocalPurchaseRow(p, {
+            extrasById: purchaseExtraMap,
+            inventoryById: invSupplierMap,
+            inbound: inboundInfoMap.get(p.id),
+            // 全件取得だけは、従来どおり有効な入庫履歴も状態判定に使う。
+            getDisplayStatus: (purchase) => getLocalPurchaseDisplayStatus(purchase, inventoryLabelMap, purchasedZaicoIds),
+            getItemLabels: (purchase, item) => labelsForPurchaseItem(purchase, item, inventoryLabelMap),
+          }),
+          createdAt: p.createdAt ?? null,
+          created_at: p.createdAt instanceof Date ? p.createdAt.toISOString() : (p.createdAt ? String(p.createdAt) : null),
+        }));
         t.mark("mapRows");
-        for (const row of rows) {
-          for (const item of row.purchase_items as Array<Record<string, unknown>>) {
-            const itemInventoryId = Number(item.inventory_id ?? item.inventoryId);
-            const invInfo = Number.isFinite(itemInventoryId) ? invSupplierMap.get(itemInventoryId) : null;
-            item.ebayListingUrl = invInfo?.ebayListingUrl ?? null;
-            item.currentInventoryQuantity = item.currentInventoryQuantity ?? invInfo?.quantity ?? null;
-          }
-        }
+        attachPurchaseInventoryInfo(rows, invSupplierMap);
         t.mark("attachItemInventoryInfo");
         t.done({
           purchaseCount: localPurchaseRows.length,

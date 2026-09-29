@@ -26,6 +26,129 @@ afterAll(async () => {
 });
 
 describe("入庫一覧: 整理前のHTTP/API/DBの振る舞い", () => {
+  it("有効な入庫履歴は全件取得側だけの状態判定に使う", async () => {
+    await db.query("INSERT INTO purchase_histories SET ?", {
+      zaicoId: 910001,
+      kanriNo: "TEST-A",
+      title: "【テスト】携帯ゲーム機A",
+      quantity: "2",
+      purchaseDate: "2026-09-01",
+      inventoryId: 910001,
+      cancelled: 0,
+    });
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(page.items[0].status).toBe("ordered");
+    expect(all.find(row => row.id === 910001)?.status).toBe("purchased");
+    await db.query(
+      "UPDATE purchase_histories SET cancelled=1 WHERE zaicoId=910001"
+    );
+    const cancelled =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(cancelled.find(row => row.id === 910001)?.status).toBe("ordered");
+  });
+
+  it("全件取得では7件と作成日時を保持し、ページ取得とは項目を分ける", async () => {
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(all.map(row => row.id).sort()).toEqual([
+      910001, 910002, 910003, 910004, 910005, 910006, 910007,
+    ]);
+    const first = all.find(row => row.id === 910001)!;
+    if (!("createdAt" in first)) throw new Error("Expected the local DB response");
+    expect(first.createdAt).toBeInstanceOf(Date);
+    expect(first.created_at).toBe((first.createdAt as Date).toISOString());
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(page.items[0]).not.toHaveProperty("createdAt");
+    const { createdAt, created_at, ...common } = first;
+    expect(page.items[0]).toEqual(common);
+  });
+
+  it("保存済み追加情報は空欄を補い、発注行にある値は上書きしない", async () => {
+    await db.query(
+      "UPDATE local_purchases SET note='発注側のメモ', trackingNumber=' ', carrier=NULL WHERE id=910001"
+    );
+    await db.query("INSERT INTO purchase_extras SET ?", {
+      zaicoId: 910001,
+      trackingNumber: "EXTRA-TRACK",
+      carrier: "yamato",
+      note: "追加側のメモ",
+    });
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "EXTRA-TRACK",
+      });
+    expect(page.items[0]).toMatchObject({
+      id: 910001,
+      status: "shipped",
+      extra: {
+        trackingNumber: "EXTRA-TRACK",
+        carrier: "yamato",
+        note: "発注側のメモ",
+      },
+    });
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(all.find(row => row.id === 910001)?.extra).toEqual(
+      page.items[0].extra
+    );
+  });
+
+  it("壊れた明細JSONは発注行から復元して在庫情報を付ける", async () => {
+    await db.query(
+      "UPDATE local_purchases SET itemsJson='{broken', supplierName=NULL, supplierUrl=NULL WHERE id=910001"
+    );
+    await db.query(
+      "UPDATE local_inventories SET supplierName='在庫側仕入先', supplierUrl='https://supplier.invalid/item', ebayListingUrl='https://listing.invalid/item' WHERE id=910001"
+    );
+    const page =
+      await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+        search: "TEST-A",
+      });
+    expect(page.items[0]).toMatchObject({
+      csvSupplierName: "在庫側仕入先",
+      csvSupplierUrl: "https://supplier.invalid/item",
+    });
+    expect(page.items[0].purchase_items).toHaveLength(1);
+    expect(page.items[0].purchase_items[0]).toMatchObject({
+      title: "【テスト】携帯ゲーム機A",
+      quantity: "2",
+      unit_price: "1500.25",
+      category: "ゲーム機",
+      inventory_id: 910001,
+      currentInventoryQuantity: 0,
+      ebayListingUrl: "https://listing.invalid/item",
+    });
+    const all =
+      await api.client.inventory.zaico.getPurchasesWithCategory.query();
+    expect(all.find(row => row.id === 910001)?.purchase_items).toEqual(
+      page.items[0].purchase_items
+    );
+  });
+
+  it("JSONが空配列・オブジェクトの場合は復元せず空明細のまま返す", async () => {
+    for (const itemsJson of ["[]", "{}", "null"]) {
+      await db.query("UPDATE local_purchases SET itemsJson=? WHERE id=910001", [
+        itemsJson,
+      ]);
+      const page =
+        await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({
+          search: "TEST-910001",
+        });
+      expect(page.items[0].purchase_items).toEqual([]);
+      const all =
+        await api.client.inventory.zaico.getPurchasesWithCategory.query();
+      expect(all.find(row => row.id === 910001)?.purchase_items).toEqual([]);
+    }
+  });
+
   it("通常一覧は未完了4件、境界日前・入庫済み・完了済みを除く", async () => {
     const result =
       await api.client.inventory.zaico.getPurchasesWithCategoryPage.query({});

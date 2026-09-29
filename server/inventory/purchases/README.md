@@ -1,16 +1,22 @@
 # 入庫一覧
 
-`inventory.zaico.getPurchasesWithCategoryPage` の、入力検証と一覧の組み立てを担当します。
-データ取得後の行を受け取り、検索・集計・ページ分割した結果を返します。
+`inventory.zaico.getPurchasesWithCategoryPage` の入力検証・一覧処理と、
+`getPurchasesWithCategory` と共通のローカルDB行の表示用変換を担当します。
+データ取得後の行を受け取り、表示用の形への変換、検索・集計・ページ分割を行います。
 
 | ファイル                                | 責務                                                               |
 | --------------------------------------- | ------------------------------------------------------------------ |
 | `input.ts`                              | API入力の検証。TypeScriptの入力型もこのスキーマから導出する        |
 | `page.ts`                               | 検索、分類・カテゴリ・状態フィルタ、合計・件数、並び順、ページ分割 |
+| `localRows.ts`                          | 通常一覧・全件取得で共通の、ローカル発注・明細・在庫情報の表示用変換 |
+| `storedExtra.ts`                        | 保存済み配送情報・メモで発注行の空欄を補う優先順位 |
 | `../../../shared/purchaseVisibility.ts` | サーバーと画面が共有する日付・発送状態・完了の判定                 |
 | `../routers.ts`                         | APIの認証とデータ取得・補完。取得結果を一覧処理へ渡す              |
 
 `page.ts` はDB・HTTP・外部API・Reactに依存しません。取得した行の追加情報は維持し、元の配列や行を書き換えません。
+`localRows.ts` と `storedExtra.ts` も接続・更新を行いません。DBの型定義は `import type` だけで参照します。
+状態判定・ラベル照合は既存の業務関数を呼出元から渡し、APIファイルへの逆向きの依存を作りません。
+出品URL・在庫数量の付加は新しく作った表示明細だけに行います。
 分類と最終工程の定義は既存の `shared/inboundPipeline.ts` を使います。
 日付・状態・完了条件を変更する場合は画面側に再実装せず、共有側とそのテストを更新します。
 
@@ -26,12 +32,23 @@
 画面側には、返ってきた行への追加の表示制御やタブ件数の補完処理があります。
 検索時の画面とAPIの違いも今回の整理では変えていません。DB取得・復旧・自動分類・更新処理も従来のままです。
 
+## 通常一覧と全件取得で残す違い
+
+- 全件取得側だけが `createdAt` / `created_at` を返し、有効な入庫履歴も表示ステータスの根拠に使います。
+- 通常一覧側は従来どおり、その履歴セットを使いません。ページ分割は通常一覧だけに適用します。
+- 外部在庫サービス有効時の整形やCSVによる仕入先補完は別の経路です。今回のローカル整形に混ぜていません。
+- 追加情報は発注ID → 外部ID → 在庫IDの順で1レコードを選び、発注行の空欄だけを補います。
+- 壊れた明細JSONは発注行から復元します。有効なJSONが空配列・配列以外だった場合は空明細です。
+
 ## 確認
 
 - `shared/purchaseVisibility.test.ts`: 日付の境界・代替日付・UTC・状態・完了判定
 - このフォルダの `input.test.ts` / `page.test.ts`: 入力検証と一覧計算
+- `localRows.test.ts` / `storedExtra.test.ts`: 表示用変換・JSONの例外・情報の優先順位
 - `tests/regression/purchases.test.ts`: 実際のHTTP/API/ローカルMySQLを通す動作確認
 - `tests/regression/browser-checklist.md`: 実画面で繰り返す確認手順
 
 DBを使わないテストは既存の `pnpm test` の対象です。
 DBを使う確認は `pnpm test:regression` を使用します。専用DBが毎回初期化されるので、設定は `tests/regression/README.md` を確認してください。
+
+全体の作業と残りの境界は `docs/refactor-roadmap.md` に記録しています。
