@@ -439,3 +439,53 @@ git diff --check
 1. `PurchaseRegistrationCard` / `StockDetailCard` / `EmptyState` の依存元を分離してから `OrderDashboard` を移動。編集・追跡・削除コールバックと表示状態を保持する。
 2. `StockProposalPanel` / 分類カード / 商品行と `StockPanel` の表示境界を整理。検索・展開状態・引当イベントの所属は維持する。
 3. `LabelChecklistView` / 印刷用紙 / 印刷CSSなどの表示部分を先に分離し、`LabelPrintPanel` の設定保存・印刷副作用との境界を整理。スキャン/発送の実行処理へは同時に広げない。
+
+## 第7回：発注カードとOrderDashboard（R11）
+
+共通基準 `4037f50` をcleanな作業枝へmergeし、競合なし。第6回で残したカード依存元から次の3単位を分離した。
+
+| 単位 | モジュール | 内容 |
+| --- | --- | --- |
+| カードの依存元 | `purchaseRowIdentity.ts` / `trackingNavigation.ts` | ラベル優先の在庫ID選択、エコ配追跡フォーム送信 |
+| 表示カード | `PurchaseRegistrationCard.tsx` / `StockDetailCard.tsx` / `EmptyState.tsx` | 発注カード、現在庫カード、空表示 |
+| ダッシュボード | `OrderDashboard.tsx` | 集計/充足表、出庫済み表示切替、詳細行・在庫カードの表示 |
+
+画面は6,510行から5,968行。既存propsをそのまま移動し、ダッシュボード→カード→依存元の直接importにした。巨大なprops注入やfactory、循環参照は追加していない。モジュール直下のコンポーネント定義と同じ呼出位置・key・propsを保ち、状態の所属を変更していない。
+
+エコ配の追跡を使うスキャン表示や追跡ダイアログも同じ関数をimportする。DOMフォームの生成・属性/値設定・append・submit・removeの順序を維持し、エラー処理や入力正規化を追加していない。API/mutation、保存、スキャン/発送/削除/引当の実行処理は画面内のまま。
+
+### 維持した表示と操作
+
+- 発注カードの表示商品4件/ラベル8件の上限、残件数、仕入先リンク、追跡キャリア表示、ラベル印刷/削除のdisabled条件、選択時の枠とaria-labelを保持。
+- 選択は `checked === true` のみtrueとして通知。編集・追跡編集・出庫履歴・削除は同じ購入行参照、在庫編集は同じID、印刷は既存builderのラベル配列を渡す。
+- 在庫IDはラベル→購入品の順で、有限かつ正のNumber変換値を最初に返す。小数を整数へ丸める等の変更はしない。
+- ダッシュボードの出庫済み行は初期非表示。切替は関数型setStateを保持し、グループkey・商品key・商品名・modeの値が変わった場合にだけeffectでfalseへ戻す。
+- `detailRows` / `products` 上書き、groupの優先、在庫/eBay条件、空表示、フィルター解除、削除中ID、カードへのコールバック転送は従来どおり。
+- `vercel:react-best-practices` の観点で、モジュール直下定義、hookの呼出順/依存、直接import、props型、既存の操作性を確認。表示改善や最適化は混ぜていない。
+
+### 固定基準と検証
+
+`dashboard-baseline-source.txt` は `4037f50` の実宣言6件をそのまま保存したfixture。
+SHA-256：`df4c04215d2af3f9491389fb32ab4c5412d92cea064ef696137da75c555bc584`。
+編集前の旧コードで7テスト・10スナップショットを固定し、移動後に更新せず照合した。通常テストはGitを呼ばず、現行側は新アプリモジュールを直接実行する。
+
+- 新7テスト＋前回allocation9テスト、計16テストが成功。新10件＋既存10件のスナップショットが一致。
+- 発注カード12条件＋選択状態、在庫カード3条件、空表示3条件、Dashboard6条件のHTMLを旧実装と完全一致比較。HTMLのSHA-256・表示文字・操作要素属性を固定スナップショットにも保存。
+- 在庫IDの56境界条件、空購入行、印刷/削除のdisabled条件、選択値のtrue/false/indeterminateとイベントpayloadの参照を確認。
+- エコ配送信はfake documentで生成/属性設定/append/submit/remove順を比較。submit例外時の従来挙動とdocumentなしの無操作も保持。実通信や実フォーム送信は行っていない。
+- hook用テストハーネスで出庫済み表示の往復、同じ依存値での状態保持、グループ/フィルター各値の変更時リセットを旧実装と比較。これはブラウザーでの状態保持検証の代替完了報告ではない。
+- 第6回のDashboard宣言比較は参照元を移動先へ変更し、旧fixtureとの本体完全一致チェックを継続。
+- 対象用 `tsconfig.tests.json` の型チェック成功。fixtureの基準コミットからの再抽出完全一致と、元画面81宣言すべてのexport修飾子以外の完全一致を確認。
+
+```sh
+TZ=Asia/Tokyo LANG=en_US.UTF-8 node_modules/.bin/vitest run client/src/inventory/pages/purchase-registration/dashboard.test.ts client/src/inventory/pages/purchase-registration/allocation.test.ts
+node_modules/.bin/tsc -p client/src/inventory/pages/purchase-registration/tsconfig.tests.json --noEmit --incremental false
+git diff --check
+```
+
+全体型/test/build/DB/実ブラウザーは統合担当へ集約。担当はローカルcommitで引き渡し、指定範囲で停止する。push/main/Vercel/本番DB・キー操作なし。
+
+### 残る境界
+
+今回、カードからOrderDashboardまでの前回候補は分離済み。画面には追跡不足一覧、在庫提案・一覧、ラベル印刷/永続設定、カメラスキャン、出庫箱・申告・発送・返品、最上位query/mutationとダイアログ状態が残る。
+次候補は①在庫提案の表示部品とStockPanel、②印刷用紙/チェックリスト/CSSからLabelPrintPanelの境界、③追跡不足一覧と追跡ダイアログの表示境界。実行処理の整理は表示移動と分け、次の親指示で範囲を決める。

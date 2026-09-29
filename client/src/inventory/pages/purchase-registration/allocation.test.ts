@@ -135,10 +135,10 @@ describe(`allocation groups and fulfillment UI against ${ALLOCATION_BASELINE_COM
       const tree = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
       const node = tree.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "OrderDashboard");
       if (!node) throw new Error("Missing dashboard declaration");
-      return node.getText(tree);
+      return node.getText(tree).replace(/^export /, "");
     }
     const baseline = declaration(readFileSync(new URL("./allocation-baseline-source.txt", import.meta.url), "utf8"));
-    const page = declaration(readFileSync(new URL("../PurchaseRegistration.tsx", import.meta.url), "utf8"));
+    const page = declaration(readFileSync(new URL("./OrderDashboard.tsx", import.meta.url), "utf8"));
     expect(page).toBe(baseline);
     expect(digest(page)).toMatchSnapshot();
   });
