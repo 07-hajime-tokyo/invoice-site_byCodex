@@ -610,3 +610,21 @@ git diff --check
 - 親へ残す責務：最上位query/mutation・検索/選択/ダイアログ状態と配線、荷受日印刷の公開component。画面4,639→1,852行は結果であり目標にはしていない。
 
 全体検証/代表UIは親へ集約。ローカルcommitで引渡して停止。server/main/push/Vercel/本番接続は操作しない。
+
+## 第12回：編集/追跡/削除の所有とダイアログ
+
+`2d23089` を取り込み、`registrationEditing.ts` がフォームstate・6 mutation・保存/削除handler・通知/invalidationを所有する構成へ整理。早い位置の一括フォームは `useBulkTrackingForm`、従来の編集state/mutation位置は `useRegistrationEditing` とし、初期化順を維持した。取得後に各renderで `bindData` に在庫/一括対象/選択setterと3 refetchを渡し、元と同じrenderの値をclosureに固定する。mutationや多数の個別setterを外部から注入する構造ではない。
+
+4ダイアログは `RegistrationDialogs.tsx` へ、荷受日印刷は `ReceivedDateLabelPrint.tsx` へ移動し、後者は元画面パスのre-exportを維持。フォームstateは親のcustom hook内にあり、ダイアログを閉じてもリセットする新しいmount境界を作らない。入力変換、部分失敗時の通知、保存→状態更新→invalidation→refetchの順は変更しない。新規ファイルだけ標準インデントへ整形。
+
+- 旧Git基準と、親/移動先の既存135変数宣言を整形正規化して一致確認。custom hookを展開した88 hook呼出の順序/内容、5 effect、4 dialog JSX、荷受日印刷本体も一致。
+- 既存print-ui/labels/dashboardの22テスト成功、対象型/差分チェック成功。新fixture/snapshotなし。DB保存回帰と代表UIは親へ集約。
+- 画面は1,852→921行。数量下限（購入1/在庫0）、空欄のnull/undefined、単一/一括追跡、ローカル日付/Tokyo日付等の違いは統合しない。
+
+### 実コードのSSOT/責務棚卸し
+
+設定キー/設定読書きは `labelPrintSettings`、フォーム型は `formTypes`、フォーム保存とmutationは `registrationEditing`、表示は `RegistrationDialogs` が正本。商品/ラベル/引当の規則は既存専用モジュールを再利用。親に残る取得/集計/検索・選択/画面切替、印刷ジョブの調整、追跡プレビューは画面調整責務として保持する。
+
+未統合の意図的な違い：荷受日印刷のラベル生成は、LabelPrintPanel側では既知ラベル/タイトルoverrideとの結合があるため同一処理扱いしない。旧ProductFulfillmentTableは非使用だが不足数の意味が異なるため既報のまま保持。API領域全体のSSOTは別監査であり、本区切りで完了したとはしない。
+
+ローカルcommitで引渡して停止。server/main/push/Vercel/本番接続は操作しない。

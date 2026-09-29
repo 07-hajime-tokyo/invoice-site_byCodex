@@ -6,7 +6,9 @@
     "./MissingTrackingOverview.tsx",
     "./InboundScan.tsx",
     "./OutboundBoxes.tsx",
-    "./ShippingPanels.tsx"
+    "./ShippingPanels.tsx",
+    "./RegistrationDialogs.tsx",
+    "./ReceivedDateLabelPrint.tsx"
   ],
   "exclude": [],
   "compilerOptions": {
