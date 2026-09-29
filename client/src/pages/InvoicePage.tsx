@@ -61,7 +61,7 @@ import {
 import { toast } from "sonner";
 import type { InvoiceItem, InvoiceFormData } from "./invoices/types";
 import { calcDueDate } from "./invoices/dates";
-import { getDefaultCurrencyForClient, findClientByDetectedSender } from "./invoices/clientRules";
+import { findClientByDetectedSender } from "./invoices/clientRules";
 import { InvoicePreview } from "./invoices/InvoicePreview";
 import { generateInvoicePdf } from "./invoices/generateInvoicePdf";
 import { SenderSettingsDialog } from "./invoices/SenderSettingsDialog";
@@ -69,6 +69,9 @@ import { ClientManagerDialog } from "./invoices/ClientManagerDialog";
 import { storedInvoiceToForm, storedInvoiceToEditForm } from "./invoices/storedInvoiceForm";
 import { invoiceListCurrencies, buildInvoiceRateMap } from "./invoices/listRules";
 import { InvoiceCard } from "./invoices/InvoiceCard";
+import { addInvoiceItem, updateInvoiceItem, removeInvoiceItem, resolveInvoiceClient, applyInvoiceClient } from "./invoices/editorItems";
+import { buildInvoiceSavePayload, buildInvoiceSplitPayload } from "./invoices/editorPayload";
+import { computeInvoiceSplits } from "./invoices/splitInvoices";
 
 // ─── Sender Settings Dialog ──────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -202,35 +205,7 @@ function InvoiceEditor({
   });
 
   // 分割ロジック: 1回100万円以下になるようアイテムを分割する
-  const computeSplits = (items: InvoiceItem[], rate: number, limitJpy = 1_000_000) => {
-    const groups: Array<{ invoiceNumber: string; items: InvoiceItem[]; totalJpy: number }> = [];
-    let currentItems: InvoiceItem[] = [];
-    let currentTotal = 0;
-    const formatSplitInvoiceNumber = (offset: number) => {
-      const base = form.invoiceNumber.trim();
-      const match = base.match(/(\d+)$/);
-      if (!match || match.index === undefined) return String(offset + 1).padStart(4, "0");
-      const nextNumber = Number.parseInt(match[1], 10) + offset;
-      const width = Math.max(match[1].length, 4);
-      return `${base.slice(0, match.index)}${String(nextNumber).padStart(width, "0")}`;
-    };
-
-    for (const item of items) {
-      const itemJpy = item.quantity * item.unitPrice * rate;
-      // 単体で上限超える場合はそのまま単独グループに
-      if (currentItems.length > 0 && currentTotal + itemJpy > limitJpy) {
-        groups.push({ invoiceNumber: formatSplitInvoiceNumber(groups.length), items: currentItems, totalJpy: currentTotal });
-        currentItems = [];
-        currentTotal = 0;
-      }
-      currentItems.push(item);
-      currentTotal += itemJpy;
-    }
-    if (currentItems.length > 0) {
-      groups.push({ invoiceNumber: formatSplitInvoiceNumber(groups.length), items: currentItems, totalJpy: currentTotal });
-    }
-    return groups;
-  };
+  const computeSplits = (items: InvoiceItem[], rate: number, limitJpy = 1_000_000) => computeInvoiceSplits(form.invoiceNumber, items, rate, limitJpy);
 
   const handleOpenSplitDialog = async () => {
     if (!form.invoiceNumber.trim()) { toast.error("インボイス番号は必須です"); return; }
@@ -252,30 +227,9 @@ function InvoiceEditor({
   };
 
   const handleConfirmSplit = () => {
-    if (!exchangeRateInfo || splitPreview.length === 0) return;
-    const selectedClient = clients.find(c => c.id === form.clientId);
-    const clientSnapshot = selectedClient ?? null;
-    createSplitMutation.mutate({
-      baseInvoiceNumber: form.invoiceNumber,
-      clientId: form.clientId,
-      clientSnapshot,
-      invoiceDate: form.invoiceDate,
-      dueDate: form.dueDate,
-      currency: form.currency,
-      showAmounts: form.showAmounts,
-      notes: form.notes,
-      rawChat: form.rawChat,
-      status: form.status as "draft" | "sent" | "paid",
-      accentColor: form.accentColor,
-      exchangeRate: exchangeRateInfo.rate,
-      splits: splitPreview.map(g => ({
-        invoiceNumber: g.invoiceNumber,
-        items: g.items.map(item => ({
-          ...item,
-          variant: item.subText ?? undefined,
-        })),
-      })),
-    });
+    const payload = buildInvoiceSplitPayload(form, clients, exchangeRateInfo, splitPreview);
+    if (!payload) return;
+    createSplitMutation.mutate(payload);
   };
 
   const createMutation = trpc.invoices.create.useMutation({
@@ -298,19 +252,7 @@ function InvoiceEditor({
     onError: (e) => toast.error(e.message),
   });
 
-  const buildSavePayload = () => {
-    const selectedClient = clients.find(c => c.id === form.clientId);
-    const clientSnapshot = selectedClient ?? null;
-
-    return {
-      ...form,
-      clientSnapshot,
-      items: form.items.map(item => ({
-        ...item,
-        variant: item.subText ?? undefined,
-      })),
-    };
-  };
+  const buildSavePayload = () => buildInvoiceSavePayload(form, clients);
 
   const persistInvoice = async (payload: ReturnType<typeof buildSavePayload>) => {
     if (currentInvoiceId !== null) {
@@ -367,12 +309,7 @@ function InvoiceEditor({
     }
   };
 
-  const addItem = () => {
-    setForm(f => ({
-      ...f,
-      items: [...f.items, { description: "", quantity: 1, unitPrice: 0, currency: f.currency, sortOrder: f.items.length }],
-    }));
-  };
+  const addItem = () => { setForm(f => addInvoiceItem(f)); };
 
   // Track dirty state whenever form changes
   useEffect(() => {
@@ -381,34 +318,13 @@ function InvoiceEditor({
     setIsDirty(orig !== curr);
   }, [form]);
 
-  const updateItem = (idx: number, field: keyof InvoiceItem, value: string | number) => {
-    setForm(f => ({
-      ...f,
-      items: f.items.map((item, i) => i === idx ? { ...item, [field]: value } : item),
-    }));
-  };
+  const updateItem = (idx: number, field: keyof InvoiceItem, value: string | number) => { setForm(f => updateInvoiceItem(f, idx, field, value)); };
 
-  const removeItem = (idx: number) => {
-    setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
-  };
+  const removeItem = (idx: number) => { setForm(f => removeInvoiceItem(f, idx)); };
 
   const handleClientChange = useCallback((value: string) => {
-    const clientId = value === "__none__" ? null : Number(value);
-    const client = clientId ? clients.find(c => c.id === clientId) : null;
-    setForm(f => {
-      if (!client) return { ...f, clientId };
-      const nextCurrency = getDefaultCurrencyForClient(client);
-      return {
-        ...f,
-        clientId,
-        currency: nextCurrency,
-        items: f.items.map(item => (
-          !item.currency || item.currency === f.currency
-            ? { ...item, currency: nextCurrency }
-            : item
-        )),
-      };
-    });
+    const selection = resolveInvoiceClient(clients, value);
+    setForm(f => applyInvoiceClient(f, selection));
   }, [clients]);
 
   const handlePrint = () => {

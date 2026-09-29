@@ -199,3 +199,42 @@ node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.list-tests.json --no
 - clientId=0は顧客照合しない既存のtruthy判定を維持。通常一覧の金額表示と削除済み一覧の表示書式は統一していない。
 - 統合担当は全体型/全テスト/ビルド、実一覧の表示・プレビュー/編集導線を確認する。担当で実画面/DB/外部為替/ダウンロードは実施していない。
 - I06後半の編集/保存/採番/分割/AI/一覧の副作用は未着手。この3単位の引き渡しで停止。
+
+## 第5回：I06d〜f 明細操作・保存入力・分割規則
+
+統合基準`5873dbe`をクリーンな担当ブランチへ`c38e4cb`でmerge。今回も関連3単位をまとめ、全体検証は統合担当に集約する。
+
+| 単位 | ファイルと責務 |
+| --- | --- |
+| I06d | `editorItems.ts`：明細追加/更新/削除、顧客選択の解決、選択に伴う通貨反映 |
+| I06e | `editorPayload.ts`：通常保存/分割保存の入力組立。同義のclientSnapshot照合とsubText→variantを共通化 |
+| I06f | `splitInvoices.ts`：上限でのグループ分割・分割番号の計算 |
+
+フォーム初期化、query/mutation、採番、新規保存前の為替取得/上限確認、保存の実行順序、dirty判定、通知、UIは元のInvoiceEditorに保持。巨大hookは追加していない。InvoicePageは2,325行から2,241行へ縮小。shared/server/依存追加なし。
+
+### 比較基準と結果
+
+`editor-baseline.json`は5873dbeの実コードから7つの関数初期化式をそのまま固定したfixture。`editorReference.ts`で旧処理を実行する。setFormは渡された実更新関数を評価し、分割保存mutationはpayloadを記録する固定依存に差し替えた。計算やpayloadの旧規則は書き直していない。
+
+- 対象8テスト成功、5スナップショットが旧処理と分離後で一致。
+- 明細の追加、対象外indexの更新/削除、ゼロ/小数/空欄、sortOrder保持、未変更明細のオブジェクト同一性と入力不変を確認。
+- 顧客切替は対象/対象外/ID0/未選択/非数値を確認。フォーム通貨と異なる既存明細の通貨・参照を維持する。
+- 通常保存は顧客全体のsnapshot、追加フィールド、空文字/nullishのsubText/variant、税、空明細を比較。分割保存はrate情報なし/空グループのguard、rate0と小数、明細順とpayloadを比較。
+- 分割は上限ちょうど/直上、単独で上限超過、税あり、負数/ゼロ、空明細、数字/文字列/空番号と桁幅を比較。rate5条件×limit3条件の15比較で旧実計算と一致し、元明細の順序・参照保持も確認。
+- 対象tsconfigによる型チェック成功。AST比較で承認した7宣言以外のInvoiceEditor本文（JSXを含む）および他のトップレベル宣言が完全一致することを確認。`git diff --check`成功。
+
+```sh
+INVOICE_EDITOR_REFERENCE=1 TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editor.test.ts
+TZ=Asia/Tokyo node_modules/.bin/vitest run client/src/pages/invoices/editor.test.ts
+node_modules/.bin/tsc -p client/src/pages/invoices/tsconfig.editor-tests.json --noEmit
+```
+
+### 保持した相違・未検証
+
+- 分割は数量×単価×rateの税抜金額を明細ごとに足し、丸めない。PDFの税込計算や一覧の円換算丸めとは統一しない。上限ちょうどは同じグループ、超過時だけ次へ移る。数量自体は分割しない。
+- 明細削除後にsortOrderを詰め直さず、追加のsortOrderは現在の配列長。更新値の型や税率をこの処理で補正しない。
+- 顧客選択のID0は照合しないが、保存snapshotはID0でもfindで照合する。既存の意味の違いを保持。
+- 顧客照合は従来同様イベント時点で実行し、その結果をsetFormの関数へ渡す。通貨の適用は従来の`clientRules`を再利用する。
+- 分割保存はフォームの特定フィールドだけを列挙し、通常保存はformをspreadする。双方のpayloadを無理に同じ形にしない。
+- 初期化/採番/保存/失敗通知/外部為替/DB/実UIの実行検証は担当では行わない。全体型・全テスト・ビルドも未実行で、統合担当へ引き継ぐ。
+- 編集UI、AI入力、保存等の副作用自体の整理は未着手。この3単位を引き渡して停止する。
