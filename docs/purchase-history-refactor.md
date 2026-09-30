@@ -143,8 +143,24 @@ DB関数（`server/inventory/db.ts`・読み取りのみ）: `getPurchaseHistori
 
 ## 4. 検証結果
 
-（最終更新時に記録する）
+すべて整理後コード（クライアント抽出＋サーバ分割適用後）で実施。
+
+| 検証 | コマンド | 結果 |
+| --- | --- | --- |
+| 型チェック（全体） | `pnpm check` | エラー0 |
+| 型チェック（回帰tsconfig） | `pnpm check:regression` | エラー0 |
+| 単体テスト（既存サーバ） | `npx vitest run server/inventory/receiptAck.test.ts` | 6/6 パス |
+| 単体テスト（新規クライアント） | `npx vitest run client/src/inventory/pages/purchase-history/receiptAck.test.ts` | 16/16 パス |
+| DB回帰テスト全件 | `node scripts/test-local-regression.mjs test` | 15ファイル / 128/128 パス（本エリアの `purchaseHistory.test.ts` 18件を含む） |
+| 逐語比較 | §3 のとおり | 全抽出単位 MISSING=0 / EXTRA=0 |
+| seed復元 | `node scripts/test-local-regression.mjs seed` | `invoice_remake_test_invoices` に架空7件を復元済み |
+
+なお回帰テスト 128/128 は整理前（711aaa7 時点）にも同数で成功しており、整理前後で結果が一致している。
 
 ## 5. 既存の注意点（修正せず記録のみ）
 
-（発見次第追記する）
+- `purchaseHistory.cancel` は冪等でない: 同じ履歴を2回取り消すと在庫数が2回減算される（回帰テストで現状動作として固定）。
+- 手動済み→巡回で未実施に戻された行の note は「手動済み取消: …」になるが、再度巡回結果を取り込むと通常の note（例: "shipped"）で上書きされ「手動済み取消」情報が消える。
+- `purchaseHistory.list` のラベル復元行（負ID）は行自体の数量が1でも、在庫ID経由で一致した発注データの数量で補完される。
+- `server/inventory/db.ts` の `isZaicoEnabled()` は設定が存在しても常に false を返すため、`cancel` のZaico経路は現行コードでは到達不能（回帰テストもローカルDB経路のみ検証）。
+- `server/inventory/routers.ts`（今回読み取り専用）内に誤字コメント（例: 「戺す」）が存在するが未修正。
