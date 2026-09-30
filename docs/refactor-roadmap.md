@@ -53,9 +53,9 @@
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
 | 出庫・出庫履歴 | `Deliveries.tsx`、`DeliveryHistory.tsx`、`deliveryService.ts` | 済（D-A1〜A3・現行基準） | 2画面の型・純関数・表示部品と `deliveryHistory` ルーターを分離。出庫実行の画面配線とdeliveryServiceは不変。詳細は下記と `docs/deliveries-refactor.md` |
-| 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 未着手 | 箱・送り状・申告・発送状態・エラー時の扱い |
+| 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 済（O-A1〜A2・現行基準） | 画面の型・純関数・表示部品と `fedex` ルーター＋shipment系ヘルパーを分離。発送実行の画面配線とoutboundBoxes.tsは棚卸しのみ。詳細は下記と `docs/overseas-refactor.md` |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
-| 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
+| 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 済（現行基準） | 画面の型・純関数・表示部品・CSVと receiptAck の純粋規則を分離。routers.ts の purchaseHistory/receiptAck ブロック抽出は次回へ持ち越し。詳細は下記と `docs/purchase-history-refactor.md` |
 | インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | 済（I01〜I11・今回の完了基準） | 保存入力/行変換・金額・分割・顧客・PDF・表示の正本とUI副作用を監査。画面固有の状態/イベント調整は維持。実外部AI等の接続検証は未実施 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 済（M01〜M02・現行基準） | レポート型・集計・CSV・プレビュー/APIを分離。保存・再取得・日次重複・推移表示を確認 |
@@ -71,7 +71,7 @@
 
 - **済 / 作業中 / 未着手**を小作業単位で更新し、検証結果とコミットを残します。
 - 小作業ごとの規模は異なります。チェック数や移動行数を、そのまま全体の完了率・性能改善率には換算しません。
-- 現行基準で9領域済・一部済0・未着手7。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AIが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
+- 現行基準で11領域済・一部済0・未着手5。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡が済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
 - 以前示した「5%未満」は暫定的な目安です。見積もりの分母が未確定なので、この一覧から正確な全体工数の割合はまだ出しません。
 
 ## P03の検証記録（2026-09-30）
@@ -456,3 +456,31 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
 
 **現状：16領域中9領域済、一部済0、未着手7。** これは領域数であり、全体工数の完了率ではない。
+
+## 並行2領域：海外発送・梱包／入庫履歴・受取連絡（2026-10-01）
+
+ユーザー了承のもと前回と同じ2並行運用を継続。統合済み `83127ff` を共通基準に、既存worktree2つへ新ブランチを切って実施した。今回のserver側は `server/inventory/routers.ts` を海外発送担当のみが編集する単独所有とし（1サーバーファイル=1所有者）、入庫履歴担当のroutersブロック（purchaseHistory/receiptAck）抽出は競合回避のため次回へ持ち越した。shared/・drizzle/・package類・他担当ファイルは両担当とも変更禁止とし、統合後diffで変更なしを確認した。専用DB・ポートは従来割当を流用。
+
+### 海外発送・梱包（ブランチ `staff/yousunafu/refactor-overseas`、5コミット、統合マージ `f0cd088`）
+
+- **O-A1**: `OverseasShipping.tsx`（1,924行→1,176行）の型・インボイス番号解決・取引先ラベル・発送一覧行組立を `overseas-shipping/` の types.ts / invoiceResolution.ts / partnerLabels.ts / shipmentRows.ts へ、表示部品を PartnerView.tsx / DeliveryHistoryFedexSection.tsx へ抽出（9ファイル・単体27件）。`DeliveryHistory.tsx` からの `HistoryItem`/`FedexShipmentDialog` importは再export互換のまま維持。
+- **O-A2**: `inventory.fedex` の9手続きとshipment系ヘルパー群を `fedexRouter.ts`（830行）へ逐語移動。ヘルパーを同居させたのは循環import/TDZ回避のためで、routers.ts が必要とする3シンボル（`shipmentSheetNameSchema`・`alignShipmentItemsWithDeliveryHistories`・`sumWorkQuantity`）は fedexRouter.ts から一方向にexportして参照。routers.tsは4,848行→4,025行。
+- `outboundBoxes.ts` は棚卸しのみで変更なし。整理前基準として `tests/regression/overseas.test.ts`（17テスト：fedex 9手続き・GAS未設定経路の契約固定）を旧コードで成功させてから移行。逐語比較 MISSING/EXTRA=0。
+- 既存の注意点の記録（修正せず）：出荷シート名定義が計5実装に分散、`updateWithGas` はGAS未設定時に本体未更新のままstatus=errorを返す、`mergeByTracking` の追跡番号抽出とpayloadの非対称、`getTodayTrackingNumbers` のUTC日付判定、`parseDateStr` の2026年ハードコード、`invoiceNumber <= 383` の分岐ハードコード、work_logsが常に追記。詳細は `docs/overseas-refactor.md`。
+
+### 入庫履歴・受取連絡（ブランチ `staff/yousunafu/refactor-purchase-history`、5コミット、統合マージ `1973b38`）
+
+- 画面: `PurchaseHistory.tsx`（−167行）の型・受取連絡表示規則・`ReceiptAckCell`・CSV出力を `purchase-history/` の types.ts / receiptAck.ts / ReceiptAckCell.tsx / exportCsv.ts へ抽出（単体16件）。ページ本体の残部はbyte一致。
+- サーバー: `server/inventory/receiptAck.ts` から純粋規則（スキーマ・型・判定・メッセージ生成）を `receiptAckRules.ts`（286行）へ分離。DB操作は従来ファイルに残し、外部から参照される名前はすべて再exportして互換維持。`server/inventory/routers.ts` は無変更（統合時に検証済み）。
+- 整理前基準として `tests/regression/purchaseHistory.test.ts`（18テスト：purchaseHistory/receiptAck手続きの読み取り契約）を旧コードで成功させてから移行。
+- 既存の注意点の記録（修正せず）：取消が冪等でなく二重実行で在庫を二重減算、再取込が手動済み取消メモを上書き、ラベル復元時の数量補完、`isZaicoEnabled()` 常時falseによる到達不能なZaico経路、routers.tsのコメント誤字。詳細は `docs/purchase-history-refactor.md`。
+
+### 統合と検証（2026-10-01）
+
+- 統合側は各ブランチのコミット・変更ファイル・禁止範囲を検査後、`83127ff` から1件ずつマージ（`f0cd088`→`1973b38`）。競合なし。統合後diffでshared/・drizzle/・package類の変更なし、routers.ts編集が海外発送担当のみであることを確認。
+- 統合後の全体検証：`pnpm check`・`pnpm check:regression` エラーなし。単体699件中698成功（失敗1件はGemini実APIの鍵なし既知）。統合用専用DBで回帰145件全成功（既存110＋海外発送17＋入庫履歴18）。`pnpm build` 成功（既存のバンドルサイズ警告のみ）。
+- 実画面（統合サーバー・架空7件seed後）：`/inventory/overseas-shipping`（発送一覧・タブ切替で抽出済み `PartnerView` の取引先管理パネル表示）、`/inventory/purchase-history`（一覧・受取連絡列の描画）とAPI応答を確認。コンソールはGoogle接続キー未設定の既知の環境要因のみ。
+- **未検証範囲**：実GAS接続（回帰は未設定経路の契約のみ）、FedEx発送・マージ・取消などのブラウザー実操作（APIは回帰で確認）、`outboundBoxes.ts` は棚卸しのみで整理未着手、メール送信・S3・Zaico実接続、routers.ts の purchaseHistory/receiptAck ブロック抽出（次回）、本番データ・大量データ性能・全端末画像比較。
+- 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
+
+**現状：16領域中11領域済、一部済0、未着手5。** これは領域数であり、全体工数の完了率ではない。
