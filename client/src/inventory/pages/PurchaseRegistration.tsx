@@ -796,6 +796,20 @@ function normalizePurchaseRegistrationRows(rows: PurchaseRow[]): PurchaseRow[] {
   });
 }
 
+function zeroStockPurchaseItems(row: PurchaseRow): PurchaseItem[] {
+  return row.purchase_items.filter((item) => {
+    const orderedQuantity = Math.max(0, Math.floor(itemQuantity(item)));
+    return orderedQuantity > 0 && itemStockQuantity(item) <= 0;
+  });
+}
+
+function shouldShowReceivedZeroStockPurchaseInStockPanel(row: PurchaseRow): boolean {
+  if (!isPurchaseRegistrationCutoffVisible(row)) return false;
+  if (isPurchaseRegistrationRowComplete(row)) return false;
+  if (purchaseRowStatusKind(row) !== "received") return false;
+  return hasPurchaseTracking(row) || row.inboundClass != null;
+}
+
 function purchaseRegistrationOrderValue(row: PurchaseRow): number {
   const rawDate = row.createdAt ?? row.created_at ?? row.purchaseDate ?? row.purchase_date ?? null;
   const time = rawDate ? new Date(rawDate).getTime() : Number.NaN;
@@ -8174,17 +8188,20 @@ export default function PurchaseRegistration() {
   }, [allPurchaseRows]);
 
   const stockPanelPurchaseRows = useMemo(() => {
-    return allPurchaseRows
+    const rowsById = new Map<number, PurchaseRow>();
+    for (const row of globalPurchaseListRows) rowsById.set(row.id, row);
+
+    for (const row of allPurchaseRows
       .flatMap((row) => {
-        if (!isPurchaseRegistrationCutoffVisible(row)) return [];
-        const zeroStockItems = row.purchase_items.filter((item) => {
-          const orderedQuantity = Math.max(0, Math.floor(itemQuantity(item)));
-          return orderedQuantity > 0 && itemStockQuantity(item) <= 0;
-        });
+        if (!shouldShowReceivedZeroStockPurchaseInStockPanel(row)) return [];
+        const zeroStockItems = zeroStockPurchaseItems(row);
         return zeroStockItems.length > 0 ? [{ ...row, purchase_items: zeroStockItems }] : [];
-      })
-      .sort(comparePurchaseRegistrationOrder);
-  }, [allPurchaseRows]);
+      })) {
+      rowsById.set(row.id, row);
+    }
+
+    return Array.from(rowsById.values()).sort(comparePurchaseRegistrationOrder);
+  }, [allPurchaseRows, globalPurchaseListRows]);
 
   const searchedGlobalPurchaseListRows = useMemo(() => {
     if (!searchText) return globalPurchaseListRows;
