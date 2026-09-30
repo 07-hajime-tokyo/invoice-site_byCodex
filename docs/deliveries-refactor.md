@@ -37,15 +37,51 @@
 - `cancelItem`/`cancelItems` の取消済み判定は inventoryId 単位（同一商品が複数回出庫された履歴では2回目以降を取り消せない）
 - DeliveryHistory.tsx の `_` 接頭辞関数群（147–249）は未参照のデッドコードに見える（逐語移動で保持）
 - `deliveryHistoriesToShipmentItems` 系ヘルパー（routers.ts:505 付近）は deliveryHistory ブロック外・他機能（shipment系）の所有 → 触らない
+- `getManagementNo` が2画面で別実装（Deliveries: スペース分割あり・`^E`/`^シャフト`対応、DeliveryHistory: スペース分割なし・`デボン|devon`位置不問）→ 挙動が異なるためSSOT統合せず各ディレクトリに保持
+- `formatPrice` も2画面で別実装（Deliveries側のみ `Number.isFinite` チェックあり。DeliveryHistory側は `NaN` → `¥NaN`）→ 同上
+- DeliveryHistory.tsx `extractModelName` のJSDoc例「PSP3000 ブラック → PSP3000 ブラック（色明示なのでそのまま）」は実装と不一致（実際は機種パターンが先に一致し "PSP3000" を返す）。単体テストは実挙動を固定
+- `aggregateItemsByCsvProducts` は関数中央の `return`（suggestCsvProduct経路）以降のコード（extractColorKeywords〜旧照合ロジック）が到達不能なデッドコード → 逐語移動で保持
+- `normalizeColorText` の除去対象文字クラスに長音符「ー」が含まれる（"グレー黒" → "グレ黒"）→ 現行挙動としてテストで固定
 
 ## 進捗
 
 - [x] 調査・棚卸し（本ドキュメント）
-- [ ] 整理前基準: tests/regression/deliveries.test.ts
-- [ ] D-A1: Deliveries.tsx → deliveries/
-- [ ] D-A2: DeliveryHistory.tsx → delivery-history/
-- [ ] D-A3: deliveryHistoryRouter.ts 抽出
+- [x] 整理前基準: tests/regression/deliveries.test.ts（14テスト、整理前コードで成功を確認済み）
+- [x] D-A1: Deliveries.tsx → deliveries/（コミット 57057cb + EOL復元 dd6da76）
+- [x] D-A2: DeliveryHistory.tsx → delivery-history/（コミット 6221787）
+- [x] D-A3: deliveryHistoryRouter.ts 抽出（コミット f18cc9e）
 
 ## 変更ファイル / 検証結果
 
-（各作業単位の完了時に追記）
+### 整理前基準（コミット f3da524）
+- 新設 `tests/regression/deliveries.test.ts`（434行・14テスト）: list/listByInvoicePrefix、markDeleted、updateDeliveryNo/bulkUpdateDeliveryNo、moveItemsToDeliveryNo（一部移動・マージ・fedex historyId引継）、cancelItem/cancelItems（在庫戻し・二重取消拒否）、deleteGroup（論理削除+deleted_inventories記録）
+- 専用テストDBのみ使用。Zaico無効経路・GAS未設定（gasResults空）で契約を固定
+
+### D-A1（コミット 57057cb / dd6da76）
+- 新設 `client/src/inventory/pages/deliveries/`: types.ts / form.ts / shipmentSheets.ts / display.ts / exportInventoryCsv.ts / InventoryLabelIds.tsx / display.test.ts（9テスト）
+- Deliveries.tsx: 73–254行を削除しimport 15行に置換（基準比 +14/−182。混在EOLはバイト単位で復元）
+- 逐語性検証: 移動ブロックと新ファイル群の行単位比較で MISSING/EXTRA = 0（`export `付与とimport行のみ差分）
+
+### D-A2（コミット 6221787）
+- 新設 `client/src/inventory/pages/delivery-history/`（12ファイル+テスト6ファイル・33テスト）:
+  - types.ts（HistoryItem / FedexShipmentView / CancelledItem / InventoryDetail / GroupedHistoryEntry）
+  - shipmentSheets.ts（5シート定義・detect系・sheetBadgeClass・isDollarPartnerName）
+  - colorMatching.ts（isRandomColor・normalizeColorText・colorAliases・colorKeywordMatches・extractModelName）
+  - deliveredSummary.ts（`_`系精密照合+buildGroupDeliveredSummary）
+  - aggregateItems.ts（aggregateItemsByCsvProducts）
+  - display.ts（getManagementNo・getSupplierSite・formatPrice・formatDate・formatDateShort・parseCancelledItems・getActiveHistoryItems)
+  - exportCsv.ts（exportCSV）/ grouping.ts（extractDeliveryGroup・extractInvoiceNoFromManagementText・resolveHistoryGroup・formatDisplayDeliveryNo）
+  - InventoryDetailToggle.tsx / CancelConfirmDialog.tsx / FedexShipmentDialog.tsx / FedexBatchDialog.tsx
+- DeliveryHistory.tsx: 3,367行 → 1,854行（基準比 +29/−1,543）。`HistoryItem`・`FedexShipmentDialog` は従来どおり本ファイルから再export（外部3ファイルのimport互換維持）。抽出で不要になったimport（ExternalLink・AlertTriangle・AlertCircle・ArrowUpDown・MoreHorizontal・Select系・suggestCsvProduct）を除去
+- 逐語性検証: MISSING/EXTRA = 0（`export `付与とimportヘッダーのみ差分）
+
+### D-A3（コミット f18cc9e）
+- 新設 `server/inventory/deliveryHistoryRouter.ts`（522行）: routers.ts 3343–3828 の `deliveryHistory: router({...})` 内側484行を逐語移動（行単位比較で完全一致を確認）。`const publicProcedure = protectedProcedure;` 別名を再現
+- routers.ts: ブロックを `deliveryHistory: deliveryHistoryRouter,` 参照に置換（基準比 +2/−498）。ブロック専用だった12個のdb/zaico importを除去
+- deliveryService.ts はルーターとの重複なしのため変更不要（調査で確認済み）
+
+### 検証結果（最終）
+- `pnpm check`（tsc --noEmit）: エラーなし（D-A2後・D-A3後の両方）
+- `node scripts/test-local-regression.mjs test`: 13ファイル / 94テスト 全成功（deliveries.test.ts 14件含む・整理後も維持）
+- クライアント単体テスト: deliveries/ 9件 + delivery-history/ 33件 全成功
+- `node scripts/test-local-regression.mjs seed`: 完了時に専用DBを架空7件へ復元済み
