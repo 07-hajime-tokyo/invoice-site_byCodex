@@ -55,7 +55,7 @@
 ## 進捗
 
 - [x] 調査・棚卸し（本ドキュメント）
-- [ ] 整理前基準: tests/regression/overseas.test.ts
+- [x] 整理前基準: tests/regression/overseas.test.ts（17件、GAS未設定経路で9手続きの契約を固定。整理前コードで全127件成功を確認）
 - [ ] O-A1: OverseasShipping.tsx → overseas-shipping/
 - [ ] O-A2: routers.ts fedexブロック → fedexRouter.ts
 - [ ] 検証・終了処理
