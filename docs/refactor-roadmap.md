@@ -52,7 +52,7 @@
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 済（H01・現行基準） | 荷受・検品・取消・照会を分離。二重計上防止・数量/履歴の巻き戻し・失敗時の保持を専用DBで確認 |
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
-| 出庫・出庫履歴 | `Deliveries.tsx`、`DeliveryHistory.tsx`、`deliveryService.ts` | 未着手 | 出庫・在庫差引・履歴・取消・同梱変更 |
+| 出庫・出庫履歴 | `Deliveries.tsx`、`DeliveryHistory.tsx`、`deliveryService.ts` | 済（D-A1〜A3・現行基準） | 2画面の型・純関数・表示部品と `deliveryHistory` ルーターを分離。出庫実行の画面配線とdeliveryServiceは不変。詳細は下記と `docs/deliveries-refactor.md` |
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 未着手 | 箱・送り状・申告・発送状態・エラー時の扱い |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 未着手 | 履歴統合・取消・受取連絡・外部取込 |
@@ -61,7 +61,7 @@
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 済（M01〜M02・現行基準） | レポート型・集計・CSV・プレビュー/APIを分離。保存・再取得・日次重複・推移表示を確認 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 済（D01・現行基準） | 3ルーターを専用ファイルへ分離し、復元規則・完全復元・ラベル数量・CSV行解析をSSOT化。復元往復・横断検索・再実行を専用DBで確認 |
 | 作業管理・やること | `WorkManagement.tsx`、`ActionItems.tsx`、対応API | 済（W01〜W02・現行基準） | やることに加え、作業管理の入力/時間/集計と記録サービスを整理。開始・追記・終了・分割・再取得を確認 |
-| 会話履歴・ナレッジ・AI | `WhatsappHistory.tsx`、`KnowledgeBasePage.tsx`、`AiInvestigation.tsx` | 未着手 | 一覧・検索・取込・生成結果の保存・失敗時 |
+| 会話履歴・ナレッジ・AI | `WhatsappHistory.tsx`、`KnowledgeBasePage.tsx`、`AiInvestigation.tsx` | 済（K-A1〜A3・現行基準） | server/routers.tsの3ブロックを専用ルーターへ分離し、3画面の型・純関数・表示部品を抽出。aiInvestigation.tsは棚卸しのみ。詳細は下記と `docs/knowledge-refactor.md` |
 | 認証・設定・共通基盤 | `AuthGate.tsx`、`Settings.tsx`、`_core/`、ルート・DB・外部接続設定 | 未着手 | アクセス制御・環境分離・設定の正本・接続先 |
 
 画面ファイルの省略パスは `client/src/inventory/pages/` または `client/src/pages/`、APIは `server/` 以下です。
@@ -71,7 +71,7 @@
 
 - **済 / 作業中 / 未着手**を小作業単位で更新し、検証結果とコミットを残します。
 - 小作業ごとの規模は異なります。チェック数や移動行数を、そのまま全体の完了率・性能改善率には換算しません。
-- 現行基準で7領域済・一部済0・未着手9。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行が済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
+- 現行基準で9領域済・一部済0・未着手7。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AIが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
 - 以前示した「5%未満」は暫定的な目安です。見積もりの分母が未確定なので、この一覧から正確な全体工数の割合はまだ出しません。
 
 ## P03の検証記録（2026-09-30）
@@ -426,3 +426,33 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - **未検証範囲**：削除→復元・完全復元・履歴復元のブラウザー操作（APIは上記回帰で確認）、実Zaico接続（連携は常に無効の仕様）、実Google接続、本番データ、大量データ性能、全端末の画像比較は未検証。確認後、専用DBは既定7件の架空データへ戻した。
 
 **現状：16領域中7領域済、一部済0、未着手9。** これは領域数であり、全体工数の完了率ではない。
+
+## 並行2領域：出庫・出庫履歴／会話履歴・ナレッジ・AI（2026-10-01）
+
+ユーザー了承のもと、D01完了時の `2da96a7` を共通基準に、既存worktree2つ（`work/invoice-registration`・`work/invoice-invoices`）へ新ブランチを切り、2担当エージェント＋統合（このチャット）の並行運用で実施した。所有範囲は互いに素（出庫系は `server/inventory/routers.ts` のdeliveryHistoryブロック＋2画面、ナレッジ系は `server/routers.ts` の3ブロック＋3画面）で、shared/・drizzle/・package類・他担当ファイルは両担当とも変更禁止とし、統合後diffで変更なしを確認した。専用DB・ポートは従来の割当（registration系DB/3002、invoices系DB/3003）を流用した。
+
+### 出庫・出庫履歴（ブランチ `staff/yousunafu/refactor-deliveries`、7コミット、統合マージ `16869ac`）
+
+- **D-A1**: `Deliveries.tsx` の型・定数・純関数・`InventoryLabelIds` を `deliveries/` へ抽出（6ファイル）。混在EOLはバイト単位で復元。
+- **D-A2**: `DeliveryHistory.tsx`（3,367行→1,853行）の型・出荷シート判定・色照合・出荷済みサマリー・CSV集計/出力・グループ化・4ダイアログを `delivery-history/` へ抽出（12ファイル）。外部3ファイルが参照する `HistoryItem`/`FedexShipmentDialog` は本ファイルから再exportし互換維持。
+- **D-A3**: `inventory.deliveryHistory` の9手続きを `deliveryHistoryRouter.ts`（521行）へ逐語移動。routers.tsは参照1行へ置換（5,344行→4,846行）。protectedの別名も再現。
+- 整理前基準として `tests/regression/deliveries.test.ts`（14テスト：一覧/移動/マージ/取消/在庫戻し/二重取消拒否/論理削除）を旧コードで成功させてから移行。逐語比較 MISSING/EXTRA=0。単体42件追加。
+- 既存の注意点の記録（修正せず）：出荷シート名が2画面で4種/5種の不一致、取消済み判定がinventoryId単位、`_`接頭辞関数群と `aggregateItemsByCsvProducts` 後半の到達不能コード、`getManagementNo`/`formatPrice` の2画面別実装（挙動が異なるため統合対象外）、`normalizeColorText` が長音符を除去。詳細は `docs/deliveries-refactor.md`。
+
+### 会話履歴・ナレッジ・AI（ブランチ `staff/yousunafu/refactor-knowledge`、6コミット、統合マージ `90f0137`）
+
+- **K-A1**: `server/routers.ts` の whatsappHistory / whatsappChats / knowledgeBase 3ブロック（計23手続き）を `whatsappHistoryRouter.ts`（326行）/`whatsappChatsRouter.ts`（290行）/`knowledgeBaseRouter.ts`（629行）へbyte一致で移動。routers.tsは3,599行→2,379行。
+- **K-A2**: `WhatsappHistory.tsx` の表示規則を `whatsapp-history/view.ts`、`KnowledgeBasePage.tsx` の表示ヘルパーを `knowledge-base/presentation.tsx`、`AiInvestigation.tsx`（981行→503行）の型・localStorage入出力・整形14関数・表示部品2つを `ai-investigation/` へ抽出。単体49件を先行作成。意図した差分はコメント1行（窓定数コメントの参照先更新）のみ。
+- **K-A3**: `server/inventory/aiInvestigation.ts`（1,572行）は棚卸しのみでコード変更なし。
+- 整理前基準として `tests/regression/knowledge.test.ts`（13テスト：番号履歴/履歴保存・一覧・削除/会話取込・検索窓・翻訳0件/知識ベースCRUD・チャット履歴）を旧コードで成功させてから移行。
+- 既存の注意点の記録（修正せず）：chat_text解析でもForge env必須の順序、`getLatestInvoiceNumber` の `db!`、窓定数のサーバー/クライアント別定義、PDFをビジョンAPIへ渡す経路、クライアント/サーバーの整形関数重複、全件SELECT後のメモリ絞り込み。詳細は `docs/knowledge-refactor.md`。
+
+### 統合と検証（2026-10-01）
+
+- 統合側は各ブランチのコミット・変更ファイル・禁止範囲を検査後、`2da96a7` から1件ずつマージ（`16869ac`→`90f0137`）。競合なし。統合後diffでもshared/・drizzle/・package類の変更なし。
+- 統合後の全体検証：`pnpm check`・`pnpm check:regression` エラーなし。単体656件中655成功（失敗1件はGemini実APIの鍵なし既知）。統合用専用DBで回帰110件全成功（既存83＋出庫14＋ナレッジ13）。`pnpm build` 成功（既存のバンドルサイズ警告のみ）。
+- 実画面（統合サーバー・架空7件seed後）：`/inventory/deliveries`（在庫一覧・カテゴリ7件・空状態）、`/inventory/delivery-history`（見出し・並べ替え/更新/FedEx発送ボタン・空状態）、`/inventory/whatsapp-history`（取り込み/和訳ボタン・会話選択欄）、`/inventory/ai-investigation`（入力欄・調査履歴0件）、インボイス一覧からの知識ベースダイアログ（0件学習済み表示・タブ・アップロード欄・抽出ボタン）の描画とAPI応答を確認。コンソールはGoogle接続キー未設定の既知の環境要因のみ。
+- **未検証範囲**：実際の出庫実行・取消・同梱変更・FedEx連携のブラウザー操作（APIは回帰で確認）、実WhatsApp取込・実翻訳・実AI（Forge/Gemini/eBay）接続、ファイル実アップロード、S3実接続、`KnowledgeBasePage.tsx` はルート未登録のため画面到達不可（インボイス側ダイアログで同APIを確認）、本番データ・大量データ性能・全端末画像比較。
+- 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
+
+**現状：16領域中9領域済、一部済0、未着手7。** これは領域数であり、全体工数の完了率ではない。
