@@ -81,6 +81,14 @@
 | K-A2 | 3画面の型・純関数・表示部品をサブフォルダーへ抽出（単体テスト先行） | 完了（969d9dc、単体テスト49件を先行作成。移動はコメント1行の参照先更新を除き逐語） |
 | K-A3 | aiInvestigation.ts の棚卸し記録（第5節、コード変更なし） | 完了（本コミット） |
 
+## 2-1. 検証結果（最終）
+
+- `pnpm check`: エラーなし（K-A1後・K-A2後の両方で確認）。
+- `pnpm vitest run`: 614テスト中613成功。失敗1件は `server/gemini.test.ts` のAPIキー未設定による既知の失敗（整理前から同じ）。新規の単体テスト49件（whatsapp-history/view 8件、knowledge-base/presentation 6件、ai-investigation/format 28件・storage 7件）を含む。
+- `node scripts/test-local-regression.mjs`: 13ファイル96テスト全成功（knowledge.test.ts の13件を含む）。
+- 逐語性: 新設ルーター3ファイルと画面から抽出した全宣言を `git show 2da96a7:<path>` と機械照合し、コード行は完全一致。意図した差分はコメント1行のみ（whatsapp-history/view.ts の窓定数コメントの参照先を routers.ts → whatsappChatsRouter.ts へ更新）。
+- 作業終了時に `node scripts/test-local-regression.mjs seed` を実行し、テストDBへ架空の発注7件を再投入済み。
+
 ## 3. 気付いた既存の注意点（修正しない・記録のみ）
 
 - `whatsappHistory.analyzeHistoryItem` は chat_text の解析（正規表現のみでAI不要）でも Forge API の env が無いと即エラーになる。envチェックが分岐の前にあるため。
