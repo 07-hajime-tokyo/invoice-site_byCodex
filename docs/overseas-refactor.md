@@ -52,10 +52,35 @@
 - OverseasShipping.tsx 933 `invoiceNumber <= 383` をレガシー完了扱いにするハードコード
 - work_logs への記録は create/createBatch で登録・合算どちらの経路でも「FedEx発送登録」で毎回追加される（合算時も新規行）
 
+## 整理結果
+
+### O-A1: OverseasShipping.tsx → overseas-shipping/（1,924行 → 1,176行）
+- `overseas-shipping/types.ts` … FedexShipment / ShipmentItem / CsvInvoiceData / OrderSummaryItem / PartnerPortal / PartnerMessage / ShipmentInvoiceProductMatch / ShipmentInvoiceResolution / ShipmentInvoiceUsage / PartnerTab / InvoiceEntry / AggregatedShipmentRow
+- `overseas-shipping/invoiceResolution.ts` … extractInvoiceNo / sortInvoiceNo / shipmentProductUsageKey / reserveShipmentProductUsage / findCsvProductForShipmentItem / resolveShipmentItemInvoice
+- `overseas-shipping/partnerLabels.ts` … partnerLabel / partnerTabLabel / partnerTabSheetName
+- `overseas-shipping/shipmentRows.ts` … normalizeShipmentGroupKey / cleanShipmentProductTitle / sameShipmentValue / findShipmentCsvProduct / aggregateShipmentRowsByOrderLine / findCsvProductForDeliveryItem / sumDeliveredQtyByOrderProduct
+- `overseas-shipping/DeliveryHistoryFedexSection.tsx`・`overseas-shipping/PartnerView.tsx` … 独立表示部品（`FedexShipmentDialog, HistoryItem` は従来どおり `@/inventory/pages/DeliveryHistory` から import）
+- 画面本体（state・tRPC配線・タブJSX）は OverseasShipping.tsx に据え置き。逐語比較 MISSING/EXTRA=0（import行と `export ` 接頭辞のみ差分）
+- 元から未使用だった `Link` / `AlertCircle` の import のみ削除（コード本文は無変更）
+- 単体テスト追加: invoiceResolution.test.ts(13)・partnerLabels.test.ts(4)・shipmentRows.test.ts(10) の27件（現行出力の固定）
+
+### O-A2: routers.ts fedexブロック → fedexRouter.ts（830行）
+- shipmentヘルパー群一式（shipmentSheetNameSchema / ShipmentSheetName / detectShipmentSheetNameInText / detectShipmentSheetName / mergeShipmentGasItems / alignShipmentItemsToOrderRows / ShipmentDisplayItem / deliveryHistoryItemsToShipmentItems / sumShipmentDisplayItems / alignShipmentItemsWithDeliveryHistories / getShipmentItemsForHistory / getLiveDeliveryHistoryIds / shouldUseExistingShipmentForGas / sumWorkQuantity）と `fedex: router({...})` を逐語移動。逐語比較 MISSING/EXTRA=0
+- export は棚卸しどおり3シンボルのみ（shipmentSheetNameSchema / alignShipmentItemsWithDeliveryHistories / sumWorkQuantity）+ fedexRouter。routers.ts が import（依存方向 routers → fedexRouter の一方向、循環なし）
+- `const publicProcedure = protectedProcedure;` の別名は fedexRouter.ts 内で再現（routers.ts 側は他ブロックが使用するため残置）
+- routers.ts はブロック置換（`fedex: fedexRouter,`）とブロック専用importの除去のみ（ShipmentGasItem / allocateShipmentItemsToCsvProducts / expandMaxim415416OrderRows / invoiceNoFromDeliveryNo / deleteFedexShipment / getAllDeliveryHistories / getDeliveryHistoryById / getFedexShipmentsByDeliveryNo / updateFedexShipment / updateFedexShipmentHistoryAndDeliveryNo）。元から未使用のimportは現状維持
+
+### 検証
+- `pnpm check`（tsc --noEmit）: エラー0
+- `pnpm test`: 682/683 成功。失敗1件は既存の `server/gemini.test.ts`（GEMINI_API_KEY 未設定の環境依存テスト。83127ff 時点から本環境では失敗し、本リファクタと無関係）
+- `node scripts/test-local-regression.mjs test`: 15ファイル 127/127 成功（O-A1後・O-A2後の両方で確認）
+- EOL: 新規・変更ファイルすべて LF のみ
+- 終了処理: `node scripts/test-local-regression.mjs seed` でテストDBを架空7件へ復元済み
+
 ## 進捗
 
 - [x] 調査・棚卸し（本ドキュメント）
 - [x] 整理前基準: tests/regression/overseas.test.ts（17件、GAS未設定経路で9手続きの契約を固定。整理前コードで全127件成功を確認）
-- [ ] O-A1: OverseasShipping.tsx → overseas-shipping/
-- [ ] O-A2: routers.ts fedexブロック → fedexRouter.ts
-- [ ] 検証・終了処理
+- [x] O-A1: OverseasShipping.tsx → overseas-shipping/
+- [x] O-A2: routers.ts fedexブロック → fedexRouter.ts
+- [x] 検証・終了処理
