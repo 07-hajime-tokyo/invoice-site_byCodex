@@ -151,3 +151,28 @@
 - 逐語比較: 基準ファイルと（本体＋抽出4ファイル）の非import行を多重集合比較し
   MISSING=0 / EXTRA=0（許容差分: import行・`export ` 接頭辞のみ）。
 - `pnpm check` エラーなし。
+
+## 総括（最終状態）
+
+### コミット一覧
+- E-A0: b29c38c（回帰基準 tests/regression/ebayYahoo.test.ts 32テスト）
+- E-A1: 4785579（zaicoRouter.ts 抽出、routers.ts 4,035→1,897行）
+- E-A2: b214303（purchaseHistoryRouter.ts / receiptAckRouter.ts 抽出、routers.ts →1,480行）
+- E-A3: 8981b1f（ebay-inventory/ 抽出、EbayInventory.tsx 1,389→1,285行）
+- E-A4: 1657380（yahoo-listings/ 抽出、YahooListings.tsx 1,017→595行）
+
+### 最終検証（E-A4 コミット後）
+- `pnpm check`（tsc --noEmit）エラーなし。
+- `node scripts/test-local-regression.mjs test`: 全17ファイル・177テスト成功
+  （新規 ebayYahoo.test.ts 32件含む）。
+- `pnpm vitest run client`: 40ファイル・393テスト成功
+  （新規 ebay-inventory/display.test.ts 18件・yahoo-listings/view.test.ts 8件含む）。
+- 逐語比較: E-A1〜E-A4 の全移動を基準コミット 2ba8ecb と行単位多重集合比較し
+  すべて MISSING=0 / EXTRA=0。
+- 終了時に `node scripts/test-local-regression.mjs seed` で専用テストDBを架空データへ復元。
+
+### 未検証範囲
+- Zaico連携ON経路（isZaicoEnabled が常に false のため実外部接続なしでは通らない）。
+- GAS Webhook 実接続経路（GAS_WEBHOOK_URL 未設定経路のみ契約固定）。
+- GitHub CSV 実フェッチ経路（fetchCsvFromGithub は実トークン必要）。
+- クライアントの実ブラウザ描画・操作（純粋関数・定数・構造の契約のみ固定）。
