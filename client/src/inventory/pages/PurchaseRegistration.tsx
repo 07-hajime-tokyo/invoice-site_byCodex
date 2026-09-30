@@ -475,6 +475,10 @@ function getInventoryCategory(inventory: InventoryItem): string {
   return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
 }
 
+function displayStockCategory(category?: string | null): string {
+  return (category ?? "").trim() || UNCATEGORIZED_STOCK_CATEGORY;
+}
+
 function toNumber(value: unknown): number {
   const numberValue = Number(value ?? 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
@@ -1585,7 +1589,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           status: labelStatusLabel(label.status),
           title,
           printTitle: formatLabelPrintTitle(title),
-          category: (item.category ?? "").trim() || stockModelName(title),
+          category: displayStockCategory(item.category),
           legacyManagementNo,
           assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
@@ -1631,7 +1635,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           status: labelStatusLabel(label.status || "stocked"),
           title,
           printTitle: formatLabelPrintTitle(title),
-          category: getInventoryCategory(inventory) || stockModelName(title),
+          category: displayStockCategory(getInventoryCategory(inventory)),
           legacyManagementNo,
           assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: "",
@@ -1677,7 +1681,7 @@ function buildClosedInvoiceInventoryLabelViews(
             status: labelStatusLabel(label.status || "stocked"),
             title,
             printTitle: formatLabelPrintTitle(title),
-            category: (item.category ?? "").trim() || stockModelName(title),
+            category: displayStockCategory(item.category),
             legacyManagementNo,
             assignedInvoiceNo: label.assignedInvoiceNo ?? null,
             allocationLabel: "",
@@ -1967,7 +1971,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory) || UNCATEGORIZED_STOCK_CATEGORY;
+    const category = displayStockCategory(getInventoryCategory(inventory));
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -2051,7 +2055,7 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
           labelId: null,
           status,
           title,
-          category: (item.category ?? "").trim() || stockModelName(title),
+          category: displayStockCategory(item.category),
           legacyManagementNo: managementNo,
           assignedInvoiceNo: null,
           allocationLabel: labelAllocationLabel(managementNo),
