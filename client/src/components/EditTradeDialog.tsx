@@ -31,88 +31,16 @@ import {
 import { Pencil, RefreshCw, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { TradeRecord } from "@/lib/csvUtils";
-
-// frankfurter.dev/v1 から指定日（または最新）の EUR/USD → JPY レートを取得
-async function fetchFrankfurterRate(date?: string): Promise<{ eur: number; usd: number } | null> {
-  try {
-    const baseUrl = "https://api.frankfurter.dev/v1";
-    const dateParam = date ?? "latest";
-    const [eurRes, usdRes] = await Promise.all([
-      fetch(`${baseUrl}/${dateParam}?base=EUR&symbols=JPY`),
-      fetch(`${baseUrl}/${dateParam}?base=USD&symbols=JPY`),
-    ]);
-    if (!eurRes.ok || !usdRes.ok) return null;
-    const [eurData, usdData] = await Promise.all([eurRes.json(), usdRes.json()]);
-    const eurToJpy = eurData.rates?.JPY ? Math.round(eurData.rates.JPY * 100) / 100 : null;
-    const usdToJpy = usdData.rates?.JPY ? Math.round(usdData.rates.JPY * 100) / 100 : null;
-    if (!eurToJpy || !usdToJpy) return null;
-    return { eur: eurToJpy, usd: usdToJpy };
-  } catch {
-    return null;
-  }
-}
-
-// 日付文字列を YYYY-MM-DD 形式に正規化（例: 2025/3/15 → 2025-03-15）
-function normalizeDate(input: string): string | null {
-  const cleaned = input.trim().replace(/\//g, "-");
-  const match = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (!match) return null;
-  const [, y, m, d] = match;
-  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-}
-
-const STATUS_PRESETS = ["complete", "途中", "残1台", "残2台", "残3台", "残5台", "残10台"];
-
-interface EditFormState {
-  month: string;
-  partner: string;
-  invoiceNo: string;
-  paymentDate: string;
-  productName: string;
-  quantity: string;
-  unitPrice: string;
-  currency: "ユーロ" | "ドル";
-  status: string;
-  eurRate: string;
-  usdRate: string;
-  procurementTotal: string;
-  refund: string;
-  shippingCost: string;
-  customsDuty: string;
-}
+import {
+  type EditFormState,
+  getCurrencyForPartner,
+  normalizeCurrency,
+} from "@/components/trade/editTradeModel";
+import { STATUS_PRESETS, normalizeDate } from "@/components/trade/tradeFormShared";
 
 interface EditTradeDialogProps {
   record: TradeRecord;
   onSuccess?: () => void;
-}
-
-type TradeCurrency = EditFormState["currency"];
-
-function getCurrencyForPartner(partner: string): TradeCurrency | null {
-  const normalized = partner.trim().toLowerCase();
-  if (
-    normalized.includes("ルカ") ||
-    normalized.includes("luca") ||
-    normalized.includes("サイモン") ||
-    normalized.includes("simon") ||
-    normalized.includes("マキシム") ||
-    normalized.includes("maxim") ||
-    normalized.includes("ネレ") ||
-    normalized.includes("nele")
-  ) {
-    return "ユーロ";
-  }
-  if (normalized.includes("サミー") || normalized.includes("samee") || normalized.includes("デボン") || normalized.includes("devon")) {
-    return "ドル";
-  }
-  return null;
-}
-
-function normalizeCurrency(c: string, partner?: string): TradeCurrency {
-  const partnerCurrency = getCurrencyForPartner(partner ?? "");
-  if (partnerCurrency) return partnerCurrency;
-  if (c === "ドル") return "ドル";
-  return "ユーロ";
 }
 
 export function EditTradeDialog({ record, onSuccess }: EditTradeDialogProps) {
