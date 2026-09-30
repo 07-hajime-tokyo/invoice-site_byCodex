@@ -130,6 +130,17 @@ DB関数（`server/inventory/db.ts`・読み取りのみ）: `getPurchaseHistori
 - `PurchaseHistory.tsx` の外部参照は `InventoryApp.tsx:11` の default lazy import のみのため、再エクスポートは不要。
 - 抽出した純関数の単体テスト: `purchase-history/receiptAck.test.ts`（16件、全パス）。
 
+### 3-2. サーバ: receiptAck.ts → receiptAckRules.ts（純粋規則）＋ receiptAck.ts（DB操作）
+
+基準 `83127ff:server/inventory/receiptAck.ts`（609行）からの逐語移動。許容差分は「`export ` 接頭辞の付与」と「import行・再エクスポート行の付け替え」のみ。逐語比較（difflib、`export ` 正規化・import/再エクスポート行除外・ブロック間空行無視）で両ファイルとも MISSING=0 / EXTRA=0、元 L18-609 の非空行は全て過不足なくどちらか一方に移動（重複なし）。
+
+| ファイル | 元の行範囲 | 内容 |
+| --- | --- | --- |
+| `receiptAckRules.ts`（新規） | L24, L26-132, L140-142, L178-310, L340-363 | 定数 `DEFAULT_RECEIPT_ACK_STALE_HOURS`、zodスキーマ（crawlItem/siteResult/ingest）、型（`LocalPurchaseRow`・`ReceiptAckTaskRow`・`ReceiptAckUpdate`・`ReceiptAckFailedSite` はexport付与/維持）、純関数: `cleanText`・`cleanNote`・`getReceiptAckStartDate`・`getReceiptAckStaleHours`・`asCrawledAt`（非export）・`isReceiptAckStale`・`collectReceiptAckFailedSites`・`incrementFailedSiteAffected`・`receiptAckValuesEqual`・`shouldRecheckReceiptAckCandidate`・`buildSiteResultMaps`・`deriveStatusFromIngest`・`resolveReceiptAckNoteFromCrawlItem`・`purchaseLine`（非export）・`buildPendingTaskDetail`・`buildCrawlFailedTaskDetail`・`buildStaleTaskDetail` |
+| `receiptAck.ts`（残置） | L18-23, L134-138, L144-176, L312-338, L365-609 | タスクsourceKey・担当者定数、`requireDb`、DBアクセス関数（`listReceiptAckCandidatePurchases`・`updateReceiptAckStatus`・`attachReceiptAckTaskLegacyManagementNos`・`ensureReceiptAckAssignee`・`upsertAggregateActionItem`・sync系3関数）、公開API（`ingestReceiptAckCrawlResult`・`checkReceiptAckStale`・`markReceiptAckDone`・`getReceiptAckSummary`） |
+
+外部参照互換: `receiptAck.ts` から `receiptAckIngestSchema`・`isReceiptAckStale`・`collectReceiptAckFailedSites`・`shouldRecheckReceiptAckCandidate`・`resolveReceiptAckNoteFromCrawlItem`・`buildPendingTaskDetail`・`buildCrawlFailedTaskDetail`・`buildStaleTaskDetail`・`ReceiptAckFailedSite`（型）を再エクスポートし、routers.ts / cron.ts / receiptAckIngest.ts / receiptAckDrive.ts / receiptAck.test.ts の既存 import はすべて無変更で動作（受け入れ側ファイルは1行も変更していない）。公開APIの名前・シグネチャも無変更。
+
 ## 4. 検証結果
 
 （最終更新時に記録する）
