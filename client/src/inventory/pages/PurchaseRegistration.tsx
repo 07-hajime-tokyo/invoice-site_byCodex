@@ -9080,7 +9080,7 @@ export default function PurchaseRegistration() {
               <TabsContent value="stock">
                 <StockPanel
                   inventories={inventoryItems}
-                  purchaseRows={countableRows}
+                  purchaseRows={globalPurchaseListRows}
                   unfinishedInvoices={purchaseRegistrationInvoices}
                   invoiceOptions={deliveryInvoiceOptions}
                   searchText={searchText}
