@@ -3,6 +3,7 @@ export type InboundLabel = {
   status: string;
   title: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   purchaseId: number | null;
   localInventoryId: number | null;
   trackingNumber: string;
@@ -168,7 +169,9 @@ export function buildInboundInvoiceRollups(
   for (const label of pendingLabels.filter(
     candidate => candidate.status === "received"
   )) {
-    const invoiceNo = invoiceAllocation(label.legacyManagementNo).invoiceNo;
+    const invoiceNo =
+      label.assignedInvoiceNo?.trim() ||
+      invoiceAllocation(label.legacyManagementNo).invoiceNo;
     if (!invoiceNo) continue;
     inboundCounts.set(invoiceNo, (inboundCounts.get(invoiceNo) ?? 0) + 1);
     if (label.inventoryCounted) {

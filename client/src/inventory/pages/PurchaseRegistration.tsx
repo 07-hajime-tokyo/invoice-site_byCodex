@@ -4140,7 +4140,17 @@ function LabelPrintPanel({
       // 消耗品（ケーブル・バッテリー等）はラベルを貼らない方針のため既定で外す
       if (excludeAccessories && isStockProposalAccessory(row.title, row.category)) return [];
       const known = knownByLabelId.get(row.labelId);
-      if (known) return [known];
+      if (known) {
+        return [
+          applyLabelTitleOverride(
+            {
+              ...known,
+              assignedInvoiceNo: row.assignedInvoiceNo ?? known.assignedInvoiceNo ?? null,
+            },
+            labelTitleOverrides,
+          ),
+        ];
+      }
       // 画面に無いものは、印刷に要る項目だけを組み立てて出す
       const fallback: LabelView = {
         key: `received-${row.labelId}`,
@@ -4151,6 +4161,7 @@ function LabelPrintPanel({
         printTitle: formatLabelPrintTitle(row.title),
         category: row.category || stockModelName(row.title),
         legacyManagementNo: row.legacyManagementNo || "-",
+        assignedInvoiceNo: row.assignedInvoiceNo ?? null,
         allocationLabel: labelAllocationLabel(row.legacyManagementNo || ""),
         unitPrice: 0,
         supplier: { name: "", url: "" },
@@ -5088,6 +5099,7 @@ function ScanPanel({
       status: labelStatusLabel("received"),
       title: result.title ?? label.title,
       legacyManagementNo: result.legacyManagementNo ?? label.legacyManagementNo,
+      assignedInvoiceNo: result.assignedInvoiceNo ?? label.assignedInvoiceNo ?? null,
       inventoryId: result.localInventoryId ?? label.inventoryId ?? null,
     });
   }
@@ -6015,6 +6027,7 @@ export function ReceivedDateLabelPrint() {
         printTitle: formatLabelPrintTitle(row.title),
         category: row.category || stockModelName(row.title),
         legacyManagementNo: row.legacyManagementNo || "-",
+        assignedInvoiceNo: row.assignedInvoiceNo ?? null,
         allocationLabel: labelAllocationLabel(row.legacyManagementNo || ""),
         unitPrice: 0,
         supplier: { name: "", url: "" },

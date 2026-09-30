@@ -194,6 +194,15 @@ function allocationBadge(label: InboundLabel) {
   return invoiceAllocation(label.legacyManagementNo).label;
 }
 
+function labelTargetInvoiceNo(label: InboundLabel) {
+  return label.assignedInvoiceNo?.trim() || invoiceAllocation(label.legacyManagementNo).invoiceNo;
+}
+
+function assignedInvoiceBadge(label: InboundLabel) {
+  const invoiceNo = label.assignedInvoiceNo?.trim();
+  return invoiceNo ? `充当先 No.${invoiceNo}` : null;
+}
+
 function PhaseNavigation({
   phase,
   onChange,
@@ -254,6 +263,7 @@ function PhaseNavigation({
 }
 
 function LabelDetails({ label }: { label: InboundLabel }) {
+  const assignedLabel = assignedInvoiceBadge(label);
   return (
     <div className="space-y-1 text-sm">
       <div className="font-semibold text-slate-950">{label.title}</div>
@@ -262,6 +272,11 @@ function LabelDetails({ label }: { label: InboundLabel }) {
           {label.labelId}
         </Badge>
         <Badge variant="secondary">{allocationBadge(label)}</Badge>
+        {assignedLabel ? (
+          <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">
+            {assignedLabel}
+          </Badge>
+        ) : null}
       </div>
       <div className="text-xs text-muted-foreground">
         旧管理番号: {label.legacyManagementNo || "-"}
@@ -1255,7 +1270,7 @@ function InspectPhase({
   }, []);
 
   function defaultReplacement(label: InboundLabel) {
-    return Boolean(invoiceAllocation(label.legacyManagementNo).invoiceNo);
+    return Boolean(labelTargetInvoiceNo(label));
   }
 
   function updateDraft(label: InboundLabel, patch: Partial<InspectionDecision>) {
@@ -1646,7 +1661,7 @@ function InspectPhase({
                           <span>
                             代替品を仕入れる（野田さんへ依頼）
                             <span className="block text-xs text-blue-800">
-                              {invoiceAllocation(label.legacyManagementNo).invoiceNo
+                              {labelTargetInvoiceNo(label)
                                 ? "インボイス引当のため初期値ON"
                                 : "在庫用のため初期値OFF"}
                             </span>

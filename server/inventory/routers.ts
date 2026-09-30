@@ -7673,6 +7673,7 @@ export const inventoryRouter = router({
           status: updatedLabel?.status ?? (alreadyReceived ? label.status : "received"),
           title: updatedLabel?.title ?? label.title,
           legacyManagementNo: updatedLabel?.legacyManagementNo ?? label.legacyManagementNo,
+          assignedInvoiceNo: updatedLabel?.assignedInvoiceNo ?? label.assignedInvoiceNo ?? null,
           purchaseId: updatedLabel?.purchaseId ?? label.purchaseId ?? purchase?.id ?? null,
           localInventoryId: updatedLabel?.localInventoryId ?? label.localInventoryId,
           inventoryQuantity: inventory ? Number(inventory.quantity ?? 0) + (alreadyReceived ? 0 : 1) : null,
