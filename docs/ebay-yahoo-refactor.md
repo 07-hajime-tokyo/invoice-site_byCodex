@@ -112,3 +112,22 @@
   `receiptAck: receiptAckRouter,` 参照へ置換。`purchaseExtra` ブロックは未変更。
 - 逐語比較: `git show 2ba8ecb` と行単位比較で両ファイルとも MISSING=0 / EXTRA=0。
 - `pnpm check` エラーなし。全回帰177件成功（purchaseHistory.test.ts 18件含む）。
+
+### E-A3: EbayInventory.tsx 分割（完了）
+- `client/src/inventory/pages/ebay-inventory/` 新設（先行事例: delivery-history/ の
+  types.ts＋機能別モジュール構成に準拠）:
+  - `types.ts`（73行）: 基準55〜122行の定数 NINJA_MASTER_URL / YAHOO_AUCTION_SALES_URL、
+    型 InventoryItem / EbayInventoryItem / ShaftSale / EditForm / ShaftSalesSort、
+    `stockTypeOptions` を逐語移動（`export ` 付与のみ）。
+  - `display.ts`（61行）: 基準124〜178行の純粋関数 formatYen / numberFromValue /
+    amountInputText / stockQuantity / compareShaftSalesByDateDesc / todayJst /
+    compactDate / stockTypeBadgeClass / orderStatusBadgeClass を逐語移動。
+- EbayInventory.tsx は 1,389行 → 1,285行。差分は抽出2モジュールからの import 追加のみ。
+  state（19個）・tRPC配線・イベントハンドラ・JSX は本体に残置。
+  `@shared/ebayInventory` の既存 import は本体でも全識別子使用継続のため無変更。
+- `display.test.ts`（18テスト）新設: 全純粋関数＋stockTypeOptions の契約を固定
+  （todayJst/compactDate は fake timers で JST 日付境界を検証）。
+  `pnpm vitest run client/src/inventory/pages/ebay-inventory` 18件成功。
+- 逐語比較: 基準ファイルと（本体＋types.ts＋display.ts）の非import行を多重集合比較し
+  MISSING=0 / EXTRA=0（許容差分: import行・`export ` 接頭辞のみ）。
+- `pnpm check` エラーなし。
