@@ -81,4 +81,23 @@
 
 ## 進捗
 
-（作業単位ごとに追記）
+### E-A0: 整理前基準（完了）
+- `tests/regression/ebayYahoo.test.ts`（32テスト）を旧コードのまま全回帰177件
+  （既存145件＋新規32件）成功で確認しコミット。
+
+### E-A1: zaicoルーター抽出（完了）
+- `server/inventory/zaicoRouter.ts`（2,175行）を新設。routers.ts から以下を逐語移動:
+  - `zaico: router({...})` 内側 1248〜3017行（35手続き）
+  - zaicoブロック専用ヘルパー 203〜419行（normalizeListingUrl / GitHub CSVクラスタ /
+    extractLatestDateFromEtc / カテゴリクラスタ）、428〜430行（InventoryItemLabelForEnsure）、
+    1118〜1201行（ensureStockLabelsForInventories / localPurchaseMatchesInventoryForLinkedDelete）
+- `const publicProcedure = protectedProcedure;` 別名を抽出先でも再現。
+- routers.ts は 4,035行 → 1,897行。差分は import 整理（+11/-2,149）と
+  `zaico: zaicoRouter,` 参照のみ。
+- 逐語比較: 移動4ブロックを `git show 2ba8ecb` と行単位（多重集合）比較し MISSING=0 / EXTRA=0
+  （許容差分: import行・`export const zaicoRouter = router({` ラッパー・別名行のみ）。
+- routers.ts には基準時点から未使用のimportが複数残存
+  （google / revertPurchase / invoiceKeyクラスタ / tradeSheetStatusクラスタ /
+  isClosedTradeYear / InsertLocalInventory・InsertLocalPurchase ほか）。
+  移動起因でないため今回は除去せず記録のみ。
+- `pnpm check` エラーなし。全回帰177件成功。
