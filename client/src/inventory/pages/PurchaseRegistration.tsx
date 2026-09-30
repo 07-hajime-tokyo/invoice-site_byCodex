@@ -133,12 +133,14 @@ interface InventoryItem {
   supplierUrl?: string | null;
   supplierName?: string | null;
   itemLabels?: InventoryItemLabel[];
+  isDeleted?: number | boolean | null;
 }
 
 type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
 type StockViewMode = "list" | "proposal";
 type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
+type ZeroStockPurchaseStatus = "shipped" | "inbound_waiting" | "inspection_waiting";
 
 type PurchaseEditFormState = {
   title: string;
@@ -210,6 +212,7 @@ interface StockItemView {
   purchaseDate: string;
   inboundWaiting?: boolean;
   zeroStockPurchase?: boolean;
+  zeroStockStatus?: ZeroStockPurchaseStatus;
 }
 
 interface StockProposalDetail {
@@ -796,18 +799,66 @@ function normalizePurchaseRegistrationRows(rows: PurchaseRow[]): PurchaseRow[] {
   });
 }
 
-function zeroStockPurchaseItems(row: PurchaseRow): PurchaseItem[] {
-  return row.purchase_items.filter((item) => {
-    const orderedQuantity = Math.max(0, Math.floor(itemQuantity(item)));
-    return orderedQuantity > 0 && itemStockQuantity(item) <= 0;
-  });
+function isInventoryDeleted(inventory: InventoryItem | null | undefined): boolean {
+  return inventory?.isDeleted === true || Number(inventory?.isDeleted ?? 0) === 1;
 }
 
-function shouldShowReceivedZeroStockPurchaseInStockPanel(row: PurchaseRow): boolean {
-  if (!isPurchaseRegistrationCutoffVisible(row)) return false;
-  if (isPurchaseRegistrationRowComplete(row)) return false;
-  if (purchaseRowStatusKind(row) !== "received") return false;
-  return hasPurchaseTracking(row) || row.inboundClass != null;
+function buildActiveInventoryMap(inventories: InventoryItem[]): Map<number, InventoryItem> {
+  return new Map(
+    inventories
+      .filter((inventory) => !isInventoryDeleted(inventory))
+      .map((inventory) => [inventory.id, inventory]),
+  );
+}
+
+function zeroStockPurchaseStatusForItem(
+  row: PurchaseRow,
+  item: PurchaseItem,
+): { kind: ZeroStockPurchaseStatus; label: string; inboundWaiting: boolean } | null {
+  const itemStatus = normalizedLabelStatus(item.status);
+  const labels = getItemLabels([item]);
+  const labelStatuses = labels.map((label) => normalizedLabelStatus(label.status));
+
+  if ((labelStatuses.length > 0 && labelStatuses.every((status) => status === "shipped")) || itemStatus === "shipped") {
+    return { kind: "shipped", label: "出庫済み", inboundWaiting: false };
+  }
+
+  if (
+    itemStatus === "returned" ||
+    itemStatus === "cancelled" ||
+    labelStatuses.some((status) => status === "returned" || status === "cancelled")
+  ) {
+    return null;
+  }
+
+  if (labelStatuses.some((status) => status === "received") || itemStatus === "received") {
+    return { kind: "inspection_waiting", label: "動作確認待ち", inboundWaiting: false };
+  }
+
+  if (labelStatuses.some((status) => status === "stocked") || itemStatus === "stocked") {
+    return null;
+  }
+
+  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [item] });
+  if (rowStatus === "ordered" || rowStatus === "inbound_shipped" || itemStatus === "ordered") {
+    return { kind: "inbound_waiting", label: "入庫待ち", inboundWaiting: true };
+  }
+
+  return null;
+}
+
+function zeroStockPurchaseItems(row: PurchaseRow, inventories?: InventoryItem[]): PurchaseItem[] {
+  const activeInventoryById = inventories ? buildActiveInventoryMap(inventories) : null;
+  return row.purchase_items.filter((item) => {
+    const inventoryId = Number(item.inventory_id);
+    if (!Number.isFinite(inventoryId) || inventoryId <= 0) return false;
+    if (activeInventoryById && !activeInventoryById.has(inventoryId)) return false;
+    const orderedQuantity = Math.max(0, Math.floor(itemQuantity(item)));
+    if (orderedQuantity <= 0 || itemStockQuantity(item) > 0) return false;
+    const title = actualProductTitle(item);
+    if (isStockProposalAccessory(title, item.category)) return false;
+    return zeroStockPurchaseStatusForItem(row, item) != null;
+  });
 }
 
 function purchaseRegistrationOrderValue(row: PurchaseRow): number {
@@ -2077,19 +2128,14 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
 }
 
 function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventories: InventoryItem[]): StockItemView[] {
-  const inventoryCategoryById = new Map(
-    inventories.map((inventory) => [inventory.id, getInventoryCategory(inventory)]),
-  );
+  const activeInventoryById = buildActiveInventoryMap(inventories);
   return rows.flatMap((row) => {
-    const rowStatus = purchaseRowStatusKind(row);
-    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped" && rowStatus !== "received") return [];
-    const inboundWaiting = rowStatus === "ordered" || rowStatus === "inbound_shipped";
-
     const supplier = getSupplier(row);
-    const status = statusLabel(row);
     return row.purchase_items.flatMap((item) => {
       const inventoryId = Number(item.inventory_id);
       if (!Number.isFinite(inventoryId) || inventoryId <= 0) return [];
+      const inventory = activeInventoryById.get(inventoryId);
+      if (!inventory) return [];
       if (itemStockQuantity(item) > 0) return [];
 
       const quantity = Math.max(0, Math.floor(itemQuantity(item)));
@@ -2097,6 +2143,9 @@ function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventorie
 
       const title = actualProductTitle(item);
       if (isStockProposalAccessory(title, item.category)) return [];
+
+      const zeroStockStatus = zeroStockPurchaseStatusForItem(row, item);
+      if (!zeroStockStatus) return [];
 
       const rowManagementNos = getManagementNos(row.purchase_items);
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
@@ -2107,9 +2156,9 @@ function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventorie
           key: `zero-stock-purchase-${row.id}-${item.id}-${inventoryId}`,
           inventoryId,
           labelId,
-          status,
+          status: zeroStockStatus.label,
           title,
-          category: displayStockCategory(item.category || inventoryCategoryById.get(inventoryId)),
+          category: displayStockCategory(item.category || getInventoryCategory(inventory)),
           legacyManagementNo: managementNo,
           assignedInvoiceNo: firstLabel?.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(managementNo),
@@ -2117,8 +2166,9 @@ function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventorie
           quantity,
           supplier,
           purchaseDate: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
-          inboundWaiting,
+          inboundWaiting: zeroStockStatus.inboundWaiting,
           zeroStockPurchase: true,
+          zeroStockStatus: zeroStockStatus.kind,
         },
       ];
     });
@@ -2151,6 +2201,21 @@ function buildStockItemGroups(items: StockItemView[]): { name: string; items: St
       if (normalizedA !== normalizedB) return normalizedA - normalizedB;
       return a.name.localeCompare(b.name, "ja", { numeric: true });
     });
+}
+
+function stockItemStatusBadgeClass(item: StockItemView): string {
+  switch (item.zeroStockStatus) {
+    case "shipped":
+      return "bg-slate-100 text-slate-700 hover:bg-slate-100";
+    case "inspection_waiting":
+      return "bg-blue-100 text-blue-700 hover:bg-blue-100";
+    case "inbound_waiting":
+      return "bg-amber-100 text-amber-800 hover:bg-amber-100";
+    default:
+      return item.inboundWaiting
+        ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
+        : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100";
+  }
 }
 
 function normalizeStockProposalTitle(title: string): string {
@@ -5813,7 +5878,7 @@ function StockPanel({
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           商品IDが未発行の在庫も含めて、カテゴリごとに表示します。通常は在庫数が1以上の商品だけを表示します。
-          0在庫を表示すると、入庫待ちや入庫済みで在庫数0の商品も確認できます。
+          0在庫を表示すると、出庫済み・入庫待ち・動作確認待ちの在庫数0商品だけを確認できます。
         </p>
       </section>
       {stockItems.length === 0 ? (
@@ -5864,7 +5929,7 @@ function StockPanel({
                           ) : item.inboundWaiting ? (
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち</Badge>
                           ) : item.zeroStockPurchase ? (
-                            <Badge variant="outline">0在庫</Badge>
+                            <Badge variant="outline">{item.status}</Badge>
                           ) : (
                             <Badge variant="outline">未発行</Badge>
                           )}
@@ -5913,13 +5978,7 @@ function StockPanel({
                           <div className="mt-1 text-xs text-muted-foreground">{formatDate(item.purchaseDate)}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge
-                            className={
-                              item.inboundWaiting
-                                ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
-                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
-                            }
-                          >
+                          <Badge className={stockItemStatusBadgeClass(item)}>
                             {item.status}
                           </Badge>
                         </td>
@@ -8206,6 +8265,7 @@ export default function PurchaseRegistration() {
       refetchOnMount: "always",
       refetchOnWindowFocus: false,
     });
+  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
 
   const countableRows = useMemo(() => {
     return rows.flatMap((row) => {
@@ -8226,15 +8286,23 @@ export default function PurchaseRegistration() {
 
     for (const row of allPurchaseRows
       .flatMap((row) => {
-        if (!shouldShowReceivedZeroStockPurchaseInStockPanel(row)) return [];
-        const zeroStockItems = zeroStockPurchaseItems(row);
+        if (!isPurchaseRegistrationCutoffVisible(row)) return [];
+        const zeroStockItems = zeroStockPurchaseItems(row, inventoryItems);
         return zeroStockItems.length > 0 ? [{ ...row, purchase_items: zeroStockItems }] : [];
       })) {
-      rowsById.set(row.id, row);
+      const existing = rowsById.get(row.id);
+      if (!existing) {
+        rowsById.set(row.id, row);
+        continue;
+      }
+      const itemsById = new Map<number, PurchaseItem>();
+      for (const item of existing.purchase_items) itemsById.set(item.id, item);
+      for (const item of row.purchase_items) itemsById.set(item.id, item);
+      rowsById.set(row.id, { ...existing, purchase_items: Array.from(itemsById.values()) });
     }
 
     return Array.from(rowsById.values()).sort(comparePurchaseRegistrationOrder);
-  }, [allPurchaseRows, globalPurchaseListRows]);
+  }, [allPurchaseRows, globalPurchaseListRows, inventoryItems]);
 
   const searchedGlobalPurchaseListRows = useMemo(() => {
     if (!searchText) return globalPurchaseListRows;
@@ -8283,7 +8351,6 @@ export default function PurchaseRegistration() {
     [filteredRows, purchaseRegistrationInvoices],
   );
   const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
-  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
   const categoryOptions = useMemo(() => {
     return sortedStockCategoryOptions([
       ...(managedCategories ?? []),
