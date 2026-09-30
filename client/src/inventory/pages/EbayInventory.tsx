@@ -51,131 +51,27 @@ import {
   type EbayOrderStatus,
   type EbayStockType,
 } from "@shared/ebayInventory";
-
-const NINJA_MASTER_URL =
-  "https://docs.google.com/spreadsheets/d/1xfiDJnNqnc12N-jJDGZavEEzsi-j_BCBxXHzZwzsaHo/edit?gid=1727357177#gid=1727357177";
-const YAHOO_AUCTION_SALES_URL = "https://salesmanagement.yahoo.co.jp/list";
-
-type InventoryItem = {
-  id: number;
-  title: string;
-  quantity: string;
-  unit?: string | null;
-  category?: string | null;
-  categories?: string[];
-  place?: string | null;
-  etc?: string | null;
-  unit_price?: number | null;
-  purchase_unit_price?: number | null;
-  supplierUrl?: string | null;
-  supplierName?: string | null;
-  ebayListingUrl?: string | null;
-  ebayOrderUrl?: string | null;
-  ebayOrderStatus?: EbayOrderStatus | string | null;
-  last_purchase_date?: string | null;
-  updated_at?: string | null;
-};
-
-type EbayInventoryItem = InventoryItem & {
-  managementNo: string;
-  ebayStockType: EbayStockType | null;
-};
-
-type ShaftSale = {
-  id: number;
-  inventoryId?: number | null;
-  managementNo: string;
-  title: string;
-  category?: string | null;
-  quantity: number;
-  unitPrice?: string | number | null;
-  saleAmount: string | number;
-  saleUrl?: string | null;
-  profitAmount?: string | number | null;
-  soldAt?: string | null;
-  supplierName?: string | null;
-  supplierUrl?: string | null;
-  updatedAt?: string | null;
-};
-
-type EditForm = {
-  title: string;
-  quantity: string;
-  unit: string;
-  category: string;
-  unitPrice: string;
-  place: string;
-  managementNo: string;
-  supplierName: string;
-  supplierUrl: string;
-  ebayListingUrl: string;
-  ebayOrderUrl: string;
-  ebayOrderStatus: EbayOrderStatus;
-};
-
-const stockTypeOptions: Array<{ value: EbayStockType; label: string }> = [
-  { value: "stocked", label: "有在庫" },
-  { value: "dropship", label: "無在庫" },
-  { value: "shaft", label: "シャフト" },
-];
-
-type ShaftSalesSort = "soldAtDesc" | "saleAmountDesc" | "saleAmountAsc";
-
-function formatYen(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "-";
-  const rounded = Math.round(value);
-  if (rounded < 0) return `-¥${Math.abs(rounded).toLocaleString()}`;
-  return `¥${rounded.toLocaleString()}`;
-}
-
-function numberFromValue(value: string | number | null | undefined) {
-  if (value == null || value === "") return null;
-  const num = Number(String(value).replace(/,/g, ""));
-  return Number.isFinite(num) ? num : null;
-}
-
-function amountInputText(value: number | null | undefined) {
-  if (value == null || value === 0) return "";
-  return String(Math.round(value));
-}
-
-function stockQuantity(item: InventoryItem) {
-  return Math.max(0, Math.floor(Number(item.quantity) || 0));
-}
-
-function compareShaftSalesByDateDesc(a: ShaftSale, b: ShaftSale) {
-  const dateA = a.soldAt?.slice(0, 10) ?? "";
-  const dateB = b.soldAt?.slice(0, 10) ?? "";
-  const dateDiff = dateB.localeCompare(dateA);
-  if (dateDiff !== 0) return dateDiff;
-  return b.id - a.id;
-}
-
-function todayJst() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-function compactDate() {
-  return todayJst().replace(/-/g, "");
-}
-
-function stockTypeBadgeClass(type: EbayStockType) {
-  if (type === "shaft") return "bg-zinc-700 text-white";
-  if (type === "stocked") return "bg-emerald-600 text-white";
-  return "bg-sky-600 text-white";
-}
-
-function orderStatusBadgeClass(status: string | null | undefined) {
-  const normalized = normalizeEbayOrderStatus(status);
-  if (normalized === "cancelled") return "border-red-200 bg-red-50 text-red-700";
-  if (normalized === "returned") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-muted bg-muted/40 text-muted-foreground";
-}
+import {
+  NINJA_MASTER_URL,
+  YAHOO_AUCTION_SALES_URL,
+  stockTypeOptions,
+  type EbayInventoryItem,
+  type EditForm,
+  type InventoryItem,
+  type ShaftSale,
+  type ShaftSalesSort,
+} from "./ebay-inventory/types";
+import {
+  amountInputText,
+  compactDate,
+  compareShaftSalesByDateDesc,
+  formatYen,
+  numberFromValue,
+  orderStatusBadgeClass,
+  stockQuantity,
+  stockTypeBadgeClass,
+  todayJst,
+} from "./ebay-inventory/display";
 
 export default function EbayInventory() {
   const utils = trpc.useUtils();
