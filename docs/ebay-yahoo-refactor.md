@@ -101,3 +101,14 @@
   isClosedTradeYear / InsertLocalInventory・InsertLocalPurchase ほか）。
   移動起因でないため今回は除去せず記録のみ。
 - `pnpm check` エラーなし。全回帰177件成功。
+
+### E-A2: 入庫履歴領域の持ち越しブロック抽出（完了）
+- `server/inventory/purchaseHistoryRouter.ts`（426行）新設: 基準424行の
+  `type PurchaseHistoryRow`・432〜722行の入庫履歴ヘルパークラスタ・
+  `purchaseHistory: router({...})` 内側3024〜3127行（list / cancel）を逐語移動。
+- `server/inventory/receiptAckRouter.ts`（17行）新設:
+  `receiptAck: router({...})` 内側3134〜3142行（summary / markDone）を逐語移動。
+- routers.ts は 1,897行 → 1,480行。`purchaseHistory: purchaseHistoryRouter,` /
+  `receiptAck: receiptAckRouter,` 参照へ置換。`purchaseExtra` ブロックは未変更。
+- 逐語比較: `git show 2ba8ecb` と行単位比較で両ファイルとも MISSING=0 / EXTRA=0。
+- `pnpm check` エラーなし。全回帰177件成功（purchaseHistory.test.ts 18件含む）。
