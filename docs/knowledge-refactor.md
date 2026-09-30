@@ -76,10 +76,10 @@
 
 | ID | 単位 | 結果 |
 | --- | --- | --- |
-| 基準 | tests/regression/knowledge.test.ts（DB完結手続きの整理前基準） | （作業中） |
-| K-A1 | 3ブロックを whatsappHistoryRouter.ts / whatsappChatsRouter.ts / knowledgeBaseRouter.ts へ逐語移動 | 未着手 |
-| K-A2 | 3画面の型・純関数・表示部品をサブフォルダーへ抽出（単体テスト先行） | 未着手 |
-| K-A3 | aiInvestigation.ts の棚卸し記録 | 未着手 |
+| 基準 | tests/regression/knowledge.test.ts（DB完結手続きの整理前基準） | 完了（db378ba、13テスト） |
+| K-A1 | 3ブロックを whatsappHistoryRouter.ts / whatsappChatsRouter.ts / knowledgeBaseRouter.ts へ逐語移動 | 完了（66e5d9d、byte単位で基準と一致を確認） |
+| K-A2 | 3画面の型・純関数・表示部品をサブフォルダーへ抽出（単体テスト先行） | 完了（969d9dc、単体テスト49件を先行作成。移動はコメント1行の参照先更新を除き逐語） |
+| K-A3 | aiInvestigation.ts の棚卸し記録（第5節、コード変更なし） | 完了（本コミット） |
 
 ## 3. 気付いた既存の注意点（修正しない・記録のみ）
 
@@ -88,3 +88,35 @@
 - `whatsappChats` の窓定数（14日/3ヶ月/20件）はサーバー定義だが、クライアント `WhatsappHistory.tsx` が表示文言用に 14 / 3 を別定義しており、片側だけ変えるとズレる。
 - `knowledgeBase.upload` の PDF 解析は `image_url` に `data:application/pdf` を渡しており、ビジョンAPIがPDFを受けない場合はフォールバック文言のまま保存される。
 - `deletedItemsRouter.restore`（他領域）に `return { success: true };` 直後の到達不能コードが存在する（参考にした抽出例。方針どおり触らない）。
+
+## 5. server/inventory/aiInvestigation.ts の棚卸し（K-A3・コード変更なし）
+
+1,572行・エクスポートは `aiInvestigationRouter`（investigate mutation 1本）のみ。他はすべてファイル内プライベート。
+
+### 5-1. 内部構造（行番号は基準コミット時点＝現在も同一）
+
+| 区画 | 行 | 内容 |
+| --- | --- | --- |
+| 型定義 | 17〜53 | `EvidenceRow` / `EvidenceSection` / `InvestigationDateRange` / `InvestigationConversationTurn` / `EbayOrderSummary` |
+| 汎用ユーティリティ | 55〜97 | `uniq` / `compactText` / `parseJsonArray` / `parseJsonList` / `parseNumber` / `pad2` / `toIsoDate` |
+| 日付解釈 | 100〜179 | `currentJstYear` / `normalizeDateValue` / `dateFromDeliveryNo` / `getDeliveryHistoryDate` / `extractDateRange` / `isDateInRange` |
+| 質問からの識別子抽出 | 181〜331 | `normalizeManagementTerm` / `extractIdentifiers` / `invoiceNoFromDeliveryNo` / `deliveryInvoiceNos` / `hasAnyInvoice` / 明細アクセサ `getItem*` / FedEx対象判定 `isFedexExcludedManagementNo`・`isDirectTradeFedexTarget` / `matchesNeedle` / `buildMatchers` |
+| 商品名検索 | 333〜520 | `PRODUCT_STOP_WORDS` / `normalizeProductSearchText` / `productTokenVariants` / `stripProductTokenNoise` / `cleanupProductCandidateText` / `extractProductCandidateText` / `buildProductQuery` |
+| 会話文脈 | 522〜551 | `hasExplicitInvestigationTarget` / `isLikelyFollowUpQuestion` / `buildContextualQuestion` |
+| eBay API | 553〜680 | `extractEbayOrderId` / `getEbayEndpointBase` / `getEbayAccessToken`（静的トークン→リフレッシュトークンの順。未設定なら error 文字列を返しthrowしない） / `fetchEbayOrders`（最大8件） |
+| eBay表示整形 | 682〜847 | `rowsTotal` / `formatEbayOrderStatus` / `getEbayStatusCode` / `isEbayRefunded` / `isEbayCanceled` / `describeEbayOrder(±Conclusion)` / `formatEbayOrderDetail` / `formatEbayOrderNotes` / `isEbayOrderOnlyQuestion` / `makeEbayOrderReport` |
+| FedEx照合・定型レポート | 849〜1122 | `summarizeFedexRegistration` / `makeFallbackReport` / 発注状態判定 `isInventoryStatusQuestion`・`getPurchaseStatusIntent`・`isPurchaseActionDateQuestion`・`purchaseStatusMatches`・`purchaseDateMatches` / `makePurchaseListReport` / `makeProductStatusReport` / `isFedexLeakQuestion` |
+| 生成AIレポート | 1124〜1223 | `shouldUseGenerativeReport`（env 2つで強制ON/OFF可） / `generateAiReport`（FedEx漏れ質問は必ず定型 → Forge API → Gemini → 定型フォールバックの順。API失敗時も定型文＋エラー付記で返し、throwしない） |
+| 文脈収集本体 | 1225〜1557 | `collectInvestigationContext`: DBから tradeRecords / localPurchases / localInventories / deliveryHistories / fedexShipments を全件読み、質問種別で evidence を組み、回答は eBay専用→発注一覧→商品状態→生成AI→定型 の優先順で1つ選ぶ |
+| ルーター | 1559〜1572 | `aiInvestigationRouter.investigate`（protectedProcedure mutation、`collectInvestigationContext` を呼ぶだけ） |
+
+### 5-2. 依存と外部サービス
+
+- DB: `getDb`（./db）+ drizzle `desc`。書き込みは一切なし（SELECTのみ）。
+- 共有: `@shared/invoiceKey` の `invoiceNoFromDeliveryNo`（`invoiceNoFromDeliveryNoStrict` 名で取り込み）と `invoiceNoFromManagementNo`。
+- 外部: eBay OAuth/Fulfillment API（資格情報env未設定時はエラー文字列で完結）、Forge API、Gemini（どちらも未設定時は定型レポートへフォールバックし、DB完結で応答が返る）。
+
+### 5-3. 記録のみの気付き（修正しない）
+
+- クライアント `ai-investigation/format.ts` と同名・同旨の関数が重複: `invoiceNoFromDeliveryNo` / `toNumber`（サーバ側は `parseNumber`） / `getEbayStatusCode` / `formatEbayStatus`（サーバ側は `formatEbayOrderStatus`、ラベル表は同一） / `formatEbayOrderSummary`（サーバ側は `describeEbayOrder`）。判定条件が似て非なるものもあるため、共有化は仕様確認込みの別作業とする。
+- `collectInvestigationContext` は5テーブルを毎回全件SELECTしてからメモリ上で絞り込む。データ量が増えると重くなるが、絞り込み順序が回答内容に直結するため今回の整理では触らない。
