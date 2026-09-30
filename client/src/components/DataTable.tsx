@@ -21,54 +21,13 @@ import { EditTradeDialog } from "@/components/EditTradeDialog";
 import { ShipmentHistory } from "@/components/ShipmentHistory";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-
-interface DataTableProps {
-  records: TradeRecord[];
-  pageSize?: number;
-  onRecordUpdated?: () => void;
-  totalRecords?: number;
-  page?: number;
-  sortKey?: SortKey;
-  sortDir?: SortDir;
-  onPageChange?: (page: number) => void;
-  onPageSizeChange?: (pageSize: number) => void;
-  onSortChange?: (key: SortKey, dir: SortDir) => void;
-  onInvoiceNoClick?: (invoiceNo: number) => void;
-}
-
-const VISIBLE_COLUMNS: (keyof TradeRecord)[] = [
-  "month",
-  "partner",
-  "no",
-  "paymentDate",
-  "productName",
-  "quantity",
-  "unitPrice",
-  "currency",
-  "unitPriceJPY",
-  "status",
-  "totalSales",
-  "procurementTotal",
-  "shippingCost",
-  "customsDuty",
-  "profitWithRefund",
-];
-
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
-const MOBILE_META_COLUMNS: (keyof TradeRecord)[] = [
-  "quantity",
-  "unitPrice",
-  "currency",
-  "totalSales",
-  "procurementTotal",
-  "shippingCost",
-  "customsDuty",
-  "profitWithRefund",
-];
-
-function getTradeRecordId(row: TradeRecord): number | null {
-  return typeof row.id === "number" && Number.isFinite(row.id) && row.id > 0 ? row.id : null;
-}
+import {
+  type DataTableProps,
+  MOBILE_META_COLUMNS,
+  PAGE_SIZE_OPTIONS,
+  VISIBLE_COLUMNS,
+  getTradeRecordId,
+} from "@/components/trade/dataTableModel";
 
 export function DataTable({
   records,
