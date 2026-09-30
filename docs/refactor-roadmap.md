@@ -51,13 +51,13 @@
 | 発注登録 | `PurchaseRegistration.tsx`、発注作成API | 済（R01〜R17・今回の完了基準） | UI調整・編集・業務規則・発注作成/発注管理APIを分離。下記の最終監査参照。荷受取消・出庫/海外発送サービス自体は各領域で扱う |
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 済（H01・現行基準） | 荷受・検品・取消・照会を分離。二重計上防止・数量/履歴の巻き戻し・失敗時の保持を専用DBで確認 |
 | 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
-| eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 未着手 | 商品照合・出品状態・URL・外部連携 |
+| eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 済（E-A0〜A4・現行基準） | 2画面の型・純関数・表示部品と `zaico` ルーターを分離。持ち越し分の purchaseHistory/receiptAck ルーター抽出も完了。詳細は下記と `docs/ebay-yahoo-refactor.md` |
 | 出庫・出庫履歴 | `Deliveries.tsx`、`DeliveryHistory.tsx`、`deliveryService.ts` | 済（D-A1〜A3・現行基準） | 2画面の型・純関数・表示部品と `deliveryHistory` ルーターを分離。出庫実行の画面配線とdeliveryServiceは不変。詳細は下記と `docs/deliveries-refactor.md` |
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 済（O-A1〜A2・現行基準） | 画面の型・純関数・表示部品と `fedex` ルーター＋shipment系ヘルパーを分離。発送実行の画面配線とoutboundBoxes.tsは棚卸しのみ。詳細は下記と `docs/overseas-refactor.md` |
 | 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
-| 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 済（現行基準） | 画面の型・純関数・表示部品・CSVと receiptAck の純粋規則を分離。routers.ts の purchaseHistory/receiptAck ブロック抽出は次回へ持ち越し。詳細は下記と `docs/purchase-history-refactor.md` |
+| 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 済（現行基準） | 画面の型・純関数・表示部品・CSVと receiptAck の純粋規則を分離。持ち越していた routers.ts の purchaseHistory/receiptAck ブロック抽出は第3巡（E-A2）で完了。詳細は下記と `docs/purchase-history-refactor.md` |
 | インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | 済（I01〜I11・今回の完了基準） | 保存入力/行変換・金額・分割・顧客・PDF・表示の正本とUI副作用を監査。画面固有の状態/イベント調整は維持。実外部AI等の接続検証は未実施 |
-| 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 未着手 | 検索・同期・取引状態・商品照合 |
+| 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 済（T-A0〜A2・現行基準） | `trade`/`shipment` ルーターを専用ファイルへ分離し、Home・取引ダイアログ・一覧表の型/純関数を抽出・SSOT化。小型コンポーネントは棚卸しのみ。詳細は下記と `docs/trade-refactor.md` |
 | 月次棚卸・在庫推移 | `MonthlyReport.tsx`、`InventoryTrend.tsx`、`dailySnapshot.ts` | 済（M01〜M02・現行基準） | レポート型・集計・CSV・プレビュー/APIを分離。保存・再取得・日次重複・推移表示を確認 |
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 済（D01・現行基準） | 3ルーターを専用ファイルへ分離し、復元規則・完全復元・ラベル数量・CSV行解析をSSOT化。復元往復・横断検索・再実行を専用DBで確認 |
 | 作業管理・やること | `WorkManagement.tsx`、`ActionItems.tsx`、対応API | 済（W01〜W02・現行基準） | やることに加え、作業管理の入力/時間/集計と記録サービスを整理。開始・追記・終了・分割・再取得を確認 |
@@ -71,7 +71,7 @@
 
 - **済 / 作業中 / 未着手**を小作業単位で更新し、検証結果とコミットを残します。
 - 小作業ごとの規模は異なります。チェック数や移動行数を、そのまま全体の完了率・性能改善率には換算しません。
-- 現行基準で11領域済・一部済0・未着手5。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡が済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
+- 現行基準で13領域済・一部済0・未着手3。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡、eBay/ヤフオク出品、取引データ/CSVが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
 - 以前示した「5%未満」は暫定的な目安です。見積もりの分母が未確定なので、この一覧から正確な全体工数の割合はまだ出しません。
 
 ## P03の検証記録（2026-09-30）
@@ -484,3 +484,33 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
 
 **現状：16領域中11領域済、一部済0、未着手5。** これは領域数であり、全体工数の完了率ではない。
+
+## 並行2領域：eBay・ヤフオク出品／取引データ・CSV（2026-10-01）
+
+前回と同じ2並行運用を継続。統合済み `2ba8ecb` を共通基準に、既存worktree2つへ新ブランチを切って実施した。今回のserverファイルは自然に分離しており（eBay側=`server/inventory/routers.ts`、取引側=`server/routers.ts`）、1サーバーファイル=1所有者が成立。shared/・drizzle/・package類・他担当ファイルは両担当とも変更禁止とし、統合後diffで変更なしを確認した。eBay側エージェントは途中で1度通信中断したが、未コミットの棚卸し・基準テストを引き継いで再開し完走した。
+
+### eBay・ヤフオク出品（ブランチ `staff/yousunafu/refactor-ebay-yahoo`、6コミット、統合マージ `c3f81fe`）
+
+- **E-A0**: 整理前基準 `tests/regression/ebayYahoo.test.ts`（32テスト：`inventory.zaico` の読み書き契約。Zaico連携は常時無効経路で固定）を旧コードで成功させてから移行。
+- **E-A1**: `zaico: router({...})` ブロックを `server/inventory/zaicoRouter.ts`（2,175行）へ逐語移動。routers.ts 4,035行→1,897行。protectedの別名も再現。
+- **E-A2**: 前回持ち越しの `purchaseHistory`/`receiptAck` ブロックを `purchaseHistoryRouter.ts`（426行）/`receiptAckRouter.ts`（17行）へ逐語移動。routers.ts→1,480行。既存回帰18件の成功を確認。`purchaseExtra` は対象外のまま。
+- **E-A3**: `EbayInventory.tsx`（1,389行→1,285行）の型・定数・純関数を `ebay-inventory/`（types.ts / display.ts＋単体18件）へ抽出。
+- **E-A4**: `YahooListings.tsx`（1,017行→595行）の型・純関数・2ダイアログを `yahoo-listings/`（types.ts / view.ts / AddStockDialog.tsx / ManualListingDialog.tsx＋単体8件）へ抽出。
+- 逐語比較 MISSING/EXTRA=0。既存の注意点の記録（修正せず）：`getInventoryById` の到達不能フォールバック、`updateEbayListingUrl` のZaico有効経路でURL未保存、`upsertLocalInventory` の insertId 常時0、`isZaicoEnabled` 常時false。詳細は `docs/ebay-yahoo-refactor.md`。
+
+### 取引データ・CSV（ブランチ `staff/yousunafu/refactor-trade`、4コミット、統合マージ `ccea861`）
+
+- **T-A0**: 整理前基準 `tests/regression/trade.test.ts`（20テスト：trade/shipment手続きの契約。Google Sheets未設定経路・為替はモック固定）を旧コードで成功させてから移行。
+- **T-A1**: `trade` ブロックを `server/tradeRouter.ts`（1,892行）、`shipment` ブロックを `server/shipmentRouter.ts`（271行）へ逐語移動。server/routers.ts 2,376行→233行。
+- **T-A2**: `Home.tsx`（773行→691行）の型・純関数を `pages/home/model.ts` へ、取引系コンポーネントの型・純関数を `components/trade/` 4モジュールへ抽出（単体31件）。`fetchFrankfurterRate`・`normalizeDate`・`STATUS_PRESETS` の重複を `tradeFormShared.ts` へSSOT統合（Edit側の重複為替関数は未使用デッドコードで自然消滅）。挙動が異なる `getCurrencyForPartner` のAdd/Edit版は統合せず分離維持。AddTradeDialog 1,129→964行、EditTradeDialog 693→621行、DataTable 619→578行。小型コンポーネントは棚卸しのみ。
+- 逐語比較（CRLF正規化後）MISSING/EXTRA=0。既存の注意点の記録（修正せず・計12件）：`recalcShippingCostsLegacy` デッドコード、`listFromDb` のアプリ側ページング、通貨判定3実装の不一致、coral pink置換順の到達不能など。詳細は `docs/trade-refactor.md`。
+
+### 統合と検証（2026-10-01）
+
+- 統合側は各ブランチのコミット・変更ファイル・禁止範囲を検査後、`2ba8ecb` から1件ずつマージ（`c3f81fe`→`ccea861`）。競合なし・変更ファイルの重複ゼロ。統合後diffでshared/・drizzle/・package類の変更なし。
+- 統合後の全体検証：`pnpm check`・`pnpm check:regression` エラーなし。単体756件中755成功（失敗1件はGemini実APIの鍵なし既知）。統合用専用DBで回帰197件全成功（既存145＋eBay32＋取引20）。`pnpm build` 成功（既存のバンドルサイズ警告のみ）。
+- 実画面（統合サーバー・架空7件seed後）：`/inventory/ebay-inventory`（見出し・更新ボタン・有在庫/無在庫/シャフト3区分）、`/inventory/yahoo-listings`（フィルタ・抽出済み「在庫から追加」ダイアログの開閉と内容）、`/`（取引データのKPIカード・検索・フィルタ・取引追加ダイアログ起動）の描画とAPI応答を確認。コンソールはGoogleキー未設定の既知の環境要因のみ。
+- **未検証範囲**：Zaico連携有効時・GAS Webhook・GitHub CSV・Google Sheets書き戻し・frankfurter.devライブ応答などの実外部接続経路（モック/未設定経路で契約固定）、出品・取引作成/編集のブラウザー実操作（APIは回帰で確認）、本番データ・大量データ性能・全端末画像比較。
+- 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
+
+**現状：16領域中13領域済、一部済0、未着手3（在庫・カテゴリ・メモ／注文・パートナー／認証・設定・共通基盤）。** これは領域数であり、全体工数の完了率ではない。
