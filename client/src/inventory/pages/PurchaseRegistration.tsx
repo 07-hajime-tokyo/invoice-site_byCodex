@@ -209,6 +209,7 @@ interface StockItemView {
   supplier: SupplierView;
   purchaseDate: string;
   inboundWaiting?: boolean;
+  zeroStockPurchase?: boolean;
 }
 
 interface StockProposalDetail {
@@ -2061,10 +2062,14 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
   });
 }
 
-function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockItemView[] {
+function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventories: InventoryItem[]): StockItemView[] {
+  const inventoryCategoryById = new Map(
+    inventories.map((inventory) => [inventory.id, getInventoryCategory(inventory)]),
+  );
   return rows.flatMap((row) => {
     const rowStatus = purchaseRowStatusKind(row);
-    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped") return [];
+    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped" && rowStatus !== "received") return [];
+    const inboundWaiting = rowStatus === "ordered" || rowStatus === "inbound_shipped";
 
     const supplier = getSupplier(row);
     const status = statusLabel(row);
@@ -2081,14 +2086,15 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
 
       const rowManagementNos = getManagementNos(row.purchase_items);
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
+      const labelId = getItemLabels([item])[0]?.labelId?.trim() || null;
       return [
         {
-          key: `inbound-waiting-stock-${row.id}-${item.id}-${inventoryId}`,
+          key: `zero-stock-purchase-${row.id}-${item.id}-${inventoryId}`,
           inventoryId,
-          labelId: null,
+          labelId,
           status,
           title,
-          category: displayStockCategory(item.category),
+          category: displayStockCategory(item.category || inventoryCategoryById.get(inventoryId)),
           legacyManagementNo: managementNo,
           assignedInvoiceNo: null,
           allocationLabel: labelAllocationLabel(managementNo),
@@ -2096,7 +2102,8 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
           quantity,
           supplier,
           purchaseDate: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
-          inboundWaiting: true,
+          inboundWaiting,
+          zeroStockPurchase: true,
         },
       ];
     });
@@ -5711,11 +5718,11 @@ function StockPanel({
   onOpenEdit: (inventoryId: number) => void;
 }) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
-  const inboundWaitingStockItems = buildInboundWaitingStockItemViewsFromRows(purchaseRows);
-  const inboundWaitingQuantityTotal = inboundWaitingStockItems.reduce((total, item) => total + item.quantity, 0);
-  const [showInboundWaitingStockItems, setShowInboundWaitingStockItems] = useState(false);
-  const displayStockItems = showInboundWaitingStockItems
-    ? [...allStockItems, ...inboundWaitingStockItems]
+  const zeroStockPurchaseItems = buildZeroStockPurchaseItemViewsFromRows(purchaseRows, inventories);
+  const zeroStockPurchaseQuantityTotal = zeroStockPurchaseItems.reduce((total, item) => total + item.quantity, 0);
+  const [showZeroStockPurchaseItems, setShowZeroStockPurchaseItems] = useState(false);
+  const displayStockItems = showZeroStockPurchaseItems
+    ? [...allStockItems, ...zeroStockPurchaseItems]
     : allStockItems;
   const stockItems = searchText
     ? displayStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
@@ -5748,18 +5755,18 @@ function StockPanel({
           <h2 className="text-lg font-semibold">在庫一覧</h2>
           <Badge variant="outline">{stockItems.length.toLocaleString()}件</Badge>
           <Badge variant="secondary">{stockQuantityTotal.toLocaleString()}点</Badge>
-          {inboundWaitingStockItems.length > 0 ? (
+          {zeroStockPurchaseItems.length > 0 ? (
             <Button
               type="button"
-              variant={showInboundWaitingStockItems ? "secondary" : "outline"}
+              variant={showZeroStockPurchaseItems ? "secondary" : "outline"}
               size="sm"
               className="h-7 gap-1.5 px-2 text-xs"
-              onClick={() => setShowInboundWaitingStockItems((current) => !current)}
+              onClick={() => setShowZeroStockPurchaseItems((current) => !current)}
             >
               <PackageCheck className="h-3.5 w-3.5" />
-              {showInboundWaitingStockItems ? "入庫待ち0在庫を隠す" : "入庫待ち0在庫を表示"}
+              {showZeroStockPurchaseItems ? "0在庫を隠す" : "0在庫を表示"}
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
-                {inboundWaitingQuantityTotal.toLocaleString()}
+                {zeroStockPurchaseQuantityTotal.toLocaleString()}
               </Badge>
             </Button>
           ) : null}
@@ -5779,6 +5786,7 @@ function StockPanel({
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           商品IDが未発行の在庫も含めて、カテゴリごとに表示します。通常は在庫数が1以上の商品だけを表示します。
+          0在庫を表示すると、入庫待ちや入庫済みで在庫数0の商品も確認できます。
         </p>
       </section>
       {stockItems.length === 0 ? (
@@ -5828,6 +5836,8 @@ function StockPanel({
                             <span className="font-mono text-base font-semibold text-emerald-800">{item.labelId}</span>
                           ) : item.inboundWaiting ? (
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち</Badge>
+                          ) : item.zeroStockPurchase ? (
+                            <Badge variant="outline">0在庫</Badge>
                           ) : (
                             <Badge variant="outline">未発行</Badge>
                           )}
@@ -8163,6 +8173,19 @@ export default function PurchaseRegistration() {
       .sort(comparePurchaseRegistrationOrder);
   }, [allPurchaseRows]);
 
+  const stockPanelPurchaseRows = useMemo(() => {
+    return allPurchaseRows
+      .flatMap((row) => {
+        if (!isPurchaseRegistrationCutoffVisible(row)) return [];
+        const zeroStockItems = row.purchase_items.filter((item) => {
+          const orderedQuantity = Math.max(0, Math.floor(itemQuantity(item)));
+          return orderedQuantity > 0 && itemStockQuantity(item) <= 0;
+        });
+        return zeroStockItems.length > 0 ? [{ ...row, purchase_items: zeroStockItems }] : [];
+      })
+      .sort(comparePurchaseRegistrationOrder);
+  }, [allPurchaseRows]);
+
   const searchedGlobalPurchaseListRows = useMemo(() => {
     if (!searchText) return globalPurchaseListRows;
     return globalPurchaseListRows.filter((row) => buildSearchText(row).includes(searchText));
@@ -9195,7 +9218,7 @@ export default function PurchaseRegistration() {
               <TabsContent value="stock">
                 <StockPanel
                   inventories={inventoryItems}
-                  purchaseRows={globalPurchaseListRows}
+                  purchaseRows={stockPanelPurchaseRows}
                   unfinishedInvoices={purchaseRegistrationInvoices}
                   invoiceOptions={deliveryInvoiceOptions}
                   searchText={searchText}
