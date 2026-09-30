@@ -63,12 +63,12 @@ export function groupOutboundFedexItemsByInvoice(items: OutboundFedexItem[]): Ma
   return groups;
 }
 
-export type ShipmentSheetName =
-  | "独発送管理"
-  | "サミー発送管理"
-  | "デボン発送管理"
-  | "サイモン発送管理"
-  | "ネレ発送管理";
+export const SHIPMENT_SHEET_NAMES = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"] as const;
+export type ShipmentSheetName = (typeof SHIPMENT_SHEET_NAMES)[number];
+
+export function isShipmentSheetName(value: unknown): value is ShipmentSheetName {
+  return SHIPMENT_SHEET_NAMES.includes(value as ShipmentSheetName);
+}
 
 /** Strict mapping: callers must stop and ask a human when this returns null. */
 export function shipmentSheetForPartner(

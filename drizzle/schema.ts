@@ -690,6 +690,7 @@ export const outboundBoxes = mysqlTable("outbound_boxes", {
   deliveryHistoryId: int("deliveryHistoryId"),
   trackingNumber: varchar("trackingNumber", { length: 100 }),
   fedexShipmentId: int("fedexShipmentId"),
+  destinationSheetName: varchar("destinationSheetName", { length: 50 }),
   operatorName: varchar("operatorName", { length: 200 }),
   openedAt: timestamp("openedAt").defaultNow().notNull(),
   sealedAt: timestamp("sealedAt"),

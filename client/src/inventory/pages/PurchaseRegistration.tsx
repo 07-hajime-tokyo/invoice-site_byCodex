@@ -12,7 +12,13 @@ import {
   suggestCsvProduct,
 } from "@shared/productMatching";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo } from "@shared/invoiceKey";
-import { classifyOutboundScan, normalizeOutboundScan, OUTBOUND_BOX_CODE_PATTERN } from "@shared/outboundBoxes";
+import {
+  classifyOutboundScan,
+  normalizeOutboundScan,
+  OUTBOUND_BOX_CODE_PATTERN,
+  SHIPMENT_SHEET_NAMES,
+  type ShipmentSheetName,
+} from "@shared/outboundBoxes";
 import { isInboundComplete, type InboundClass } from "@shared/inboundPipeline";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +64,7 @@ interface InventoryItemLabel {
   status?: string | null;
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
+  assignedInvoiceNo?: string | null;
 }
 
 interface PurchaseItem {
@@ -155,6 +162,7 @@ interface LabelView {
   printTitle: string;
   category: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   supplier: SupplierView;
@@ -176,6 +184,7 @@ interface StockItemView {
   title: string;
   category: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   quantity: number;
@@ -229,6 +238,7 @@ interface ShippingItemView {
   canShip: boolean;
   title: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   supplier: SupplierView;
@@ -310,8 +320,6 @@ const OTHER_INVOICE_KEY = "invoice-other";
 const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
 const EBAY_GROUP_KEY = "invoice-ebay";
 const EBAY_GROUP_LABEL = "eBay";
-type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
-const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
 const TRACKING_CARRIER_LABELS: Record<Carrier, string> = {
   yamato: "ヤマト運輸",
   sagawa: "佐川急便",
@@ -1577,6 +1585,7 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           printTitle: formatLabelPrintTitle(title),
           category: (item.category ?? "").trim() || stockModelName(title),
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice: toNumber(item.unit_price),
           supplier,
@@ -1622,6 +1631,7 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           printTitle: formatLabelPrintTitle(title),
           category: getInventoryCategory(inventory) || stockModelName(title),
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: "",
           unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
           supplier,
@@ -1667,6 +1677,7 @@ function buildClosedInvoiceInventoryLabelViews(
             printTitle: formatLabelPrintTitle(title),
             category: (item.category ?? "").trim() || stockModelName(title),
             legacyManagementNo,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
             allocationLabel: "",
             unitPrice: toNumber(item.unit_price),
             supplier,
@@ -1977,6 +1988,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
           title: inventory.title,
           category,
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice,
           quantity: 1,
@@ -1998,6 +2010,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
         title: inventory.title,
         category,
         legacyManagementNo: managementNo,
+        assignedInvoiceNo: null,
         allocationLabel: labelAllocationLabel(managementNo),
         unitPrice,
         quantity: missingLabelQuantity,
@@ -2037,6 +2050,7 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
           title,
           category: (item.category ?? "").trim() || stockModelName(title),
           legacyManagementNo: managementNo,
+          assignedInvoiceNo: null,
           allocationLabel: labelAllocationLabel(managementNo),
           unitPrice: toNumber(item.unit_price),
           quantity,
@@ -2498,6 +2512,31 @@ function detectShipmentSheetNameForGroup(
   );
 }
 
+function invoiceOptionByNo(invoiceOptions: AllocationGroup[], invoiceNo: string | null | undefined): AllocationGroup | null {
+  if (!invoiceNo) return null;
+  return invoiceOptions.find((option) => invoiceNoFromGroupKey(option.key) === invoiceNo) ?? null;
+}
+
+function invoiceDisplayLabel(invoiceOptions: AllocationGroup[], invoiceNo: string | null | undefined): string {
+  if (!invoiceNo) return "未設定";
+  const option = invoiceOptionByNo(invoiceOptions, invoiceNo);
+  const partner = option?.partner?.trim();
+  return partner ? `No.${invoiceNo} ${partner}` : `No.${invoiceNo}`;
+}
+
+function labelTargetInvoiceNo(input: { assignedInvoiceNo?: string | null; legacyManagementNo?: string | null }): string | null {
+  return input.assignedInvoiceNo?.trim() || invoiceNoFromManagementNo(input.legacyManagementNo);
+}
+
+function labelTargetShipmentSheetName(
+  input: { assignedInvoiceNo?: string | null; legacyManagementNo?: string | null },
+  invoiceOptions: AllocationGroup[],
+): ShipmentSheetName | null {
+  const invoiceNo = labelTargetInvoiceNo(input);
+  const option = invoiceOptionByNo(invoiceOptions, invoiceNo);
+  return detectShipmentSheetNameForText(option?.partner) ?? detectShipmentSheetNameForText(option?.label);
+}
+
 function isShippableLabelStatus(status?: string | null): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
   return normalized === "received" || normalized === "stocked";
@@ -2582,6 +2621,7 @@ function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
       canShip,
       title: label.title,
       legacyManagementNo: label.legacyManagementNo,
+      assignedInvoiceNo: label.assignedInvoiceNo ?? null,
       allocationLabel: label.allocationLabel,
       unitPrice: label.unitPrice,
       supplier: label.supplier,
@@ -5570,6 +5610,7 @@ function StockPanel({
   inventories,
   purchaseRows,
   unfinishedInvoices,
+  invoiceOptions,
   searchText,
   viewMode,
   onOpenEdit,
@@ -5577,6 +5618,7 @@ function StockPanel({
   inventories: InventoryItem[];
   purchaseRows: PurchaseRow[];
   unfinishedInvoices?: PurchaseRegistrationInvoice[];
+  invoiceOptions: AllocationGroup[];
   searchText: string;
   viewMode: StockViewMode;
   onOpenEdit: (inventoryId: number) => void;
@@ -5698,7 +5740,22 @@ function StockPanel({
                           <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant={item.assignedInvoiceNo ? "default" : "secondary"} className="w-fit font-mono">
+                              {item.assignedInvoiceNo
+                                ? `充当先 ${invoiceDisplayLabel(invoiceOptions, item.assignedInvoiceNo)}`
+                                : item.allocationLabel}
+                            </Badge>
+                            {item.labelId ? (
+                              <BoxItemInvoiceField
+                                labelId={item.labelId}
+                                assignedInvoiceNo={item.assignedInvoiceNo ?? null}
+                                legacyManagementNo={item.legacyManagementNo}
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">商品ID発行後に指定できます</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           {item.supplier.url ? (
@@ -5761,6 +5818,7 @@ type OutboundBoxView = {
   deliveryHistoryId: number | null;
   trackingNumber: string | null;
   fedexShipmentId: number | null;
+  destinationSheetName: ShipmentSheetName | null;
   openedAt: string | Date;
   sealedAt: string | Date | null;
   linkedAt: string | Date | null;
@@ -5790,6 +5848,7 @@ function outboundBoxPrintLabel(boxCode: string): LabelView {
     printTitle: "海外直取 出庫箱",
     category: "出庫箱",
     legacyManagementNo: "",
+    assignedInvoiceNo: null,
     allocationLabel: "箱ID / OUTBOUND BOX",
     unitPrice: 0,
     supplier: { name: "", url: "" },
@@ -6118,6 +6177,9 @@ function BoxItemInvoiceField({
       }
       void utils.inventory.outboundBoxes.list.invalidate();
       void utils.inventory.orderManagement.boxDeclaration.invalidate();
+      void utils.inventory.zaico.getInventories.invalidate();
+      void utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate();
+      void utils.inventory.zaico.getPurchasesWithCategory.invalidate();
     },
     onError: (error) => {
       toast.error(error.message);
@@ -6321,7 +6383,24 @@ function BoxDeclarationPanel({ boxCode }: { boxCode: string }) {
   );
 }
 
-function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: string | null) => void } = {}) {
+type OutboundBoxDestinationConflict = {
+  boxCode: string;
+  labelId: string;
+  title: string;
+  legacyManagementNo: string | null;
+  assignedInvoiceNo: string | null;
+  itemInvoiceNo: string | null;
+  itemSheetName: ShipmentSheetName;
+  boxDestinationSheetName: ShipmentSheetName;
+};
+
+function OutboundBoxPanel({
+  invoiceOptions,
+  onOpenBoxChange,
+}: {
+  invoiceOptions: AllocationGroup[];
+  onOpenBoxChange?: (boxCode: string | null) => void;
+}) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.inventory.outboundBoxes.list.useQuery(undefined, {
     staleTime: 10_000,
@@ -6353,6 +6432,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shippingDate, setShippingDate] = useState(todayShipmentDate());
   const [traceLabelId, setTraceLabelId] = useState("");
+  const [destinationConflict, setDestinationConflict] = useState<OutboundBoxDestinationConflict | null>(null);
   const currentBox = boxes.find((box) => box.boxCode === currentBoxCode) ?? null;
   const sealedBoxes = boxes.filter((box) => box.status === "sealed");
   // 封をすると currentBox から外れるため、追跡番号を待っている箱の中身はここから見せる
@@ -6375,6 +6455,13 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
       toast.success(`${box?.boxCode ?? "箱"}を開きました`);
     },
     onError: mutationError("箱を開けませんでした"),
+  });
+  const setDestination = trpc.inventory.outboundBoxes.setDestination.useMutation({
+    onSuccess: (box) => {
+      refreshBoxes();
+      toast.success(`${box?.boxCode ?? "箱"}の出荷先を更新しました`);
+    },
+    onError: mutationError("出荷先を更新できませんでした"),
   });
   const addItem = trpc.inventory.outboundBoxes.addItem.useMutation({
     onSuccess: (box) => {
@@ -6437,6 +6524,56 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
     onError: mutationError("封を解けませんでした"),
   });
 
+  function submitAddItem(labelId: string, options?: { force?: boolean }) {
+    if (!currentBoxCode) {
+      toast.error("先に箱IDをスキャンしてください");
+      return;
+    }
+    addItem.mutate({
+      boxCode: currentBoxCode,
+      labelId,
+      force: options?.force,
+      operatorName: getCurrentWorkWorkerName("出荷担当"),
+    });
+  }
+
+  async function addLabelToBox(labelId: string) {
+    if (!currentBoxCode) {
+      toast.error("先に箱IDをスキャンしてください");
+      return;
+    }
+    const box = boxes.find((row) => row.boxCode === currentBoxCode) ?? null;
+    if (!box?.destinationSheetName) {
+      toast.error("先にこの箱の出荷先を選んでください");
+      return;
+    }
+    try {
+      const result = await utils.inventory.outboundBoxes.traceByLabel.fetch({ labelId });
+      const label = result.label;
+      if (label) {
+        const itemInvoiceNo = labelTargetInvoiceNo(label);
+        const itemSheetName = labelTargetShipmentSheetName(label, invoiceOptions);
+        if (itemSheetName && itemSheetName !== box.destinationSheetName) {
+          setDestinationConflict({
+            boxCode: box.boxCode,
+            labelId,
+            title: String(label.title ?? ""),
+            legacyManagementNo: label.legacyManagementNo ?? null,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
+            itemInvoiceNo,
+            itemSheetName,
+            boxDestinationSheetName: box.destinationSheetName,
+          });
+          return;
+        }
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "商品IDの確認に失敗しました");
+      return;
+    }
+    submitAddItem(labelId);
+  }
+
   const handleScan = (rawValue: string) => {
     const normalized = normalizeOutboundScan(rawValue);
     setScanValue(normalized);
@@ -6452,11 +6589,7 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
         openBox.mutate({ boxCode: normalized, operatorName: getCurrentWorkWorkerName("出荷担当") });
       }
     } else if (kind === "label") {
-      if (!currentBoxCode) {
-        toast.error("先に箱IDをスキャンしてください");
-      } else {
-        addItem.mutate({ boxCode: currentBoxCode, labelId: normalized });
-      }
+      void addLabelToBox(normalized);
     } else if (kind === "tracking") {
       if (!linkBoxCode) toast.error("先に封済みの箱IDをスキャンしてください");
       else setTrackingNumber(normalized);
@@ -6539,6 +6672,33 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
           <Badge variant="outline">選択箱: {currentBoxCode || "なし"}</Badge>
           <Badge variant="outline">追跡待ち: {linkBoxCode || "なし"}</Badge>
         </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+          <span className="text-sm font-medium text-slate-700">この箱の出荷先</span>
+          <select
+            className={fieldClass}
+            value={currentBox?.destinationSheetName ?? ""}
+            disabled={!currentBox || setDestination.isPending}
+            onChange={(event) => {
+              if (!currentBox) return;
+              const value = event.target.value as ShipmentSheetName | "";
+              setDestination.mutate({
+                boxCode: currentBox.boxCode,
+                destinationSheetName: value || null,
+                operatorName: getCurrentWorkWorkerName("出荷担当"),
+              });
+            }}
+          >
+            <option value="">未設定（商品追加前に選択）</option>
+            {SHIPMENT_SHEET_NAMES.map((sheetName) => (
+              <option key={sheetName} value={sheetName}>{sheetName}</option>
+            ))}
+          </select>
+        </div>
+        {currentBox && !currentBox.destinationSheetName ? (
+          <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            商品を入れる前に、この箱の出荷先を選んでください。充当先が違う商品をスキャンしたときに警告します。
+          </p>
+        ) : null}
         <div className={cn("mt-3 overflow-hidden rounded-md border bg-black", qrScanner.cameraActive ? "block" : "hidden")}>
           <video ref={qrScanner.videoRef} className="h-[50vh] min-h-[260px] max-h-[480px] w-full object-cover" muted playsInline />
         </div>
@@ -6553,6 +6713,11 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
         <div className="mt-4 rounded-md border border-indigo-300 bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><span className="font-mono text-xl font-bold">{currentBox.boxCode}</span><Badge variant="secondary" className="ml-2">{currentBox.items.length}点</Badge></div>
+            {currentBox.destinationSheetName ? (
+              <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
+                出荷先 {currentBox.destinationSheetName}
+              </Badge>
+            ) : null}
             <Button type="button" className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={currentBox.items.length === 0 || sealBox.isPending} onClick={() => sealBox.mutate({ boxCode: currentBox.boxCode, deliveryDate: localDateInputValue(), operatorName: getCurrentWorkWorkerName("出荷担当") })}>
               {sealBox.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}封をする
             </Button>
@@ -6644,6 +6809,48 @@ function OutboundBoxPanel({ onOpenBoxChange }: { onOpenBoxChange?: (boxCode: str
           {traceQuery.data?.label ? <div className="mt-2 rounded border p-2 text-sm"><div><span className="font-mono font-bold">{traceQuery.data.label.labelId}</span> / {traceQuery.data.label.title}</div><div className="mt-1">箱: <span className="font-mono font-semibold">{traceQuery.data.box?.boxCode ?? "未割当"}</span> → 追跡番号: <span className="font-mono font-semibold">{traceQuery.data.box?.trackingNumber ?? "未登録"}</span></div></div> : normalizedTraceLabel.length === 7 && !traceQuery.isFetching ? <p className="mt-2 text-sm text-muted-foreground">個体が見つかりません</p> : null}
         </div>
       </div>
+      <Dialog open={Boolean(destinationConflict)} onOpenChange={(open) => { if (!open) setDestinationConflict(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Truck className="h-5 w-5 text-amber-600" />
+              出荷先が違う可能性があります
+            </DialogTitle>
+          </DialogHeader>
+          {destinationConflict ? (
+            <div className="space-y-3 text-sm">
+              <div className="rounded border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                この商品は <strong>{destinationConflict.itemSheetName}</strong> 向けですが、
+                現在の箱は <strong>{destinationConflict.boxDestinationSheetName}</strong> に設定されています。
+              </div>
+              <div className="rounded border bg-muted/30 p-3">
+                <div className="font-mono text-base font-semibold">{destinationConflict.labelId}</div>
+                <div className="mt-1 font-medium">{destinationConflict.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {destinationConflict.legacyManagementNo ?? "-"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  充当先: {destinationConflict.itemInvoiceNo ? invoiceDisplayLabel(invoiceOptions, destinationConflict.itemInvoiceNo) : "未設定"}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setDestinationConflict(null)}>
+              追加しない
+            </Button>
+            <Button
+              type="button"
+              className="bg-amber-600 text-white hover:bg-amber-700"
+              onClick={() => {
+                if (!destinationConflict) return;
+                submitAddItem(destinationConflict.labelId, { force: true });
+                setDestinationConflict(null);
+              }}
+            >
+              例外として追加
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -7070,7 +7277,7 @@ function ShippingPanel({
 
   return (
     <div className="space-y-4">
-      <OutboundBoxPanel onOpenBoxChange={setOpenBoxCode} />
+      <OutboundBoxPanel invoiceOptions={invoiceOptions} onOpenBoxChange={setOpenBoxCode} />
       {openBoxCode ? (
         <section className="rounded-md border-2 border-amber-400 bg-amber-50 p-3 sm:p-4">
           <p className="text-sm font-semibold text-amber-900">
@@ -8823,6 +9030,7 @@ export default function PurchaseRegistration() {
                   inventories={inventoryItems}
                   purchaseRows={countableRows}
                   unfinishedInvoices={purchaseRegistrationInvoices}
+                  invoiceOptions={deliveryInvoiceOptions}
                   searchText={searchText}
                   viewMode={stockViewMode}
                   onOpenEdit={handleOpenStockEditDialog}
