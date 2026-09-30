@@ -2100,7 +2100,8 @@ function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventorie
 
       const rowManagementNos = getManagementNos(row.purchase_items);
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
-      const labelId = getItemLabels([item])[0]?.labelId?.trim() || null;
+      const firstLabel = getItemLabels([item])[0] ?? null;
+      const labelId = firstLabel?.labelId?.trim() || null;
       return [
         {
           key: `zero-stock-purchase-${row.id}-${item.id}-${inventoryId}`,
@@ -2110,7 +2111,7 @@ function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventorie
           title,
           category: displayStockCategory(item.category || inventoryCategoryById.get(inventoryId)),
           legacyManagementNo: managementNo,
-          assignedInvoiceNo: null,
+          assignedInvoiceNo: firstLabel?.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(managementNo),
           unitPrice: toNumber(item.unit_price),
           quantity,
@@ -6286,12 +6287,18 @@ function BoxItemInvoiceField({
   legacyManagementNo: string | null;
 }) {
   const utils = trpc.useUtils();
+  const [localAssignedInvoiceNo, setLocalAssignedInvoiceNo] = useState<string | null>(assignedInvoiceNo ?? null);
   const [value, setValue] = useState(assignedInvoiceNo ?? "");
   // 申告明細側や別端末で変わったときに追従する
-  useEffect(() => setValue(assignedInvoiceNo ?? ""), [assignedInvoiceNo]);
+  useEffect(() => {
+    setLocalAssignedInvoiceNo(assignedInvoiceNo ?? null);
+    setValue(assignedInvoiceNo ?? "");
+  }, [assignedInvoiceNo]);
   const autoInvoiceNo = invoiceNoFromManagementNo(legacyManagementNo);
   const assign = trpc.inventory.outboundBoxes.assignInvoice.useMutation({
     onSuccess: (result) => {
+      setLocalAssignedInvoiceNo(result.invoiceNo ?? null);
+      setValue(result.invoiceNo ?? "");
       if (result.changed) {
         toast.success(
           result.invoiceNo
@@ -6307,13 +6314,13 @@ function BoxItemInvoiceField({
     },
     onError: (error) => {
       toast.error(error.message);
-      setValue(assignedInvoiceNo ?? "");
+      setValue(localAssignedInvoiceNo ?? "");
     },
   });
 
   const commit = () => {
     const next = value.trim();
-    if (assign.isPending || next === (assignedInvoiceNo ?? "")) return;
+    if (assign.isPending || next === (localAssignedInvoiceNo ?? "")) return;
     assign.mutate({
       labelId,
       invoiceNo: next === "" ? null : next,
@@ -6321,7 +6328,8 @@ function BoxItemInvoiceField({
     });
   };
 
-  const effectiveInvoiceNo = assignedInvoiceNo ?? autoInvoiceNo;
+  const isDirty = value.trim() !== (localAssignedInvoiceNo ?? "");
+  const effectiveInvoiceNo = localAssignedInvoiceNo ?? autoInvoiceNo;
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
       <span className="text-xs text-muted-foreground">宛先No.</span>
@@ -6340,8 +6348,20 @@ function BoxItemInvoiceField({
         }}
         onBlur={commit}
       />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        title="宛先No.を保存"
+        disabled={!isDirty || assign.isPending}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={commit}
+      >
+        <Check className="h-3.5 w-3.5" />
+      </Button>
       {assign.isPending ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : null}
-      {assignedInvoiceNo && assignedInvoiceNo !== autoInvoiceNo ? (
+      {localAssignedInvoiceNo && localAssignedInvoiceNo !== autoInvoiceNo ? (
         <span
           className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-900"
           title={`管理番号からは No.${autoInvoiceNo ?? "不明"}。人の指定で上書きしています`}
