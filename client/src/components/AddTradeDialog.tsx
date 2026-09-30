@@ -213,6 +213,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
   const [invoiceApplyPreview, setInvoiceApplyPreview] = useState<InvoiceApplyPreview | null>(null);
+  const [invoicePreviewUnitPriceDrafts, setInvoicePreviewUnitPriceDrafts] = useState<Record<number, string>>({});
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>("");
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -501,6 +502,9 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       return;
     }
 
+    setInvoicePreviewUnitPriceDrafts(
+      Object.fromEntries(rows.map((row, index) => [index, String(row.unitPrice)])),
+    );
     setInvoiceApplyPreview({
       invoiceNo,
       partner,
@@ -544,12 +548,31 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
     } : prev);
   };
 
+  const handleInvoicePreviewUnitPriceChange = (index: number, value: string) => {
+    setSubmitError(null);
+    setInvoicePreviewUnitPriceDrafts(prev => ({
+      ...prev,
+      [index]: value,
+    }));
+  };
+
   const handleConfirmApplyInvoice = async () => {
     if (!invoiceApplyPreview) return;
     setSubmitError(null);
 
+    const rows = invoiceApplyPreview.rows.map((row, index) => {
+      const draft = invoicePreviewUnitPriceDrafts[index] ?? String(row.unitPrice);
+      const unitPrice = parseFloat(draft);
+      return { ...row, unitPrice, rawUnitPrice: draft };
+    });
+    const invalidRow = rows.find(row => !Number.isFinite(row.unitPrice) || row.unitPrice < 0);
+    if (invalidRow) {
+      setSubmitError(`「${invalidRow.productName}」の単価を0以上の数字で入力してください。`);
+      return;
+    }
+
     try {
-      for (const row of invoiceApplyPreview.rows) {
+      for (const row of rows) {
         await invoiceAddMutation.mutateAsync({
           month: invoiceApplyPreview.month,
           partner: invoiceApplyPreview.partner,
@@ -576,6 +599,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
       setShippingManual(false);
       onSuccess?.();
       setInvoiceApplyPreview(null);
+      setInvoicePreviewUnitPriceDrafts({});
       setInvoicePreviewOpen(false);
     } catch {
       // onError で表示する
@@ -701,6 +725,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
           setInvoicePreviewOpen(nextOpen);
           if (!nextOpen) {
             setInvoiceApplyPreview(null);
+            setInvoicePreviewUnitPriceDrafts({});
             setInvoicePreviewRateLoading(false);
           }
         }}
@@ -762,7 +787,17 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
                       <tr key={`${row.productName}-${index}`} className="border-b last:border-0">
                         <td className="px-3 py-2">{row.productName}</td>
                         <td className="px-3 py-2 text-right">{row.quantity.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">{row.unitPrice.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={invoicePreviewUnitPriceDrafts[index] ?? String(row.unitPrice)}
+                            onChange={(e) => handleInvoicePreviewUnitPriceChange(index, e.target.value)}
+                            className="ml-auto h-8 w-28 bg-background text-right text-sm"
+                            aria-label={`${row.productName}の単価`}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -783,6 +818,7 @@ export function AddTradeDialog({ onSuccess }: { onSuccess?: () => void }) {
               onClick={() => {
                 setInvoicePreviewOpen(false);
                 setInvoiceApplyPreview(null);
+                setInvoicePreviewUnitPriceDrafts({});
                 setInvoicePreviewRateLoading(false);
               }}
               className="w-full sm:w-auto"
