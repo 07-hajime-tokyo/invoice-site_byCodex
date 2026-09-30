@@ -113,7 +113,22 @@ DB関数（`server/inventory/db.ts`・読み取りのみ）: `getPurchaseHistori
 
 ## 3. 抽出記録
 
-（抽出コミットごとに追記する）
+### 3-1. クライアント: PurchaseHistory.tsx → purchase-history/ フォルダ
+
+基準 `83127ff:client/src/inventory/pages/PurchaseHistory.tsx`（564行）からの逐語移動。許容差分は「`export ` 接頭辞の付与」と「import行の付け替え」のみ。逐語比較は difflib による行単位比較（`export ` 接頭辞を正規化、import行を除外）で実施。
+
+| 抽出先 | 元の行範囲 | 内容 | 逐語比較 |
+| --- | --- | --- | --- |
+| `purchase-history/types.ts` | L161-184 | `PurchaseHistoryItem` 型（`export` 付与） | MISSING=0 / EXTRA=0 |
+| `purchase-history/receiptAck.ts` | L29-65 | `receiptAckStatusSet`（非export）、`normalizeReceiptAckStatus` / `normalizeReceiptAckSource` / `getReceiptAckLabel` / `formatReceiptAckAt` / `receiptAckTitle`（export付与） | MISSING=0 / EXTRA=0 |
+| `purchase-history/ReceiptAckCell.tsx` | L67-124 | `ReceiptAckCellProps`（非export）、`ReceiptAckCell`（export付与） | MISSING=0 / EXTRA=0 |
+| `purchase-history/exportCsv.ts` | L126-159 | `exportPurchaseHistoryCSV`（export付与） | MISSING=0 / EXTRA=0 |
+
+ページ本体（`PurchaseHistory.tsx`）は元 L1-21（import群）が完全一致、元 L186-563（`export default function PurchaseHistory()` 本体）が完全一致（バイト同一）であることを確認。差分は L22-184 の削除と新規 import 4行（`./purchase-history/receiptAck` / `ReceiptAckCell` / `exportCsv` / `types`）のみ。
+
+- 状態・イベント配線・tRPCクエリ・JSX本体はページに残置（抽出対象は型・純関数・独立表示部品のみ）。
+- `PurchaseHistory.tsx` の外部参照は `InventoryApp.tsx:11` の default lazy import のみのため、再エクスポートは不要。
+- 抽出した純関数の単体テスト: `purchase-history/receiptAck.test.ts`（16件、全パス）。
 
 ## 4. 検証結果
 
