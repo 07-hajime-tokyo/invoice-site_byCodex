@@ -27,6 +27,23 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { FedexShipmentDialog, type HistoryItem } from "@/inventory/pages/DeliveryHistory";
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
@@ -47,6 +64,7 @@ import {
   PackageMinus,
   PackagePlus,
   Pencil,
+  Plus,
   Printer,
   RefreshCw,
   RotateCcw,
@@ -477,6 +495,21 @@ function getInventoryCategory(inventory: InventoryItem): string {
 
 function displayStockCategory(category?: string | null): string {
   return (category ?? "").trim() || UNCATEGORIZED_STOCK_CATEGORY;
+}
+
+function normalizeStockCategoryOption(category?: string | null): string {
+  const name = (category ?? "").trim();
+  if (!name || name === "すべて" || name === UNCATEGORIZED_STOCK_CATEGORY) return "";
+  return name;
+}
+
+function sortedStockCategoryOptions(categories: Iterable<string | null | undefined>): string[] {
+  const values = new Set<string>();
+  for (const category of categories) {
+    const name = normalizeStockCategoryOption(category);
+    if (name) values.add(name);
+  }
+  return Array.from(values).sort((a, b) => a.localeCompare(b, "ja", { numeric: true }));
 }
 
 function toNumber(value: unknown): number {
@@ -5663,6 +5696,8 @@ function StockPanel({
   invoiceOptions,
   searchText,
   viewMode,
+  categoryOptions,
+  onOpenCategoryDialog,
   onOpenEdit,
 }: {
   inventories: InventoryItem[];
@@ -5671,6 +5706,8 @@ function StockPanel({
   invoiceOptions: AllocationGroup[];
   searchText: string;
   viewMode: StockViewMode;
+  categoryOptions: string[];
+  onOpenCategoryDialog: () => void;
   onOpenEdit: (inventoryId: number) => void;
 }) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
@@ -5726,6 +5763,19 @@ function StockPanel({
               </Badge>
             </Button>
           ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            onClick={onOpenCategoryDialog}
+          >
+            <Tag className="h-3.5 w-3.5" />
+            カテゴリ管理
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {categoryOptions.length.toLocaleString()}
+            </Badge>
+          </Button>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           商品IDが未発行の在庫も含めて、カテゴリごとに表示します。通常は在庫数が1以上の商品だけを表示します。
@@ -8025,6 +8075,9 @@ export default function PurchaseRegistration() {
     supplierName: "",
     supplierUrl: "",
   });
+  const [showStockCategoryDialog, setShowStockCategoryDialog] = useState(false);
+  const [newStockCategoryName, setNewStockCategoryName] = useState("");
+  const [stockCategoryDeleteTarget, setStockCategoryDeleteTarget] = useState<string | null>(null);
   const [trackingForm, setTrackingForm] = useState<TrackingFormState>({
     shipDate: todayInputDate(),
     trackingNumber: "",
@@ -8033,6 +8086,8 @@ export default function PurchaseRegistration() {
   const deleteInventoryMutation = trpc.inventory.zaico.deleteInventory.useMutation();
   const updatePurchaseDataMutation = trpc.inventory.zaico.updatePurchaseData.useMutation();
   const updateInventoryMutation = trpc.inventory.zaico.updateInventory.useMutation();
+  const addCategoryMutation = trpc.inventory.zaico.addCategory.useMutation();
+  const deleteCategoryMutation = trpc.inventory.zaico.deleteCategory.useMutation();
   const updateSupplierNameOnlyMutation = trpc.inventory.zaico.updateSupplierNameOnly.useMutation();
   const upsertPurchaseExtraMutation = trpc.inventory.purchaseExtra.upsert.useMutation();
   const upsertPurchaseExtraBulkMutation = trpc.inventory.purchaseExtra.upsertBulk.useMutation();
@@ -8072,6 +8127,11 @@ export default function PurchaseRegistration() {
     isFetching: isInventoryFetching,
     refetch: refetchInventories,
   } = trpc.inventory.zaico.getInventories.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+  });
+  const { data: managedCategories } = trpc.inventory.zaico.getCategories.useQuery(undefined, {
     staleTime: 30_000,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
@@ -8151,6 +8211,16 @@ export default function PurchaseRegistration() {
   );
   const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
   const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
+  const categoryOptions = useMemo(() => {
+    return sortedStockCategoryOptions([
+      ...(managedCategories ?? []),
+      ...inventoryItems.map((item) => getInventoryCategory(item)),
+      ...allPurchaseRows.flatMap((row) => row.purchase_items.map((item) => item.category)),
+    ]);
+  }, [allPurchaseRows, inventoryItems, managedCategories]);
+  const stockEditCategoryOptions = useMemo(() => {
+    return sortedStockCategoryOptions([...categoryOptions, stockEditForm.category]);
+  }, [categoryOptions, stockEditForm.category]);
   const inventoryLabels = useMemo(() => buildInventoryLabelViews(inventoryItems), [inventoryItems]);
   const closedInvoiceInventoryLabels = useMemo(
     () => buildClosedInvoiceInventoryLabelViews(countableRows, purchaseRegistrationInvoices),
@@ -8639,7 +8709,7 @@ export default function PurchaseRegistration() {
         title,
         quantity: String(quantity),
         unit: stockEditForm.unit || undefined,
-        category: stockEditForm.category.trim() || undefined,
+        category: stockEditForm.category.trim(),
         place: stockEditForm.place.trim() || undefined,
         etc: buildEtcWithManagementNo(stockEditForm.managementNo, editingStockItem.etc, stockEditForm.supplierName) || undefined,
         purchase_unit_price: unitPrice,
@@ -8659,6 +8729,51 @@ export default function PurchaseRegistration() {
       void refetchAllPurchaseRegistrations();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "在庫情報の更新に失敗しました");
+    }
+  };
+
+  const refreshCategoryRelatedData = async () => {
+    await Promise.all([
+      utils.inventory.zaico.getCategories.invalidate(),
+      utils.inventory.zaico.getInventories.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+      utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+    ]);
+    void refetch();
+    void refetchAllPurchaseRegistrations();
+    void refetchInventories();
+  };
+
+  const handleAddStockCategory = async () => {
+    const name = normalizeStockCategoryOption(newStockCategoryName);
+    if (!name) {
+      toast.error("カテゴリ名を入力してください");
+      return;
+    }
+    try {
+      await addCategoryMutation.mutateAsync({ name });
+      setNewStockCategoryName("");
+      await refreshCategoryRelatedData();
+      toast.success(`「${name}」を追加しました`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "カテゴリの追加に失敗しました");
+    }
+  };
+
+  const handleDeleteStockCategory = async () => {
+    if (!stockCategoryDeleteTarget) return;
+    const name = stockCategoryDeleteTarget;
+    try {
+      await deleteCategoryMutation.mutateAsync({ name });
+      setStockCategoryDeleteTarget(null);
+      setStockEditForm((current) => (
+        normalizeStockCategoryOption(current.category) === name ? { ...current, category: "" } : current
+      ));
+      await refreshCategoryRelatedData();
+      toast.success(`「${name}」を削除しました`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "カテゴリの削除に失敗しました");
     }
   };
 
@@ -9085,6 +9200,8 @@ export default function PurchaseRegistration() {
                   invoiceOptions={deliveryInvoiceOptions}
                   searchText={searchText}
                   viewMode={stockViewMode}
+                  categoryOptions={categoryOptions}
+                  onOpenCategoryDialog={() => setShowStockCategoryDialog(true)}
                   onOpenEdit={handleOpenStockEditDialog}
                 />
               </TabsContent>
@@ -9227,6 +9344,101 @@ export default function PurchaseRegistration() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={showStockCategoryDialog} onOpenChange={setShowStockCategoryDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5 text-emerald-700" />
+                在庫カテゴリ管理
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={newStockCategoryName}
+                  onChange={(event) => setNewStockCategoryName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleAddStockCategory();
+                    }
+                  }}
+                  placeholder="カテゴリ名"
+                />
+                <Button
+                  type="button"
+                  className="shrink-0 gap-2"
+                  onClick={() => void handleAddStockCategory()}
+                  disabled={addCategoryMutation.isPending || !newStockCategoryName.trim()}
+                >
+                  {addCategoryMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  追加
+                </Button>
+              </div>
+              <div className="max-h-72 overflow-y-auto rounded-md border">
+                {categoryOptions.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">カテゴリがありません</p>
+                ) : (
+                  categoryOptions.map((category) => (
+                    <div key={category} className="flex items-center justify-between gap-3 border-b px-3 py-2 last:border-0">
+                      <span className="truncate text-sm font-medium">{category}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        onClick={() => setStockCategoryDeleteTarget(category)}
+                        disabled={deleteCategoryMutation.isPending}
+                        aria-label={`${category}を削除`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowStockCategoryDialog(false)}>
+                閉じる
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog
+          open={Boolean(stockCategoryDeleteTarget)}
+          onOpenChange={(open) => {
+            if (!open && !deleteCategoryMutation.isPending) setStockCategoryDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>カテゴリを削除しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                「{stockCategoryDeleteTarget}」を設定済みカテゴリから削除します。商品に同じカテゴリが残っている場合は、編集候補に再表示されることがあります。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteCategoryMutation.isPending}>キャンセル</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleDeleteStockCategory();
+                }}
+                disabled={deleteCategoryMutation.isPending}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteCategoryMutation.isPending ? "削除中..." : "削除"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <Dialog
           open={Boolean(editingStockItem)}
           onOpenChange={(open) => {
@@ -9258,10 +9470,24 @@ export default function PurchaseRegistration() {
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-xs font-medium text-muted-foreground">カテゴリ</span>
-                <Input
-                  value={stockEditForm.category}
-                  onChange={(event) => setStockEditForm((current) => ({ ...current, category: event.target.value }))}
-                />
+                <Select
+                  value={stockEditForm.category.trim() || "__none__"}
+                  onValueChange={(value) =>
+                    setStockEditForm((current) => ({ ...current, category: value === "__none__" ? "" : value }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="カテゴリを選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{UNCATEGORIZED_STOCK_CATEGORY}</SelectItem>
+                    {stockEditCategoryOptions.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-xs font-medium text-muted-foreground">在庫数</span>
