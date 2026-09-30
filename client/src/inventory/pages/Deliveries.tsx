@@ -70,188 +70,20 @@ import {
 } from "@/inventory/components/DefectiveInspectionDialog";
 import type { InboundLabel } from "@/inventory/lib/inboundDesk";
 
-interface InventoryItemLabel {
-  id?: number;
-  labelId: string;
-  status?: string | null;
-  legacyManagementNo?: string | null;
-}
-
-interface InventoryItem {
-  id: number;
-  title: string;
-  quantity: string;
-  unit: string;
-  category?: string;
-  categories?: string[];
-  place?: string;
-  etc?: string;
-  code?: string;
-  unit_price?: number;
-  purchase_unit_price?: number;
-  last_purchase_date?: string | null;
-  updated_at?: string;
-  created_at?: string;
-  supplierUrl?: string | null;
-  supplierName?: string | null;
-  ebayListingUrl?: string | null;
-  itemLabels?: InventoryItemLabel[];
-}
-
-/** 在庫一覧CSVエクスポート */
-function exportInventoryCSV(inventories: InventoryItem[]) {
-  const rows: string[][] = [
-    ["管理番号", "商品名", "カテゴリ", "仕入単価", "在庫数", "単位", "入庫日", "在庫金額", "保管場所"],
-  ];
-  for (const inv of inventories) {
-    const managementNo = getManagementNo(inv.etc);
-    const cat = getInventoryDisplayCategory(inv);
-    const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
-    const stockQty = parseFloat(inv.quantity ?? "0");
-    const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
-    rows.push([
-      managementNo || "-",
-      inv.title,
-      cat,
-      unitPrice != null ? String(unitPrice) : "-",
-      inv.quantity ?? "0",
-      inv.unit ?? "",
-      inv.last_purchase_date ?? inv.updated_at?.slice(0, 10) ?? "-",
-      stockValue != null ? String(stockValue) : "-",
-      inv.place ?? "",
-    ]);
-  }
-  const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-  const bom = "\uFEFF";
-  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `在庫一覧_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** 入庫日または最終更新日からの経過日数を返す */
-function normalizeInventoryCategoryName(category?: string | null, title?: string | null): string {
-  const raw = (category ?? "").trim();
-  const compact = `${raw} ${title ?? ""}`.normalize("NFKC").toLowerCase().replace(/[\s\u3000_-]+/g, "");
-  if (
-    compact.includes("vita1000") ||
-    compact.includes("psvita1000") ||
-    compact.includes("pch1000") ||
-    compact.includes("vita1100") ||
-    compact.includes("psvita1100") ||
-    compact.includes("pch1100")
-  ) {
-    return "Vita1000";
-  }
-  return raw || "未分類";
-}
-
-function getInventoryDisplayCategory(inv: InventoryItem): string {
-  return normalizeInventoryCategoryName(inv.categories?.[0] ?? inv.category, inv.title);
-}
-
-function calcDaysSince(dateStr: string | null | undefined): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return null;
-  const diffMs = Date.now() - d.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
-/** 経過日数に応じたバッジの色を返す */
-function daysBadgeClass(days: number): string {
-  if (days <= 14) return "bg-green-100 text-green-800 border-green-200";
-  if (days <= 30) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  if (days <= 60) return "bg-orange-100 text-orange-800 border-orange-200";
-  return "bg-red-100 text-red-800 border-red-200";
-}
-
-interface DeliveryItem {
-  inventoryId: number;
-  title: string;
-  quantity: number;
-  unit: string;
-  checked: boolean;
-  etc?: string; // 管理番号（取引先自動判別用）
-  unitPrice?: number; // 仕入価格（unit_price）
-  sellingPrice?: number | null; // ユーロ建て販売価格（CSVから取得）
-  currency?: string; // 通貨（例: EUR）
-  tradeRecordId?: number | null; // 確定した取引データ行
-  csvProductName?: string | null; // 確定した注文行の商品名。nullは紐づけなし
-}
-
-function formatPrice(price: number | undefined | null): string {
-  if (price === undefined || price === null || !Number.isFinite(price)) return "-";
-  return `¥${price.toLocaleString()}`;
-}
-
-/** etc フィールドから管理番号を取得する（数字・在庫・ebay始まりのみ表示） */
-function getManagementNo(etc: string | undefined): string {
-  if (!etc) return "";
-  // カンマ区切りまたはスペース区切りの先頭部分を管理番号として取得
-  const firstPart = etc.split(",")[0].trim();
-  const raw = firstPart.split(" ")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw) || /^E/i.test(raw) || /^シャフト/i.test(raw)) return raw;
-  return "";
-}
-
-function getInventoryLabelIds(inv: InventoryItem): string[] {
-  return (inv.itemLabels ?? []).map((label) => label.labelId).filter(Boolean);
-}
-
-function InventoryLabelIds({ inv, managementNo }: { inv: InventoryItem; managementNo: string }) {
-  const labelIds = getInventoryLabelIds(inv);
-  if (labelIds.length === 0) return null;
-  return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      <span className="text-xs font-medium text-muted-foreground">商品ID:</span>
-      {labelIds.map((labelId) => (
-        <span
-          key={labelId}
-          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-xs font-semibold tracking-wide text-emerald-800"
-        >
-          {labelId}
-        </span>
-      ))}
-      {managementNo && <span className="text-[11px] text-muted-foreground">旧管理番号: {managementNo}</span>}
-    </div>
-  );
-}
-
-// ============================================================
-// 在庫編集フォームの型
-// ============================================================
-interface InventoryFormData {
-  title: string;
-  quantity: string;
-  unit: string;
-  category: string;
-  place: string;
-  etc: string;
-  purchase_unit_price: string;
-  supplierUrl: string;
-  supplierName: string;
-  ebayListingUrl: string;
-}
-
-const emptyForm: InventoryFormData = {
-  title: "",
-  quantity: "0",
-  unit: "個",
-  category: "",
-  place: "",
-  etc: "",
-  purchase_unit_price: "",
-  supplierUrl: "",
-  supplierName: "",
-  ebayListingUrl: "",
-};
-
-type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "サイモン発送管理" | "ネレ発送管理";
-const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "サイモン発送管理", "ネレ発送管理"];
+import { type DeliveryItem, type InventoryItem } from "./deliveries/types";
+import { exportInventoryCSV } from "./deliveries/exportInventoryCsv";
+import {
+  calcDaysSince,
+  daysBadgeClass,
+  formatPrice,
+  getInventoryDisplayCategory,
+  getInventoryLabelIds,
+  getManagementNo,
+  normalizeInventoryCategoryName,
+} from "./deliveries/display";
+import { InventoryLabelIds } from "./deliveries/InventoryLabelIds";
+import { type InventoryFormData, emptyForm } from "./deliveries/form";
+import { type ShipmentSheetName, SHIPMENT_SHEET_NAMES } from "./deliveries/shipmentSheets";
 
 export default function Deliveries() {
   const [location] = useLocation();
