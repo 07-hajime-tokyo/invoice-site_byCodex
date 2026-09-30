@@ -1190,6 +1190,7 @@ type InventoryItemLabelView = {
   status?: string | null;
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
+  assignedInvoiceNo?: string | null;
 };
 
 type InventoryItemLabelForEnsure = InventoryItemLabelView & {
@@ -2478,6 +2479,7 @@ function toInventoryItemLabelView(label: InventoryItemLabelView): InventoryItemL
     status: label.status,
     legacyManagementNo: label.legacyManagementNo,
     localInventoryId: label.localInventoryId,
+    assignedInvoiceNo: label.assignedInvoiceNo ?? null,
   };
 }
 

@@ -469,6 +469,8 @@ function getInventoryManagementNo(etc?: string | null): string {
   return firstPart.split(/\s+/)[0]?.trim() ?? "";
 }
 
+const UNCATEGORIZED_STOCK_CATEGORY = "未分類";
+
 function getInventoryCategory(inventory: InventoryItem): string {
   return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
 }
@@ -1955,6 +1957,7 @@ const STOCK_MODEL_ORDER = [
   "Switch",
   "ゴルフ",
   "シャフト",
+  UNCATEGORIZED_STOCK_CATEGORY,
   "その他",
 ];
 
@@ -1964,7 +1967,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory);
+    const category = getInventoryCategory(inventory) || UNCATEGORIZED_STOCK_CATEGORY;
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -2929,6 +2932,7 @@ function purchaseRowInventoryId(row: PurchaseRow): number | null {
 
 function PurchaseRegistrationCard({
   row,
+  invoiceOptions,
   onPrintLabels,
   onOpenEdit,
   onOpenTrackingDialog,
@@ -2939,6 +2943,7 @@ function PurchaseRegistrationCard({
   onSelectChange,
 }: {
   row: PurchaseRow;
+  invoiceOptions: AllocationGroup[];
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
@@ -2961,6 +2966,11 @@ function PurchaseRegistrationCard({
   const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
   const rowLabels = buildLabelViews([row]);
   const deletableInventoryId = purchaseRowInventoryId(row);
+  const visibleAssignmentLabels = labels.slice(0, 4).map((label) => {
+    const legacyManagementNo = preferredManagementNo(label.legacyManagementNo, managementNos[0], "");
+    const effectiveInvoiceNo = label.assignedInvoiceNo ?? invoiceNoFromManagementNo(legacyManagementNo);
+    return { label, legacyManagementNo, effectiveInvoiceNo };
+  });
 
   return (
     <section className={cn("rounded-lg border bg-background shadow-sm", isSelected && "border-emerald-400 ring-1 ring-emerald-300")}>
@@ -3031,6 +3041,36 @@ function PurchaseRegistrationCard({
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
             </div>
+            {labels.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium text-muted-foreground">充当先</span>
+                {visibleAssignmentLabels.map(({ label, legacyManagementNo, effectiveInvoiceNo }) => (
+                  <div
+                    key={`${row.id}-${label.labelId}-assignment`}
+                    className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border bg-slate-50 px-2 py-1"
+                  >
+                    <span className="font-mono text-[11px] font-semibold text-slate-700">{label.labelId}</span>
+                    <Badge variant={label.assignedInvoiceNo ? "default" : "secondary"} className="h-5 px-1.5 text-[10px]">
+                      {label.assignedInvoiceNo
+                        ? `充当先 ${invoiceDisplayLabel(invoiceOptions, label.assignedInvoiceNo)}`
+                        : effectiveInvoiceNo
+                          ? `自動 ${invoiceDisplayLabel(invoiceOptions, effectiveInvoiceNo)}`
+                          : "未定"}
+                    </Badge>
+                    <BoxItemInvoiceField
+                      labelId={label.labelId}
+                      assignedInvoiceNo={label.assignedInvoiceNo ?? null}
+                      legacyManagementNo={legacyManagementNo || null}
+                    />
+                  </div>
+                ))}
+                {labels.length > visibleAssignmentLabels.length ? (
+                  <Badge variant="outline">他{labels.length - visibleAssignmentLabels.length}件</Badge>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">充当先: 商品ID発行後に指定できます</div>
+            )}
           </div>
         </div>
         <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -3145,6 +3185,7 @@ function PurchaseRegistrationCard({
 
 function MissingTrackingOverview({
   rows,
+  invoiceOptions,
   totalCount,
   trackingRegisteredOnly,
   trackingRegisteredCount,
@@ -3162,6 +3203,7 @@ function MissingTrackingOverview({
   deletingRowId,
 }: {
   rows: PurchaseRow[];
+  invoiceOptions: AllocationGroup[];
   totalCount: number;
   trackingRegisteredOnly: boolean;
   trackingRegisteredCount: number;
@@ -3243,6 +3285,7 @@ function MissingTrackingOverview({
             <PurchaseRegistrationCard
               key={row.id}
               row={row}
+              invoiceOptions={invoiceOptions}
               onPrintLabels={onPrintLabels}
               onOpenEdit={onOpenEdit}
               onOpenTrackingDialog={onOpenTrackingDialog}
@@ -3719,6 +3762,7 @@ function ProductFulfillmentTableV2({
 function OrderDashboard({
   group,
   rows,
+  invoiceOptions,
   products: productsOverride,
   detailRows,
   stockDetailItems = [],
@@ -3735,6 +3779,7 @@ function OrderDashboard({
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
+  invoiceOptions: AllocationGroup[];
   products?: ProductSummary[];
   detailRows?: PurchaseRow[];
   stockDetailItems?: StockItemView[];
@@ -3847,6 +3892,7 @@ function OrderDashboard({
                 <PurchaseRegistrationCard
                   key={row.id}
                   row={row}
+                  invoiceOptions={invoiceOptions}
                   onPrintLabels={onPrintLabels}
                   onOpenEdit={onOpenEdit}
                   onOpenTrackingDialog={onOpenTrackingDialog}
@@ -5678,7 +5724,7 @@ function StockPanel({
           ) : null}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。
+          商品IDが未発行の在庫も含めて、カテゴリごとに表示します。通常は在庫数が1以上の商品だけを表示します。
         </p>
       </section>
       {stockItems.length === 0 ? (
@@ -8976,6 +9022,7 @@ export default function PurchaseRegistration() {
                 {showGlobalMissingTracking ? (
                   <MissingTrackingOverview
                     rows={visibleGlobalMissingTrackingRows}
+                    invoiceOptions={deliveryInvoiceOptions}
                     totalCount={globalPurchaseListRows.length}
                     trackingRegisteredOnly={showTrackedGlobalRowsOnly}
                     trackingRegisteredCount={trackedInboundWaitingGlobalPurchaseRows.length}
@@ -8996,6 +9043,7 @@ export default function PurchaseRegistration() {
                   <OrderDashboard
                     group={selectedGroup}
                     rows={filteredRows}
+                    invoiceOptions={deliveryInvoiceOptions}
                     products={selectedProducts}
                     detailRows={selectedDetailRows}
                     stockDetailItems={selectedDetailStockItems}
