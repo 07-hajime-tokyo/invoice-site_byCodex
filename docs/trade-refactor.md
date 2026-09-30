@@ -54,10 +54,46 @@
 7. `shipment.create` の `insertId` は `(result as any).insertId` で取得しており型安全でない。
 8. `applyTradeShipmentRegistrationStatuses` 等のステータス導出はインボイスNo > 399 のみ対象（399 以下は complete 系へ丸め）。境界値はコード内マジックナンバー。
 9. `listFromDb` 内のローカル `toNumber` がモジュールレベル `toNumber` をシャドウしている（挙動同一）。
-10. Home.tsx の `dbRecordToTradeRecord` は `customsDuty` を `TradeRecord` 型外の追加プロパティとして返す（`TradeRecord & { customsDuty: number }`）。csvUtils の `TradeRecord` に `customsDuty` が無いため、DataTable 側は `keyof TradeRecord` に `"customsDuty"` を列挙できるよう csvUtils 側で吸収している（`COLUMN_LABELS` 参照）。
+10. Home.tsx の `dbRecordToTradeRecord` は数値文字列を `Math.round` / 小数2桁丸めで変換するため、DB 保存値（decimal 文字列）と画面表示値が厳密には一致しない（例: unitPrice "100.5049" → 100.5、customsDuty "12.6" → 13）。丸め仕様は単体テストで固定した。
+11. EditTradeDialog.tsx の `fetchFrankfurterRate` は定義のみで一度も呼ばれていないデッドコードだった（Edit 側は `trpc.trade.getRateByDate` を使用）。AddTradeDialog 側と逐語一致のため、SSOT 統合（`tradeFormShared.ts`）により未使用の重複定義は自然消滅した（挙動変更なし）。
+12. `PRODUCT_WORD_MAP` は配列順で `/pink/gi` が `/coral\s*pink/gi` より先に評価されるため、"coral pink" は「コーラルピンク」にならず「coral ピンク」になる（コーラルピンク置換は到達不能）。既存仕様として単体テストで固定した。
 
 ## 3. 進捗（作業単位ごとに追記）
 
-- [x] T-A0: `tests/regression/trade.test.ts` 新設（整理前の旧コードで成功を確認）
-- [ ] T-A1: trade → `server/tradeRouter.ts`、shipment → `server/shipmentRouter.ts` 逐語移動
-- [ ] T-A2: Home.tsx / AddTradeDialog / EditTradeDialog / DataTable の型・純粋関数抽出と SSOT 化
+- [x] T-A0: `tests/regression/trade.test.ts` 新設（整理前の旧コードで成功を確認）— コミット `4de009a`
+- [x] T-A1: trade → `server/tradeRouter.ts`、shipment → `server/shipmentRouter.ts` 逐語移動 — コミット `26e556f`
+- [x] T-A2: Home.tsx / AddTradeDialog / EditTradeDialog / DataTable の型・純粋関数抽出と SSOT 化 — コミット `6aa001c`
+
+## 4. 実施結果
+
+### 4.1 ファイル・行数の変化
+
+| ファイル | 変更 |
+|---|---|
+| server/routers.ts | 2,376行 → 233行（trade/shipment ブロックを1行参照に置換） |
+| server/tradeRouter.ts | 新規 1,892行（定数 30-35・ヘルパー 52-1094・trade ルーター 1262-2091 を逐語移動。`toNumber` / `normalizeShipmentTrackingNumber` / `getShipmentAllocationGroupKey` / `recalcShippingCosts` のみ `export ` 付与） |
+| server/shipmentRouter.ts | 新規 271行（shipment ルーター 2111-2374 を逐語移動。共有ヘルパーは tradeRouter から import、循環なし） |
+| client/src/pages/home/model.ts | 新規（`FilterableKey` / `ActiveTab` / `runWhenIdle` / `normalizeTradeDataPartner` / `dbRecordToTradeRecord`） |
+| client/src/components/trade/tradeFormShared.ts | 新規 SSOT（`fetchFrankfurterRate` / `normalizeDate` / `STATUS_PRESETS` — Add/Edit で逐語一致だった3定義を単一化） |
+| client/src/components/trade/addTradeModel.ts | 新規（FormState・既定取引相手・`getCurrencyForPartner`(Add版)・`toJapanesePartner` / `toJapaneseProductName` ほか） |
+| client/src/components/trade/editTradeModel.ts | 新規（EditFormState・`getCurrencyForPartner`(Edit版)・`normalizeCurrency`。Add版とは挙動が異なるため統合せず） |
+| client/src/components/trade/dataTableModel.ts | 新規（`DataTableProps`・表示列定数・`getTradeRecordId`） |
+| client/src/components/AddTradeDialog.tsx | 1,129行 → 964行 |
+| client/src/pages/Home.tsx | 773行 → 691行 |
+| client/src/components/EditTradeDialog.tsx | 693行 → 621行 |
+| client/src/components/DataTable.tsx | 619行 → 578行 |
+
+### 4.2 検証結果
+
+- 逐語比較（`git show 2ba8ecb:<path>` との行レベル多重集合比較。CRLF→LF 正規化のうえ実施）:
+  - server: tradeRouter.ts / shipmentRouter.ts とも MISSING=0 / EXTRA=0（許容差分は `export ` 接頭辞・import 行・ラッパー開閉のみ）。routers.ts の差分は import 群と1行参照・保持コメントのみ。
+  - client: 新規5モジュールの非許容 EXTRA=0、編集4ファイルの非許容 MISSING=0（許容差分は import 行・`export ` 接頭辞・ヘッダーコメントのみ）。
+- `pnpm check`: エラーなし。
+- 回帰テスト `node scripts/test-local-regression.mjs test`: **165件 全成功**（既存145 + T-A0 新設20。LOCAL_TEST_TARGET=invoices の専用架空DBのみ使用）。
+- クライアント単体テスト（vitest）: 新設 **31件 全成功**（home/model 7・tradeFormShared 6・addTradeModel 10・editTradeModel 4・dataTableModel 4）。
+- テスト後 `node scripts/test-local-regression.mjs seed` で専用DBを架空7件へ復元。
+
+### 4.3 未検証範囲
+
+- Google Sheets 実接続経路（`getSheetView` / `updateSheetCell` / `findTradeViewInvoiceCell` / `getExchangeRates` / `getRateByDate` / `findRowByInvoiceNo` の実サービス動作、および `TRADE_SHEET_WRITE_BACK_ENABLED=true` 時の書き戻し経路）— 外部サービステスト禁止のため未検証（シート未設定時の契約は T-A0 で固定済み）。
+- frankfurter.dev 実レート取得経路（`fetchJpyRateByDate` / client `fetchFrankfurterRate` のライブ応答）— fetch モックでの契約固定のみ。
