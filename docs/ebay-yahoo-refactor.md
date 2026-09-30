@@ -131,3 +131,23 @@
 - 逐語比較: 基準ファイルと（本体＋types.ts＋display.ts）の非import行を多重集合比較し
   MISSING=0 / EXTRA=0（許容差分: import行・`export ` 接頭辞のみ）。
 - `pnpm check` エラーなし。
+
+### E-A4: YahooListings.tsx 分割（完了）
+- `client/src/inventory/pages/yahoo-listings/` 新設（クライアントのみ。サーバー側
+  `inventory.inboundDesk` は抽出済みのため未変更）:
+  - `types.ts`（24行）: 基準35〜58行の型 ListingKind / TopEdge、定数 TOP_EDGE_LABELS /
+    DEFECT_TAG_OPTIONS / KIND_LABELS / KIND_BADGE を逐語移動。
+  - `view.ts`（20行）: 基準60〜76行の yen / photoKindFor / filesToPayload を逐語移動
+    （filesToPayload が使う fileAsBase64 の import も随伴）。
+  - `AddStockDialog.tsx`（266行）: 基準78〜325行の独立ダイアログを逐語移動
+    （props のみで独立。内部の tRPC 配線ごと移動）。
+  - `ManualListingDialog.tsx`（144行): 基準327〜453行の独立ダイアログを逐語移動。
+- YahooListings.tsx は 1,017行 → 595行。本体はデフォルトエクスポートの画面コンポーネント
+  （state・tRPC配線・イベントハンドラ・JSX）のみ。import はダイアログ専用だった
+  Search アイコン・Dialog系・Input・Textarea・fileAsBase64 を本体から外し抽出先へ移設。
+- `view.test.ts`（8テスト）新設: yen / photoKindFor / filesToPayload
+  （fileAsBase64 をモジュールモックして base64・mimeType 既定値・kind 割当を固定）＋
+  4定数の契約を固定。`pnpm vitest run client/src/inventory/pages/yahoo-listings` 8件成功。
+- 逐語比較: 基準ファイルと（本体＋抽出4ファイル）の非import行を多重集合比較し
+  MISSING=0 / EXTRA=0（許容差分: import行・`export ` 接頭辞のみ）。
+- `pnpm check` エラーなし。
