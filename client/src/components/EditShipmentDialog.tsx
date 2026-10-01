@@ -1,9 +1,8 @@
 /**
  * EditShipmentDialog — 発送記録編集ダイアログ
- * 発送日・FedEx追跡番号・送料・メモを編集できる。
- * インボイス明細（台数）は変更不可（削除して再登録）。
+ * 発送日・FedEx追跡番号・送料・メモ・インボイス明細を編集できる。
  */
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +14,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Pencil, Loader2, Truck } from "lucide-react";
+import { Pencil, Loader2, Truck, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { InvoiceItemSelect, InvoiceSummaryBadge } from "@/components/AddShipmentDialog";
+
+interface ShipmentItemForm {
+  invoiceNo: string;
+  tradeRecordId: string;
+  quantity: string;
+}
 
 interface ShipmentRecord {
   id: number;
@@ -24,7 +30,7 @@ interface ShipmentRecord {
   trackingNumber: string | null;
   shippingCost: string;
   notes: string | null;
-  items: Array<{ invoiceNo: number; quantity: number }>;
+  items: Array<{ invoiceNo: number; tradeRecordId?: number | null; quantity: number }>;
 }
 
 interface EditShipmentDialogProps {
@@ -33,12 +39,22 @@ interface EditShipmentDialogProps {
   trigger?: React.ReactNode;
 }
 
+function shipmentItemsToForm(items: ShipmentRecord["items"]): ShipmentItemForm[] {
+  const formItems = items.map((item) => ({
+    invoiceNo: String(item.invoiceNo ?? ""),
+    tradeRecordId: item.tradeRecordId ? String(item.tradeRecordId) : "",
+    quantity: String(item.quantity ?? ""),
+  }));
+  return formItems.length > 0 ? formItems : [{ invoiceNo: "", tradeRecordId: "", quantity: "" }];
+}
+
 export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmentDialogProps) {
   const [open, setOpen] = useState(false);
   const [shippingDate, setShippingDate] = useState(shipment.shippingDate);
   const [trackingNumber, setTrackingNumber] = useState(shipment.trackingNumber ?? "");
   const [shippingCost, setShippingCost] = useState(String(Number(shipment.shippingCost)));
   const [notes, setNotes] = useState(shipment.notes ?? "");
+  const [items, setItems] = useState<ShipmentItemForm[]>(() => shipmentItemsToForm(shipment.items));
 
   // ダイアログを開くたびに最新データでリセット
   useEffect(() => {
@@ -47,6 +63,7 @@ export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmen
       setTrackingNumber(shipment.trackingNumber ?? "");
       setShippingCost(String(Number(shipment.shippingCost)));
       setNotes(shipment.notes ?? "");
+      setItems(shipmentItemsToForm(shipment.items));
     }
   }, [open, shipment]);
 
@@ -71,14 +88,48 @@ export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmen
       toast.error("送料を正しく入力してください");
       return;
     }
+    const parsedItems = items
+      .filter((item) => item.invoiceNo.trim() !== "" && item.quantity.trim() !== "")
+      .map((item) => ({
+        invoiceNo: parseInt(item.invoiceNo, 10),
+        tradeRecordId: parseInt(item.tradeRecordId, 10),
+        quantity: parseInt(item.quantity, 10),
+      }));
+    if (parsedItems.length === 0) {
+      toast.error("インボイス番号と発送台数を1件以上入力してください");
+      return;
+    }
+    if (parsedItems.some((item) => !Number.isFinite(item.invoiceNo) || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+      toast.error("インボイス番号と発送台数は正の整数で入力してください");
+      return;
+    }
+    if (parsedItems.some((item) => !Number.isFinite(item.tradeRecordId) || item.tradeRecordId <= 0)) {
+      toast.error("発送登録する商品を選択してください");
+      return;
+    }
     updateMutation.mutate({
       id: shipment.id,
       shippingDate,
       trackingNumber: trackingNumber.trim() || undefined,
       shippingCost: cost,
       notes: notes.trim() || undefined,
+      items: parsedItems,
     });
   }
+
+  function addItem() {
+    setItems((prev) => [...prev, { invoiceNo: "", tradeRecordId: "", quantity: "" }]);
+  }
+
+  function removeItem(index: number) {
+    setItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const updateItem = useCallback((index: number, field: keyof ShipmentItemForm, value: string) => {
+    setItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+    );
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -95,7 +146,7 @@ export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmen
           <Pencil size={11} />
         </Button>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck size={18} className="text-orange-600" />
@@ -104,16 +155,6 @@ export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmen
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* インボイス明細（読み取り専用） */}
-          <div className="bg-muted/40 rounded-md p-3 text-xs space-y-1">
-            <p className="font-medium text-muted-foreground mb-1">インボイス明細（変更不可）</p>
-            {shipment.items.map((item, i) => (
-              <p key={i} className="text-foreground">
-                No.{item.invoiceNo}: {item.quantity}台
-              </p>
-            ))}
-          </div>
-
           {/* 発送日 */}
           <div className="space-y-1.5">
             <Label htmlFor="edit-shippingDate" className="text-sm font-medium">
@@ -157,6 +198,83 @@ export function EditShipmentDialog({ shipment, onSuccess, trigger }: EditShipmen
               className="h-9"
               min="0"
             />
+          </div>
+
+          {/* インボイス明細 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">
+                インボイス明細 <span className="text-destructive">*</span>
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={addItem}
+              >
+                <Plus size={12} />
+                追加
+              </Button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-muted-foreground px-1">
+                <span>インボイスNo.</span>
+                <span>今回発送台数</span>
+                <span className="w-7"></span>
+              </div>
+              {items.map((item, index) => {
+                const parsedNo = parseInt(item.invoiceNo, 10);
+                const validNo = !Number.isNaN(parsedNo) && parsedNo > 0;
+                return (
+                  <div key={index} className="space-y-1.5">
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                      <Input
+                        type="number"
+                        placeholder="例: 414"
+                        value={item.invoiceNo}
+                        onChange={(event) => {
+                          updateItem(index, "invoiceNo", event.target.value);
+                          updateItem(index, "tradeRecordId", "");
+                        }}
+                        className="h-8 text-sm"
+                        min="1"
+                      />
+                      <Input
+                        type="number"
+                        placeholder="例: 1"
+                        value={item.quantity}
+                        onChange={(event) => updateItem(index, "quantity", event.target.value)}
+                        className="h-8 text-sm"
+                        min="1"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeItem(index)}
+                        disabled={items.length === 1}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                    {validNo ? (
+                      <div className="pl-1">
+                        <InvoiceSummaryBadge invoiceNo={parsedNo} />
+                      </div>
+                    ) : null}
+                    {validNo ? (
+                      <InvoiceItemSelect
+                        invoiceNo={parsedNo}
+                        value={item.tradeRecordId}
+                        onChange={(value) => updateItem(index, "tradeRecordId", value)}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* メモ */}

@@ -4615,10 +4615,41 @@ ${contextText}`;
           trackingNumber: z.string().optional(),
           shippingCost: z.number(),
           notes: z.string().optional(),
+          items: z.array(
+            z.object({
+              invoiceNo: z.number(),
+              tradeRecordId: z.number().int().positive(),
+              quantity: z.number(),
+            })
+          ).optional(),
         })
       )
       .mutation(async ({ input }) => {
         const db = (await getDb())!;
+        const existingItems = await db.select().from(shipmentItems).where(eq(shipmentItems.shipmentId, input.id));
+
+        if (input.items) {
+          if (input.items.length === 0) {
+            throw new Error("発送明細を1件以上入力してください。");
+          }
+          const tradeRecordIds = Array.from(new Set(input.items.map((item) => item.tradeRecordId)));
+          const tradeRows = tradeRecordIds.length > 0
+            ? await db
+                .select({ id: tradeRecords.id, no: tradeRecords.no })
+                .from(tradeRecords)
+                .where(inArray(tradeRecords.id, tradeRecordIds))
+            : [];
+          const tradeInvoiceById = new Map(tradeRows.map((row) => [row.id, row.no]));
+          for (const item of input.items) {
+            if (tradeInvoiceById.get(item.tradeRecordId) !== item.invoiceNo) {
+              throw new Error(`出庫明細の商品行がNo.${item.invoiceNo}に紐づいていません。`);
+            }
+            if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+              throw new Error("発送台数は正の整数で入力してください。");
+            }
+          }
+        }
+
         await db
           .update(shipments)
           .set({
@@ -4628,9 +4659,27 @@ ${contextText}`;
             notes: input.notes ?? null,
           })
           .where(eq(shipments.id, input.id));
+
+        if (input.items) {
+          await db.delete(shipmentItems).where(eq(shipmentItems.shipmentId, input.id));
+          for (const item of input.items) {
+            await db.insert(shipmentItems).values({
+              shipmentId: input.id,
+              invoiceNo: item.invoiceNo,
+              tradeRecordId: item.tradeRecordId,
+              quantity: item.quantity,
+            });
+          }
+        }
+
         // 送料変更後に再計算
-        const items = await db.select().from(shipmentItems).where(eq(shipmentItems.shipmentId, input.id));
-        const invoiceNos = items.map((i) => i.invoiceNo);
+        const nextItems = input.items ?? existingItems;
+        const invoiceNos = Array.from(
+          new Set([
+            ...existingItems.map((i) => i.invoiceNo),
+            ...nextItems.map((i) => i.invoiceNo),
+          ]),
+        );
         await recalcShippingCosts(db, invoiceNos);
         return { ok: true };
       }),

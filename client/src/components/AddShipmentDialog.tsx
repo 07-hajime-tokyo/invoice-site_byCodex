@@ -38,7 +38,7 @@ interface AddShipmentDialogProps {
 }
 
 /** 単一インボイスの発注数サマリーを表示するサブコンポーネント */
-function InvoiceSummaryBadge({ invoiceNo }: { invoiceNo: number }) {
+export function InvoiceSummaryBadge({ invoiceNo }: { invoiceNo: number }) {
   const { data, isLoading } = trpc.shipment.invoiceSummary.useQuery(
     { invoiceNo },
     { enabled: invoiceNo > 0 }
@@ -60,7 +60,7 @@ function InvoiceSummaryBadge({ invoiceNo }: { invoiceNo: number }) {
   );
 }
 
-function InvoiceItemSelect({
+export function InvoiceItemSelect({
   invoiceNo,
   value,
   onChange,
