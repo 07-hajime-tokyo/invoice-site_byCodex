@@ -11,17 +11,21 @@ import { migrationRouter } from "./migrationRouter";
 import { partnerRouter } from "./partnerRouter";
 import { invoiceMemoRouter } from "./invoiceMemoRouter";
 import { inventoryMemoRouter } from "./inventoryMemoRouter";
+import { authRouter } from "./authRouter";
+import { purchaseExtraRouter } from "./purchaseExtraRouter";
+import { invoiceManualItemRouter } from "./invoiceManualItemRouter";
+import { domesticProductRouter } from "./domesticProductRouter";
+import { monthlyDomesticItemRouter } from "./monthlyDomesticItemRouter";
+import { customerRouter } from "./customerRouter";
+import { accessCodeRouter } from "./accessCodeRouter";
+import { adminRouter } from "./adminRouter";
 import { inventoryInitialLabelStatus, inventoryLabelQuantity } from "./labelQuantity";
 import { type InventoryRestoreField, parseInventoryRestoreMemo } from "./restoreFields";
-import { purchaseTrackingInputSchema, purchaseTrackingBulkInputSchema } from "./purchases/saveInput";
-import { savePurchaseTracking, savePurchaseTrackingBulk } from "./purchases/saveTracking";
 import { localPurchasePrimaryManagementNo } from "./purchases/legacyValues";
 import { getInventoryManagementNo } from "./managementNo";
 import { isReceivedLabelStatus } from "./labelViews";
 import { filterLabelsByManagementNo } from "./purchases/labels";
-import { z } from "zod";
 import { google } from "googleapis";
-import { COOKIE_NAME, ADMIN_EMAILS } from "@shared/const";
 import { normalizeEbayOrderStatus } from "@shared/ebayInventory";
 import { extractColor, extractModel, extractPreferredModel, inventoryItemCanMatchCsvProduct, isRandomColor, normalizeLooseText, productNamesCanMatch, suggestCsvProduct } from "@shared/productMatching";
 import {
@@ -44,10 +48,8 @@ import {
   getStagesForClass,
   INBOUND_CLASS_ORDER,
 } from "@shared/inboundPipeline";
-import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import type { InsertLocalInventory, InsertLocalPurchase } from "../../drizzle/schema";
-import { getSessionCookieOptions } from "../_core/cookies";
 import { systemRouter } from "../_core/systemRouter";
 import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
@@ -80,25 +82,6 @@ import {
   getLocalInventoryUnitPriceByZaicoIds,
   getLocalInventoryInfoByZaicoIds,
   getDeletedInventoryUnitPriceByZaicoIds,
-  getInvoiceManualItems,
-  getInvoiceManualItemsByInvoiceNos,
-  createInvoiceManualItem,
-  updateInvoiceManualItem,
-  deleteInvoiceManualItem,
-  getDomesticProducts,
-  createDomesticProduct,
-  updateDomesticProduct,
-  deleteDomesticProduct,
-  getMonthlyDomesticItems,
-  createMonthlyDomesticItem,
-  updateMonthlyDomesticItem,
-  deleteMonthlyDomesticItem,
-  getCustomers,
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
-  isAuthorizedUser,
-  authorizeUser,
   getDb,
   type InventoryItemLabelStatus,
 } from "./db";
@@ -510,39 +493,7 @@ export const inventoryRouter = router({
   outboundBoxes: outboundBoxesRouter,
   aiInvestigation: aiInvestigationRouter,
   workLogs: workLogsRouter,
-  auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return { success: true } as const;
-    }),
-    /**
-     * 現在ログイン中のユーザーが認証済みか確認する
-     */
-    checkAuthorized: protectedProcedure.query(async ({ ctx }) => {
-      const authorized = await isAuthorizedUser(ctx.user.openId, ctx.user.email);
-      return { authorized };
-    }),
-    /**
-     * 認証コードを検証し、正しければ認証済みユーザーとしてDBに登録する
-     */
-    authorize: protectedProcedure
-      .input(z.object({ code: z.string() }))
-      .mutation(async ({ input, ctx }) => {
-        const storedCode = await getSystemSetting("access_code");
-        if (!storedCode) {
-          // 認証コード未設定の場合は常に通過
-          await authorizeUser({ openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email });
-          return { valid: true };
-        }
-        if (input.code !== storedCode) {
-          return { valid: false };
-        }
-        await authorizeUser({ openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email });
-        return { valid: true };
-      }),
-  }),
+  auth: authRouter,
 
   // ============================================================
   // Zaico API 連携
@@ -562,18 +513,7 @@ export const inventoryRouter = router({
   // ============================================================
   // 入庫補足情報（発送日・追跡番号）
   // ============================================================
-  purchaseExtra: router({
-    upsert: publicProcedure
-      .input(
-        purchaseTrackingInputSchema
-      )
-      .mutation(async ({ input, ctx }) => savePurchaseTracking(input, ctx.user ?? {})),
-    upsertBulk: publicProcedure
-      .input(
-        purchaseTrackingBulkInputSchema
-      )
-      .mutation(async ({ input, ctx }) => savePurchaseTrackingBulk(input, ctx.user ?? {})),
-  }),
+  purchaseExtra: purchaseExtraRouter,
   // ============================================================
   // 出庫履歴
   // ============================================================
@@ -612,258 +552,29 @@ export const inventoryRouter = router({
   // ============================================================
   // インボイスメモ（invoice_memos）
   // ============================================================
-  invoiceManualItem: router({
-    /** 指定インボイスの手動入力行を取得 */
-    list: publicProcedure
-      .input(z.object({ invoiceNo: z.string().max(50) }))
-      .query(async ({ input }) => {
-        return getInvoiceManualItems(input.invoiceNo);
-      }),
-    /** 複数インボイスの手動入力行を一括取得 */
-    listByInvoiceNos: publicProcedure
-      .input(z.object({ invoiceNos: z.array(z.string().max(50)) }))
-      .query(async ({ input }) => {
-        return getInvoiceManualItemsByInvoiceNos(input.invoiceNos);
-      }),
-    /** 手動入力行を作成 */
-    create: protectedProcedure
-      .input(z.object({
-        invoiceNo: z.string().max(50),
-        title: z.string().max(500).default(""),
-        quantity: z.number().int().min(1).default(1),
-        unitPrice: z.number().nullable().optional(),
-        sortOrder: z.number().int().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const result = await createInvoiceManualItem({
-          invoiceNo: input.invoiceNo,
-          title: input.title,
-          quantity: input.quantity,
-          unitPrice: input.unitPrice ?? null,
-          sortOrder: input.sortOrder,
-        });
-        return { success: true, insertId: (result as { insertId?: number }).insertId };
-      }),
-    /** 手動入力行を更新 */
-    update: protectedProcedure
-      .input(z.object({
-        id: z.number().int(),
-        title: z.string().max(500).optional(),
-        quantity: z.number().int().min(1).optional(),
-        unitPrice: z.number().nullable().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        await updateInvoiceManualItem(input.id, {
-          title: input.title,
-          quantity: input.quantity,
-          unitPrice: input.unitPrice ?? null,
-        });
-        return { success: true };
-      }),
-    /** 手動入力行を削除 */
-    delete: protectedProcedure
-      .input(z.object({ id: z.number().int() }))
-      .mutation(async ({ input }) => {
-        await deleteInvoiceManualItem(input.id);
-        return { success: true };
-      }),
-  }),
+  invoiceManualItem: invoiceManualItemRouter,
 
   // ============================================================
   // 国内卸商品マスタ (domestic_products)
   // ============================================================
-  domesticProduct: router({
-    /** 国内卸商品マスタ一覧を取得 */
-    list: publicProcedure.query(async () => {
-      return getDomesticProducts();
-    }),
-    /** 国内卸商品マスタを作成 */
-    create: protectedProcedure
-      .input(z.object({
-        title: z.string().min(1).max(500),
-        unitPrice: z.number().nullable().optional(),
-        supplierName: z.string().max(200).nullable().optional(),
-        note: z.string().max(2000).nullable().optional(),
-        sortOrder: z.number().int().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const result = await createDomesticProduct(input);
-        return { success: true, insertId: (result as { insertId?: number }).insertId };
-      }),
-    /** 国内卸商品マスタを更新 */
-    update: protectedProcedure
-      .input(z.object({
-        id: z.number().int(),
-        title: z.string().min(1).max(500).optional(),
-        unitPrice: z.number().nullable().optional(),
-        supplierName: z.string().max(200).nullable().optional(),
-        note: z.string().max(2000).nullable().optional(),
-        sortOrder: z.number().int().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        await updateDomesticProduct(id, data);
-        return { success: true };
-      }),
-    /** 国内卸商品マスタを削除 */
-    delete: protectedProcedure
-      .input(z.object({ id: z.number().int() }))
-      .mutation(async ({ input }) => {
-        await deleteDomesticProduct(input.id);
-        return { success: true };
-      }),
-  }),
+  domesticProduct: domesticProductRouter,
 
   // ============================================================
   // 月次棚卸し 国内卸発注行 (monthly_domestic_items)
   // ============================================================
-  monthlyDomesticItem: router({
-    /** 指定年月の国内卸発注行を取得 */
-    list: publicProcedure
-      .input(z.object({ yearMonth: z.string().max(7) }))
-      .query(async ({ input }) => {
-        return getMonthlyDomesticItems(input.yearMonth);
-      }),
-    /** 国内卸発注行を作成 */
-    create: protectedProcedure
-      .input(z.object({
-        yearMonth: z.string().max(7),
-        domesticProductId: z.number().int().nullable().optional(),
-        title: z.string().max(500).default(""),
-        quantity: z.number().int().min(1).default(1),
-        unitPrice: z.union([z.number(), z.string().transform((v) => v === "" ? null : parseFloat(v))]).nullable().optional(),
-        supplierName: z.string().max(200).nullable().optional(),
-        note: z.string().max(2000).nullable().optional(),
-        sortOrder: z.number().int().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const unitPrice = typeof input.unitPrice === "number" ? input.unitPrice : (input.unitPrice != null ? parseFloat(String(input.unitPrice)) : null);
-        const result = await createMonthlyDomesticItem({ ...input, unitPrice });
-        return { success: true, insertId: (result as { insertId?: number }).insertId };
-      }),
-    /** 国内卸発注行を更新 */
-    update: protectedProcedure
-      .input(z.object({
-        id: z.number().int(),
-        title: z.string().max(500).optional(),
-        quantity: z.number().int().min(1).optional(),
-        unitPrice: z.number().nullable().optional(),
-        supplierName: z.string().max(200).nullable().optional(),
-        note: z.string().max(2000).nullable().optional(),
-        isPaid: z.boolean().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const { id, isPaid, ...rest } = input;
-        const data: Record<string, unknown> = { ...rest };
-        if (isPaid !== undefined) data.isPaid = isPaid ? 1 : 0;
-        await updateMonthlyDomesticItem(id, data);
-        return { success: true };
-      }),
-    /** 国内卸発注行の支払済みフラグをトグル */
-    togglePaid: protectedProcedure
-      .input(z.object({ id: z.number().int(), isPaid: z.boolean() }))
-      .mutation(async ({ input }) => {
-        await updateMonthlyDomesticItem(input.id, { isPaid: input.isPaid ? 1 : 0 });
-        return { success: true };
-      }),
-    /** 国内卸発注行を削除 */
-    delete: protectedProcedure
-      .input(z.object({ id: z.number().int() }))
-      .mutation(async ({ input }) => {
-        await deleteMonthlyDomesticItem(input.id);
-        return { success: true };
-      }),
-  }),
+  monthlyDomesticItem: monthlyDomesticItemRouter,
 
   invoiceMemo: invoiceMemoRouter,
 
   // ============================================================
   // 取引先マスタ
   // ============================================================
-  customer: router({
-    /** 取引先一覧を取得 */
-    list: protectedProcedure.query(async () => {
-      return getCustomers();
-    }),
-    /** 取引先を作成 */
-    create: protectedProcedure
-      .input(z.object({
-        displayName: z.string().min(1).max(100),
-        code: z.string().min(1).max(100),
-        keywords: z.string().min(1).max(500),
-        sortOrder: z.number().int().default(0),
-      }))
-      .mutation(async ({ input }) => {
-        await createCustomer(input);
-        return { success: true };
-      }),
-    /** 取引先を更新 */
-    update: protectedProcedure
-      .input(z.object({
-        id: z.number().int(),
-        displayName: z.string().min(1).max(100).optional(),
-        code: z.string().min(1).max(100).optional(),
-        keywords: z.string().min(1).max(500).optional(),
-        sortOrder: z.number().int().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        await updateCustomer(id, data);
-        return { success: true };
-      }),
-    /** 取引先を削除 */
-    delete: protectedProcedure
-      .input(z.object({ id: z.number().int() }))
-      .mutation(async ({ input }) => {
-        await deleteCustomer(input.id);
-        return { success: true };
-      }),
-  }),
+  customer: customerRouter,
 
   // ============================================================
   // 招待コード管理
   // ============================================================
-  accessCode: router({
-    /**
-     * 招待コードを検証する（ログイン後のアクセス制限用）
-     * コードが未設定の場合は常にtrueを返す
-     */
-    verify: protectedProcedure
-      .input(z.object({ code: z.string() }))
-      .mutation(async ({ input }) => {
-        const storedCode = await getSystemSetting("access_code");
-        if (!storedCode) return { valid: true }; // 未設定なら常に通過
-        return { valid: input.code === storedCode };
-      }),
-    /**
-     * 現在の招待コードが設定されているか確認する（コード値は返さない）
-     * 管理者のみ利用可能
-     */
-    isSet: protectedProcedure.query(async ({ ctx }) => {
-      if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "管理者のみ利用できます" });
-      }
-      const storedCode = await getSystemSetting("access_code");
-      return { isSet: !!storedCode };
-    }),
-    /**
-     * 招待コードを設定・変更する（設定画面用）
-     * 管理者のみ利用可能
-     */
-    set: protectedProcedure
-      .input(z.object({ code: z.string().max(100) }))
-      .mutation(async ({ input, ctx }) => {
-        if (!ADMIN_EMAILS.includes(ctx.user.email ?? "")) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "管理者のみ利用できます" });
-        }
-        if (input.code.trim() === "") {
-          await setSystemSetting("access_code", "");
-        } else {
-          await setSystemSetting("access_code", input.code.trim());
-        }
-        return { success: true };
-      }),
-  }),
+  accessCode: accessCodeRouter,
 
   // ============================================================
   // FedEx発送管理
@@ -871,14 +582,7 @@ export const inventoryRouter = router({
   fedex: fedexRouter,
   // 管理者メール確認
   // ============================================================
-  admin: router({
-    /**
-     * 現在ログイン中のユーザーが管理者かどうかを返す
-     */
-    isAdmin: protectedProcedure.query(async ({ ctx }) => {
-      return { isAdmin: ADMIN_EMAILS.includes(ctx.user.email ?? "") };
-    }),
-  }),
+  admin: adminRouter,
 
   // ============================================================
   // 取引先ポータル
