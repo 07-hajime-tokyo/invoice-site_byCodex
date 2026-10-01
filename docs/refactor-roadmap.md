@@ -62,7 +62,7 @@
 | 削除・復元・移行 | `DeletedItems.tsx`、`RestoreManagement.tsx`、migration API | 済（D01・現行基準） | 3ルーターを専用ファイルへ分離し、復元規則・完全復元・ラベル数量・CSV行解析をSSOT化。復元往復・横断検索・再実行を専用DBで確認 |
 | 作業管理・やること | `WorkManagement.tsx`、`ActionItems.tsx`、対応API | 済（W01〜W02・現行基準） | やることに加え、作業管理の入力/時間/集計と記録サービスを整理。開始・追記・終了・分割・再取得を確認 |
 | 会話履歴・ナレッジ・AI | `WhatsappHistory.tsx`、`KnowledgeBasePage.tsx`、`AiInvestigation.tsx` | 済（K-A1〜A3・現行基準） | server/routers.tsの3ブロックを専用ルーターへ分離し、3画面の型・純関数・表示部品を抽出。aiInvestigation.tsは棚卸しのみ。詳細は下記と `docs/knowledge-refactor.md` |
-| 認証・設定・共通基盤 | `AuthGate.tsx`、`Settings.tsx`、`_core/`、ルート・DB・外部接続設定 | 未着手 | アクセス制御・環境分離・設定の正本・接続先 |
+| 認証・設定・共通基盤 | `AuthGate.tsx`、`Settings.tsx`、`_core/`、ルート・DB・外部接続設定 | 済（C-A0〜A3・現行基準） | `inventory/routers.ts` 残り8ブロックと `server/routers.ts` の authGate/quoteProxy/auth を専用ルーターへ逐語分離。`_core/` は棚卸しのみ（接続・認可の正本所在を記録）。AuthGateは分割不要と判断。詳細は下記と `docs/auth-settings-refactor.md` |
 
 画面ファイルの省略パスは `client/src/inventory/pages/` または `client/src/pages/`、APIは `server/` 以下です。
 `ComponentShowcase.tsx` や汎用UI部品・未使用コードは、利用状況を確認してから対象か判断します。
@@ -71,7 +71,7 @@
 
 - **済 / 作業中 / 未着手**を小作業単位で更新し、検証結果とコミットを残します。
 - 小作業ごとの規模は異なります。チェック数や移動行数を、そのまま全体の完了率・性能改善率には換算しません。
-- 現行基準で15領域済・一部済0・未着手1（認証・設定・共通基盤のみ）。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡、eBay/ヤフオク出品、取引データ/CSV、在庫/カテゴリ/メモ、注文/パートナーが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
+- 現行基準で**16領域すべて済**・一部済0・未着手0。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。残課題は、リファクタ中に「修正せず記録」した既存の注意点の一覧化・修正判断と、実外部接続経路の検証です。
 - 以前示した「5%未満」は暫定的な目安です。見積もりの分母が未確定なので、この一覧から正確な全体工数の割合はまだ出しません。
 
 ## P03の検証記録（2026-09-30）
@@ -544,3 +544,24 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
 
 **現状：16領域中15領域済、一部済0、未着手1（認証・設定・共通基盤）。** これは領域数であり、全体工数の完了率ではない。
+
+## 最終領域：認証・設定・共通基盤（2026-10-02）
+
+横断的な土台（認証・DB接続・環境設定）に触れるため並行なしの単独担当で実施。統合済み `d103b48` を基準にブランチ `staff/yousunafu/refactor-auth-settings`（5コミット、統合マージ `50709cb`）。
+
+- **C-A0**: 整理前基準 `tests/regression/authSettings.test.ts`（18テスト：authGate.checkVerified／auth.me/logout／inventory.auth（me/logout/checkAuthorized/authorize・access_code未設定時の常時valid仕様含む）／accessCodeの設定→検証→解除往復／admin／customer／purchaseExtra／invoiceManualItem／domesticProduct／monthlyDomesticItem／quoteProxyのローカルバイパス経路）を旧コードで成功させてから移行。
+- **C-A1**: `inventory/routers.ts` 残り8ブロック（auth/purchaseExtra/invoiceManualItem/domesticProduct/monthlyDomesticItem/customer/accessCode/admin）を `server/inventory/` の専用8ファイルへ逐語抽出。routers.ts 888行→592行（ワンタイム修復コードは棚卸しのみで残置）。
+- **C-A2**: `server/routers.ts` の `authGateRouter`＋`isLocalAuthBypass` を `authGateRouter.ts`（66行）、`quoteProxy`＋`quoteProxyProcedure` を `quoteProxyRouter.ts`（120行）、インライン `auth` を `authRouter.ts`（12行）へ逐語抽出。routers.ts 233行→47行（appRouter合成と型exportのみ）。
+- **C-A3**: `Settings.tsx`（934行→912行）の型定義を `settings/types.ts` へ抽出。最上位純関数が存在せず全ハンドラがstate/mutation密結合のため、抽出は型のみ（PartnerPortalと同じ判断）。`AuthGate.tsx`（114行）は分割不要と判断し棚卸しのみ。
+- `_core/` 23ファイルは棚卸しのみ（DB接続・認可・Cookie・メール許可リスト等の正本所在を `docs/auth-settings-refactor.md` に記録）。
+- 逐語比較 MISSING/EXTRA=0（差分はラッパー行・参照行・`export `接頭辞・publicProcedure別名のみ。統合側でも行マルチセット照合を再実施し確認）。既存の注意点の記録（修正せず・10件）：invoiceManualItem/domesticProduct updateのunitPrice null上書き、accessCode.set("")の挙動、quoteProxyバイパスのNODE_ENV=development限定、customer.createのinsertId非返却など。詳細は `docs/auth-settings-refactor.md`。
+
+### 統合と検証（2026-10-02）
+
+- 統合側はコミット・変更ファイル・禁止範囲（shared/・drizzle/・package類・_core/変更なし）を検査後、`d103b48` からマージ（`50709cb`）。競合なし。
+- 統合後の全体検証：`pnpm check`・`pnpm check:regression` エラーなし。単体837件中836成功（失敗1件はGemini実APIの鍵なし既知）。統合用専用DBで回帰236件全成功（既存218＋認証・設定18）。`pnpm build` 成功（既存のバンドルサイズ警告のみ）。
+- 実画面（統合サーバー・架空7件seed後）：`/inventory/settings`（外部API連携・CSVインポート・国内卸商品マスタ・取引先管理・アクセス制限（招待コード）・システム情報の全セクション描画）、抽出済み `authGate.checkVerified` のAPI応答（ローカルバイパスでverified:true）を確認。コンソールエラーなし。
+- **未検証範囲**：実メール認証ログイン・実招待コード運用のブラウザー実操作（APIは回帰で確認）、quoteProxyの本番キー経路、実外部接続（GAS・メール・S3等）、本番データ・大量データ性能・全端末画像比較。
+- 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
+
+**現状：16領域すべて済（16/16）、一部済0、未着手0。** これは領域数であり、全体工数の完了率ではない。残課題は「修正せず記録」した既存注意点の一覧化・修正判断と、実外部接続経路の検証。
