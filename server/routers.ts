@@ -1057,6 +1057,16 @@ async function getTradeShipmentRegistrationProgress(
     };
   }
   const invoiceNoSet = new Set(invoiceNos.map((invoiceNo) => String(invoiceNo)));
+  const fedexShipmentConditions = invoiceNos.flatMap((invoiceNo) => {
+    const key = String(invoiceNo);
+    return [
+      eq(fedexShipments.deliveryNo, key),
+      like(fedexShipments.deliveryNo, `${key}_%`),
+      like(fedexShipments.deliveryNo, `${key}-%`),
+      like(fedexShipments.itemsJson, `%\"invoiceNo\":\"${key}\"%`),
+      like(fedexShipments.itemsJson, `%\"assignedInvoiceNo\":\"${key}\"%`),
+    ];
+  });
 
   const [allTrades, allItems, allFedexRows] = await Promise.all([
     db
@@ -1071,6 +1081,7 @@ async function getTradeShipmentRegistrationProgress(
     db
       .select()
       .from(fedexShipments)
+      .where(or(...fedexShipmentConditions))
       .orderBy(asc(fedexShipments.id)),
   ]);
 
