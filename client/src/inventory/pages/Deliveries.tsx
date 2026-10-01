@@ -84,6 +84,9 @@ import {
 import { InventoryLabelIds } from "./deliveries/InventoryLabelIds";
 import { buildCategoryOptions, filterAndSortInventories } from "./deliveries/stockFilters";
 import { calcCategoryTotals, extractPrefixFromManagementNo, lookupSellingPrice } from "./deliveries/stockView";
+import { StockChangeConfirmDialog } from "./deliveries/StockChangeConfirmDialog";
+import { MemoHistoryDialog } from "./deliveries/MemoHistoryDialog";
+import { CategoryDialogs } from "./deliveries/CategoryDialogs";
 import { type InventoryFormData, emptyForm } from "./deliveries/form";
 import { type ShipmentSheetName, SHIPMENT_SHEET_NAMES } from "./deliveries/shipmentSheets";
 
@@ -2485,201 +2488,36 @@ export default function Deliveries() {
       </Dialog>
 
       {/* 在庫数変更確認ダイアログ */}
-      <Dialog open={!!stockChangeConfirm} onOpenChange={(open) => { if (!open) { setStockChangeConfirm(null); setStockChangeMemo(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>在庫数を変更しますか？</DialogTitle>
-          </DialogHeader>
-          {stockChangeConfirm && (
-            <div className="space-y-3">
-              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm font-medium">
-                {stockChangeConfirm.inv.title}
-              </div>
-              <div className="flex items-center justify-center gap-4 py-2">
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">現在</p>
-                  <p className="text-2xl font-bold">{Math.floor(parseFloat(stockChangeConfirm.inv.quantity ?? "0"))}</p>
-                  <p className="text-xs text-muted-foreground">{stockChangeConfirm.inv.unit}</p>
-                </div>
-                <div className="text-muted-foreground">
-                  {stockChangeConfirm.delta > 0 ? (
-                    <span className="text-green-600 font-bold text-lg">+{stockChangeConfirm.delta} →</span>
-                  ) : (
-                    <span className="text-red-500 font-bold text-lg">{stockChangeConfirm.delta} →</span>
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">変更後</p>
-                  <p className={`text-2xl font-bold ${stockChangeConfirm.newQty === 0 ? "text-muted-foreground" : ""}`}>{stockChangeConfirm.newQty}</p>
-                  <p className="text-xs text-muted-foreground">{stockChangeConfirm.inv.unit}</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground text-center">サイト内DBの在庫数が更新されます</p>
-              {/* メモ入力欄 */}
-              <div className="space-y-1">
-                <Label htmlFor="stock-change-memo" className="text-sm">メモ（任意）</Label>
-                <Textarea
-                  id="stock-change-memo"
-                  placeholder="変更理由や備考を入力..."
-                  value={stockChangeMemo}
-                  onChange={(e) => setStockChangeMemo(e.target.value)}
-                  rows={2}
-                  className="text-sm resize-none"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setStockChangeConfirm(null); setStockChangeMemo(""); }} disabled={isStockChanging}>
-              キャンセル
-            </Button>
-            <Button
-              onClick={handleStockChange}
-              disabled={isStockChanging}
-              className={stockChangeConfirm?.delta && stockChangeConfirm.delta > 0 ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-500 hover:bg-red-600 text-white"}
-            >
-              {isStockChanging ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-              ) : null}
-              変更する
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StockChangeConfirmDialog
+        stockChangeConfirm={stockChangeConfirm}
+        setStockChangeConfirm={setStockChangeConfirm}
+        stockChangeMemo={stockChangeMemo}
+        setStockChangeMemo={setStockChangeMemo}
+        isStockChanging={isStockChanging}
+        handleStockChange={handleStockChange}
+      />
 
       {/* ============================================================ */}
       {/* 在庫数変更履歴（メモ）ダイアログ */}
       {/* ============================================================ */}
-      <Dialog open={!!memoHistoryItem} onOpenChange={(open) => { if (!open) setMemoHistoryItem(null); }}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-muted-foreground" />
-              在庫数変更履歴
-            </DialogTitle>
-          </DialogHeader>
-          {memoHistoryItem && (
-            <div className="space-y-3">
-              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm font-medium">
-                {memoHistoryItem.title}
-              </div>
-              {!memoHistoryData || memoHistoryData.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  変更履歴がありません
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {memoHistoryData.map((memo) => {
-                    const isIncrease = memo.changeType === "increase" || (memo.quantityDelta != null && memo.quantityDelta > 0);
-                    const isDecrease = memo.changeType === "decrease" || (memo.quantityDelta != null && memo.quantityDelta < 0);
-                    return (
-                      <div key={memo.id} className="rounded-md border bg-card px-3 py-2 text-sm space-y-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {isIncrease && <span className="text-green-600 font-bold text-xs">+{memo.quantityDelta}</span>}
-                            {isDecrease && <span className="text-red-500 font-bold text-xs">{memo.quantityDelta}</span>}
-                            {!isIncrease && !isDecrease && <span className="text-muted-foreground text-xs">変更</span>}
-                            {memo.quantityBefore != null && memo.quantityAfter != null && (
-                              <span className="text-muted-foreground text-xs">{memo.quantityBefore} → {memo.quantityAfter}</span>
-                            )}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(memo.createdAt).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                        </div>
-                        {memo.memo && (
-                          <p className="text-xs text-foreground bg-muted/30 rounded px-2 py-1">{memo.memo}</p>
-                        )}
-                        {memo.operatorName && (
-                          <p className="text-xs text-muted-foreground">操作者: {memo.operatorName}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMemoHistoryItem(null)}>閉じる</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5 text-primary" />
-              カテゴリ管理
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddCategory();
-                }}
-                placeholder="カテゴリ名"
-              />
-              <Button
-                onClick={handleAddCategory}
-                disabled={addCategoryMutation.isPending || !newCategoryName.trim()}
-              >
-                {addCategoryMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-            <div className="rounded-md border max-h-72 overflow-y-auto">
-              {categoryOptions.length === 0 ? (
-                <p className="px-3 py-6 text-sm text-muted-foreground text-center">カテゴリがありません</p>
-              ) : (
-                categoryOptions.map((cat) => (
-                  <div key={cat} className="flex items-center justify-between gap-3 px-3 py-2 border-b last:border-0">
-                    <span className="text-sm font-medium truncate">{cat}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                      onClick={() => setCategoryDeleteTarget(cat)}
-                      disabled={deleteCategoryMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>閉じる</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog open={!!categoryDeleteTarget} onOpenChange={(open) => { if (!open) setCategoryDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>カテゴリを削除しますか？</AlertDialogTitle>
-            <AlertDialogDescription>
-              「{categoryDeleteTarget}」を在庫・入庫予定から外して未分類にします。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteCategoryMutation.isPending}>キャンセル</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteCategory}
-              disabled={deleteCategoryMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteCategoryMutation.isPending ? "削除中..." : "削除"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MemoHistoryDialog
+        memoHistoryItem={memoHistoryItem}
+        setMemoHistoryItem={setMemoHistoryItem}
+        memoHistoryData={memoHistoryData}
+      />
+      <CategoryDialogs
+        showCategoryDialog={showCategoryDialog}
+        setShowCategoryDialog={setShowCategoryDialog}
+        newCategoryName={newCategoryName}
+        setNewCategoryName={setNewCategoryName}
+        handleAddCategory={handleAddCategory}
+        addCategoryMutation={addCategoryMutation}
+        categoryOptions={categoryOptions}
+        categoryDeleteTarget={categoryDeleteTarget}
+        setCategoryDeleteTarget={setCategoryDeleteTarget}
+        handleDeleteCategory={handleDeleteCategory}
+        deleteCategoryMutation={deleteCategoryMutation}
+      />
       {/* ============================================================ */}
       {/* 在庫編集ダイアログ */}
       {/* ============================================================ */}
