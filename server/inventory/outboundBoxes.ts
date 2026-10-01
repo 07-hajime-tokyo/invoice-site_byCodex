@@ -17,7 +17,9 @@ import {
   OUTBOUND_BOX_CODE_PATTERN,
   priorStatusForUnseal,
   PRODUCT_LABEL_PATTERN,
+  isShipmentSheetName,
   shipmentSheetForPartner,
+  SHIPMENT_SHEET_NAMES,
   type OutboundFedexItem,
   type ShipmentSheetName,
 } from "../../shared/outboundBoxes";
@@ -36,9 +38,47 @@ function isDuplicateError(error: unknown): boolean {
   return /duplicate|unique|er_dup_entry/i.test(errorText(error));
 }
 
+function getRawRows(result: unknown): unknown[] {
+  if (Array.isArray(result)) {
+    const first = result[0];
+    if (Array.isArray(first)) return first;
+    return result;
+  }
+  if (result && typeof result === "object") {
+    const rows = (result as { rows?: unknown[] }).rows;
+    if (Array.isArray(rows)) return rows;
+  }
+  return [];
+}
+
+let outboundBoxDestinationColumnReady: Promise<void> | null = null;
+
+async function ensureOutboundBoxDestinationColumn(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+  if (!outboundBoxDestinationColumnReady) {
+    outboundBoxDestinationColumnReady = (async () => {
+      const columns = getRawRows(await db.execute(sql`
+        SELECT COLUMN_NAME AS columnName
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'outbound_boxes'
+          AND COLUMN_NAME = 'destinationSheetName'
+      `));
+      if (columns.length > 0) return;
+      try {
+        await db.execute(sql`ALTER TABLE outbound_boxes ADD COLUMN destinationSheetName varchar(50) NULL AFTER fedexShipmentId`);
+        console.info("[outboundBoxes] Added destinationSheetName column");
+      } catch (error) {
+        if (!/Duplicate column|ER_DUP_FIELDNAME|1060/i.test(errorText(error))) throw error;
+      }
+    })();
+  }
+  await outboundBoxDestinationColumnReady;
+}
+
 async function requireDb() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  await ensureOutboundBoxDestinationColumn(db);
   return db;
 }
 
@@ -59,6 +99,36 @@ async function getBoxDetail(boxCode: string) {
   const box = await getBoxByCode(boxCode);
   if (!box) return null;
   return { ...box, items: await getBoxLabels(box.id) };
+}
+
+const shipmentSheetNameSchema = z.enum(SHIPMENT_SHEET_NAMES);
+
+function normalizeDestinationSheetName(value: unknown): ShipmentSheetName | null {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  return isShipmentSheetName(text) ? text : null;
+}
+
+async function resolveInvoiceShipmentSheetName(invoiceNo: string | null): Promise<ShipmentSheetName | null> {
+  const normalized = normalizeAssignedInvoiceNo(invoiceNo);
+  if (!normalized) return null;
+  const db = await requireDb();
+  const rows = await db
+    .select({ partner: tradeRecords.partner })
+    .from(tradeRecords)
+    .where(eq(tradeRecords.no, Number(normalized)));
+  const partners = Array.from(new Set(rows.map((row) => String(row.partner ?? "").trim()).filter(Boolean)));
+  if (partners.length !== 1) return null;
+  return shipmentSheetForPartner(partners[0]);
+}
+
+async function resolveLabelTarget(label: {
+  assignedInvoiceNo?: string | null;
+  legacyManagementNo?: string | null;
+}): Promise<{ invoiceNo: string | null; sheetName: ShipmentSheetName | null }> {
+  const invoiceNo =
+    normalizeAssignedInvoiceNo(label.assignedInvoiceNo) ??
+    normalizeAssignedInvoiceNo((label.legacyManagementNo ?? "").match(/^(\d{3,5})(?:_|$)/)?.[1] ?? null);
+  return { invoiceNo, sheetName: await resolveInvoiceShipmentSheetName(invoiceNo) };
 }
 
 async function issueOneBox(operatorName: string | null) {
@@ -258,7 +328,11 @@ export const outboundBoxesRouter = router({
     }),
 
   open: protectedProcedure
-    .input(z.object({ boxCode: z.string(), operatorName: z.string().max(200).optional() }))
+    .input(z.object({
+      boxCode: z.string(),
+      destinationSheetName: shipmentSheetNameSchema.nullable().optional(),
+      operatorName: z.string().max(200).optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const boxCode = normalizeOutboundScan(input.boxCode);
       if (!OUTBOUND_BOX_CODE_PATTERN.test(boxCode)) throw new Error("箱IDはB+6桁で読み取ってください");
@@ -266,20 +340,61 @@ export const outboundBoxesRouter = router({
       if (existing) {
         if (existing.discardedAt) throw new Error(`${boxCode}は破棄済みです`);
         if (existing.status !== "open") throw new Error(`${boxCode}は${existing.status}のため再開できません`);
+        const destinationSheetName = normalizeDestinationSheetName(input.destinationSheetName);
+        if (destinationSheetName && !existing.destinationSheetName) {
+          const db = await requireDb();
+          await db.update(outboundBoxes).set({ destinationSheetName }).where(eq(outboundBoxes.id, existing.id));
+          return getBoxDetail(boxCode);
+        }
         return existing;
       }
       const db = await requireDb();
       await db.insert(outboundBoxes).values({
         boxCode,
         status: "open",
+        destinationSheetName: normalizeDestinationSheetName(input.destinationSheetName),
         operatorName: input.operatorName?.trim() || ctx.user.name || ctx.user.email || null,
       });
       return getBoxDetail(boxCode);
     }),
 
+  setDestination: protectedProcedure
+    .input(z.object({
+      boxCode: z.string(),
+      destinationSheetName: shipmentSheetNameSchema.nullable(),
+      operatorName: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const boxCode = normalizeOutboundScan(input.boxCode);
+      const box = await getBoxByCode(boxCode);
+      if (!box) throw new Error("箱が見つかりません");
+      if (box.status === "shipped") throw new Error("発送済みの箱は出荷先を変更できません");
+      const destinationSheetName = normalizeDestinationSheetName(input.destinationSheetName);
+      const before = normalizeDestinationSheetName(box.destinationSheetName);
+      if (before === destinationSheetName) return getBoxDetail(boxCode);
+      const db = await requireDb();
+      await db.update(outboundBoxes).set({ destinationSheetName }).where(eq(outboundBoxes.id, box.id));
+      const workerName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
+      const now = new Date();
+      await recordWorkLog({
+        workerName,
+        category: "出庫箱の出荷先指定",
+        status: "done",
+        startedAt: now,
+        endedAt: now,
+        quantity: 1,
+        memo: `箱ID: ${boxCode} / ${before ?? "未設定"} -> ${destinationSheetName ?? "未設定"}`,
+        createdBy: workerName,
+        sourceType: "outbound-box-destination",
+        sourceId: boxCode,
+        detailsJson: JSON.stringify({ boxCode, before, after: destinationSheetName }),
+      });
+      return getBoxDetail(boxCode);
+    }),
+
   addItem: protectedProcedure
-    .input(z.object({ boxCode: z.string(), labelId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ boxCode: z.string(), labelId: z.string(), force: z.boolean().optional(), operatorName: z.string().max(200).optional() }))
+    .mutation(async ({ input, ctx }) => {
       const boxCode = normalizeOutboundScan(input.boxCode);
       const labelId = normalizeOutboundScan(input.labelId);
       if (!PRODUCT_LABEL_PATTERN.test(labelId)) throw new Error("個体ラベルは指定英字7文字です");
@@ -295,7 +410,38 @@ export const outboundBoxesRouter = router({
         throw new Error(`${labelId}は${label.status}のため出庫できません（入庫済み・在庫のみ）`);
       }
       if (label.outboundBoxId && label.outboundBoxId !== box.id) throw new Error(`${labelId}は別の箱に入っています`);
+      const destinationSheetName = normalizeDestinationSheetName(box.destinationSheetName);
+      const target = await resolveLabelTarget(label);
+      const hasConflict = Boolean(destinationSheetName && target.sheetName && destinationSheetName !== target.sheetName);
+      if (hasConflict && !input.force) {
+        throw new Error(`${labelId}は${target.sheetName}向けのため、${destinationSheetName}の箱には追加できません`);
+      }
       await db.update(inventoryItemLabels).set({ outboundBoxId: box.id }).where(eq(inventoryItemLabels.id, label.id));
+      if (hasConflict && input.force) {
+        const workerName = input.operatorName?.trim() || ctx.user.name || ctx.user.email || "出荷担当";
+        const now = new Date();
+        await recordWorkLog({
+          workerName,
+          category: "出荷先警告の例外追加",
+          status: "done",
+          startedAt: now,
+          endedAt: now,
+          quantity: 1,
+          memo: `箱ID: ${boxCode} / 商品ID: ${labelId} / 箱: ${destinationSheetName} / 商品: ${target.sheetName ?? "未特定"} / No.${target.invoiceNo ?? "-"}`,
+          createdBy: workerName,
+          sourceType: "outbound-box-destination-exception",
+          sourceId: `${boxCode}:${labelId}`,
+          detailsJson: JSON.stringify({
+            boxCode,
+            labelId,
+            boxDestinationSheetName: destinationSheetName,
+            labelTargetSheetName: target.sheetName,
+            labelTargetInvoiceNo: target.invoiceNo,
+            legacyManagementNo: label.legacyManagementNo ?? null,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
+          }),
+        });
+      }
       return getBoxDetail(boxCode);
     }),
 

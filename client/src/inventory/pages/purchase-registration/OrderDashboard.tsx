@@ -21,6 +21,7 @@ import { EmptyState } from "./EmptyState";
 export function OrderDashboard({
   group,
   rows,
+  invoiceOptions,
   products: productsOverride,
   detailRows,
   stockDetailItems = [],
@@ -37,6 +38,7 @@ export function OrderDashboard({
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
+  invoiceOptions: AllocationGroup[];
   products?: ProductSummary[];
   detailRows?: PurchaseRow[];
   stockDetailItems?: StockItemView[];
@@ -149,6 +151,7 @@ export function OrderDashboard({
                 <PurchaseRegistrationCard
                   key={row.id}
                   row={row}
+                  invoiceOptions={invoiceOptions}
                   onPrintLabels={onPrintLabels}
                   onOpenEdit={onOpenEdit}
                   onOpenTrackingDialog={onOpenTrackingDialog}

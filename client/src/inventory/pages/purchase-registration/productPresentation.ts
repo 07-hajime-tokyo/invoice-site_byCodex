@@ -1,8 +1,29 @@
 import { compactProductText } from "./productText";
 import type { InventoryItem } from "./dataTypes";
 
+export const UNCATEGORIZED_STOCK_CATEGORY = "未分類";
+
 export function getInventoryCategory(inventory: InventoryItem): string {
   return (inventory.categories?.[0] ?? inventory.category ?? "").trim();
+}
+
+export function displayStockCategory(category?: string | null): string {
+  return (category ?? "").trim() || UNCATEGORIZED_STOCK_CATEGORY;
+}
+
+export function normalizeStockCategoryOption(category?: string | null): string {
+  const name = (category ?? "").trim();
+  if (!name || name === "すべて" || name === UNCATEGORIZED_STOCK_CATEGORY) return "";
+  return name;
+}
+
+export function sortedStockCategoryOptions(categories: Iterable<string | null | undefined>): string[] {
+  const values = new Set<string>();
+  for (const category of categories) {
+    const name = normalizeStockCategoryOption(category);
+    if (name) values.add(name);
+  }
+  return Array.from(values).sort((a, b) => a.localeCompare(b, "ja", { numeric: true }));
 }
 
 export function stockModelName(title: string): string {
@@ -64,5 +85,6 @@ export const STOCK_MODEL_ORDER = [
   "Switch",
   "ゴルフ",
   "シャフト",
+  UNCATEGORIZED_STOCK_CATEGORY,
   "その他",
 ];

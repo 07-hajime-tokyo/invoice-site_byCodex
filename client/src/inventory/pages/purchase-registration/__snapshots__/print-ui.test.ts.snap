@@ -113,7 +113,7 @@ exports[`print presentation against 8cfcd9d > keeps on-screen and printable chec
 ]
 `;
 
-exports[`print presentation against 8cfcd9d > keeps print-panel selection, persistence, callbacks and print effects verbatim 1`] = `"30ad038ff6e12341d47be9505970cfee8ee7042f0796a903970ba571b673bb36"`;
+exports[`print presentation against 8cfcd9d > keeps print-panel selection, persistence, callbacks and print effects verbatim 1`] = `"add3f71f072f8a07a84de136714d3326696ed3a6334057e7a85f548d6d5f71b7"`;
 
 exports[`print presentation against 8cfcd9d > keeps start offsets/page boundaries, blank-ID filtering and exact box-label decoration 1`] = `
 [

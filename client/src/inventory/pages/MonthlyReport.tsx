@@ -379,6 +379,7 @@ export default function MonthlyReport() {
           <CalendarDays className="h-6 w-6 text-primary" />
           <div>
             <h1 className="text-xl font-semibold">月次棚卸しレポート</h1>
+            <a href="/inventory/stocktake" className="text-sm text-primary underline">QRで現物を確認する → QR棚卸</a>
             <p className="text-sm text-muted-foreground">月末に棚卸しを行い、在庫金額と仕入れコストを確認します</p>
           </div>
         </div>

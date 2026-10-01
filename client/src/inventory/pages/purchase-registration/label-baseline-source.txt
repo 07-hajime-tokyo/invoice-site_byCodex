@@ -355,8 +355,9 @@ function buildLabelViews(rows: PurchaseRow[]): LabelView[] {
           status: labelStatusLabel(label.status),
           title,
           printTitle: formatLabelPrintTitle(title),
-          category: (item.category ?? "").trim() || stockModelName(title),
+          category: displayStockCategory(item.category),
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice: toNumber(item.unit_price),
           supplier,
@@ -400,8 +401,9 @@ function buildInventoryLabelViews(inventories: InventoryItem[]): LabelView[] {
           status: labelStatusLabel(label.status || "stocked"),
           title,
           printTitle: formatLabelPrintTitle(title),
-          category: getInventoryCategory(inventory) || stockModelName(title),
+          category: displayStockCategory(getInventoryCategory(inventory)),
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: "",
           unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
           supplier,
@@ -445,8 +447,9 @@ function buildClosedInvoiceInventoryLabelViews(
             status: labelStatusLabel(label.status || "stocked"),
             title,
             printTitle: formatLabelPrintTitle(title),
-            category: (item.category ?? "").trim() || stockModelName(title),
+            category: displayStockCategory(item.category),
             legacyManagementNo,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
             allocationLabel: "",
             unitPrice: toNumber(item.unit_price),
             supplier,
@@ -707,6 +710,7 @@ const STOCK_MODEL_ORDER = [
   "Switch",
   "ゴルフ",
   "シャフト",
+  UNCATEGORIZED_STOCK_CATEGORY,
   "その他",
 ];
 
@@ -716,7 +720,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory);
+    const category = displayStockCategory(getInventoryCategory(inventory));
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -740,6 +744,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
           title: inventory.title,
           category,
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice,
           quantity: 1,
@@ -761,6 +766,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
         title: inventory.title,
         category,
         legacyManagementNo: managementNo,
+        assignedInvoiceNo: null,
         allocationLabel: labelAllocationLabel(managementNo),
         unitPrice,
         quantity: missingLabelQuantity,

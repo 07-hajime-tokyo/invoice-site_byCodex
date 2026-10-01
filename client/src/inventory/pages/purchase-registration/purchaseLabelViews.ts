@@ -6,7 +6,7 @@ import { getInvoiceInfo, OTHER_INVOICE_KEY, EBAY_GROUP_KEY } from "./invoiceIden
 import { getSupplier } from "./supplier";
 import { toNumber } from "./format";
 import { itemStockQuantity } from "./purchaseItems";
-import { stockModelName } from "./productPresentation";
+import { displayStockCategory } from "./productPresentation";
 import { labelStatusLabel } from "./labelStatus";
 import { formatLabelPrintTitle, labelAllocationLabel } from "./labelTitles";
 import { isInventoryPrintableLabel } from "./inventoryLabelViews";
@@ -28,8 +28,9 @@ export function createPurchaseLabelBuilders(actualProductTitle: (item: PurchaseI
             status: labelStatusLabel(label.status),
             title,
             printTitle: formatLabelPrintTitle(title),
-            category: (item.category ?? "").trim() || stockModelName(title),
+            category: displayStockCategory(item.category),
             legacyManagementNo,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
             allocationLabel: labelAllocationLabel(legacyManagementNo),
             unitPrice: toNumber(item.unit_price),
             supplier,
@@ -74,8 +75,9 @@ export function createPurchaseLabelBuilders(actualProductTitle: (item: PurchaseI
               status: labelStatusLabel(label.status || "stocked"),
               title,
               printTitle: formatLabelPrintTitle(title),
-              category: (item.category ?? "").trim() || stockModelName(title),
+              category: displayStockCategory(item.category),
               legacyManagementNo,
+              assignedInvoiceNo: label.assignedInvoiceNo ?? null,
               allocationLabel: "",
               unitPrice: toNumber(item.unit_price),
               supplier,

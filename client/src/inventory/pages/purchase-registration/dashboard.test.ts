@@ -32,6 +32,13 @@ vi.mock("react", async load => {
   };
 });
 
+// BoxItemInvoiceField depends on trpc hooks; a deterministic stub keeps both baseline and current renders comparable.
+vi.mock("./OutboundBoxes", async load => {
+  const actual = await load<typeof import("./OutboundBoxes")>();
+  const react = await vi.importActual<typeof import("react")>("react");
+  return { ...actual, BoxItemInvoiceField: (props: { labelId: string; assignedInvoiceNo: string | null; legacyManagementNo: string | null }) => react.createElement("span", { "data-box-item-invoice": JSON.stringify([props.labelId, props.assignedInvoiceNo ?? null, props.legacyManagementNo ?? null]) }) };
+});
+
 type Rules = typeof import("./trackingNavigation") & typeof import("./purchaseRowIdentity") & typeof import("./PurchaseRegistrationCard") & typeof import("./StockDetailCard") & typeof import("./EmptyState") & typeof import("./OrderDashboard");
 const original = loadDashboardBaseline<Rules>();
 const current: Rules = { ...trackingNavigation, ...purchaseRowIdentity, ...PurchaseRegistrationCard, ...StockDetailCard, ...EmptyState, ...OrderDashboard };
@@ -40,7 +47,7 @@ const row = (patch: Partial<PurchaseRow> = {}): PurchaseRow => ({ id: 1, num: "P
 const stock = (patch: Partial<StockItemView> = {}): StockItemView => ({ key: "s1", inventoryId: 8, labelId: "L1", status: "stocked", title: "3DS LL", category: "ゲーム", legacyManagementNo: "405_相手_3DSLL", allocationLabel: "405", unitPrice: 100, quantity: 3, supplier: { name: "仕入先", url: "https://example.test" }, purchaseDate: "2026-09-01", ...patch });
 const group = (patch: Partial<AllocationGroup> = {}): AllocationGroup => ({ key: "invoice-405", label: "No.405 相手", partner: "相手", rows: [row()], products: [], labels: [], required: 0, secured: 0, waiting: 0, purchaseTotal: 300, ...patch });
 const noop = () => {};
-const callbacks = { onPrintLabels: noop, onOpenEdit: noop, onOpenTrackingDialog: noop, onOpenShippingHistory: noop, onDeleteRow: noop };
+const callbacks = { invoiceOptions: [] as AllocationGroup[], onPrintLabels: noop, onOpenEdit: noop, onOpenTrackingDialog: noop, onOpenShippingHistory: noop, onDeleteRow: noop };
 type Element = ReactElement<Record<string, any>>;
 function elements(node: ReactNode): Element[] { if (Array.isArray(node)) return node.flatMap(elements); if (!isValidElement<Record<string, any>>(node)) return []; return [node, ...elements(node.props.children)]; }
 function text(node: ReactNode): string { if (Array.isArray(node)) return node.map(text).join(""); if (isValidElement<Record<string, any>>(node)) return text(node.props.children); return typeof node === "string" || typeof node === "number" ? String(node) : ""; }
@@ -69,7 +76,7 @@ describe(`registration cards/dashboard against ${DASHBOARD_BASELINE_COMMIT}`, ()
     const input = row();
     function events(rules: Rules) {
       const log: unknown[] = [];
-      const props = { row: input, isSelected: true, onPrintLabels: (labels: unknown) => log.push(["print", labels]), onOpenEdit: (r: PurchaseRow) => log.push(["edit", r === input]), onOpenTrackingDialog: (r: PurchaseRow) => log.push(["tracking", r === input]), onOpenShippingHistory: (r: PurchaseRow) => log.push(["history", r === input]), onDeleteRow: (r: PurchaseRow) => log.push(["delete", r === input]), onSelectChange: (r: PurchaseRow, checked: boolean) => log.push(["select", r === input, checked]) };
+      const props = { row: input, invoiceOptions: [] as AllocationGroup[], isSelected: true, onPrintLabels: (labels: unknown) => log.push(["print", labels]), onOpenEdit: (r: PurchaseRow) => log.push(["edit", r === input]), onOpenTrackingDialog: (r: PurchaseRow) => log.push(["tracking", r === input]), onOpenShippingHistory: (r: PurchaseRow) => log.push(["history", r === input]), onDeleteRow: (r: PurchaseRow) => log.push(["delete", r === input]), onSelectChange: (r: PurchaseRow, checked: boolean) => log.push(["select", r === input, checked]) };
       for (const n of elements(rules.PurchaseRegistrationCard(props))) {
         if (n.props.onClick && !n.props.disabled) n.props.onClick();
         if (n.props.onCheckedChange) for (const value of [true, false, "indeterminate"]) n.props.onCheckedChange(value);

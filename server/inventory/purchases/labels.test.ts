@@ -37,6 +37,7 @@ describe("ラベル表示・重複排除", () => {
       status: "ordered",
       localInventoryId: 10,
       legacyManagementNo: undefined,
+      assignedInvoiceNo: null,
     });
     expect(source.title).toBe("非表示項目");
   });

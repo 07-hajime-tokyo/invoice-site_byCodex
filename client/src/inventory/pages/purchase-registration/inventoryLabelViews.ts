@@ -5,7 +5,7 @@ import { toNumber } from "./format";
 import { preferredManagementNo } from "./managementNumbers";
 import { labelStatusLabel } from "./labelStatus";
 import { formatLabelPrintTitle } from "./labelTitles";
-import { getInventoryCategory, stockModelName } from "./productPresentation";
+import { getInventoryCategory, displayStockCategory } from "./productPresentation";
 
 export function isInventoryPrintableLabel(label: InventoryItemLabel): boolean {
   if (!label.labelId?.trim()) return false;
@@ -35,8 +35,9 @@ export function buildInventoryLabelViews(inventories: InventoryItem[]): LabelVie
           status: labelStatusLabel(label.status || "stocked"),
           title,
           printTitle: formatLabelPrintTitle(title),
-          category: getInventoryCategory(inventory) || stockModelName(title),
+          category: displayStockCategory(getInventoryCategory(inventory)),
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: "",
           unitPrice: toNumber(inventory.purchase_unit_price ?? inventory.unit_price),
           supplier,

@@ -2,39 +2,47 @@ import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Boxes, ChevronDown, PackageCheck, Pencil } from "lucide-react";
+import { Boxes, ChevronDown, PackageCheck, Pencil, Tag } from "lucide-react";
 import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { formatCurrency, formatDate } from "./format";
 import { EmptyState } from "./EmptyState";
-import { buildStockItemViewsFromInventories, buildStockItemGroups } from "./stockViews";
+import { buildStockItemViewsFromInventories, buildStockItemGroups, stockItemStatusBadgeClass } from "./stockViews";
 import { buildStockSearchText } from "./search";
 import type { InventoryItem, PurchaseRow } from "./dataTypes";
-import type { PurchaseRegistrationInvoice } from "./viewTypes";
+import type { AllocationGroup, PurchaseRegistrationInvoice } from "./viewTypes";
 import type { StockViewMode } from "./formTypes";
-import { buildInboundWaitingStockItemViewsFromRows, buildStockProposalGroups } from "./registrationStockBuilders";
+import { buildZeroStockPurchaseItemViewsFromRows, buildStockProposalGroups } from "./registrationStockBuilders";
+import { invoiceDisplayLabel } from "./shippingRules";
+import { BoxItemInvoiceField } from "./OutboundBoxes";
 import { StockProposalPanel } from "./StockProposalPanel";
 
 export function StockPanel({
   inventories,
   purchaseRows,
   unfinishedInvoices,
+  invoiceOptions,
   searchText,
   viewMode,
+  categoryOptions,
+  onOpenCategoryDialog,
   onOpenEdit,
 }: {
   inventories: InventoryItem[];
   purchaseRows: PurchaseRow[];
   unfinishedInvoices?: PurchaseRegistrationInvoice[];
+  invoiceOptions: AllocationGroup[];
   searchText: string;
   viewMode: StockViewMode;
+  categoryOptions: string[];
+  onOpenCategoryDialog: () => void;
   onOpenEdit: (inventoryId: number) => void;
 }) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
-  const inboundWaitingStockItems = buildInboundWaitingStockItemViewsFromRows(purchaseRows);
-  const inboundWaitingQuantityTotal = inboundWaitingStockItems.reduce((total, item) => total + item.quantity, 0);
-  const [showInboundWaitingStockItems, setShowInboundWaitingStockItems] = useState(false);
-  const displayStockItems = showInboundWaitingStockItems
-    ? [...allStockItems, ...inboundWaitingStockItems]
+  const zeroStockPurchaseItems = buildZeroStockPurchaseItemViewsFromRows(purchaseRows, inventories);
+  const zeroStockPurchaseQuantityTotal = zeroStockPurchaseItems.reduce((total, item) => total + item.quantity, 0);
+  const [showZeroStockPurchaseItems, setShowZeroStockPurchaseItems] = useState(false);
+  const displayStockItems = showZeroStockPurchaseItems
+    ? [...allStockItems, ...zeroStockPurchaseItems]
     : allStockItems;
   const stockItems = searchText
     ? displayStockItems.filter((item) => buildStockSearchText(item).includes(searchText))
@@ -67,24 +75,38 @@ export function StockPanel({
           <h2 className="text-lg font-semibold">在庫一覧</h2>
           <Badge variant="outline">{stockItems.length.toLocaleString()}件</Badge>
           <Badge variant="secondary">{stockQuantityTotal.toLocaleString()}点</Badge>
-          {inboundWaitingStockItems.length > 0 ? (
+          {zeroStockPurchaseItems.length > 0 ? (
             <Button
               type="button"
-              variant={showInboundWaitingStockItems ? "secondary" : "outline"}
+              variant={showZeroStockPurchaseItems ? "secondary" : "outline"}
               size="sm"
               className="h-7 gap-1.5 px-2 text-xs"
-              onClick={() => setShowInboundWaitingStockItems((current) => !current)}
+              onClick={() => setShowZeroStockPurchaseItems((current) => !current)}
             >
               <PackageCheck className="h-3.5 w-3.5" />
-              {showInboundWaitingStockItems ? "入庫待ち0在庫を隠す" : "入庫待ち0在庫を表示"}
+              {showZeroStockPurchaseItems ? "0在庫を隠す" : "0在庫を表示"}
               <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
-                {inboundWaitingQuantityTotal.toLocaleString()}
+                {zeroStockPurchaseQuantityTotal.toLocaleString()}
               </Badge>
             </Button>
           ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            onClick={onOpenCategoryDialog}
+          >
+            <Tag className="h-3.5 w-3.5" />
+            カテゴリ管理
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {categoryOptions.length.toLocaleString()}
+            </Badge>
+          </Button>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          商品IDが未発行の在庫も含めて、機種ごとに表示します。通常は在庫数が1以上の商品だけを表示します。
+          商品IDが未発行の在庫も含めて、カテゴリごとに表示します。通常は在庫数が1以上の商品だけを表示します。
+          0在庫を表示すると、出庫済み・入庫待ち・動作確認待ちの在庫数0商品だけを確認できます。
         </p>
       </section>
       {stockItems.length === 0 ? (
@@ -134,6 +156,8 @@ export function StockPanel({
                             <span className="font-mono text-base font-semibold text-emerald-800">{item.labelId}</span>
                           ) : item.inboundWaiting ? (
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">入庫待ち</Badge>
+                          ) : item.zeroStockPurchase ? (
+                            <Badge variant="outline">{item.status}</Badge>
                           ) : (
                             <Badge variant="outline">未発行</Badge>
                           )}
@@ -146,7 +170,22 @@ export function StockPanel({
                           <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant="secondary" className="font-mono">{item.allocationLabel}</Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant={item.assignedInvoiceNo ? "default" : "secondary"} className="w-fit font-mono">
+                              {item.assignedInvoiceNo
+                                ? `充当先 ${invoiceDisplayLabel(invoiceOptions, item.assignedInvoiceNo)}`
+                                : item.allocationLabel}
+                            </Badge>
+                            {item.labelId ? (
+                              <BoxItemInvoiceField
+                                labelId={item.labelId}
+                                assignedInvoiceNo={item.assignedInvoiceNo ?? null}
+                                legacyManagementNo={item.legacyManagementNo}
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">商品ID発行後に指定できます</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           {item.supplier.url ? (
@@ -167,13 +206,7 @@ export function StockPanel({
                           <div className="mt-1 text-xs text-muted-foreground">{formatDate(item.purchaseDate)}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge
-                            className={
-                              item.inboundWaiting
-                                ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
-                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
-                            }
-                          >
+                          <Badge className={stockItemStatusBadgeClass(item)}>
                             {item.status}
                           </Badge>
                         </td>

@@ -73,19 +73,19 @@ exports[`R07-R09 stock rules against actual source at 608f1ea > captures merged 
 
 exports[`R07-R09 stock rules against actual source at 608f1ea > captures stock remainder, waiting quantities, labels, prices and date precedence 1`] = `
 [
-  "{"key":"inventory-label-1-L1","labelId":"L1","inventoryId":1,"status":"入庫済み","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
-  "{"key":"inventory-unlabeled-1","inventoryId":1,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":2,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
-  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":" ","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
-  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
-  "{"key":"inventory-unlabeled-3","inventoryId":3,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
-  "{"key":"inventory-unlabeled-4","inventoryId":4,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-label-1-L1","labelId":"L1","inventoryId":1,"status":"入庫済み","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-1","inventoryId":1,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":100,"quantity":2,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":" ","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-label-3-B","labelId":"B","inventoryId":3,"status":"在庫","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-3","inventoryId":3,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":0,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
+  "{"key":"inventory-unlabeled-4","inventoryId":4,"labelId":null,"status":"在庫","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":100,"quantity":1,"supplier":{"name":"Seller","url":""},"purchaseDate":""}",
 ]
 `;
 
 exports[`R07-R09 stock rules against actual source at 608f1ea > captures stock remainder, waiting quantities, labels, prices and date precedence 2`] = `
 [
-  "{"key":"inbound-waiting-stock-1-10-1","inventoryId":1,"labelId":null,"status":"発注済み","title":"PS Vita 1100","category":"PS Vita 1000","legacyManagementNo":"在庫001","allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"Supplier","url":""},"purchaseDate":"2026-09-01","inboundWaiting":true}",
-  "{"key":"inbound-waiting-stock-3-10-1","inventoryId":1,"labelId":null,"status":"発注済み","title":"-","category":"その他","legacyManagementNo":"在庫FromLabel","allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"-","url":""},"purchaseDate":"","inboundWaiting":true}",
+  "{"key":"zero-stock-purchase-1-10-1","inventoryId":1,"labelId":null,"status":"入庫待ち","title":"PS Vita 1100","category":"未分類","legacyManagementNo":"在庫001","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"Supplier","url":""},"purchaseDate":"2026-09-01","inboundWaiting":true,"zeroStockPurchase":true,"zeroStockStatus":"inbound_waiting"}",
+  "{"key":"zero-stock-purchase-3-10-1","inventoryId":1,"labelId":"A","status":"入庫待ち","title":"-","category":"未分類","legacyManagementNo":"在庫FromLabel","assignedInvoiceNo":null,"allocationLabel":"一般在庫","unitPrice":100.5,"quantity":2,"supplier":{"name":"-","url":""},"purchaseDate":"","inboundWaiting":true,"zeroStockPurchase":true,"zeroStockStatus":"inbound_waiting"}",
 ]
 `;
 

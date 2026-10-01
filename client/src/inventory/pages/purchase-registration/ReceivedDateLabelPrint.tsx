@@ -41,6 +41,7 @@ export function ReceivedDateLabelPrint() {
         printTitle: formatLabelPrintTitle(row.title),
         category: row.category || stockModelName(row.title),
         legacyManagementNo: row.legacyManagementNo || "-",
+        assignedInvoiceNo: row.assignedInvoiceNo ?? null,
         allocationLabel: labelAllocationLabel(row.legacyManagementNo || ""),
         unitPrice: 0,
         supplier: { name: "", url: "" },

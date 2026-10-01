@@ -288,6 +288,7 @@ export function ScanPanel({
       status: labelStatusLabel("received"),
       title: result.title ?? label.title,
       legacyManagementNo: result.legacyManagementNo ?? label.legacyManagementNo,
+      assignedInvoiceNo: result.assignedInvoiceNo ?? label.assignedInvoiceNo ?? null,
       inventoryId: result.localInventoryId ?? label.inventoryId ?? null,
     });
   }

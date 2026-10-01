@@ -3,7 +3,7 @@ import type { StockItemView } from "./viewTypes";
 import { extractManagementNo as getInventoryManagementNo } from "@shared/ebayInventory";
 import { toNumber } from "./format";
 import { preferredManagementNo } from "./managementNumbers";
-import { getInventoryCategory, stockModelName, STOCK_MODEL_ORDER } from "./productPresentation";
+import { getInventoryCategory, displayStockCategory, stockModelName, STOCK_MODEL_ORDER } from "./productPresentation";
 import { isInventoryPrintableLabel } from "./inventoryLabelViews";
 import { labelStatusLabel } from "./labelStatus";
 import { labelAllocationLabel } from "./labelTitles";
@@ -14,7 +14,7 @@ export function buildStockItemViewsFromInventories(inventories: InventoryItem[])
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory);
+    const category = displayStockCategory(getInventoryCategory(inventory));
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -34,6 +34,7 @@ export function buildStockItemViewsFromInventories(inventories: InventoryItem[])
           title: inventory.title,
           category,
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice,
           quantity: 1,
@@ -55,6 +56,7 @@ export function buildStockItemViewsFromInventories(inventories: InventoryItem[])
         title: inventory.title,
         category,
         legacyManagementNo: managementNo,
+        assignedInvoiceNo: null,
         allocationLabel: labelAllocationLabel(managementNo),
         unitPrice,
         quantity: missingLabelQuantity,
@@ -91,4 +93,19 @@ export function buildStockItemGroups(items: StockItemView[]): { name: string; it
       if (normalizedA !== normalizedB) return normalizedA - normalizedB;
       return a.name.localeCompare(b.name, "ja", { numeric: true });
     });
+}
+
+export function stockItemStatusBadgeClass(item: StockItemView): string {
+  switch (item.zeroStockStatus) {
+    case "shipped":
+      return "bg-slate-100 text-slate-700 hover:bg-slate-100";
+    case "inspection_waiting":
+      return "bg-blue-100 text-blue-700 hover:bg-blue-100";
+    case "inbound_waiting":
+      return "bg-amber-100 text-amber-800 hover:bg-amber-100";
+    default:
+      return item.inboundWaiting
+        ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
+        : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100";
+  }
 }

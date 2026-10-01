@@ -76,3 +76,12 @@ export function carrierLabel(box: InboundBox) {
 export function allocationBadge(label: InboundLabel) {
   return invoiceAllocation(label.legacyManagementNo).label;
 }
+
+export function labelTargetInvoiceNo(label: InboundLabel) {
+  return label.assignedInvoiceNo?.trim() || invoiceAllocation(label.legacyManagementNo).invoiceNo;
+}
+
+export function assignedInvoiceBadge(label: InboundLabel) {
+  const invoiceNo = label.assignedInvoiceNo?.trim();
+  return invoiceNo ? `充当先 No.${invoiceNo}` : null;
+}

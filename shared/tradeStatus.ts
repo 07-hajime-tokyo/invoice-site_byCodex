@@ -37,8 +37,14 @@ export function deriveTradeShipmentRegistrationStatus(input: {
 
   const invoiceNo = Number(input.invoiceNo ?? 0);
   if (input.orderedQty <= 0) return currentStatus;
-  if (isTradeRemainingStatus(currentStatus)) return currentStatus;
-  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399) {
+  const fedexRegisteredQty = input.fedexRegisteredQty ?? 0;
+  const effectiveRegisteredQty = Math.max(input.registeredQty, fedexRegisteredQty);
+  const hasSiteShipmentQty =
+    input.actualShippedQty !== undefined ||
+    input.registeredQty > 0 ||
+    fedexRegisteredQty > 0;
+  if (isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty) return currentStatus;
+  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
     return isTradeStatusComplete(currentStatus) || isTradeShipmentRegistrationIncompleteStatus(currentStatus)
       ? "complete"
       : currentStatus;
@@ -51,7 +57,7 @@ export function deriveTradeShipmentRegistrationStatus(input: {
       return `\u6b8b${formatRemainingQty(actualRemaining)}`;
     }
 
-    const registrationRemaining = Math.max(0, input.orderedQty - input.registeredQty);
+    const registrationRemaining = Math.max(0, input.orderedQty - effectiveRegisteredQty);
     return registrationRemaining <= 0
       ? "complete"
       : `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;
@@ -60,13 +66,13 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   if (!input.hasShipmentSignal) return currentStatus;
 
   const actualShippedQty =
-    input.actualShippedQty ?? input.registeredQty;
+    input.actualShippedQty ?? effectiveRegisteredQty;
   const actualRemaining = Math.max(0, input.orderedQty - actualShippedQty);
   if (actualRemaining > 0) {
     return `\u6b8b${formatRemainingQty(actualRemaining)}`;
   }
 
-  const registrationRemaining = Math.max(0, input.orderedQty - input.registeredQty);
+  const registrationRemaining = Math.max(0, input.orderedQty - effectiveRegisteredQty);
   if (registrationRemaining <= 0) return "complete";
   if (!isTradeStatusComplete(currentStatus) && !isTradeRemainingStatus(currentStatus)) return currentStatus;
   return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;

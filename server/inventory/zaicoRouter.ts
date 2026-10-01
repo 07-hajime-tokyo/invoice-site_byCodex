@@ -657,6 +657,7 @@ export const zaicoRouter = router({
             status: label.status,
             legacyManagementNo: label.legacyManagementNo,
             localInventoryId: label.localInventoryId,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           })),
         }));
         logPerf("complete", { inventoryCount: result.length });

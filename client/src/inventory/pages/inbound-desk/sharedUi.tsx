@@ -23,6 +23,7 @@ import {
   Phase,
   PHASES,
   allocationBadge,
+  assignedInvoiceBadge,
   carrierLabel,
   formatDateTime,
 } from "./presentation";
@@ -87,6 +88,7 @@ export function PhaseNavigation({
 }
 
 export function LabelDetails({ label }: { label: InboundLabel }) {
+  const assignedLabel = assignedInvoiceBadge(label);
   return (
     <div className="space-y-1 text-sm">
       <div className="font-semibold text-slate-950">{label.title}</div>
@@ -95,6 +97,11 @@ export function LabelDetails({ label }: { label: InboundLabel }) {
           {label.labelId}
         </Badge>
         <Badge variant="secondary">{allocationBadge(label)}</Badge>
+        {assignedLabel ? (
+          <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">
+            {assignedLabel}
+          </Badge>
+        ) : null}
       </div>
       <div className="text-xs text-muted-foreground">
         旧管理番号: {label.legacyManagementNo || "-"}

@@ -128,7 +128,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     if (stockQuantity <= 0) return [];
 
     const managementNo = getInventoryManagementNo(inventory.etc) || "-";
-    const category = getInventoryCategory(inventory);
+    const category = displayStockCategory(getInventoryCategory(inventory));
     const supplier = {
       name: inventory.supplierName?.trim() || "-",
       url: inventory.supplierUrl?.trim() || "",
@@ -136,7 +136,11 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
     const unitPrice = toNumber(inventory.purchase_unit_price ?? inventory.unit_price);
     const purchaseDate = inventory.last_purchase_date ?? inventory.updated_at ?? "";
     const labels = (inventory.itemLabels ?? [])
-      .filter(isInventoryPrintableLabel)
+      .filter((label) => {
+        if (!label.labelId?.trim()) return false;
+        const status = (label.status ?? "").trim().toLowerCase();
+        return !status || status === "stocked" || status === "received";
+      })
       .slice(0, stockQuantity)
       .map((label) => {
         const legacyManagementNo = preferredManagementNo(managementNo, label.legacyManagementNo);
@@ -148,6 +152,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
           title: inventory.title,
           category,
           legacyManagementNo,
+          assignedInvoiceNo: label.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(legacyManagementNo),
           unitPrice,
           quantity: 1,
@@ -169,6 +174,7 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
         title: inventory.title,
         category,
         legacyManagementNo: managementNo,
+        assignedInvoiceNo: null,
         allocationLabel: labelAllocationLabel(managementNo),
         unitPrice,
         quantity: missingLabelQuantity,
@@ -179,16 +185,15 @@ function buildStockItemViewsFromInventories(inventories: InventoryItem[]): Stock
   });
 }
 
-function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockItemView[] {
+function buildZeroStockPurchaseItemViewsFromRows(rows: PurchaseRow[], inventories: InventoryItem[]): StockItemView[] {
+  const activeInventoryById = buildActiveInventoryMap(inventories);
   return rows.flatMap((row) => {
-    const rowStatus = purchaseRowStatusKind(row);
-    if (rowStatus !== "ordered" && rowStatus !== "inbound_shipped") return [];
-
     const supplier = getSupplier(row);
-    const status = statusLabel(row);
     return row.purchase_items.flatMap((item) => {
       const inventoryId = Number(item.inventory_id);
       if (!Number.isFinite(inventoryId) || inventoryId <= 0) return [];
+      const inventory = activeInventoryById.get(inventoryId);
+      if (!inventory) return [];
       if (itemStockQuantity(item) > 0) return [];
 
       const quantity = Math.max(0, Math.floor(itemQuantity(item)));
@@ -197,23 +202,31 @@ function buildInboundWaitingStockItemViewsFromRows(rows: PurchaseRow[]): StockIt
       const title = actualProductTitle(item);
       if (isStockProposalAccessory(title, item.category)) return [];
 
+      const zeroStockStatus = zeroStockPurchaseStatusForItem(row, item);
+      if (!zeroStockStatus) return [];
+
       const rowManagementNos = getManagementNos(row.purchase_items);
       const managementNo = parseEtc(item.etc).managementNo || getManagementNos([item])[0] || rowManagementNos[0] || "-";
+      const firstLabel = getItemLabels([item])[0] ?? null;
+      const labelId = firstLabel?.labelId?.trim() || null;
       return [
         {
-          key: `inbound-waiting-stock-${row.id}-${item.id}-${inventoryId}`,
+          key: `zero-stock-purchase-${row.id}-${item.id}-${inventoryId}`,
           inventoryId,
-          labelId: null,
-          status,
+          labelId,
+          status: zeroStockStatus.label,
           title,
-          category: (item.category ?? "").trim() || stockModelName(title),
+          category: displayStockCategory(item.category || getInventoryCategory(inventory)),
           legacyManagementNo: managementNo,
+          assignedInvoiceNo: firstLabel?.assignedInvoiceNo ?? null,
           allocationLabel: labelAllocationLabel(managementNo),
           unitPrice: toNumber(item.unit_price),
           quantity,
           supplier,
           purchaseDate: row.purchase_date ?? item.purchase_date ?? item.estimated_purchase_date ?? "",
-          inboundWaiting: true,
+          inboundWaiting: zeroStockStatus.inboundWaiting,
+          zeroStockPurchase: true,
+          zeroStockStatus: zeroStockStatus.kind,
         },
       ];
     });
@@ -492,4 +505,53 @@ function stockProposalManagementLabel(product: StockProposalProduct): string {
   if (values.length === 0) return "-";
   const visible = values.slice(0, 4).join(" / ");
   return values.length > 4 ? `${visible} / ほか${values.length - 4}件` : visible;
+}
+
+
+function isInventoryDeleted(inventory: InventoryItem | null | undefined): boolean {
+  return inventory?.isDeleted === true || Number(inventory?.isDeleted ?? 0) === 1;
+}
+
+function buildActiveInventoryMap(inventories: InventoryItem[]): Map<number, InventoryItem> {
+  return new Map(
+    inventories
+      .filter((inventory) => !isInventoryDeleted(inventory))
+      .map((inventory) => [inventory.id, inventory]),
+  );
+}
+
+function zeroStockPurchaseStatusForItem(
+  row: PurchaseRow,
+  item: PurchaseItem,
+): { kind: ZeroStockPurchaseStatus; label: string; inboundWaiting: boolean } | null {
+  const itemStatus = normalizedLabelStatus(item.status);
+  const labels = getItemLabels([item]);
+  const labelStatuses = labels.map((label) => normalizedLabelStatus(label.status));
+
+  if ((labelStatuses.length > 0 && labelStatuses.every((status) => status === "shipped")) || itemStatus === "shipped") {
+    return { kind: "shipped", label: "出庫済み", inboundWaiting: false };
+  }
+
+  if (
+    itemStatus === "returned" ||
+    itemStatus === "cancelled" ||
+    labelStatuses.some((status) => status === "returned" || status === "cancelled")
+  ) {
+    return null;
+  }
+
+  if (labelStatuses.some((status) => status === "received") || itemStatus === "received") {
+    return { kind: "inspection_waiting", label: "動作確認待ち", inboundWaiting: false };
+  }
+
+  if (labelStatuses.some((status) => status === "stocked") || itemStatus === "stocked") {
+    return null;
+  }
+
+  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [item] });
+  if (rowStatus === "ordered" || rowStatus === "inbound_shipped" || itemStatus === "ordered") {
+    return { kind: "inbound_waiting", label: "入庫待ち", inboundWaiting: true };
+  }
+
+  return null;
 }

@@ -5,7 +5,7 @@ export type InventoryItemLabelView = Pick<InventoryItemLabel, "labelId"> &
   Partial<
     Pick<
       InventoryItemLabel,
-      "id" | "status" | "legacyManagementNo" | "localInventoryId"
+      "id" | "status" | "legacyManagementNo" | "localInventoryId" | "assignedInvoiceNo"
     >
   >;
 
@@ -18,6 +18,7 @@ export function toInventoryItemLabelView(
     status: label.status,
     legacyManagementNo: label.legacyManagementNo,
     localInventoryId: label.localInventoryId,
+    assignedInvoiceNo: label.assignedInvoiceNo ?? null,
   };
 }
 

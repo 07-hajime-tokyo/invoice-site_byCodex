@@ -96,6 +96,7 @@ export const inboundReceivedLabelsOnProcedure = protectedProcedure
             title: row.title || inventory?.title || purchase?.title || "",
             legacyManagementNo:
               row.legacyManagementNo || purchase?.managementNo || "",
+            assignedInvoiceNo: row.assignedInvoiceNo ?? null,
             category: inventory?.category || purchase?.category || "",
             receivedAt: row.receivedAt?.toISOString() ?? null,
           };
@@ -374,6 +375,7 @@ export const inboundSnapshotProcedure = protectedProcedure.query(async () => {
       title: label.title,
       legacyManagementNo:
         label.legacyManagementNo ?? purchase?.managementNo ?? "",
+      assignedInvoiceNo: label.assignedInvoiceNo ?? null,
       purchaseId: label.purchaseId ?? purchase?.id ?? null,
       localInventoryId: label.localInventoryId ?? null,
       trackingNumber:

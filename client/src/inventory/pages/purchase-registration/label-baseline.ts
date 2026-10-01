@@ -9,6 +9,7 @@ import { getSupplier } from "./supplier";
 import { toNumber } from "./format";
 import { itemStockQuantity } from "./purchaseItems";
 import { normalizedLabelStatus } from "./rowStatus";
+import { displayStockCategory, UNCATEGORIZED_STOCK_CATEGORY } from "./productPresentation";
 
 export const LABEL_BASELINE_COMMIT = "ef808dc";
 export const labelBaselineNames = [
@@ -34,6 +35,6 @@ export function loadLabelBaseline<T>(): T {
   const code = ts.transpileModule([...selected.values()].join("\n"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
-  const dependencies = { parseEtc, getInventoryManagementNo, preferredManagementNo, parseInvoiceFromManagementNo, getInvoiceInfo, OTHER_INVOICE_KEY, EBAY_GROUP_KEY, getSupplier, toNumber, itemStockQuantity, normalizedLabelStatus };
+  const dependencies = { parseEtc, getInventoryManagementNo, preferredManagementNo, parseInvoiceFromManagementNo, getInvoiceInfo, OTHER_INVOICE_KEY, EBAY_GROUP_KEY, getSupplier, toNumber, itemStockQuantity, normalizedLabelStatus, displayStockCategory, UNCATEGORIZED_STOCK_CATEGORY };
   return new Function(...Object.keys(dependencies), `${code}\nreturn {${labelBaselineNames.join(",")}};`)(...Object.values(dependencies)) as T;
 }

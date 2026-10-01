@@ -512,6 +512,7 @@ function ProductFulfillmentTableV2({
 function OrderDashboard({
   group,
   rows,
+  invoiceOptions,
   products: productsOverride,
   detailRows,
   stockDetailItems = [],
@@ -528,6 +529,7 @@ function OrderDashboard({
 }: {
   group: AllocationGroup | null;
   rows: PurchaseRow[];
+  invoiceOptions: AllocationGroup[];
   products?: ProductSummary[];
   detailRows?: PurchaseRow[];
   stockDetailItems?: StockItemView[];
@@ -640,6 +642,7 @@ function OrderDashboard({
                 <PurchaseRegistrationCard
                   key={row.id}
                   row={row}
+                  invoiceOptions={invoiceOptions}
                   onPrintLabels={onPrintLabels}
                   onOpenEdit={onOpenEdit}
                   onOpenTrackingDialog={onOpenTrackingDialog}

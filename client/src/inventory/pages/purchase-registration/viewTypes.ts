@@ -14,6 +14,7 @@ export interface LabelView {
   printTitle: string;
   category: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   supplier: SupplierView;
@@ -27,6 +28,8 @@ export interface LabelView {
 
 export type LabelPrintRequest = (labels: LabelView[]) => void;
 
+export type ZeroStockPurchaseStatus = "shipped" | "inbound_waiting" | "inspection_waiting";
+
 export interface StockItemView {
   key: string;
   inventoryId: number;
@@ -35,12 +38,15 @@ export interface StockItemView {
   title: string;
   category: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   quantity: number;
   supplier: SupplierView;
   purchaseDate: string;
   inboundWaiting?: boolean;
+  zeroStockPurchase?: boolean;
+  zeroStockStatus?: ZeroStockPurchaseStatus;
 }
 
 export interface StockProposalDetail {
@@ -88,6 +94,7 @@ export interface ShippingItemView {
   canShip: boolean;
   title: string;
   legacyManagementNo: string;
+  assignedInvoiceNo?: string | null;
   allocationLabel: string;
   unitPrice: number;
   supplier: SupplierView;

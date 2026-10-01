@@ -6,6 +6,7 @@ export interface InventoryItemLabel {
   status?: string | null;
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
+  assignedInvoiceNo?: string | null;
 }
 
 export interface PurchaseItem {
@@ -56,4 +57,5 @@ export interface InventoryItem {
   supplierUrl?: string | null;
   supplierName?: string | null;
   itemLabels?: InventoryItemLabel[];
+  isDeleted?: number | boolean | null;
 }

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
-  invoiceAllocation,
   type InboundBox,
   type InboundLabel,
 } from "@/inventory/lib/inboundDesk";
@@ -33,6 +32,7 @@ import {
 } from "./inspectionDraft";
 import {
   carrierLabel,
+  labelTargetInvoiceNo,
   OUTCOME_LABELS,
   DEFECT_DESTINATIONS,
 } from "./presentation";
@@ -186,7 +186,7 @@ export function InspectPhase({
   }, []);
 
   function defaultReplacement(label: InboundLabel) {
-    return Boolean(invoiceAllocation(label.legacyManagementNo).invoiceNo);
+    return Boolean(labelTargetInvoiceNo(label));
   }
 
   function updateDraft(label: InboundLabel, patch: Partial<InspectionDecision>) {
@@ -577,7 +577,7 @@ export function InspectPhase({
                           <span>
                             代替品を仕入れる（野田さんへ依頼）
                             <span className="block text-xs text-blue-800">
-                              {invoiceAllocation(label.legacyManagementNo).invoiceNo
+                              {labelTargetInvoiceNo(label)
                                 ? "インボイス引当のため初期値ON"
                                 : "在庫用のため初期値OFF"}
                             </span>

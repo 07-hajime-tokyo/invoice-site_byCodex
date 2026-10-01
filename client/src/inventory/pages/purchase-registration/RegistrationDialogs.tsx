@@ -21,6 +21,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { UNCATEGORIZED_STOCK_CATEGORY } from "./productPresentation";
 import { ExternalLink, Loader2, Pencil, Truck } from "lucide-react";
 import type {
   RegistrationEditing,
@@ -35,6 +43,7 @@ export function RegistrationDialogs({
   selectedBulkTrackingRows,
   trackingPreview,
   bulkTrackingPreview,
+  stockEditCategoryOptions,
 }: {
   editing: RegistrationEditing;
   actions: RegistrationEditActions;
@@ -42,6 +51,7 @@ export function RegistrationDialogs({
   selectedBulkTrackingRows: PurchaseRow[];
   trackingPreview: ReturnType<typeof getPurchaseTrackingMeta> | null;
   bulkTrackingPreview: ReturnType<typeof getPurchaseTrackingMeta> | null;
+  stockEditCategoryOptions: string[];
 }) {
   const {
     trackingDialogRow,
@@ -332,15 +342,27 @@ export function RegistrationDialogs({
               <span className="text-xs font-medium text-muted-foreground">
                 カテゴリ
               </span>
-              <Input
-                value={stockEditForm.category}
-                onChange={event =>
+              <Select
+                value={stockEditForm.category.trim() || "__none__"}
+                onValueChange={value =>
                   setStockEditForm(current => ({
                     ...current,
-                    category: event.target.value,
+                    category: value === "__none__" ? "" : value,
                   }))
                 }
-              />
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="カテゴリを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{UNCATEGORIZED_STOCK_CATEGORY}</SelectItem>
+                  {stockEditCategoryOptions.map(category => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-medium text-muted-foreground">

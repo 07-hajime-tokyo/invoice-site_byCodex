@@ -1074,6 +1074,8 @@ export const orderManagementRouter = router({
         title: updatedLabel?.title ?? label.title,
         legacyManagementNo:
           updatedLabel?.legacyManagementNo ?? label.legacyManagementNo,
+        assignedInvoiceNo:
+          updatedLabel?.assignedInvoiceNo ?? label.assignedInvoiceNo ?? null,
         purchaseId:
           updatedLabel?.purchaseId ?? label.purchaseId ?? purchase?.id ?? null,
         localInventoryId:

@@ -3,7 +3,7 @@ import { EmptyState } from "./EmptyState";
 import { getManagementNos } from "./managementNumbers";
 import { getItemLabels } from "./purchaseItems";
 import type { PurchaseRow } from "./dataTypes";
-import type { LabelPrintRequest } from "./viewTypes";
+import type { AllocationGroup, LabelPrintRequest } from "./viewTypes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +11,7 @@ import { PackageCheck, Truck } from "lucide-react";
 
 export function MissingTrackingOverview({
   rows,
+  invoiceOptions,
   totalCount,
   trackingRegisteredOnly,
   trackingRegisteredCount,
@@ -28,6 +29,7 @@ export function MissingTrackingOverview({
   deletingRowId,
 }: {
   rows: PurchaseRow[];
+  invoiceOptions: AllocationGroup[];
   totalCount: number;
   trackingRegisteredOnly: boolean;
   trackingRegisteredCount: number;
@@ -109,6 +111,7 @@ export function MissingTrackingOverview({
             <PurchaseRegistrationCard
               key={row.id}
               row={row}
+              invoiceOptions={invoiceOptions}
               onPrintLabels={onPrintLabels}
               onOpenEdit={onOpenEdit}
               onOpenTrackingDialog={onOpenTrackingDialog}

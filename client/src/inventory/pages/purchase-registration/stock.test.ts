@@ -6,20 +6,20 @@ import * as stockProposalDisplay from "./stockProposalDisplay";
 import * as stockForecast from "./stockForecast";
 import * as stringValues from "./stringValues";
 import { productKey, hasAnyProductText } from "./productText";
-import { createInboundWaitingStockBuilder } from "./stockWaiting";
+import { createZeroStockPurchaseBuilder } from "./stockWaiting";
 import { createStockProposalBuilder } from "./stockProposalGroups";
 import { loadCurrentPageLabelRules } from "./current-page-labels";
 import { loadStockBaseline, STOCK_BASELINE_COMMIT } from "./stock-baseline";
 import type { InventoryItem, PurchaseItem, PurchaseRow } from "./dataTypes";
 import type { StockItemView, StockProposalProduct, ProductSummary, PurchaseRegistrationInvoice } from "./viewTypes";
 
-type Rules = typeof import("./stockViews") & typeof import("./stockProposalRules") & typeof import("./stockProposalValues") & typeof import("./stockProposalDisplay") & typeof import("./stockForecast") & typeof import("./stringValues") & Pick<typeof import("./productText"), "productKey" | "hasAnyProductText"> & { buildInboundWaitingStockItemViewsFromRows: ReturnType<typeof import("./stockWaiting").createInboundWaitingStockBuilder>; buildStockProposalGroups: ReturnType<typeof import("./stockProposalGroups").createStockProposalBuilder> };
+type Rules = typeof import("./stockViews") & typeof import("./stockProposalRules") & typeof import("./stockProposalValues") & typeof import("./stockProposalDisplay") & typeof import("./stockForecast") & typeof import("./stringValues") & Pick<typeof import("./productText"), "productKey" | "hasAnyProductText"> & { buildZeroStockPurchaseItemViewsFromRows: ReturnType<typeof import("./stockWaiting").createZeroStockPurchaseBuilder>; buildStockProposalGroups: ReturnType<typeof import("./stockProposalGroups").createStockProposalBuilder> };
 const original = loadStockBaseline<Rules>();
 const { actualProductTitle } = loadCurrentPageLabelRules();
 const current: Rules = {
   ...stockViews, ...stockProposalRules, ...stockProposalValues, ...stockProposalDisplay, ...stockForecast,
   ...stringValues, productKey, hasAnyProductText,
-  buildInboundWaitingStockItemViewsFromRows: createInboundWaitingStockBuilder(actualProductTitle),
+  buildZeroStockPurchaseItemViewsFromRows: createZeroStockPurchaseBuilder(actualProductTitle),
   buildStockProposalGroups: createStockProposalBuilder(actualProductTitle),
 };
 
@@ -39,21 +39,22 @@ describe(`R07-R09 stock rules against actual source at ${STOCK_BASELINE_COMMIT}`
     const inventories = [inventory(), inventory({ id: 2, quantity: "0" }), inventory({ id: 3, purchase_unit_price: "", categories: [" "], category: "PSP", last_purchase_date: "", updated_at: "2026-09-02", itemLabels: [{ labelId: " ", status: "received" }, { labelId: "A", status: "shipped" }, { labelId: "B", status: " " }, { labelId: "B", status: "stocked" }] }), inventory({ id: 4, itemLabels: [], quantity: "1.9" })];
     const rows = [row(), row({ id: 2, status: "purchased" }), row({ id: 3, purchase_date: "", purchase_items: [item({ title: "", etc: "", purchase_date: "2026-09-03", itemLabels: [{ labelId: "A", legacyManagementNo: "在庫FromLabel" }] })] }), row({ id: 4, purchase_items: [item({ title: "充電器" })] })];
     expect(current.buildStockItemViewsFromInventories(inventories).map(encode)).toMatchSnapshot();
-    expect(current.buildInboundWaitingStockItemViewsFromRows(rows).map(encode)).toMatchSnapshot();
+    expect(current.buildZeroStockPurchaseItemViewsFromRows(rows, inventories).map(encode)).toMatchSnapshot();
   });
   it("keeps resolver construction lazy and uses unchanged missing-title fallbacks", () => {
     const seen: PurchaseItem[] = [];
     const resolver = (value: PurchaseItem) => { seen.push(value); return actualProductTitle(value); };
-    const waiting = createInboundWaitingStockBuilder(resolver); const proposal = createStockProposalBuilder(resolver);
+    const waiting = createZeroStockPurchaseBuilder(resolver); const proposal = createStockProposalBuilder(resolver);
     expect(seen).toEqual([]);
     const missing = item({ etc: "在庫001_New3DSLL" }); Reflect.deleteProperty(missing, "title");
     const nil = item({ id: 11, etc: "在庫002_PSP3000" }); Reflect.set(nil, "title", null);
     const input = row({ purchase_items: [missing, nil] }); const before = structuredClone(input);
-    expect(waiting([input])).toEqual(original.buildInboundWaitingStockItemViewsFromRows([input]));
+    const activeInventories = [inventory()]; const inventoriesBefore = structuredClone(activeInventories);
+    expect(waiting([input], activeInventories)).toEqual(original.buildZeroStockPurchaseItemViewsFromRows([input], activeInventories));
     expect(seen).toEqual(input.purchase_items); expect(seen[0]).toBe(missing); expect(seen[1]).toBe(nil);
     seen.length = 0; expect(proposal([], [input], "")).toEqual(original.buildStockProposalGroups([], [input], ""));
-    expect(seen).toEqual(input.purchase_items); expect(input).toEqual(before);
-    seen.length = 0; waiting([row({ status: "purchased" })]); proposal([], [row({ status: "purchased" })], ""); expect(seen).toEqual([]);
+    expect(seen).toEqual(input.purchase_items); expect(input).toEqual(before); expect(activeInventories).toEqual(inventoriesBefore);
+    seen.length = 0; waiting([input], []); waiting([row({ status: "purchased" })], []); proposal([], [row({ status: "purchased" })], ""); expect(seen).toEqual([]);
   });
   it("preserves 200 quantity/status combinations and inventory/supplier references", () => {
     let count = 0;
@@ -64,13 +65,13 @@ describe(`R07-R09 stock rules against actual source at ${STOCK_BASELINE_COMMIT}`
       const actual = current.buildStockItemViewsFromInventories([inv]);
       expect(actual).toEqual(original.buildStockItemViewsFromInventories([inv]));
       if (actual.length > 1) expect(actual[0].supplier).toBe(actual[1].supplier);
-      expect(current.buildInboundWaitingStockItemViewsFromRows([input])).toEqual(original.buildInboundWaitingStockItemViewsFromRows([input]));
+      expect(current.buildZeroStockPurchaseItemViewsFromRows([input], [inv])).toEqual(original.buildZeroStockPurchaseItemViewsFromRows([input], [inv]));
       expect({ inv, input }).toEqual(before); count++;
     }
     expect(count).toBe(200);
     for (const inventory_id of [undefined, null, -1, 0, 1, Infinity, NaN]) for (const currentInventoryQuantity of quantities) {
       const input = row({ purchase_items: [item({ inventory_id, currentInventoryQuantity })] });
-      expect(current.buildInboundWaitingStockItemViewsFromRows([input])).toEqual(original.buildInboundWaitingStockItemViewsFromRows([input]));
+      expect(current.buildZeroStockPurchaseItemViewsFromRows([input], [inventory()])).toEqual(original.buildZeroStockPurchaseItemViewsFromRows([input], [inventory()]));
     }
   });
   it("keeps sorting and grouping quantities while retaining each input object", () => {

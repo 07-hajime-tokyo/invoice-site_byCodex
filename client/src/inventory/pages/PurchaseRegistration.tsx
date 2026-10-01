@@ -45,7 +45,10 @@ import {
 } from "./purchase-registration/rowFilters";
 import { purchaseRowStatusKind } from "./purchase-registration/rowStatus";
 import { comparePurchaseRegistrationOrder } from "./purchase-registration/rowOrder";
-import type { PurchaseRow, InventoryItem } from "./purchase-registration/dataTypes";
+import type { PurchaseRow, PurchaseItem, InventoryItem } from "./purchase-registration/dataTypes";
+import { getInventoryCategory, normalizeStockCategoryOption, sortedStockCategoryOptions } from "./purchase-registration/productPresentation";
+import { zeroStockPurchaseItems } from "./purchase-registration/registrationStockBuilders";
+import { isInboundCutoffVisible } from "@shared/purchaseVisibility";
 import type { StatusFilter, WorkflowTab, StockViewMode } from "./purchase-registration/formTypes";
 import type { LabelView, InvoiceProductSummary, ProductDetailFilter, AllocationGroup } from "./purchase-registration/viewTypes";
 import { getPurchaseTrackingMeta, hasPurchaseTracking } from "./purchase-registration/tracking";
@@ -56,8 +59,25 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { Boxes, FileText, Loader2, PackageCheck, PackagePlus, Printer, RefreshCw, RotateCcw, ScanLine, Search, Tag, Truck } from "lucide-react";
+import { Boxes, FileText, Loader2, PackageCheck, PackagePlus, Plus, Printer, RefreshCw, RotateCcw, ScanLine, Search, Tag, Trash2, Truck } from "lucide-react";
 
 const EMPTY_INVOICE_PRODUCTS: InvoiceProductSummary[] = [];
 
@@ -102,7 +122,12 @@ export default function PurchaseRegistration() {
   const [printedStartPosition, setPrintedStartPosition] = useState(1);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const editing = useRegistrationEditing(utils, bulkTracking);
-  const { deletingRowId, trackingForm } = editing;
+  const { deletingRowId, trackingForm, stockEditForm, setStockEditForm } = editing;
+  const [showStockCategoryDialog, setShowStockCategoryDialog] = useState(false);
+  const [newStockCategoryName, setNewStockCategoryName] = useState("");
+  const [stockCategoryDeleteTarget, setStockCategoryDeleteTarget] = useState<string | null>(null);
+  const addCategoryMutation = trpc.inventory.zaico.addCategory.useMutation();
+  const deleteCategoryMutation = trpc.inventory.zaico.deleteCategory.useMutation();
 
   const normalizedSearch = search.trim();
 
@@ -143,6 +168,11 @@ export default function PurchaseRegistration() {
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
+  const { data: managedCategories } = trpc.inventory.zaico.getCategories.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+  });
 
   const rows = (data?.items ?? []) as PurchaseRow[];
   const allPurchaseRows = useMemo(
@@ -156,6 +186,7 @@ export default function PurchaseRegistration() {
       refetchOnMount: "always",
       refetchOnWindowFocus: false,
     });
+  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
 
   const countableRows = useMemo(() => {
     return rows.flatMap((row) => {
@@ -169,6 +200,30 @@ export default function PurchaseRegistration() {
     return normalizePurchaseRegistrationRows(allPurchaseRows)
       .sort(comparePurchaseRegistrationOrder);
   }, [allPurchaseRows]);
+
+  const stockPanelPurchaseRows = useMemo(() => {
+    const rowsById = new Map<number, PurchaseRow>();
+    for (const row of globalPurchaseListRows) rowsById.set(row.id, row);
+
+    for (const row of allPurchaseRows
+      .flatMap((row) => {
+        if (!isInboundCutoffVisible(row)) return [];
+        const zeroStockItems = zeroStockPurchaseItems(row, inventoryItems);
+        return zeroStockItems.length > 0 ? [{ ...row, purchase_items: zeroStockItems }] : [];
+      })) {
+      const existing = rowsById.get(row.id);
+      if (!existing) {
+        rowsById.set(row.id, row);
+        continue;
+      }
+      const itemsById = new Map<number, PurchaseItem>();
+      for (const item of existing.purchase_items) itemsById.set(item.id, item);
+      for (const item of row.purchase_items) itemsById.set(item.id, item);
+      rowsById.set(row.id, { ...existing, purchase_items: Array.from(itemsById.values()) });
+    }
+
+    return Array.from(rowsById.values()).sort(comparePurchaseRegistrationOrder);
+  }, [allPurchaseRows, globalPurchaseListRows, inventoryItems]);
 
   const searchedGlobalPurchaseListRows = useMemo(() => {
     if (!searchText) return globalPurchaseListRows;
@@ -217,7 +272,16 @@ export default function PurchaseRegistration() {
     [filteredRows, purchaseRegistrationInvoices],
   );
   const invoiceGroups = useMemo(() => groups.filter((group) => group.key !== OTHER_INVOICE_KEY), [groups]);
-  const inventoryItems = useMemo(() => (inventoryData ?? []) as InventoryItem[], [inventoryData]);
+  const categoryOptions = useMemo(() => {
+    return sortedStockCategoryOptions([
+      ...(managedCategories ?? []),
+      ...inventoryItems.map((item) => getInventoryCategory(item)),
+      ...allPurchaseRows.flatMap((row) => row.purchase_items.map((item) => item.category)),
+    ]);
+  }, [allPurchaseRows, inventoryItems, managedCategories]);
+  const stockEditCategoryOptions = useMemo(() => {
+    return sortedStockCategoryOptions([...categoryOptions, stockEditForm.category]);
+  }, [categoryOptions, stockEditForm.category]);
   const inventoryLabels = useMemo(() => buildInventoryLabelViews(inventoryItems), [inventoryItems]);
   const closedInvoiceInventoryLabels = useMemo(
     () => buildClosedInvoiceInventoryLabelViews(countableRows, purchaseRegistrationInvoices),
@@ -552,6 +616,51 @@ export default function PurchaseRegistration() {
     handleDeletePurchaseRow,
   } = editActions;
 
+  const refreshCategoryRelatedData = async () => {
+    await Promise.all([
+      utils.inventory.zaico.getCategories.invalidate(),
+      utils.inventory.zaico.getInventories.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+      utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+      utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+    ]);
+    void refetch();
+    void refetchAllPurchaseRegistrations();
+    void refetchInventories();
+  };
+
+  const handleAddStockCategory = async () => {
+    const name = normalizeStockCategoryOption(newStockCategoryName);
+    if (!name) {
+      toast.error("カテゴリ名を入力してください");
+      return;
+    }
+    try {
+      await addCategoryMutation.mutateAsync({ name });
+      setNewStockCategoryName("");
+      await refreshCategoryRelatedData();
+      toast.success(`「${name}」を追加しました`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "カテゴリの追加に失敗しました");
+    }
+  };
+
+  const handleDeleteStockCategory = async () => {
+    if (!stockCategoryDeleteTarget) return;
+    const name = stockCategoryDeleteTarget;
+    try {
+      await deleteCategoryMutation.mutateAsync({ name });
+      setStockCategoryDeleteTarget(null);
+      setStockEditForm((current) =>
+        normalizeStockCategoryOption(current.category) === name ? { ...current, category: "" } : current,
+      );
+      await refreshCategoryRelatedData();
+      toast.success(`「${name}」を削除しました`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "カテゴリの削除に失敗しました");
+    }
+  };
+
   const handleSelectMissingTrackingRow = (row: PurchaseRow, checked: boolean) => {
     setSelectedMissingTrackingRowIds((current) => {
       const next = new Set(current);
@@ -796,6 +905,7 @@ export default function PurchaseRegistration() {
                 {showGlobalMissingTracking ? (
                   <MissingTrackingOverview
                     rows={visibleGlobalMissingTrackingRows}
+                    invoiceOptions={deliveryInvoiceOptions}
                     totalCount={globalPurchaseListRows.length}
                     trackingRegisteredOnly={showTrackedGlobalRowsOnly}
                     trackingRegisteredCount={trackedInboundWaitingGlobalPurchaseRows.length}
@@ -816,6 +926,7 @@ export default function PurchaseRegistration() {
                   <OrderDashboard
                     group={selectedGroup}
                     rows={filteredRows}
+                    invoiceOptions={deliveryInvoiceOptions}
                     products={selectedProducts}
                     detailRows={selectedDetailRows}
                     stockDetailItems={selectedDetailStockItems}
@@ -848,10 +959,13 @@ export default function PurchaseRegistration() {
               <TabsContent value="stock">
                 <StockPanel
                   inventories={inventoryItems}
-                  purchaseRows={countableRows}
+                  purchaseRows={stockPanelPurchaseRows}
                   unfinishedInvoices={purchaseRegistrationInvoices}
+                  invoiceOptions={deliveryInvoiceOptions}
                   searchText={searchText}
                   viewMode={stockViewMode}
+                  categoryOptions={categoryOptions}
+                  onOpenCategoryDialog={() => setShowStockCategoryDialog(true)}
                   onOpenEdit={handleOpenStockEditDialog}
                 />
               </TabsContent>
@@ -880,7 +994,103 @@ export default function PurchaseRegistration() {
           selectedBulkTrackingRows={selectedBulkTrackingRows}
           trackingPreview={trackingPreview}
           bulkTrackingPreview={bulkTrackingPreview}
+          stockEditCategoryOptions={stockEditCategoryOptions}
         />
+
+        <Dialog open={showStockCategoryDialog} onOpenChange={setShowStockCategoryDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5 text-emerald-700" />
+                在庫カテゴリ管理
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={newStockCategoryName}
+                  onChange={(event) => setNewStockCategoryName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleAddStockCategory();
+                    }
+                  }}
+                  placeholder="カテゴリ名"
+                />
+                <Button
+                  type="button"
+                  className="shrink-0 gap-2"
+                  onClick={() => void handleAddStockCategory()}
+                  disabled={addCategoryMutation.isPending || !newStockCategoryName.trim()}
+                >
+                  {addCategoryMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  追加
+                </Button>
+              </div>
+              <div className="max-h-72 overflow-y-auto rounded-md border">
+                {categoryOptions.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">カテゴリがありません</p>
+                ) : (
+                  categoryOptions.map((category) => (
+                    <div key={category} className="flex items-center justify-between gap-3 border-b px-3 py-2 last:border-0">
+                      <span className="truncate text-sm font-medium">{category}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        onClick={() => setStockCategoryDeleteTarget(category)}
+                        disabled={deleteCategoryMutation.isPending}
+                        aria-label={`${category}を削除`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowStockCategoryDialog(false)}>
+                閉じる
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog
+          open={Boolean(stockCategoryDeleteTarget)}
+          onOpenChange={(open) => {
+            if (!open && !deleteCategoryMutation.isPending) setStockCategoryDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>カテゴリを削除しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                「{stockCategoryDeleteTarget}」を設定済みカテゴリから削除します。商品に同じカテゴリが残っている場合は、編集候補に再表示されることがあります。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteCategoryMutation.isPending}>キャンセル</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleDeleteStockCategory();
+                }}
+                disabled={deleteCategoryMutation.isPending}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteCategoryMutation.isPending ? "削除中..." : "削除"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-20 lg:z-30 lg:h-auto lg:w-[188px] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:bg-background lg:pb-2 lg:shadow-none lg:backdrop-blur-none">
           <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1">

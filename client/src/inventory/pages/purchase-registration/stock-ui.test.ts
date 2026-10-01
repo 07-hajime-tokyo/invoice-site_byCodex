@@ -21,6 +21,13 @@ vi.mock("react", async load => {
   } };
 });
 
+// BoxItemInvoiceField depends on trpc hooks; a deterministic stub keeps both baseline and current renders comparable.
+vi.mock("./OutboundBoxes", async load => {
+  const actual = await load<typeof import("./OutboundBoxes")>();
+  const react = await vi.importActual<typeof import("react")>("react");
+  return { ...actual, BoxItemInvoiceField: (props: { labelId: string; assignedInvoiceNo: string | null; legacyManagementNo: string | null }) => react.createElement("span", { "data-box-item-invoice": JSON.stringify([props.labelId, props.assignedInvoiceNo ?? null, props.legacyManagementNo ?? null]) }) };
+});
+
 type Rules = typeof import("./StockProposalProducts") & typeof import("./StockProposalGroupCard") & typeof import("./StockProposalPanel") & typeof import("./StockPanel");
 const original = loadStockUiBaseline<Rules>();
 const current: Rules = { ...StockProposalProducts, ...StockProposalGroupCard, ...StockProposalPanel, ...StockPanel };
@@ -29,6 +36,7 @@ const group = (patch: Partial<StockProposalGroup> = {}): StockProposalGroup => (
 const inventory = (patch: Partial<InventoryItem> = {}): InventoryItem => ({ id: 1, title: "3DS LL ホワイト", quantity: "2", unit_price: 100, etc: "在庫001_3DSLL", supplierName: "Shop", supplierUrl: "https://example.test", last_purchase_date: "2026-09-01", ...patch });
 const waiting: PurchaseRow = { id: 20, status: "ordered", purchase_items: [{ id: 20, inventory_id: 20, title: "3DS LL ブラック", quantity: "3", currentInventoryQuantity: 0, unit_price: 200, etc: "在庫002_3DSLL" }] };
 const noop = () => {};
+const panelExtras = { invoiceOptions: [], categoryOptions: ["ゲーム機", "付属品"], onOpenCategoryDialog: noop };
 type Element = ReactElement<Record<string, any>>;
 function elements(node: ReactNode): Element[] { if (Array.isArray(node)) return node.flatMap(elements); if (!isValidElement<Record<string, any>>(node)) return []; return [node, ...elements(node.props.children)]; }
 function text(node: ReactNode): string { if (Array.isArray(node)) return node.map(text).join(""); if (isValidElement<Record<string, any>>(node)) return text(node.props.children); return typeof node === "string" || typeof node === "number" ? String(node) : ""; }
@@ -83,28 +91,28 @@ describe(`stock UI against ${STOCK_UI_BASELINE_COMMIT}`, () => {
     const inventories = [inventory(), inventory({ id: 2, title: "PSP3000", quantity: "3.9", etc: "405_相手_PSP3000", itemLabels: [{ labelId: "P1", status: "stocked" }, { labelId: "P2", status: "shipped" }] })];
     const output = [];
     for (const viewMode of ["list", "proposal"] as const) for (const searchText of ["", "psp", "nomatch"]) for (const unfinishedInvoices of [undefined, [], [{ invoiceNo: "405", partner: "相手", totalOrderQty: 3, totalDeliveredQty: 0, remainingQty: 3 }]]) {
-      const props = { inventories, purchaseRows: [waiting], viewMode, searchText, unfinishedInvoices, onOpenEdit: noop }; const before = structuredClone(props.inventories);
+      const props = { ...panelExtras, inventories, purchaseRows: [waiting], viewMode, searchText, unfinishedInvoices, onOpenEdit: noop }; const before = structuredClone(props.inventories);
       reset(); const expected = renderToStaticMarkup(render(original.StockPanel, props)); reset(); const node = render(current.StockPanel, props);
       expect(renderToStaticMarkup(node)).toBe(expected); output.push(snap(node)); expect(inventories).toEqual(before);
     }
-    reset(); output.push(snap(render(current.StockPanel, { inventories: [], purchaseRows: [], viewMode: "list", searchText: "", onOpenEdit: noop })));
+    reset(); output.push(snap(render(current.StockPanel, { ...panelExtras, inventories: [], purchaseRows: [], viewMode: "list", searchText: "", onOpenEdit: noop })));
     expect(output).toMatchSnapshot();
   });
   it("preserves shelf Set state, waiting toggles, edit IDs and search/mode round trips", () => {
     function flow(rules: Rules) {
       reset(); const edits: number[] = [];
-      let props: Parameters<Rules["StockPanel"]>[0] = { inventories: [inventory(), inventory({ id: 2, title: "PSP3000", etc: "在庫003_PSP3000" })], purchaseRows: [waiting], viewMode: "list", searchText: "", onOpenEdit: id => edits.push(id) };
+      let props: Parameters<Rules["StockPanel"]>[0] = { ...panelExtras, inventories: [inventory(), inventory({ id: 2, title: "PSP3000", etc: "在庫003_PSP3000" }), inventory({ id: 20, title: "3DS LL ブラック", quantity: "0", etc: "在庫002_3DSLL" })], purchaseRows: [waiting], viewMode: "list", searchText: "", onOpenEdit: id => edits.push(id) };
       const output = []; let node = render(rules.StockPanel, props); output.push(snap(node));
       const renderAgain = () => { node = render(rules.StockPanel, props); output.push(snap(node)); };
       const shelfButtons = () => elements(node).filter(n => n.props.onClick && text(n).startsWith("棚 "));
       for (const button of shelfButtons()) button.props.onClick(); renderAgain();
       elements(node).filter(n => n.props.onClick && text(n) === "編集").forEach(n => n.props.onClick());
-      elements(node).find(n => n.props.onClick && text(n).includes("入庫待ち0在庫"))!.props.onClick(); renderAgain();
+      elements(node).find(n => n.props.onClick && text(n).includes("0在庫を"))!.props.onClick(); renderAgain();
       elements(node).filter(n => n.props.onClick && text(n) === "編集").forEach(n => n.props.onClick());
       props = { ...props, searchText: "nomatch" }; renderAgain(); props = { ...props, searchText: "" }; renderAgain();
       props = { ...props, viewMode: "proposal" }; renderAgain(); props = { ...props, viewMode: "list" }; renderAgain();
       shelfButtons()[0].props.onClick(); renderAgain(); shelfButtons()[0].props.onClick(); renderAgain();
-      elements(node).find(n => n.props.onClick && text(n).includes("入庫待ち0在庫"))!.props.onClick(); renderAgain();
+      elements(node).find(n => n.props.onClick && text(n).includes("0在庫を"))!.props.onClick(); renderAgain();
       return { output, edits, log: hooks.log, slots: hooks.slots.map(s => s instanceof Set ? [...s] : s) };
     }
     const result = flow(current); expect(result).toEqual(flow(original)); expect(result).toMatchSnapshot();

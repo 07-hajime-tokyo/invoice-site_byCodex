@@ -175,7 +175,8 @@ describe("trade.listFromDb: 整理前の一覧・フィルタ・ステータス�
     expect(res.rows[0].status).toBe("残2");
   });
 
-  it("FedEx登録のみ（発送明細なし）のcomplete行は発送登録未完了として表示する", async () => {
+  // main側の仕様変更（FedEx登録を発送登録として数える）に追従
+  it("FedEx登録のみ（発送明細なし）のcomplete行はFedEx数量を発送登録として数えcompleteのまま表示する", async () => {
     await insertTrade(910151, { no: 630, quantity: "2", status: "complete" });
     await db.query("INSERT INTO fedex_shipments SET ?", {
       id: 960001,
@@ -189,7 +190,7 @@ describe("trade.listFromDb: 整理前の一覧・フィルタ・ステータス�
       spreadsheetStatus: "success",
     });
     const res = await api.client.trade.listFromDb.query({});
-    expect(res.rows[0].status).toBe("発送登録未完了（残2台）");
+    expect(res.rows[0].status).toBe("complete");
   });
 });
 

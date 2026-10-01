@@ -506,7 +506,7 @@ exports[`allocation groups and fulfillment UI against 7db6054 > captures stat ca
 }
 `;
 
-exports[`allocation groups and fulfillment UI against 7db6054 > keeps OrderDashboard state, effect dependencies, JSX and parent callback wiring verbatim 1`] = `"8a4f5d8152ad449ae4f17e50904f1e4e9d2124669e81dcd0bae2df1d7ee1b9a7"`;
+exports[`allocation groups and fulfillment UI against 7db6054 > keeps OrderDashboard state, effect dependencies, JSX and parent callback wiring verbatim 1`] = `"386faf1548a87f021f73de86ca9753d69ed36ce3b389b40816005a54963922ad"`;
 
 exports[`allocation groups and fulfillment UI against 7db6054 > keeps open-quantity semantics and row fallback references 1`] = `
 [

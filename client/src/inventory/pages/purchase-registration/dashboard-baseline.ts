@@ -12,7 +12,7 @@ import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { getCarrierColor } from "@/inventory/lib/tracking";
 import { actualProductTitle } from "./productTitles";
 import { getItemLabels, sumQuantity, itemStockQuantity, itemQuantity } from "./purchaseItems";
-import { getManagementNos } from "./managementNumbers";
+import { getManagementNos, preferredManagementNo } from "./managementNumbers";
 import { getSupplier } from "./supplier";
 import { normalizedTrackingNumber, purchaseTrackingNumber, getPurchaseTrackingMeta, TRACKING_CARRIER_LABELS } from "./tracking";
 import { buildLabelViews } from "./registrationLabelViews";
@@ -26,6 +26,9 @@ import { buildForecastSummary } from "./stockForecast";
 import { productDetailFilterLabel } from "./productDetailFilters";
 import { StatCard } from "./StatCard";
 import { ProductFulfillmentTableV2 } from "./ProductFulfillmentTable";
+import { invoiceDisplayLabel } from "./shippingRules";
+import { invoiceNoFromManagementNo } from "@shared/invoiceKey";
+import { BoxItemInvoiceField } from "./OutboundBoxes";
 
 export const DASHBOARD_BASELINE_COMMIT = "4037f50";
 export const dashboardBaselineNames = ["openEcohaiTracking", "purchaseRowInventoryId", "PurchaseRegistrationCard", "StockDetailCard", "EmptyState", "OrderDashboard"] as const;
@@ -35,6 +38,6 @@ export function loadDashboardBaseline<T>(): T {
   const nodes = tree.statements.filter(n => ts.isFunctionDeclaration(n) && dashboardBaselineNames.some(name => name === n.name?.text));
   if (nodes.length !== dashboardBaselineNames.length) throw new Error("Missing dashboard baseline declarations");
   const code = ts.transpileModule(nodes.map(n => n.getText(tree)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React } }).outputText;
-  const deps = { React, useState, useEffect, cn, Button, Badge, Checkbox, CalendarDays, ExternalLink, Pencil, Truck, Printer, Loader2, Trash2, PackagePlus, PackageCheck, Boxes, normalizeExternalUrl, getCarrierColor, actualProductTitle, getItemLabels, sumQuantity, itemStockQuantity, itemQuantity, getManagementNos, getSupplier, normalizedTrackingNumber, purchaseTrackingNumber, getPurchaseTrackingMeta, TRACKING_CARRIER_LABELS, buildLabelViews, labelBadgeClass, statusClass, statusLabel, purchaseRowStatusKind, formatCurrency, formatDate, toNumber, getAllRowsFromGroup, EBAY_GROUP_KEY, OTHER_INVOICE_KEY, buildProductSummaries, buildForecastSummary, productDetailFilterLabel, StatCard, ProductFulfillmentTableV2 };
+  const deps = { React, useState, useEffect, cn, Button, Badge, Checkbox, CalendarDays, ExternalLink, Pencil, Truck, Printer, Loader2, Trash2, PackagePlus, PackageCheck, Boxes, normalizeExternalUrl, getCarrierColor, actualProductTitle, getItemLabels, sumQuantity, itemStockQuantity, itemQuantity, getManagementNos, preferredManagementNo, getSupplier, normalizedTrackingNumber, purchaseTrackingNumber, getPurchaseTrackingMeta, TRACKING_CARRIER_LABELS, buildLabelViews, labelBadgeClass, statusClass, statusLabel, purchaseRowStatusKind, formatCurrency, formatDate, toNumber, getAllRowsFromGroup, EBAY_GROUP_KEY, OTHER_INVOICE_KEY, buildProductSummaries, buildForecastSummary, productDetailFilterLabel, StatCard, ProductFulfillmentTableV2, invoiceDisplayLabel, invoiceNoFromManagementNo, BoxItemInvoiceField };
   return new Function(...Object.keys(deps), `${code}\nreturn {${dashboardBaselineNames.join(",")}};`)(...Object.values(deps)) as T;
 }

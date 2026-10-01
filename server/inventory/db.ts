@@ -346,6 +346,10 @@ async function ensureInventoryRuntimeSchema(db: AppDatabase) {
         snapshot.markColumn("inventory_item_labels", column);
       }
     }
+    if (snapshot.hasTable("outbound_boxes") && !snapshot.hasColumn("outbound_boxes", "destinationSheetName")) {
+      await db.execute(sql`ALTER TABLE outbound_boxes ADD COLUMN destinationSheetName varchar(50) NULL AFTER fedexShipmentId`);
+      snapshot.markColumn("outbound_boxes", "destinationSheetName");
+    }
     if (!snapshot.hasTable("action_item_assignees")) {
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS action_item_assignees (

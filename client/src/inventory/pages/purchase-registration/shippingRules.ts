@@ -4,12 +4,12 @@ import { EBAY_GROUP_KEY, parseInvoiceFromManagementNo, isEbayManagementNo, invoi
 import { normalizedLabelStatus } from "./rowStatus";
 import type { LabelView, ShippingItemView, AllocationGroup } from "./viewTypes";
 import { type HistoryItem } from "@/inventory/pages/DeliveryHistory";
+import { SHIPMENT_SHEET_NAMES, type ShipmentSheetName } from "@shared/outboundBoxes";
+import { invoiceNoFromManagementNo } from "@shared/invoiceKey";
 
 export const INVENTORY_LABEL_GROUP_KEY = "inventory-stock-labels";
 
-export type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "デボン発送管理" | "サイモン発送管理" | "ネレ発送管理";
-
-export const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "デボン発送管理", "サイモン発送管理", "ネレ発送管理"];
+export { SHIPMENT_SHEET_NAMES, type ShipmentSheetName };
 
 export function todayCompact(): string {
   const now = new Date();
@@ -93,6 +93,31 @@ export function groupKeyFromLabel(label: LabelView): string {
   return parsed ? `invoice-${parsed.invoiceNo}` : INVENTORY_LABEL_GROUP_KEY;
 }
 
+export function invoiceOptionByNo(invoiceOptions: AllocationGroup[], invoiceNo: string | null | undefined): AllocationGroup | null {
+  if (!invoiceNo) return null;
+  return invoiceOptions.find((option) => invoiceNoFromGroupKey(option.key) === invoiceNo) ?? null;
+}
+
+export function invoiceDisplayLabel(invoiceOptions: AllocationGroup[], invoiceNo: string | null | undefined): string {
+  if (!invoiceNo) return "未設定";
+  const option = invoiceOptionByNo(invoiceOptions, invoiceNo);
+  const partner = option?.partner?.trim();
+  return partner ? `No.${invoiceNo} ${partner}` : `No.${invoiceNo}`;
+}
+
+export function labelTargetInvoiceNo(input: { assignedInvoiceNo?: string | null; legacyManagementNo?: string | null }): string | null {
+  return input.assignedInvoiceNo?.trim() || invoiceNoFromManagementNo(input.legacyManagementNo);
+}
+
+export function labelTargetShipmentSheetName(
+  input: { assignedInvoiceNo?: string | null; legacyManagementNo?: string | null },
+  invoiceOptions: AllocationGroup[],
+): ShipmentSheetName | null {
+  const invoiceNo = labelTargetInvoiceNo(input);
+  const option = invoiceOptionByNo(invoiceOptions, invoiceNo);
+  return detectShipmentSheetNameForText(option?.partner) ?? detectShipmentSheetNameForText(option?.label);
+}
+
 export function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemView[] {
   const used = new Set<string>();
   return labels.flatMap((label) => {
@@ -115,6 +140,7 @@ export function buildShippingItemsFromLabels(labels: LabelView[]): ShippingItemV
       canShip,
       title: label.title,
       legacyManagementNo: label.legacyManagementNo,
+      assignedInvoiceNo: label.assignedInvoiceNo ?? null,
       allocationLabel: label.allocationLabel,
       unitPrice: label.unitPrice,
       supplier: label.supplier,

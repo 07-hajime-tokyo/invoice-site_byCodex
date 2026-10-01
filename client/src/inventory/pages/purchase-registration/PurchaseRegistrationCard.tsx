@@ -5,9 +5,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CalendarDays, ExternalLink, Pencil, Truck, Printer, Loader2, Trash2 } from "lucide-react";
 import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import { getCarrierColor } from "@/inventory/lib/tracking";
+import { invoiceNoFromManagementNo } from "@shared/invoiceKey";
 import { actualProductTitle } from "./productTitles";
 import { getItemLabels, sumQuantity, itemStockQuantity } from "./purchaseItems";
-import { getManagementNos } from "./managementNumbers";
+import { getManagementNos, preferredManagementNo } from "./managementNumbers";
+import { invoiceDisplayLabel } from "./shippingRules";
+import { BoxItemInvoiceField } from "./OutboundBoxes";
 import { getSupplier } from "./supplier";
 import { purchaseTrackingNumber, getPurchaseTrackingMeta, TRACKING_CARRIER_LABELS } from "./tracking";
 import { buildLabelViews } from "./registrationLabelViews";
@@ -15,12 +18,13 @@ import { labelBadgeClass } from "./labelStatus";
 import { statusClass, statusLabel } from "./rowStatus";
 import { formatCurrency, formatDate } from "./format";
 import type { PurchaseRow } from "./dataTypes";
-import type { LabelPrintRequest } from "./viewTypes";
+import type { AllocationGroup, LabelPrintRequest } from "./viewTypes";
 import { openEcohaiTracking } from "./trackingNavigation";
 import { purchaseRowInventoryId } from "./purchaseRowIdentity";
 
 export function PurchaseRegistrationCard({
   row,
+  invoiceOptions,
   onPrintLabels,
   onOpenEdit,
   onOpenTrackingDialog,
@@ -31,6 +35,7 @@ export function PurchaseRegistrationCard({
   onSelectChange,
 }: {
   row: PurchaseRow;
+  invoiceOptions: AllocationGroup[];
   onPrintLabels: LabelPrintRequest;
   onOpenEdit: (row: PurchaseRow) => void;
   onOpenTrackingDialog: (row: PurchaseRow) => void;
@@ -53,6 +58,11 @@ export function PurchaseRegistrationCard({
   const trackingInfo = trackingNumber ? getPurchaseTrackingMeta(trackingNumber, row.extra?.carrier) : null;
   const rowLabels = buildLabelViews([row]);
   const deletableInventoryId = purchaseRowInventoryId(row);
+  const visibleAssignmentLabels = labels.slice(0, 4).map((label) => {
+    const legacyManagementNo = preferredManagementNo(label.legacyManagementNo, managementNos[0], "");
+    const effectiveInvoiceNo = label.assignedInvoiceNo ?? invoiceNoFromManagementNo(legacyManagementNo);
+    return { label, legacyManagementNo, effectiveInvoiceNo };
+  });
 
   return (
     <section className={cn("rounded-lg border bg-background shadow-sm", isSelected && "border-emerald-400 ring-1 ring-emerald-300")}>
@@ -123,6 +133,36 @@ export function PurchaseRegistrationCard({
             <span>旧管理番号: {managementNos.length > 0 ? managementNos.join(" / ") : "-"}</span>
             <span>発注No: {row.num || "-"}</span>
             </div>
+            {labels.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium text-muted-foreground">充当先</span>
+                {visibleAssignmentLabels.map(({ label, legacyManagementNo, effectiveInvoiceNo }) => (
+                  <div
+                    key={`${row.id}-${label.labelId}-assignment`}
+                    className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border bg-slate-50 px-2 py-1"
+                  >
+                    <span className="font-mono text-[11px] font-semibold text-slate-700">{label.labelId}</span>
+                    <Badge variant={label.assignedInvoiceNo ? "default" : "secondary"} className="h-5 px-1.5 text-[10px]">
+                      {label.assignedInvoiceNo
+                        ? `充当先 ${invoiceDisplayLabel(invoiceOptions, label.assignedInvoiceNo)}`
+                        : effectiveInvoiceNo
+                          ? `自動 ${invoiceDisplayLabel(invoiceOptions, effectiveInvoiceNo)}`
+                          : "未定"}
+                    </Badge>
+                    <BoxItemInvoiceField
+                      labelId={label.labelId}
+                      assignedInvoiceNo={label.assignedInvoiceNo ?? null}
+                      legacyManagementNo={legacyManagementNo || null}
+                    />
+                  </div>
+                ))}
+                {labels.length > visibleAssignmentLabels.length ? (
+                  <Badge variant="outline">他{labels.length - visibleAssignmentLabels.length}件</Badge>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">充当先: 商品ID発行後に指定できます</div>
+            )}
           </div>
         </div>
         <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">

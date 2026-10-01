@@ -34,7 +34,7 @@ describe("tradeStatus", () => {
     ).toBe("complete");
   });
 
-  it("keeps sheet remaining status even when registered shipment quantities are covered", () => {
+  it("uses site shipment quantities over sheet remaining status", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "remaining 1",
@@ -45,7 +45,7 @@ describe("tradeStatus", () => {
         fedexRegisteredQty: 0,
         hasShipmentSignal: true,
       }),
-    ).toBe("remaining 1");
+    ).toBe("complete");
   });
 
   it("shows simple remaining when actual shipments are short", () => {
@@ -62,7 +62,7 @@ describe("tradeStatus", () => {
     ).toBe("\u6b8b1");
   });
 
-  it("downgrades complete when shipment registration is short", () => {
+  it("counts FedEx registration as shipment registration", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
@@ -73,7 +73,7 @@ describe("tradeStatus", () => {
         fedexRegisteredQty: 10,
         hasShipmentSignal: true,
       }),
-    ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b1\u53f0\uff09");
+    ).toBe("complete");
   });
 
   it("keeps invoice numbers through 399 complete even without site shipment registration", () => {
@@ -112,7 +112,7 @@ describe("tradeStatus", () => {
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09");
   });
 
-  it("keeps sheet remaining count instead of replacing it with site remaining count", () => {
+  it("replaces sheet remaining count with site shipment remaining count", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "\u6b8b2",
@@ -123,7 +123,7 @@ describe("tradeStatus", () => {
         fedexRegisteredQty: 4,
         hasShipmentSignal: true,
       }),
-    ).toBe("\u6b8b2");
+    ).toBe("\u6b8b1");
   });
 
   it("keeps simple sheet remaining status when shipment registration is short", () => {

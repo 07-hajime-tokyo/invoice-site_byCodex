@@ -449,7 +449,7 @@ export function ShippingPanel({
 
   return (
     <div className="space-y-4">
-      <OutboundBoxPanel onOpenBoxChange={setOpenBoxCode} />
+      <OutboundBoxPanel invoiceOptions={invoiceOptions} onOpenBoxChange={setOpenBoxCode} />
       {openBoxCode ? (
         <section className="rounded-md border-2 border-amber-400 bg-amber-50 p-3 sm:p-4">
           <p className="text-sm font-semibold text-amber-900">

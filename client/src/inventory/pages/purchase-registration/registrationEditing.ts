@@ -353,7 +353,7 @@ export function useRegistrationEditing(
           title,
           quantity: String(quantity),
           unit: stockEditForm.unit || undefined,
-          category: stockEditForm.category.trim() || undefined,
+          category: stockEditForm.category.trim(),
           place: stockEditForm.place.trim() || undefined,
           etc:
             buildEtcWithManagementNo(
