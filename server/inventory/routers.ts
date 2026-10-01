@@ -40,6 +40,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
 import { inboundDeskRouter } from "./inboundDesk";
+import { stocktakeRouter } from './stocktake';
 import { outboundBoxesRouter } from "./outboundBoxes";
 import { getReceiptAckSummary, markReceiptAckDone } from "./receiptAck";
 import { processInventoryDelivery } from "./deliveryService";
@@ -3765,6 +3766,7 @@ export const inventoryRouter = router({
   actionItems: actionItemsRouter,
   inboundDesk: inboundDeskRouter,
   outboundBoxes: outboundBoxesRouter,
+  stocktake: stocktakeRouter,
   aiInvestigation: aiInvestigationRouter,
   workLogs: workLogsRouter,
   auth: router({

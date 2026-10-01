@@ -42,6 +42,7 @@ const menuItems = [
   { icon: Globe, label: "海外発送", path: "/inventory/overseas-shipping", color: "text-sky-500" },
   { icon: Trash2, label: "削除済み商品", path: "/inventory/deleted-items", color: "text-rose-400" },
   { icon: RotateCcw, label: "復元管理", path: "/inventory/restore-management", color: "text-rose-500" },
+  { icon: ClipboardList, label: "QR棚卸", path: "/inventory/stocktake", color: "text-emerald-600" },
   { icon: CalendarDays, label: "月次棚卸し", path: "/inventory/monthly-report", color: "text-amber-500" },
   { icon: TrendingUp, label: "在庫の推移", path: "/inventory/trend", color: "text-emerald-600" },
   { icon: Settings, label: "設定", path: "/inventory/settings", color: "text-slate-500" },
