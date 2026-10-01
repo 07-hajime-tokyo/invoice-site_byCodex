@@ -82,6 +82,8 @@ import {
   normalizeInventoryCategoryName,
 } from "./deliveries/display";
 import { InventoryLabelIds } from "./deliveries/InventoryLabelIds";
+import { buildCategoryOptions, filterAndSortInventories } from "./deliveries/stockFilters";
+import { calcCategoryTotals, extractPrefixFromManagementNo, lookupSellingPrice } from "./deliveries/stockView";
 import { type InventoryFormData, emptyForm } from "./deliveries/form";
 import { type ShipmentSheetName, SHIPMENT_SHEET_NAMES } from "./deliveries/shipmentSheets";
 
@@ -180,14 +182,6 @@ export default function Deliveries() {
 
   function isShaftManagementNo(etc: string | undefined): boolean {
     return getManagementNo(etc).includes("シャフト");
-  }
-
-  /** 管理番号から先頭の数字部分を抽出する（例: "371_ルカ_New3DS_8/10" → "371"） */
-  function extractPrefixFromManagementNo(etc: string | undefined): string | undefined {
-    const managementNo = getManagementNo(etc);
-    if (!managementNo) return undefined;
-    const match = managementNo.match(/^(\d+)/);
-    return match ? match[1] : undefined;
   }
 
   function extractCommonInvoiceNoFromItems(items: Array<{ etc?: string | null }>): string {
@@ -598,52 +592,25 @@ export default function Deliveries() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  const categoryOptions = useMemo(() => {
-    const cats = new Set<string>();
-    for (const cat of managedCategories ?? []) {
-      if (cat && cat !== "すべて" && cat !== "未分類") cats.add(normalizeInventoryCategoryName(cat));
-    }
-    for (const inv of (inventories ?? []) as InventoryItem[]) {
-      if (inv.quantity === null || inv.quantity === undefined) continue;
-      const cat = getInventoryDisplayCategory(inv);
-      if (cat && cat !== "未分類") cats.add(cat);
-    }
-    return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
-  }, [inventories, managedCategories]);
+  const categoryOptions = useMemo(
+    () => buildCategoryOptions(inventories as InventoryItem[] | undefined, managedCategories),
+    [inventories, managedCategories],
+  );
 
   // カテゴリ一覧を集計
   const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
   // カテゴリ + 検索フィルター
-  const filteredInventories = useMemo(() => {
-    if (!inventories) return [];
-    // 検索クエリのスペースを除去（「PSP2000」→「PSP 2000」もマッチ）
-    const q = searchQuery.toLowerCase().replace(/\s+/g, "");
-    return (inventories as InventoryItem[])
-      .filter((inv) => {
-        if (inv.quantity === null || inv.quantity === undefined) return false;
-        if (hideZeroStock && parseFloat(inv.quantity ?? "0") <= 0) return false;
-        const cat = getInventoryDisplayCategory(inv);
-        if (selectedCategory !== "すべて" && cat !== selectedCategory) return false;
-        if (q) {
-          const managementNo = getManagementNo(inv.etc).toLowerCase().replace(/\s+/g, "");
-          const labelText = getInventoryLabelIds(inv).join(" ").toLowerCase().replace(/\s+/g, "");
-          return (
-            inv.title.toLowerCase().replace(/\s+/g, "").includes(q) ||
-            (inv.category ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
-            (inv.place ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
-            managementNo.includes(q) ||
-            labelText.includes(q)
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const da = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
-        const db = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
-        return db - da;
-      });
-   }, [inventories, searchQuery, selectedCategory, hideZeroStock]);
+  const filteredInventories = useMemo(
+    () =>
+      filterAndSortInventories(
+        inventories as InventoryItem[] | undefined,
+        searchQuery,
+        selectedCategory,
+        hideZeroStock,
+      ),
+    [inventories, searchQuery, selectedCategory, hideZeroStock],
+  );
 
   // 在庫一覧ページネーション
   const {
@@ -704,20 +671,10 @@ export default function Deliveries() {
   }, [checkedItems, customers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // カテゴリ別合計金額
-  const categoryTotals = useMemo(() => {
-    if (!inventories) return new Map<string, number>();
-    const totals = new Map<string, number>();
-    for (const inv of inventories as InventoryItem[]) {
-      if (inv.quantity === null || inv.quantity === undefined) continue;
-      const stockQty = parseFloat(inv.quantity ?? "0");
-      if (stockQty <= 0) continue;
-      const price = inv.purchase_unit_price ?? inv.unit_price ?? 0;
-      if (!price) continue;
-      const cat = getInventoryDisplayCategory(inv);
-      totals.set(cat, (totals.get(cat) ?? 0) + price * stockQty);
-    }
-    return totals;
-  }, [inventories]);
+  const categoryTotals = useMemo(
+    () => calcCategoryTotals(inventories as InventoryItem[] | undefined),
+    [inventories],
+  );
 
   const grandTotal = useMemo(() => {
     let total = 0;
@@ -730,40 +687,10 @@ export default function Deliveries() {
     return categoryTotals.get(selectedCategory) ?? 0;
   }, [selectedCategory, categoryTotals, grandTotal]);
 
-  /**
-   * 管理番号またはインボイスNoからCSVのユーロ建て販売価格を照合する
-   * @param inv 在庫アイテム
-   * @param invoiceNoOverride 管理番号がない場合に使用するインボイスNo
-   */
-  function lookupSellingPrice(inv: InventoryItem, invoiceNoOverride?: string): { sellingPrice: number | null; currency: string } {
-    if (!csvRows || csvRows.length === 0) return { sellingPrice: null, currency: "" };
-    // 管理番号からインボイスNoを抽出
-    const prefix = extractPrefixFromManagementNo(inv.etc);
-    const targetInvoiceNo = prefix ?? invoiceNoOverride;
-    if (!targetInvoiceNo) return { sellingPrice: null, currency: "" };
-    // 同じインボイスNoのCSV行を絞り込み
-    const invoiceRows = csvRows.filter((r) => r.invoiceNo === targetInvoiceNo);
-    if (invoiceRows.length === 0) return { sellingPrice: null, currency: "" };
-    // 商品名で照合（部分一致: CSVの商品名がinv.titleに含まれるか、またはその逆）
-    const titleLower = inv.title.toLowerCase();
-    const matched = invoiceRows.find((r) => {
-      if (!r.productName) return false;
-      const csvNameLower = r.productName.toLowerCase();
-      return titleLower.includes(csvNameLower) || csvNameLower.includes(titleLower);
-    });
-    if (matched && matched.sellingPrice != null) {
-      return { sellingPrice: matched.sellingPrice, currency: matched.currency };
-    }
-    // 部分一致で見つからない場合: 同インボイスの最初の行を使用（フォールバック）
-    const first = invoiceRows.find((r) => r.sellingPrice != null);
-    if (first) return { sellingPrice: first.sellingPrice, currency: first.currency };
-    return { sellingPrice: null, currency: "" };
-  }
-
   function toggleCheck(inv: InventoryItem) {
     const stockQty = parseFloat(inv.quantity ?? "0");
     if (stockQty <= 0) return;
-    const { sellingPrice, currency } = lookupSellingPrice(inv, bulkInvoiceNo || undefined);
+    const { sellingPrice, currency } = lookupSellingPrice(csvRows, inv, bulkInvoiceNo || undefined);
     setDeliveryItems((prev) => {
       const next = new Map(prev);
       const existing = next.get(inv.id);
