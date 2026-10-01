@@ -50,11 +50,11 @@
 | 入庫一覧 | `Purchases.tsx`、inventory APIの一覧処理 | P01〜P09済 | 検索・表示・集計・編集・CSV。検証範囲と残る制約は下記 |
 | 発注登録 | `PurchaseRegistration.tsx`、発注作成API | 済（R01〜R17・今回の完了基準） | UI調整・編集・業務規則・発注作成/発注管理APIを分離。下記の最終監査参照。荷受取消・出庫/海外発送サービス自体は各領域で扱う |
 | 荷受・入庫確定 | `InboundDesk.tsx`、`inboundDesk.ts`、`inboundUndo.ts` | 済（H01・現行基準） | 荷受・検品・取消・照会を分離。二重計上防止・数量/履歴の巻き戻し・失敗時の保持を専用DBで確認 |
-| 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 未着手 | 在庫一覧・編集・価格・数量・カテゴリ |
+| 在庫・カテゴリ・メモ | `Deliveries.tsx`、inventory API・DB | 済（S-A0〜A3・現行基準） | 在庫一覧画面の型・純関数（フィルタ・集計・価格照合）・5ダイアログを `deliveries/` へ分離（クライアントのみ、サーバー不変）。inventoryMemoルーター抽出は第4巡（P-A1）で代行完了。詳細は下記と `docs/stock-refactor.md` |
 | eBay・ヤフオク出品 | `EbayInventory.tsx`、`YahooListings.tsx` | 済（E-A0〜A4・現行基準） | 2画面の型・純関数・表示部品と `zaico` ルーターを分離。持ち越し分の purchaseHistory/receiptAck ルーター抽出も完了。詳細は下記と `docs/ebay-yahoo-refactor.md` |
 | 出庫・出庫履歴 | `Deliveries.tsx`、`DeliveryHistory.tsx`、`deliveryService.ts` | 済（D-A1〜A3・現行基準） | 2画面の型・純関数・表示部品と `deliveryHistory` ルーターを分離。出庫実行の画面配線とdeliveryServiceは不変。詳細は下記と `docs/deliveries-refactor.md` |
 | 海外発送・梱包 | `OverseasShipping.tsx`、`outboundBoxes.ts`、FedEx API | 済（O-A1〜A2・現行基準） | 画面の型・純関数・表示部品と `fedex` ルーター＋shipment系ヘルパーを分離。発送実行の画面配線とoutboundBoxes.tsは棚卸しのみ。詳細は下記と `docs/overseas-refactor.md` |
-| 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 未着手 | 注文と在庫の紐付け・進捗・表示権限 |
+| 注文・パートナー | `OrderManagement.tsx`、`PartnerPortal.tsx` | 済（P-A0〜A3・現行基準） | `partner`/`invoiceMemo`/`inventoryMemo` ルーターを専用ファイルへ分離し、2画面の型・純関数・表示部品を `order-management/`・`partner-portal/` へ抽出。実効認可（publicProcedure=protectedProcedureエイリアス）を維持。詳細は下記と `docs/orders-partner-refactor.md` |
 | 入庫履歴・受取連絡 | `PurchaseHistory.tsx`、`receiptAck.ts` | 済（現行基準） | 画面の型・純関数・表示部品・CSVと receiptAck の純粋規則を分離。持ち越していた routers.ts の purchaseHistory/receiptAck ブロック抽出は第3巡（E-A2）で完了。詳細は下記と `docs/purchase-history-refactor.md` |
 | インボイス・顧客・PDF | `InvoicePage.tsx`、serverのinvoices API、`pdfGenerator.ts` | 済（I01〜I11・今回の完了基準） | 保存入力/行変換・金額・分割・顧客・PDF・表示の正本とUI副作用を監査。画面固有の状態/イベント調整は維持。実外部AI等の接続検証は未実施 |
 | 取引データ・CSV | `Home.tsx`配下、trade/shipment API・関連コンポーネント | 済（T-A0〜A2・現行基準） | `trade`/`shipment` ルーターを専用ファイルへ分離し、Home・取引ダイアログ・一覧表の型/純関数を抽出・SSOT化。小型コンポーネントは棚卸しのみ。詳細は下記と `docs/trade-refactor.md` |
@@ -71,7 +71,7 @@
 
 - **済 / 作業中 / 未着手**を小作業単位で更新し、検証結果とコミットを残します。
 - 小作業ごとの規模は異なります。チェック数や移動行数を、そのまま全体の完了率・性能改善率には換算しません。
-- 現行基準で13領域済・一部済0・未着手3。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡、eBay/ヤフオク出品、取引データ/CSVが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
+- 現行基準で15領域済・一部済0・未着手1（認証・設定・共通基盤のみ）。入庫一覧、発注登録、荷受/入庫確定、インボイス、月次棚卸/在庫推移、作業管理/やること、削除/復元/移行、出庫/出庫履歴、会話履歴/ナレッジ/AI、海外発送/梱包、入庫履歴/受取連絡、eBay/ヤフオク出品、取引データ/CSV、在庫/カテゴリ/メモ、注文/パートナーが済です。これは領域数であり工数の完了率ではありません。詳細は上表と最新の検証記録を参照してください。
 - 以前示した「5%未満」は暫定的な目安です。見積もりの分母が未確定なので、この一覧から正確な全体工数の割合はまだ出しません。
 
 ## P03の検証記録（2026-09-30）
@@ -514,3 +514,33 @@ P07前半の時点の内訳は以下のとおりです。当時はP07全体を�
 - 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
 
 **現状：16領域中13領域済、一部済0、未着手3（在庫・カテゴリ・メモ／注文・パートナー／認証・設定・共通基盤）。** これは領域数であり、全体工数の完了率ではない。
+
+## 並行2領域：注文・パートナー／在庫・カテゴリ・メモ（2026-10-02）
+
+前回と同じ2並行運用を継続。統合済み `cbdef4f` を共通基準に、既存worktree2つへ新ブランチを切って実施した。serverファイルは注文・パートナー側のみが `server/inventory/routers.ts` を所有し（在庫側はクライアントのみ）、1サーバーファイル=1所有者が成立。在庫領域の持ち分だった `inventoryMemo` ルーター抽出は注文・パートナー側（P-A1）が代行した。shared/・drizzle/・package類・他担当ファイルは両担当とも変更禁止とし、統合後diffで変更なしを確認した。
+
+### 注文・パートナー（ブランチ `staff/yousunafu/refactor-orders-partner`、5コミット、統合マージ `528a918`）
+
+- **P-A0**: 整理前基準 `tests/regression/ordersPartner.test.ts`（21テスト：partnerのlogin/logout/checkSession/getShipments/スレッド/メッセージ/チェック更新、invoiceMemoのlist/upsert/setManualComplete、inventoryMemoのlist/create契約）を旧コードで成功させてから移行。
+- **P-A1**: `partner`/`invoiceMemo`/`inventoryMemo` ブロックを `server/inventory/partnerRouter.ts`（525行）/`invoiceMemoRouter.ts`（46行）/`inventoryMemoRouter.ts`（52行）へ逐語移動。routers.ts 1,480行→888行。`const publicProcedure = protectedProcedure;` の別名を各ファイルで再現し、実効認可は不変（partnerの「public」手続きも従来どおり同じ実効保護）。
+- **P-A2**: `OrderManagement.tsx`（1,552行→656行）の型・集計・色マッチング・CSV照合・表示・CSV出力・3詳細パネル＋メモ欄を `order-management/` 11モジュールへ抽出（単体49件）。
+- **P-A3**: `PartnerPortal.tsx`（952行→830行）の型・出荷インボイス純関数を `partner-portal/`（types.ts / shipmentInvoice.ts＋単体14件）へ抽出。
+- 逐語比較 MISSING/EXTRA=0。詳細は `docs/orders-partner-refactor.md`。
+
+### 在庫・カテゴリ・メモ（ブランチ `staff/yousunafu/refactor-stock`、5コミット、統合マージ `67d0744`）
+
+- **S-A0**: 棚卸しと整理前基準（逐語コピーに対する単体18件を先に固定し、本体をimport差し替えで移行する方式）。サーバーは対象外（inventoryMemoはP-A1で代行、その他のinventory APIは既存回帰でカバー）。
+- **S-A1**: 在庫フィルタ・並び替え（`stockFilters.ts`：buildCategoryOptions / filterAndSortInventories）、カテゴリ金額集計・管理番号プレフィックス・販売価格照合（`stockView.ts`）を `deliveries/` へ逐語抽出。
+- **S-A2**: 在庫数変更確認・メモ履歴・カテゴリ管理/追加の各ダイアログを `StockChangeConfirmDialog.tsx` / `MemoHistoryDialog.tsx` / `CategoryDialogs.tsx` へ逐語抽出。
+- **S-A3**: 在庫編集・新規登録ダイアログを `EditInventoryDialog.tsx` / `CreateInventoryDialog.tsx` へ逐語抽出。
+- `Deliveries.tsx` 3,360行→2,887行（−473行）。混在改行コード（CRLF/LF）をbyte単位で保持。`deliveries/` の単体27件を含むクライアント全体が成功。詳細は `docs/stock-refactor.md`。
+
+### 統合と検証（2026-10-02）
+
+- 統合側は各ブランチのコミット・変更ファイル・禁止範囲を検査後、`cbdef4f` から1件ずつマージ（`528a918`→`67d0744`）。競合なし・変更ファイルの重複ゼロ。統合後diffでshared/・drizzle/・package類の変更なし、server変更が注文・パートナー担当のみであることを確認。
+- 統合後の全体検証：`pnpm check`・`pnpm check:regression` エラーなし。単体837件中836成功（失敗1件はGemini実APIの鍵なし既知）。統合用専用DBで回帰218件全成功（既存197＋注文・パートナー21）。`pnpm build` 成功（既存のバンドルサイズ警告のみ）。
+- 実画面（統合サーバー・架空7件seed後）：`/inventory/order-management`（見出し・未完了のみ/CSV/更新/再判定ボタン・空データ表示）、`/inventory/deliveries`（在庫一覧・抽出済み「新規登録」ダイアログと「カテゴリ管理」ダイアログの開閉と内容）、`/inventory/partner/:code`（PartnerPortalのサインイン画面描画）を確認。コンソールはGoogleキー未設定の既知の環境要因のみ。
+- **未検証範囲**：パートナーの実ログイン〜スレッド操作のブラウザー実操作（APIは回帰21件で確認）、発注管理のCSV出力・再判定の実クリック、在庫編集・出庫のブラウザー実操作（抽出ダイアログの開閉・描画は確認）、実外部接続（GAS・メール・S3等）、本番データ・大量データ性能・全端末画像比較。
+- 検証後、統合用専用DBを架空7件へ再初期化。main変更/push/Vercel/本番DB・キー利用なし。
+
+**現状：16領域中15領域済、一部済0、未着手1（認証・設定・共通基盤）。** これは領域数であり、全体工数の完了率ではない。
