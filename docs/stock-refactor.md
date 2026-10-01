@@ -49,8 +49,37 @@
 - 一括出庫フッターと出庫確認ダイアログで取引先/インボイスNo変更時の出庫No再生成ロジックがほぼ同一のまま3箇所に重複（1887–1964・2041–2107・2326–2389）→ 出庫側担当領域のため触らず
 
 ## 進捗
-- [x] S-A0: 棚卸し（本ドキュメント）+ 整理前基準テスト（stockFilters.test.ts / stockView.test.ts。抽出予定ロジックの逐語コピーに対して期待出力を固定）
-- [ ] S-A1: 純ロジック抽出（stockFilters.ts / stockView.ts）
-- [ ] S-A2: メモ・カテゴリ系ダイアログ抽出（StockChangeConfirmDialog / MemoHistoryDialog / CategoryDialogs）
-- [ ] S-A3: 在庫編集・新規登録ダイアログ抽出（EditInventoryDialog / CreateInventoryDialog）
-- [ ] 仕上げ: 検証結果・行数変化の記録
+- [x] S-A0: 棚卸し（本ドキュメント）+ 整理前基準テスト（stockFilters.test.ts / stockView.test.ts。抽出予定ロジックの逐語コピーに対して期待出力を固定）（コミット 20fb2dc）
+- [x] S-A1: 純ロジック抽出（stockFilters.ts / stockView.ts）（コミット ada8a80）
+- [x] S-A2: メモ・カテゴリ系ダイアログ抽出（StockChangeConfirmDialog / MemoHistoryDialog / CategoryDialogs）（コミット 7dcdb66）
+- [x] S-A3: 在庫編集・新規登録ダイアログ抽出（EditInventoryDialog / CreateInventoryDialog）（コミット 8283a84）
+- [x] 仕上げ: 検証結果・行数変化の記録（本セクション以下）
+
+## 変更ファイル / 検証結果
+
+### S-A0（コミット 20fb2dc）
+- 新設 `deliveries/stockFilters.test.ts`（8テスト）・`deliveries/stockView.test.ts`（10テスト）: 抽出予定ロジックの逐語コピーに対し現行出力を固定（S-A1 でモジュール import に差し替え、期待値は不変）
+
+### S-A1（コミット ada8a80）
+- 新設 `deliveries/stockFilters.ts`（60行: buildCategoryOptions・filterAndSortInventories）・`deliveries/stockView.ts`（68行: calcCategoryTotals・extractPrefixFromManagementNo・SellingPriceCsvRow・lookupSellingPrice）
+- Deliveries.tsx: useMemo 3件の本体とローカル関数2件を呼び出しに置換（+21/−94）。`lookupSellingPrice` はクロージャ参照だった csvRows を第1引数化（構造型 SellingPriceCsvRow は orderManagement.getCsvData の行と互換）
+- 逐語性検証: 移動5ブロックと新2ファイルの行単位比較で MISSING/EXTRA = 0（差分は `export ` 付与とシグネチャ行のみ）
+
+### S-A2（コミット 7dcdb66）
+- 新設 `deliveries/StockChangeConfirmDialog.tsx`・`MemoHistoryDialog.tsx`（memoHistoryData は構造型 MemoHistoryEntry[] で受領）・`CategoryDialogs.tsx`（管理+削除確認の2ダイアログ、mutation は `{ isPending }` 構造型）
+- Deliveries.tsx: 3ブロックをコンポーネント呼び出しに置換（+29/−191）。props 名は元の識別子名と同一で JSX 本体は逐語
+- 逐語性検証: MISSING/EXTRA = 0（残置したセクションコメント1行のみ差分）
+
+### S-A3（コミット 8283a84）
+- 新設 `deliveries/EditInventoryDialog.tsx`・`CreateInventoryDialog.tsx`（setEditForm/setCreateForm は `Dispatch<SetStateAction<InventoryFormData>>`）
+- Deliveries.tsx: 2ブロックを置換（+18/−258）。逐語性検証 MISSING/EXTRA = 0
+
+### 行数変化
+- Deliveries.tsx: 3,360行（基準 cbdef4f）→ 2,887行（−473行）
+- 混在EOL（CRLF/LF）はバイト単位で保全（未変更行は基準と同一バイト）
+
+### 検証結果（最終）
+- `pnpm check`（tsc --noEmit）: エラーなし（各コミット時点+最終）
+- `pnpm vitest run client/src/inventory/pages/deliveries`: 3ファイル / 27テスト 全成功（display 9 + stockFilters 8 + stockView 10）
+- `pnpm vitest run client/src`: 47ファイル / 442テスト 全成功
+- Deliveries.tsx の既存 import は抽出後も全て使用中（除去不要）
