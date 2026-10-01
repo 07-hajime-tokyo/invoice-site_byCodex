@@ -13,6 +13,7 @@ import { getAllInvoiceMemos } from "./inventory/db";
 import { inventoryRouter } from "./inventory/routers";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
+import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "@shared/invoiceKey";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
@@ -877,8 +878,15 @@ function generateInvoiceNumber(): string {
 type TradeRow = typeof tradeRecords.$inferSelect;
 type ShipmentRow = typeof shipments.$inferSelect;
 type ShipmentItemRow = typeof shipmentItems.$inferSelect;
-type FedexShipmentRow = typeof fedexShipments.$inferSelect;
 type RouterDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type ParsedFedexShipmentItem = {
+  productNameJa: string;
+  productNameEn: string;
+  quantity: number;
+  invoiceNo: string | null;
+  managementNo: string | null;
+};
+type FedexAllocationItem = ParsedFedexShipmentItem & { deliveryNo: string };
 
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
@@ -900,11 +908,19 @@ function getShipmentAllocationGroupKey(shipment: Pick<ShipmentRow, "id" | "track
 }
 
 function getDeliveryInvoiceNo(value: string | null | undefined): string | null {
-  const match = String(value ?? "").match(/^(\d+)/);
-  return match ? match[1] : null;
+  return invoiceNoFromDeliveryNo(value);
 }
 
-function parseFedexShipmentItems(value: string | null | undefined): Array<{ productNameJa: string; productNameEn: string; quantity: number }> {
+function getFedexItemInvoiceNo(row: Record<string, unknown>): string | null {
+  return (
+    normalizeAssignedInvoiceNo(row.invoiceNo as string | null | undefined) ??
+    normalizeAssignedInvoiceNo(row.assignedInvoiceNo as string | null | undefined) ??
+    invoiceNoFromManagementNo(row.managementNo as string | null | undefined) ??
+    invoiceNoFromManagementNo(row.legacyManagementNo as string | null | undefined)
+  );
+}
+
+function parseFedexShipmentItems(value: string | null | undefined): ParsedFedexShipmentItem[] {
   try {
     const parsed = JSON.parse(value ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -916,9 +932,15 @@ function parseFedexShipmentItems(value: string | null | undefined): Array<{ prod
         const productNameEn = String(row.productNameEn ?? productNameJa).trim();
         const quantity = toNumber(row.quantity);
         if (!productNameJa || quantity <= 0) return null;
-        return { productNameJa, productNameEn, quantity };
+        return {
+          productNameJa,
+          productNameEn,
+          quantity,
+          invoiceNo: getFedexItemInvoiceNo(row),
+          managementNo: String(row.managementNo ?? row.legacyManagementNo ?? "").trim() || null,
+        };
       })
-      .filter((item): item is { productNameJa: string; productNameEn: string; quantity: number } => item !== null);
+      .filter((item): item is ParsedFedexShipmentItem => item !== null);
   } catch {
     return [];
   }
@@ -931,7 +953,7 @@ function addTradeQuantity(map: Map<number, number>, tradeId: number, quantity: n
 
 function allocateFedexItemsToTradeRows(
   invoiceTrades: TradeRow[],
-  shipmentRows: FedexShipmentRow[],
+  shipmentItems: FedexAllocationItem[],
 ): Map<number, number> {
   const allocated = new Map<number, number>();
   const remainingByTradeId = new Map<number, number>();
@@ -947,33 +969,31 @@ function allocateFedexItemsToTradeRows(
     remainingByTradeId.set(trade.tradeId, trade.qty);
   }
 
-  for (const shipment of shipmentRows) {
-    for (const item of parseFedexShipmentItems(shipment.itemsJson)) {
-      const shippedName = item.productNameJa || item.productNameEn;
-      const shippedNameKey = normalizeLooseText(shippedName);
-      let candidates = csvProducts.filter((product) => normalizeLooseText(product.name) === shippedNameKey);
-      if (candidates.length === 0) {
-        const suggestion = suggestCsvProduct(
-          shippedName,
-          shipment.deliveryNo,
-          csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
-        );
-        if (!suggestion) continue;
-        candidates = csvProducts.filter((product) => product.name === suggestion.name);
-      }
-
-      const chosen =
-        candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) >= item.quantity) ??
-        candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) > 0) ??
-        candidates[0];
-      if (!chosen) continue;
-
-      addTradeQuantity(allocated, chosen.tradeId, item.quantity);
-      remainingByTradeId.set(
-        chosen.tradeId,
-        Math.max(0, (remainingByTradeId.get(chosen.tradeId) ?? 0) - item.quantity),
+  for (const item of shipmentItems) {
+    const shippedName = item.productNameJa || item.productNameEn;
+    const shippedNameKey = normalizeLooseText(shippedName);
+    let candidates = csvProducts.filter((product) => normalizeLooseText(product.name) === shippedNameKey);
+    if (candidates.length === 0) {
+      const suggestion = suggestCsvProduct(
+        shippedName,
+        `${item.deliveryNo} ${item.managementNo ?? ""}`,
+        csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
       );
+      if (!suggestion) continue;
+      candidates = csvProducts.filter((product) => product.name === suggestion.name);
     }
+
+    const chosen =
+      candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) >= item.quantity) ??
+      candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) > 0) ??
+      candidates[0];
+    if (!chosen) continue;
+
+    addTradeQuantity(allocated, chosen.tradeId, item.quantity);
+    remainingByTradeId.set(
+      chosen.tradeId,
+      Math.max(0, (remainingByTradeId.get(chosen.tradeId) ?? 0) - item.quantity),
+    );
   }
 
   return allocated;
@@ -1036,15 +1056,7 @@ async function getTradeShipmentRegistrationProgress(
       invoiceNosWithShipmentSignal: new Set(),
     };
   }
-
-  const fedexDeliveryNoConditions = invoiceNos.flatMap((invoiceNo) => {
-    const key = String(invoiceNo);
-    return [
-      eq(fedexShipments.deliveryNo, key),
-      like(fedexShipments.deliveryNo, `${key}_%`),
-      like(fedexShipments.deliveryNo, `${key}-%`),
-    ];
-  });
+  const invoiceNoSet = new Set(invoiceNos.map((invoiceNo) => String(invoiceNo)));
 
   const [allTrades, allItems, allFedexRows] = await Promise.all([
     db
@@ -1059,7 +1071,6 @@ async function getTradeShipmentRegistrationProgress(
     db
       .select()
       .from(fedexShipments)
-      .where(or(...fedexDeliveryNoConditions))
       .orderBy(asc(fedexShipments.id)),
   ]);
 
@@ -1082,23 +1093,23 @@ async function getTradeShipmentRegistrationProgress(
     invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
   }
 
-  const fedexRowsByInvoiceNo = new Map<string, FedexShipmentRow[]>();
+  const fedexItemsByInvoiceNo = new Map<string, FedexAllocationItem[]>();
   for (const shipment of allFedexRows) {
-    if (String(shipment.spreadsheetStatus ?? "").trim().toLowerCase() !== "success") continue;
-    const invoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
-    if (!invoiceNo) continue;
-    const rows = fedexRowsByInvoiceNo.get(invoiceNo) ?? [];
-    rows.push(shipment);
-    fedexRowsByInvoiceNo.set(invoiceNo, rows);
-    if (parseFedexShipmentItems(shipment.itemsJson).length > 0) {
+    const deliveryInvoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
+    for (const item of parseFedexShipmentItems(shipment.itemsJson)) {
+      const invoiceNo = item.invoiceNo ?? deliveryInvoiceNo;
+      if (!invoiceNo || !invoiceNoSet.has(invoiceNo)) continue;
+      const items = fedexItemsByInvoiceNo.get(invoiceNo) ?? [];
+      items.push({ ...item, deliveryNo: shipment.deliveryNo });
+      fedexItemsByInvoiceNo.set(invoiceNo, items);
       invoiceNosWithShipmentSignal.add(invoiceNo);
     }
   }
 
   const fedexQtyByTradeId = new Map<number, number>();
-  for (const [invoiceNo, shipmentRows] of fedexRowsByInvoiceNo) {
+  for (const [invoiceNo, shipmentItems] of fedexItemsByInvoiceNo) {
     const invoiceTrades = tradesByInvoiceNo.get(invoiceNo) ?? [];
-    const allocated = allocateFedexItemsToTradeRows(invoiceTrades, shipmentRows);
+    const allocated = allocateFedexItemsToTradeRows(invoiceTrades, shipmentItems);
     for (const [tradeId, quantity] of allocated) {
       addTradeQuantity(fedexQtyByTradeId, tradeId, quantity);
     }
@@ -1110,7 +1121,10 @@ async function getTradeShipmentRegistrationProgress(
     ...Array.from(fedexQtyByTradeId.keys()),
   ]);
   for (const tradeId of tradeIds) {
-    registeredQtyByTradeId.set(tradeId, shipmentItemQtyByTradeId.get(tradeId) ?? 0);
+    registeredQtyByTradeId.set(
+      tradeId,
+      Math.max(shipmentItemQtyByTradeId.get(tradeId) ?? 0, fedexQtyByTradeId.get(tradeId) ?? 0),
+    );
   }
 
   return {
