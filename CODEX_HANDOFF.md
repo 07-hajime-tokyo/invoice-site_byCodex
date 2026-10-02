@@ -2,6 +2,8 @@
 
 > **目的:** このドキュメントは、Manus環境で開発されたアプリを **OpenAI Codex / Vercel / 任意のNode.jsホスト** へ完全移行するための引き継ぎ資料です。
 
+> **進行中の運用引き継ぎ:** 2026年6月末棚卸しの調査結果・確定値・未反映修正・別PCでの再開手順は [`INVENTORY_RECONCILIATION_2026-06_HANDOFF.md`](./INVENTORY_RECONCILIATION_2026-06_HANDOFF.md) を参照してください。
+
 ---
 
 ## 1. 技術スタック
