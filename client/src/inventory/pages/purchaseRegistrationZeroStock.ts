@@ -16,8 +16,21 @@ export interface ZeroStockPurchaseStatusResult {
   inboundWaiting: boolean;
 }
 
+export interface ZeroStockLabelView {
+  status?: string | null;
+  deliveryHistoryId?: number | null;
+}
+
 export function normalizedZeroStockStatus(status?: string | null): string {
   return (status ?? "").trim().toLowerCase();
+}
+
+export function effectiveZeroStockLabelStatuses(labels: ZeroStockLabelView[]): string[] {
+  return labels.map((label) => {
+    const status = normalizedZeroStockStatus(label.status);
+    const hasDeliveryHistory = Number(label.deliveryHistoryId ?? 0) > 0;
+    return status === "shipped" && !hasDeliveryHistory ? "" : status;
+  });
 }
 
 interface DeriveZeroStockPurchaseStatusInput {

@@ -31,6 +31,7 @@ import {
   DIRECT_PARTNER_NAMES_SETTING_KEY,
   type InboundClass,
 } from "@shared/inboundPipeline";
+import { normalizeOutboundScan } from "@shared/outboundBoxes";
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 import type { InsertLocalInventory, InsertLocalPurchase } from "../../drizzle/schema";
@@ -1192,6 +1193,8 @@ type InventoryItemLabelView = {
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
   assignedInvoiceNo?: string | null;
+  outboundBoxId?: number | null;
+  deliveryHistoryId?: number | null;
 };
 
 type InventoryItemLabelForEnsure = InventoryItemLabelView & {
@@ -2481,7 +2484,70 @@ function toInventoryItemLabelView(label: InventoryItemLabelView): InventoryItemL
     legacyManagementNo: label.legacyManagementNo,
     localInventoryId: label.localInventoryId,
     assignedInvoiceNo: label.assignedInvoiceNo ?? null,
+    outboundBoxId: label.outboundBoxId ?? null,
+    deliveryHistoryId: label.deliveryHistoryId ?? null,
   };
+}
+
+function liveDeliveryHistoryLabelIdMap(
+  histories: Array<{
+    id: number;
+    status?: string | null;
+    itemsJson?: string | null;
+    cancelledItemsJson?: string | null;
+  }>,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const history of histories) {
+    if (history.status && history.status !== "success") continue;
+    const cancelledLabelIds = new Set<string>();
+    try {
+      const cancelledItems = JSON.parse(history.cancelledItemsJson || "[]");
+      if (Array.isArray(cancelledItems)) {
+        for (const item of cancelledItems) {
+          const labelId = normalizeOutboundScan(item?.labelId ?? "");
+          if (labelId) cancelledLabelIds.add(labelId);
+        }
+      }
+    } catch {
+      // 古い履歴の不正なJSONは無視して、itemsJson側の情報だけ使う。
+    }
+
+    try {
+      const items = JSON.parse(history.itemsJson || "[]");
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        const labelId = normalizeOutboundScan(item?.labelId ?? "");
+        if (!labelId || cancelledLabelIds.has(labelId)) continue;
+        if (!result.has(labelId)) result.set(labelId, history.id);
+      }
+    } catch {
+      // 読めない履歴は表示判定に使わない。
+    }
+  }
+  return result;
+}
+
+function attachDeliveryHistoryRefsToLabels<T extends InventoryItemLabelView>(
+  labels: T[] | null | undefined,
+  deliveryHistoryByLabelId: Map<string, number>,
+): T[] {
+  return (labels ?? []).map((label) => ({
+    ...label,
+    deliveryHistoryId: deliveryHistoryByLabelId.get(normalizeOutboundScan(label.labelId)) ?? null,
+  }));
+}
+
+function attachDeliveryHistoryRefsToLabelMap<T extends InventoryItemLabelView>(
+  labelMap: Map<number, T[]>,
+  deliveryHistoryByLabelId: Map<string, number>,
+): Map<number, T[]> {
+  return new Map(
+    Array.from(labelMap.entries()).map(([inventoryId, labels]) => [
+      inventoryId,
+      attachDeliveryHistoryRefsToLabels(labels, deliveryHistoryByLabelId),
+    ]),
+  );
 }
 
 async function ensureStockLabelsForInventories<T extends {
@@ -4200,9 +4266,17 @@ export const inventoryRouter = router({
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
           t.mark("collectInventoryIds");
-          const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+          let inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
             getInventoryItemLabelsByInventoryIds(invIds)
           );
+          const deliveryHistoryByLabelId = await t.step("deliveryHistoryLabelMap", async () =>
+            liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories())
+          );
+          localPurchaseRows = localPurchaseRows.map((row) => ({
+            ...row,
+            itemLabels: attachDeliveryHistoryRefsToLabels(row.itemLabels, deliveryHistoryByLabelId),
+          }));
+          inventoryLabelMap = attachDeliveryHistoryRefsToLabelMap(inventoryLabelMap, deliveryHistoryByLabelId);
           const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
           const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
           for (const inv of localInventoryRows) {
@@ -4326,7 +4400,11 @@ export const inventoryRouter = router({
           getAllPurchaseExtras(),
           getAllInventoryExtras(),
         ]);
-        const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
+        const zaicoDeliveryHistoryByLabelId = liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories());
+        const inventoriesWithLabels = (await ensureStockLabelsForInventories(inventories)).map((inventory) => ({
+          ...inventory,
+          itemLabels: attachDeliveryHistoryRefsToLabels(inventory.itemLabels, zaicoDeliveryHistoryByLabelId),
+        }));
         const inventoryMap = new Map(inventoriesWithLabels.map((inv) => [inv.id, inv]));
         const extrasMap = new Map(extras.map((e) => [e.zaicoId, e]));
         const inventoryExtrasMap = new Map(inventoryExtras.map((e) => [e.zaicoInventoryId, e]));
@@ -4403,9 +4481,17 @@ export const inventoryRouter = router({
           .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
         t.mark("collectInventoryIds");
-        const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+        let inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
           getInventoryItemLabelsByInventoryIds(invIds)
         );
+        const deliveryHistoryByLabelId = await t.step("deliveryHistoryLabelMap", async () =>
+          liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories())
+        );
+        localPurchaseRows = localPurchaseRows.map((row) => ({
+          ...row,
+          itemLabels: attachDeliveryHistoryRefsToLabels(row.itemLabels, deliveryHistoryByLabelId),
+        }));
+        inventoryLabelMap = attachDeliveryHistoryRefsToLabelMap(inventoryLabelMap, deliveryHistoryByLabelId);
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
         const invSupplierMap = new Map<number, { supplierName: string | null; supplierUrl: string | null; ebayListingUrl: string | null; quantity: number | null }>();
         for (const inv of localInventoryRows) {

@@ -50,6 +50,7 @@ import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import {
   deriveZeroStockPurchaseStatusForItem,
+  effectiveZeroStockLabelStatuses,
   normalizedZeroStockStatus,
   type ZeroStockPurchaseStatus,
 } from "@/inventory/pages/purchaseRegistrationZeroStock";
@@ -88,6 +89,8 @@ interface InventoryItemLabel {
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
   assignedInvoiceNo?: string | null;
+  outboundBoxId?: number | null;
+  deliveryHistoryId?: number | null;
 }
 
 interface PurchaseItem {
@@ -821,8 +824,9 @@ function zeroStockPurchaseStatusForItem(
 ): { kind: ZeroStockPurchaseStatus; label: string; inboundWaiting: boolean } | null {
   const itemStatus = normalizedLabelStatus(item.status);
   const labels = getItemLabels([item]);
-  const labelStatuses = labels.map((label) => normalizedLabelStatus(label.status));
-  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [item] });
+  const labelStatuses = effectiveZeroStockLabelStatuses(labels);
+  const effectiveLabels = labels.map((label, index) => ({ ...label, status: labelStatuses[index] }));
+  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [{ ...item, itemLabels: effectiveLabels }] });
   return deriveZeroStockPurchaseStatusForItem({ itemStatus, labelStatuses, rowStatus });
 }
 

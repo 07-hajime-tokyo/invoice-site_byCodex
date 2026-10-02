@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveZeroStockPurchaseStatusForItem } from "./purchaseRegistrationZeroStock";
+import {
+  deriveZeroStockPurchaseStatusForItem,
+  effectiveZeroStockLabelStatuses,
+} from "./purchaseRegistrationZeroStock";
 
 describe("deriveZeroStockPurchaseStatusForItem", () => {
   it("treats supplier-shipped zero stock rows as inbound waiting when labels are still ordered", () => {
@@ -62,5 +65,35 @@ describe("deriveZeroStockPurchaseStatusForItem", () => {
         rowStatus: "received",
       })
     ).toBeNull();
+  });
+});
+
+describe("effectiveZeroStockLabelStatuses", () => {
+  it("keeps shipped labels only when they are tied to a delivery history", () => {
+    expect(
+      effectiveZeroStockLabelStatuses([
+        { status: "shipped", deliveryHistoryId: 34 },
+        { status: "shipped", deliveryHistoryId: null },
+        { status: "ordered", deliveryHistoryId: null },
+      ])
+    ).toEqual(["shipped", "", "ordered"]);
+  });
+
+  it("keeps supplier-shipped zero stock rows inbound waiting when no delivery history exists", () => {
+    const labelStatuses = effectiveZeroStockLabelStatuses([
+      { status: "shipped", deliveryHistoryId: null },
+    ]);
+
+    expect(
+      deriveZeroStockPurchaseStatusForItem({
+        itemStatus: "shipped",
+        labelStatuses,
+        rowStatus: "inbound_shipped",
+      })
+    ).toEqual({
+      kind: "inbound_waiting",
+      label: "入庫待ち",
+      inboundWaiting: true,
+    });
   });
 });
