@@ -221,4 +221,14 @@ describe("tradeStatus", () => {
     expect(isTradeIncompleteForList({ status: "complete", procurementTotal: 12300 })).toBe(false);
     expect(isTradeIncompleteForList({ status: "\u6b8b1", procurementTotal: 12300 })).toBe(true);
   });
+
+  it("hides closed-year complete rows even when procurement is missing", () => {
+    expect(
+      isTradeIncompleteForList({
+        status: "complete",
+        paymentDate: "2025-04-04",
+        procurementTotal: 0,
+      }),
+    ).toBe(false);
+  });
 });

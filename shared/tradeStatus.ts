@@ -15,7 +15,11 @@ export function isTradeProcurementMissing(procurementTotal: unknown) {
 export function isTradeIncompleteForList(row: {
   status: unknown;
   procurementTotal?: unknown;
+  paymentDate?: string | null;
 }) {
+  if (isTradeStatusComplete(row.status) && isClosedTradeYear(row.paymentDate)) {
+    return false;
+  }
   return !isTradeStatusComplete(row.status) || isTradeProcurementMissing(row.procurementTotal);
 }
 
