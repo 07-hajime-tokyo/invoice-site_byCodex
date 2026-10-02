@@ -368,6 +368,7 @@ function InventoryDetailToggle({
   quantity,
   unit,
   labelId,
+  managementNo: historyManagementNo,
   isOpen,
   onToggle,
   onDeleted,
@@ -388,6 +389,7 @@ function InventoryDetailToggle({
   quantity: number;
   unit: string;
   labelId?: string;
+  managementNo?: string | null;
   isOpen: boolean;
   onToggle: () => void;
   onDeleted?: (historyId: number, id: number) => void;
@@ -413,7 +415,8 @@ function InventoryDetailToggle({
   if (isDeletedFromZaico && onDeleted) {
     onDeleted(historyId, inventoryId);
   }
-  const managementNo = getManagementNo(inv?.etc);
+  const inventoryManagementNo = getManagementNo(inv?.etc);
+  const managementNo = inventoryManagementNo || historyManagementNo?.trim() || "";
   const supplierSite = getSupplierSite(inv?.etc);
   const unitPrice = inv?.purchase_unit_price ?? inv?.unit_price;
   const displayCategory = inv?.categories?.[0] ?? inv?.category ?? "-";
@@ -2830,6 +2833,7 @@ export default function DeliveryHistory() {
                               quantity={item.quantity}
                               unit=""
                               labelId={item.labelId}
+                              managementNo={item.managementNo}
                               isOpen={!!openItems[itemKey]}
                               onToggle={() => toggleItem(history.id, item.inventoryId)}
                               onDeleted={handleDeleted}
