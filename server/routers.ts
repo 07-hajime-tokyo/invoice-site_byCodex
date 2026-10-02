@@ -12,7 +12,12 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { inventoryRouter } from "./inventory/routers";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
-import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
+import {
+  deriveTradeShipmentRegistrationStatus,
+  isClosedTradeYear,
+  isTradeIncompleteForList,
+  isTradeStatusComplete,
+} from "@shared/tradeStatus";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "@shared/invoiceKey";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -1769,10 +1774,10 @@ export const appRouter = router({
             })
           : rowsWithComputedStatus;
         const matchingRows = input.incompleteOnly
-          ? statusFilteredRows.filter((row) => !isTradeStatusComplete(row.status))
+          ? statusFilteredRows.filter((row) => isTradeIncompleteForList(row))
           : statusFilteredRows;
         const rows = matchingRows.slice(offset, offset + input.pageSize);
-        const completedRowsForProfit = matchingRows.filter((row) => isTradeStatusComplete(row.status));
+        const completedRowsForProfit = matchingRows.filter((row) => !isTradeIncompleteForList(row));
         const partnerCount = new Set(
           matchingRows
             .map((row) => row.partner?.trim())

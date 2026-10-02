@@ -3,13 +3,25 @@ export function isTradeStatusComplete(status: unknown) {
   return normalized === "complete" || normalized === "\u5b8c\u4e86";
 }
 
+export function isTradeProcurementMissing(procurementTotal: unknown) {
+  const text = String(procurementTotal ?? "")
+    .replace(/[,\s￥¥]/g, "")
+    .trim();
+  if (!text) return true;
+  const value = Number(text);
+  return !Number.isFinite(value) || value <= 0;
+}
+
+export function isTradeIncompleteForList(row: {
+  status: unknown;
+  procurementTotal?: unknown;
+}) {
+  return !isTradeStatusComplete(row.status) || isTradeProcurementMissing(row.procurementTotal);
+}
+
 export function isTradeRemainingStatus(status: unknown) {
   const normalized = String(status ?? "").trim().toLowerCase();
   return /^\u6b8b\s*[0-9\uff10-\uff19]/.test(normalized) || /^remaining\s*[0-9]/.test(normalized);
-}
-
-function isTradeShipmentRegistrationIncompleteStatus(status: unknown) {
-  return String(status ?? "").includes("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86");
 }
 
 export function isClosedTradeYear(paymentDate?: string | null) {
@@ -43,14 +55,14 @@ export function deriveTradeShipmentRegistrationStatus(input: {
     input.actualShippedQty !== undefined ||
     input.registeredQty > 0 ||
     fedexRegisteredQty > 0;
+  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
+    return "complete";
+  }
   if (isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty && !input.hasShipmentSignal) {
     return "";
   }
-  if (isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty) return currentStatus;
-  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
-    return isTradeStatusComplete(currentStatus) || isTradeShipmentRegistrationIncompleteStatus(currentStatus)
-      ? "complete"
-      : currentStatus;
+  if (!hasSiteShipmentQty && input.hasShipmentSignal) {
+    return isTradeRemainingStatus(currentStatus) ? "" : currentStatus;
   }
 
   if (isTradeStatusComplete(currentStatus)) {
