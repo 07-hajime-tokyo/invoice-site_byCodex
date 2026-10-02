@@ -1,13 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSiteResultMaps,
   buildPendingTaskDetail,
   buildCrawlFailedTaskDetail,
   buildStaleTaskDetail,
   collectReceiptAckFailedSites,
+  deriveStatusFromIngest,
   isReceiptAckStale,
   resolveReceiptAckNoteFromCrawlItem,
   shouldRecheckReceiptAckCandidate,
 } from "./receiptAck";
+
+function makeReceiptAckRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    supplierUrl: "https://page.auctions.yahoo.co.jp/jp/auction/c1231839191",
+    receiptAckStatus: null,
+    receiptAckSource: null,
+    receiptAckAt: null,
+    receiptAckNote: null,
+    ...overrides,
+  } as any;
+}
+
+function deriveReceiptAckForTest(rowOverrides: Record<string, unknown>, payload: Parameters<typeof buildSiteResultMaps>[0]) {
+  const row = makeReceiptAckRow(rowOverrides);
+  return deriveStatusFromIngest(row, payload, buildSiteResultMaps(payload));
+}
 
 describe("receiptAck server helpers", () => {
   it("対象商品が0件でも巡回失敗サイトをタスク詳細に残す", () => {
@@ -65,5 +84,109 @@ describe("receiptAck server helpers", () => {
     expect(resolveReceiptAckNoteFromCrawlItem("yahuoku", { status: "shipped", isStore: true }, "not_required")).toBe(
       "ヤフオクのストア出品のため受取評価不要"
     );
+  });
+
+  it("ヤフオクの商品が巡回結果に無くても既に済なら据え置く", () => {
+    const receiptAckAt = new Date("2026-09-24T10:00:00.000Z");
+    const next = deriveReceiptAckForTest(
+      {
+        receiptAckStatus: "done",
+        receiptAckSource: "crawl",
+        receiptAckAt,
+        receiptAckNote: "取引が完了しました",
+      },
+      {
+        crawledAt: "2026-10-02T01:00:00.000Z",
+        sites: [{ site: "yahuoku", ok: true, items: [] }],
+      },
+    );
+
+    expect(next).toEqual({
+      status: "done",
+      source: "crawl",
+      at: receiptAckAt,
+      note: "取引が完了しました",
+    });
+  });
+
+  it("ヤフオクの商品が巡回結果に無い手動済みはmanualのまま据え置く", () => {
+    const receiptAckAt = new Date("2026-09-24T10:00:00.000Z");
+    const next = deriveReceiptAckForTest(
+      {
+        receiptAckStatus: "done",
+        receiptAckSource: "manual",
+        receiptAckAt,
+        receiptAckNote: "手動で済にした",
+      },
+      {
+        crawledAt: "2026-10-02T01:00:00.000Z",
+        sites: [{ site: "yahuoku", ok: true, items: [] }],
+      },
+    );
+
+    expect(next).toEqual({
+      status: "done",
+      source: "manual",
+      at: receiptAckAt,
+      note: "手動で済にした",
+    });
+  });
+
+  it("ヤフオクの商品が巡回結果に無くpendingなら従来通り判定不可にする", () => {
+    const next = deriveReceiptAckForTest(
+      { receiptAckStatus: "pending", receiptAckSource: "crawl" },
+      {
+        crawledAt: "2026-10-02T01:00:00.000Z",
+        sites: [{ site: "yahuoku", ok: true, items: [] }],
+      },
+    );
+
+    expect(next.status).toBe("unknown");
+    expect(next.source).toBe("crawl");
+    expect(next.note).toBe("落札一覧に見つかりません");
+    expect(next.at.toISOString()).toBe("2026-10-02T01:00:00.000Z");
+  });
+
+  it("ヤフオクの商品が巡回結果に含まれると既存済みより巡回内容を優先する", () => {
+    const next = deriveReceiptAckForTest(
+      {
+        receiptAckStatus: "done",
+        receiptAckSource: "crawl",
+        receiptAckAt: new Date("2026-09-24T10:00:00.000Z"),
+        receiptAckNote: "取引が完了しました",
+      },
+      {
+        crawledAt: "2026-10-02T01:00:00.000Z",
+        sites: [{ site: "yahuoku", ok: true, items: [{ itemId: "c1231839191", status: "awaiting_review" }] }],
+      },
+    );
+
+    expect(next).toEqual({
+      status: "pending",
+      source: "crawl",
+      at: new Date("2026-10-02T01:00:00.000Z"),
+      note: "awaiting_review",
+    });
+  });
+
+  it("メルカリの商品が巡回結果に無い場合は従来通り完了扱いにする", () => {
+    const next = deriveReceiptAckForTest(
+      {
+        supplierUrl: "https://jp.mercari.com/item/m12345678901",
+        receiptAckStatus: "pending",
+        receiptAckSource: "crawl",
+      },
+      {
+        crawledAt: "2026-10-02T01:00:00.000Z",
+        sites: [{ site: "mercari", ok: true, items: [] }],
+      },
+    );
+
+    expect(next).toEqual({
+      status: "done",
+      source: "crawl",
+      at: new Date("2026-10-02T01:00:00.000Z"),
+      note: "未完了一覧に無いため完了扱い",
+    });
   });
 });

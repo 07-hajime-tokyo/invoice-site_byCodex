@@ -175,7 +175,7 @@ async function updateReceiptAckStatus(db: AppDatabase, row: LocalPurchaseRow, ne
   return true;
 }
 
-function buildSiteResultMaps(payload: ReceiptAckIngestPayload) {
+export function buildSiteResultMaps(payload: ReceiptAckIngestPayload) {
   const siteResults = new Map<ReceiptAckSite, (typeof payload.sites)[number]>();
   const itemsBySite = new Map<ReceiptAckSite, Map<string, z.infer<typeof receiptAckCrawlItemSchema>>>();
 
@@ -191,7 +191,7 @@ function buildSiteResultMaps(payload: ReceiptAckIngestPayload) {
   return { siteResults, itemsBySite };
 }
 
-function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngestPayload, maps: ReturnType<typeof buildSiteResultMaps>): ReceiptAckUpdate {
+export function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngestPayload, maps: ReturnType<typeof buildSiteResultMaps>): ReceiptAckUpdate {
   const crawledAt = asCrawledAt(payload.crawledAt);
   const classification = classifyReceiptAckUrl(row.supplierUrl);
 
@@ -248,6 +248,15 @@ function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAckIngest
       source: "crawl",
       at: crawledAt,
       note: "未完了一覧に無いため完了扱い",
+    };
+  }
+
+  if (row.receiptAckStatus === "done") {
+    return {
+      status: "done",
+      source: row.receiptAckSource === "manual" ? "manual" : "crawl",
+      at: row.receiptAckAt ?? crawledAt,
+      note: cleanNote(row.receiptAckNote),
     };
   }
 
