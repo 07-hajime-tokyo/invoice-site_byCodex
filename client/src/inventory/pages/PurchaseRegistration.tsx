@@ -49,6 +49,11 @@ import { FedexShipmentDialog, type HistoryItem } from "@/inventory/pages/Deliver
 import { getCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { normalizeExternalUrl } from "@/inventory/lib/supplier";
 import {
+  deriveZeroStockPurchaseStatusForItem,
+  normalizedZeroStockStatus,
+  type ZeroStockPurchaseStatus,
+} from "@/inventory/pages/purchaseRegistrationZeroStock";
+import {
   Boxes,
   CalendarDays,
   Check,
@@ -140,7 +145,6 @@ type StatusFilter = "all" | "ordered" | "received" | "missing_tracking";
 type WorkflowTab = "order" | "labels" | "scan" | "stock" | "shipping" | "returns";
 type StockViewMode = "list" | "proposal";
 type TrackingFormState = { shipDate: string; trackingNumber: string; carrier: "auto" | Carrier };
-type ZeroStockPurchaseStatus = "shipped" | "inbound_waiting" | "inspection_waiting";
 
 type PurchaseEditFormState = {
   title: string;
@@ -818,33 +822,8 @@ function zeroStockPurchaseStatusForItem(
   const itemStatus = normalizedLabelStatus(item.status);
   const labels = getItemLabels([item]);
   const labelStatuses = labels.map((label) => normalizedLabelStatus(label.status));
-
-  if ((labelStatuses.length > 0 && labelStatuses.every((status) => status === "shipped")) || itemStatus === "shipped") {
-    return { kind: "shipped", label: "出庫済み", inboundWaiting: false };
-  }
-
-  if (
-    itemStatus === "returned" ||
-    itemStatus === "cancelled" ||
-    labelStatuses.some((status) => status === "returned" || status === "cancelled")
-  ) {
-    return null;
-  }
-
-  if (labelStatuses.some((status) => status === "received") || itemStatus === "received") {
-    return { kind: "inspection_waiting", label: "動作確認待ち", inboundWaiting: false };
-  }
-
-  if (labelStatuses.some((status) => status === "stocked") || itemStatus === "stocked") {
-    return null;
-  }
-
   const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [item] });
-  if (rowStatus === "ordered" || rowStatus === "inbound_shipped" || itemStatus === "ordered") {
-    return { kind: "inbound_waiting", label: "入庫待ち", inboundWaiting: true };
-  }
-
-  return null;
+  return deriveZeroStockPurchaseStatusForItem({ itemStatus, labelStatuses, rowStatus });
 }
 
 function zeroStockPurchaseItems(row: PurchaseRow, inventories?: InventoryItem[]): PurchaseItem[] {
@@ -1266,7 +1245,7 @@ function buildSearchText(row: PurchaseRow): string {
 type PurchaseRowStatusKind = "ordered" | "inbound_shipped" | "received" | "partial_shipped" | "shipped";
 
 function normalizedLabelStatus(status?: string | null): string {
-  return (status ?? "").trim().toLowerCase();
+  return normalizedZeroStockStatus(status);
 }
 
 function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {
