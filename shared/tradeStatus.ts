@@ -43,6 +43,9 @@ export function deriveTradeShipmentRegistrationStatus(input: {
     input.actualShippedQty !== undefined ||
     input.registeredQty > 0 ||
     fedexRegisteredQty > 0;
+  if (invoiceNo > 399 && isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty && !input.hasShipmentSignal) {
+    return "";
+  }
   if (isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty) return currentStatus;
   if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
     return isTradeStatusComplete(currentStatus) || isTradeShipmentRegistrationIncompleteStatus(currentStatus)

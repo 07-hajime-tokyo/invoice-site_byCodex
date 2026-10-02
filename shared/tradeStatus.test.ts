@@ -112,6 +112,19 @@ describe("tradeStatus", () => {
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09");
   });
 
+  it("does not show simple sheet remaining status before shipment registration starts", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u6b8b6",
+        invoiceNo: 419,
+        orderedQty: 6,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: false,
+      }),
+    ).toBe("");
+  });
+
   it("replaces sheet remaining count with site shipment remaining count", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({

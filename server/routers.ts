@@ -1741,16 +1741,10 @@ export const appRouter = router({
         const orderExpr = input.sortDir === "desc" ? desc(sortColumn) : asc(sortColumn);
         const offset = (input.page - 1) * input.pageSize;
         const toNumber = (value: unknown) => Number(value ?? 0) || 0;
-        const [sheetProgress, invoiceMemos] = await Promise.all([
-          getSheetShipmentProgressByInvoice().catch((error) => {
-            console.warn("[Trade] Failed to load sheet shipment progress", error);
-            return null;
-          }),
-          getAllInvoiceMemos().catch((error) => {
-            console.warn("[Trade] Failed to load manual complete invoice memos", error);
-            return [];
-          }),
-        ]);
+        const invoiceMemos = await getAllInvoiceMemos().catch((error) => {
+          console.warn("[Trade] Failed to load manual complete invoice memos", error);
+          return [];
+        });
         const manualCompleteSet = new Set<string>(
           invoiceMemos
             .filter((memo) => memo.colorKey === "__manual_complete__" && memo.memo === "1")
@@ -1760,10 +1754,7 @@ export const appRouter = router({
           ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
           : await db.select().from(tradeRecords).orderBy(orderExpr);
         const baseRows = await applyDisplayedEuroRateRepairs(db, baseRowsFromDb);
-        const rowsWithSheetStatus = sheetProgress
-          ? applySheetShipmentStatuses(baseRows, sheetProgress)
-          : baseRows;
-        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithSheetStatus, manualCompleteSet);
+        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(baseRows, manualCompleteSet);
         const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithManualCompleteStatus);
         const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
           rowsWithManualCompleteStatus,
