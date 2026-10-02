@@ -123,6 +123,16 @@ describe("tradeStatus", () => {
         hasShipmentSignal: false,
       }),
     ).toBe("");
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u6b8b5",
+        invoiceNo: 399,
+        orderedQty: 5,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: false,
+      }),
+    ).toBe("");
   });
 
   it("replaces sheet remaining count with site shipment remaining count", () => {
