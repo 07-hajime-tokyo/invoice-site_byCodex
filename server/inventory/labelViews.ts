@@ -5,9 +5,12 @@ export type InventoryItemLabelView = Pick<InventoryItemLabel, "labelId"> &
   Partial<
     Pick<
       InventoryItemLabel,
-      "id" | "status" | "legacyManagementNo" | "localInventoryId" | "assignedInvoiceNo"
+      "id" | "status" | "legacyManagementNo" | "localInventoryId" | "assignedInvoiceNo" | "outboundBoxId"
     >
-  >;
+  > & {
+    /** 出庫履歴から計算して付与する参照（inventory_item_labels のカラムではない）。 */
+    deliveryHistoryId?: number | null;
+  };
 
 export function toInventoryItemLabelView(
   label: InventoryItemLabelView
@@ -19,6 +22,8 @@ export function toInventoryItemLabelView(
     legacyManagementNo: label.legacyManagementNo,
     localInventoryId: label.localInventoryId,
     assignedInvoiceNo: label.assignedInvoiceNo ?? null,
+    outboundBoxId: label.outboundBoxId ?? null,
+    deliveryHistoryId: label.deliveryHistoryId ?? null,
   };
 }
 

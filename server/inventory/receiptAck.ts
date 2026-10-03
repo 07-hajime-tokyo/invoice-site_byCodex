@@ -29,8 +29,10 @@ import {
 export {
   buildCrawlFailedTaskDetail,
   buildPendingTaskDetail,
+  buildSiteResultMaps,
   buildStaleTaskDetail,
   collectReceiptAckFailedSites,
+  deriveStatusFromIngest,
   isReceiptAckStale,
   receiptAckIngestSchema,
   resolveReceiptAckNoteFromCrawlItem,

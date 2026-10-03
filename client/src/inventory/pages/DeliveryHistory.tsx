@@ -1316,6 +1316,7 @@ export default function DeliveryHistory() {
                               quantity={item.quantity}
                               unit=""
                               labelId={item.labelId}
+                              managementNo={item.managementNo}
                               isOpen={!!openItems[itemKey]}
                               onToggle={() => toggleItem(history.id, item.inventoryId)}
                               onDeleted={handleDeleted}

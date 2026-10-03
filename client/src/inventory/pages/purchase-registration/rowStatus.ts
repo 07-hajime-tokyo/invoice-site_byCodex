@@ -1,6 +1,7 @@
 // Label-level outbound state takes precedence over the purchase header here.
 // This is intentionally different from the inbound purchases list status.
 import type { PurchaseRow } from "./dataTypes";
+import { normalizedZeroStockStatus } from "../purchaseRegistrationZeroStock";
 import { getItemLabels } from "./purchaseItems";
 import { hasPurchaseTracking } from "./tracking";
 
@@ -11,7 +12,7 @@ export function isReceived(row: PurchaseRow): boolean {
 }
 
 export function normalizedLabelStatus(status?: string | null): string {
-  return (status ?? "").trim().toLowerCase();
+  return normalizedZeroStockStatus(status);
 }
 
 export function purchaseRowStatusKind(row: PurchaseRow): PurchaseRowStatusKind {

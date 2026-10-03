@@ -7,6 +7,8 @@ export interface InventoryItemLabel {
   legacyManagementNo?: string | null;
   localInventoryId?: number | null;
   assignedInvoiceNo?: string | null;
+  outboundBoxId?: number | null;
+  deliveryHistoryId?: number | null;
 }
 
 export interface PurchaseItem {

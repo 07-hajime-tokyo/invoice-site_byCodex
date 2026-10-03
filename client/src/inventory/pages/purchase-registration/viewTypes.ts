@@ -28,7 +28,9 @@ export interface LabelView {
 
 export type LabelPrintRequest = (labels: LabelView[]) => void;
 
-export type ZeroStockPurchaseStatus = "shipped" | "inbound_waiting" | "inspection_waiting";
+import type { ZeroStockPurchaseStatus } from "../purchaseRegistrationZeroStock";
+
+export type { ZeroStockPurchaseStatus };
 
 export interface StockItemView {
   key: string;

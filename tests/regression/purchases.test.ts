@@ -216,6 +216,7 @@ describe("入庫一覧: 整理前のHTTP/API/DBの振る舞い", () => {
       const projection = [
         "collectInventoryIds",
         "getInventoryItemLabelsByInventoryIds",
+        "deliveryHistoryLabelMap",
         "prepareSupplierMap",
         "supplierMapQuery",
         "mapRows",

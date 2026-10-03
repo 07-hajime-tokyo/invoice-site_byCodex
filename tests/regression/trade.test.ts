@@ -112,13 +112,13 @@ describe("trade.listFromDb: 整理前の一覧・フィルタ・ステータス�
     const res = await api.client.trade.listFromDb.query({});
     expect(res.rows.map(r => r.no)).toEqual([380, 381, 500]);
     expect(res.totalCount).toBe(3);
-    // 完了状態の行（complete）のみが利益に入る
-    expect(res.summary.totalProfit).toBe(20000);
+    // 完了扱いの行（complete・仕入額あり）のみが利益に入る（No<=399補正後の380も含む）
+    expect(res.summary.totalProfit).toBe(25000);
     expect(res.summary.totalSales).toBe(78000);
     expect(res.summary.totalQty).toBe(6);
     expect(res.summary.partners).toBe(3);
-    // No<=399 の未完了ステータスはそのまま保持される
-    expect(res.rows.find(r => r.no === 380)?.status).toBe("途中");
+    // No<=399 で発送記録が無い行はステータスをcompleteに補正する
+    expect(res.rows.find(r => r.no === 380)?.status).toBe("complete");
     // No>399 で発送記録が無い未完了行はステータス据え置き
     expect(res.rows.find(r => r.no === 500)?.status).toBe("");
   });

@@ -5,7 +5,12 @@ import { protectedProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
-import { deriveTradeShipmentRegistrationStatus, isClosedTradeYear, isTradeStatusComplete } from "@shared/tradeStatus";
+import {
+  deriveTradeShipmentRegistrationStatus,
+  isClosedTradeYear,
+  isTradeIncompleteForList,
+  isTradeStatusComplete,
+} from "@shared/tradeStatus";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "@shared/invoiceKey";
 import { tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
 import { eq, desc, asc, or, like, and, sql, isNotNull, inArray } from "drizzle-orm";
@@ -1177,16 +1182,10 @@ export const tradeRouter = router({
         const orderExpr = input.sortDir === "desc" ? desc(sortColumn) : asc(sortColumn);
         const offset = (input.page - 1) * input.pageSize;
         const toNumber = (value: unknown) => Number(value ?? 0) || 0;
-        const [sheetProgress, invoiceMemos] = await Promise.all([
-          getSheetShipmentProgressByInvoice().catch((error) => {
-            console.warn("[Trade] Failed to load sheet shipment progress", error);
-            return null;
-          }),
-          getAllInvoiceMemos().catch((error) => {
-            console.warn("[Trade] Failed to load manual complete invoice memos", error);
-            return [];
-          }),
-        ]);
+        const invoiceMemos = await getAllInvoiceMemos().catch((error) => {
+          console.warn("[Trade] Failed to load manual complete invoice memos", error);
+          return [];
+        });
         const manualCompleteSet = new Set<string>(
           invoiceMemos
             .filter((memo) => memo.colorKey === "__manual_complete__" && memo.memo === "1")
@@ -1196,10 +1195,7 @@ export const tradeRouter = router({
           ? await db.select().from(tradeRecords).where(whereClause).orderBy(orderExpr)
           : await db.select().from(tradeRecords).orderBy(orderExpr);
         const baseRows = await applyDisplayedEuroRateRepairs(db, baseRowsFromDb);
-        const rowsWithSheetStatus = sheetProgress
-          ? applySheetShipmentStatuses(baseRows, sheetProgress)
-          : baseRows;
-        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(rowsWithSheetStatus, manualCompleteSet);
+        const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(baseRows, manualCompleteSet);
         const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithManualCompleteStatus);
         const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
           rowsWithManualCompleteStatus,
@@ -1214,10 +1210,10 @@ export const tradeRouter = router({
             })
           : rowsWithComputedStatus;
         const matchingRows = input.incompleteOnly
-          ? statusFilteredRows.filter((row) => !isTradeStatusComplete(row.status))
+          ? statusFilteredRows.filter((row) => isTradeIncompleteForList(row))
           : statusFilteredRows;
         const rows = matchingRows.slice(offset, offset + input.pageSize);
-        const completedRowsForProfit = matchingRows.filter((row) => isTradeStatusComplete(row.status));
+        const completedRowsForProfit = matchingRows.filter((row) => !isTradeIncompleteForList(row));
         const partnerCount = new Set(
           matchingRows
             .map((row) => row.partner?.trim())

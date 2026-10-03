@@ -38,6 +38,8 @@ describe("ラベル表示・重複排除", () => {
       localInventoryId: 10,
       legacyManagementNo: undefined,
       assignedInvoiceNo: null,
+      outboundBoxId: null,
+      deliveryHistoryId: null,
     });
     expect(source.title).toBe("非表示項目");
   });

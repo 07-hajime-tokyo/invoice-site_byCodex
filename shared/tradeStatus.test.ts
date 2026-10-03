@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   deriveTradeShipmentRegistrationStatus,
   formatRemainingQty,
+  isTradeIncompleteForList,
+  isTradeProcurementMissing,
   isTradeRemainingStatus,
   isTradeStatusComplete,
 } from "./tradeStatus";
@@ -89,12 +91,12 @@ describe("tradeStatus", () => {
     ).toBe("complete");
     expect(
       deriveTradeShipmentRegistrationStatus({
-        status: "\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09",
+        status: "\u6b8b5",
         invoiceNo: 399,
         orderedQty: 5,
         registeredQty: 0,
-        actualShippedQty: 5,
-        hasShipmentSignal: true,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: false,
       }),
     ).toBe("complete");
   });
@@ -110,6 +112,52 @@ describe("tradeStatus", () => {
         hasShipmentSignal: false,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09");
+  });
+
+  it("does not show simple sheet remaining status before shipment registration starts", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u6b8b6",
+        invoiceNo: 419,
+        orderedQty: 6,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: false,
+      }),
+    ).toBe("");
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u6b8b5",
+        invoiceNo: 399,
+        orderedQty: 5,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: false,
+      }),
+    ).toBe("complete");
+  });
+
+  it("does not leak invoice-level FedEx registration into unrelated product rows", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "\u6b8b6",
+        invoiceNo: 419,
+        orderedQty: 6,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("");
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "complete",
+        invoiceNo: 419,
+        orderedQty: 6,
+        registeredQty: 0,
+        fedexRegisteredQty: 0,
+        hasShipmentSignal: true,
+      }),
+    ).toBe("complete");
   });
 
   it("replaces sheet remaining count with site shipment remaining count", () => {
@@ -163,5 +211,24 @@ describe("tradeStatus", () => {
   it("formats fractional quantities without noisy decimals", () => {
     expect(formatRemainingQty(1)).toBe("1");
     expect(formatRemainingQty(1.25)).toBe("1.25");
+  });
+
+  it("treats complete rows with missing procurement as incomplete for the trade list", () => {
+    expect(isTradeProcurementMissing(0)).toBe(true);
+    expect(isTradeProcurementMissing("¥0")).toBe(true);
+    expect(isTradeProcurementMissing("12,300")).toBe(false);
+    expect(isTradeIncompleteForList({ status: "complete", procurementTotal: 0 })).toBe(true);
+    expect(isTradeIncompleteForList({ status: "complete", procurementTotal: 12300 })).toBe(false);
+    expect(isTradeIncompleteForList({ status: "\u6b8b1", procurementTotal: 12300 })).toBe(true);
+  });
+
+  it("hides closed-year complete rows even when procurement is missing", () => {
+    expect(
+      isTradeIncompleteForList({
+        status: "complete",
+        paymentDate: "2025-04-04",
+        procurementTotal: 0,
+      }),
+    ).toBe(false);
   });
 });

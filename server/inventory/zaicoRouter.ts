@@ -89,7 +89,13 @@ import {
   getTrackingNumbersByInventoryIds,
   getInventoryExtraByZaicoId,
   getDb,
+  getAllDeliveryHistories,
 } from "./db";
+import {
+  attachDeliveryHistoryRefsToLabelMap,
+  attachDeliveryHistoryRefsToLabels,
+  liveDeliveryHistoryLabelIdMap,
+} from "./deliveryHistoryLabelRefs";
 import { protectedProcedure, router } from "../_core/trpc";
 
 /**
@@ -784,9 +790,17 @@ export const zaicoRouter = router({
             .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
           t.mark("collectInventoryIds");
-          const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+          let inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
             getInventoryItemLabelsByInventoryIds(invIds)
           );
+          const deliveryHistoryByLabelId = await t.step("deliveryHistoryLabelMap", async () =>
+            liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories())
+          );
+          localPurchaseRows = localPurchaseRows.map((row) => ({
+            ...row,
+            itemLabels: attachDeliveryHistoryRefsToLabels(row.itemLabels, deliveryHistoryByLabelId),
+          }));
+          inventoryLabelMap = attachDeliveryHistoryRefsToLabelMap(inventoryLabelMap, deliveryHistoryByLabelId);
           const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
           const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
           t.mark("prepareSupplierMap");
@@ -821,7 +835,11 @@ export const zaicoRouter = router({
           getAllPurchaseExtras(),
           getAllInventoryExtras(),
         ]);
-        const inventoriesWithLabels = await ensureStockLabelsForInventories(inventories);
+        const zaicoDeliveryHistoryByLabelId = liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories());
+        const inventoriesWithLabels = (await ensureStockLabelsForInventories(inventories)).map((inventory) => ({
+          ...inventory,
+          itemLabels: attachDeliveryHistoryRefsToLabels(inventory.itemLabels, zaicoDeliveryHistoryByLabelId),
+        }));
         const data = createExternalPurchaseMaps({ inventories: inventoriesWithLabels, extras, inventoryExtras });
         const rows = buildExternalPurchasePageRows(purchases, data, toInventoryItemLabelView);
 
@@ -861,9 +879,17 @@ export const zaicoRouter = router({
           .map((p) => p.localInventoryId)
             .filter((id): id is number => id != null);
         t.mark("collectInventoryIds");
-        const inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
+        let inventoryLabelMap = await t.step("getInventoryItemLabelsByInventoryIds", () =>
           getInventoryItemLabelsByInventoryIds(invIds)
         );
+        const deliveryHistoryByLabelId = await t.step("deliveryHistoryLabelMap", async () =>
+          liveDeliveryHistoryLabelIdMap(await getAllDeliveryHistories())
+        );
+        localPurchaseRows = localPurchaseRows.map((row) => ({
+          ...row,
+          itemLabels: attachDeliveryHistoryRefsToLabels(row.itemLabels, deliveryHistoryByLabelId),
+        }));
+        inventoryLabelMap = attachDeliveryHistoryRefsToLabelMap(inventoryLabelMap, deliveryHistoryByLabelId);
         const purchaseExtraMap = new Map(purchaseExtras.map((extra) => [extra.zaicoId, extra]));
         const invSupplierMap = createPurchaseInventoryMap(localInventoryRows);
         t.mark("prepareSupplierMap");

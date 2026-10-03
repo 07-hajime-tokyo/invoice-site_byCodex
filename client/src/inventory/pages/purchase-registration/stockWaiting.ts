@@ -1,5 +1,9 @@
 import type { InventoryItem, PurchaseItem, PurchaseRow } from "./dataTypes";
 import type { StockItemView, ZeroStockPurchaseStatus } from "./viewTypes";
+import {
+  deriveZeroStockPurchaseStatusForItem,
+  effectiveZeroStockLabelStatuses,
+} from "../purchaseRegistrationZeroStock";
 import { parsePurchaseEtc as parseEtc } from "@shared/purchaseMetadata";
 import { getSupplier } from "./supplier";
 import { purchaseRowStatusKind, normalizedLabelStatus } from "./rowStatus";
@@ -28,34 +32,10 @@ export function zeroStockPurchaseStatusForItem(
 ): { kind: ZeroStockPurchaseStatus; label: string; inboundWaiting: boolean } | null {
   const itemStatus = normalizedLabelStatus(item.status);
   const labels = getItemLabels([item]);
-  const labelStatuses = labels.map((label) => normalizedLabelStatus(label.status));
-
-  if ((labelStatuses.length > 0 && labelStatuses.every((status) => status === "shipped")) || itemStatus === "shipped") {
-    return { kind: "shipped", label: "出庫済み", inboundWaiting: false };
-  }
-
-  if (
-    itemStatus === "returned" ||
-    itemStatus === "cancelled" ||
-    labelStatuses.some((status) => status === "returned" || status === "cancelled")
-  ) {
-    return null;
-  }
-
-  if (labelStatuses.some((status) => status === "received") || itemStatus === "received") {
-    return { kind: "inspection_waiting", label: "動作確認待ち", inboundWaiting: false };
-  }
-
-  if (labelStatuses.some((status) => status === "stocked") || itemStatus === "stocked") {
-    return null;
-  }
-
-  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [item] });
-  if (rowStatus === "ordered" || rowStatus === "inbound_shipped" || itemStatus === "ordered") {
-    return { kind: "inbound_waiting", label: "入庫待ち", inboundWaiting: true };
-  }
-
-  return null;
+  const labelStatuses = effectiveZeroStockLabelStatuses(labels);
+  const effectiveLabels = labels.map((label, index) => ({ ...label, status: labelStatuses[index] }));
+  const rowStatus = purchaseRowStatusKind({ ...row, purchase_items: [{ ...item, itemLabels: effectiveLabels }] });
+  return deriveZeroStockPurchaseStatusForItem({ itemStatus, labelStatuses, rowStatus });
 }
 
 // The existing title resolver stays in the screen; construction does not call it.

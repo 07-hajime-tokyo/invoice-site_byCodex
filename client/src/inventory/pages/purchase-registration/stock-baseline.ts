@@ -14,6 +14,7 @@ import { getInventoryCategory, displayStockCategory, stockModelName, STOCK_MODEL
 import { labelStatusLabel } from "./labelStatus";
 import { labelAllocationLabel } from "./labelTitles";
 import { isInventoryPrintableLabel } from "./inventoryLabelViews";
+import { deriveZeroStockPurchaseStatusForItem, effectiveZeroStockLabelStatuses } from "../purchaseRegistrationZeroStock";
 
 export const STOCK_BASELINE_COMMIT = "608f1ea";
 export const stockBaselineNames = [
@@ -38,6 +39,6 @@ export function loadStockBaseline<T>(): T {
   }
   for (const name of stockBaselineNames) if (!selected.has(name)) throw new Error(`Missing baseline declaration: ${name}`);
   const code = ts.transpileModule([...selected.values()].join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-  const dependencies = { cleanLegacyManagementNo, parseEtc, getInventoryManagementNo, preferredManagementNo, getManagementNos, parseInvoiceFromManagementNo, getSupplier, toNumber, formatCurrency, formatTradePrice, normalizeCurrencyLabel, itemStockQuantity, itemQuantity, getItemLabels, purchaseRowStatusKind, statusLabel, normalizedLabelStatus, compactProductText, getInventoryCategory, displayStockCategory, stockModelName, STOCK_MODEL_ORDER, labelStatusLabel, labelAllocationLabel, isInventoryPrintableLabel };
+  const dependencies = { cleanLegacyManagementNo, parseEtc, getInventoryManagementNo, preferredManagementNo, getManagementNos, parseInvoiceFromManagementNo, getSupplier, toNumber, formatCurrency, formatTradePrice, normalizeCurrencyLabel, itemStockQuantity, itemQuantity, getItemLabels, purchaseRowStatusKind, statusLabel, normalizedLabelStatus, compactProductText, getInventoryCategory, displayStockCategory, stockModelName, STOCK_MODEL_ORDER, labelStatusLabel, labelAllocationLabel, isInventoryPrintableLabel, deriveZeroStockPurchaseStatusForItem, effectiveZeroStockLabelStatuses };
   return new Function(...Object.keys(dependencies), `${code}\nreturn {${stockBaselineNames.join(",")}};`)(...Object.values(dependencies)) as T;
 }

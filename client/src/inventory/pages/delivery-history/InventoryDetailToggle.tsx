@@ -22,6 +22,7 @@ export function InventoryDetailToggle({
   quantity,
   unit,
   labelId,
+  managementNo: historyManagementNo,
   isOpen,
   onToggle,
   onDeleted,
@@ -42,6 +43,7 @@ export function InventoryDetailToggle({
   quantity: number;
   unit: string;
   labelId?: string;
+  managementNo?: string | null;
   isOpen: boolean;
   onToggle: () => void;
   onDeleted?: (historyId: number, id: number) => void;
@@ -67,7 +69,8 @@ export function InventoryDetailToggle({
   if (isDeletedFromZaico && onDeleted) {
     onDeleted(historyId, inventoryId);
   }
-  const managementNo = getManagementNo(inv?.etc);
+  const inventoryManagementNo = getManagementNo(inv?.etc);
+  const managementNo = inventoryManagementNo || historyManagementNo?.trim() || "";
   const supplierSite = getSupplierSite(inv?.etc);
   const unitPrice = inv?.purchase_unit_price ?? inv?.unit_price;
   const displayCategory = inv?.categories?.[0] ?? inv?.category ?? "-";
@@ -91,6 +94,9 @@ export function InventoryDetailToggle({
           )}
           <span className="text-xs bg-muted-foreground/50 text-background rounded px-1 py-0.5 font-medium leading-none flex-shrink-0">削除済</span>
           <span className="line-through text-muted-foreground flex-1 truncate text-left">{title}</span>
+          {managementNo && !isOpen && (
+            <span className="text-xs text-muted-foreground flex-shrink-0">({managementNo})</span>
+          )}
           <span className="text-muted-foreground/60 text-xs flex-shrink-0">x {quantity}</span>
         </button>
         {isOpen && (
@@ -195,6 +201,7 @@ export function InventoryDetailToggle({
                 <XCircle className="h-6 w-6 mx-auto text-destructive/60" />
                 <p className="text-xs font-medium text-destructive">この商品は削除されています</p>
                 <p className="text-xs text-muted-foreground">{title} x {quantity}</p>
+                {managementNo && <p className="text-xs text-muted-foreground">管理番号: {managementNo}</p>}
               </div>
             )}
           </div>

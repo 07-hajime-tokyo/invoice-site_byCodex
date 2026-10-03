@@ -202,6 +202,15 @@ export function deriveStatusFromIngest(row: LocalPurchaseRow, payload: ReceiptAc
     };
   }
 
+  if (row.receiptAckStatus === "done") {
+    return {
+      status: "done",
+      source: row.receiptAckSource === "manual" ? "manual" : "crawl",
+      at: row.receiptAckAt ?? crawledAt,
+      note: cleanNote(row.receiptAckNote),
+    };
+  }
+
   return {
     status: resolveMissingReceiptAckTargetStatus(target.site, true),
     source: "crawl",
