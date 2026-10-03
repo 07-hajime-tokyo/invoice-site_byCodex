@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["./EditorToolbar.tsx", "./BackConfirmDialog.tsx", "./OverLimitDialog.tsx", "./SplitPreviewDialog.tsx", "./InvoiceContacts.tsx", "./editorControlsReference.tsx", "./editorControls.test.tsx"],
+  "exclude": []
+}

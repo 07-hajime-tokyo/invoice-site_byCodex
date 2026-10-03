@@ -1,4 +1,14 @@
-import { useEffect, useId, useMemo, useState, type ClipboardEvent } from "react";
+import {
+  ACTION_ITEM_ASSIGNEE_ORDER as ASSIGNEE_ORDER,
+  compareActionItemAssignees,
+} from "@shared/actionItems";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ClipboardEvent,
+} from "react";
 import { ImagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fileToActionItemAttachment,
@@ -32,8 +49,8 @@ type ActionItemFormProps = {
   onCancel?: () => void;
 };
 
-const DEFAULT_ASSIGNEES = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
-const ASSIGNEE_ORDER = ["全員", "仕入れ担当", "荷受担当", "出荷担当"];
+const DEFAULT_ASSIGNEES = new Set(ASSIGNEE_ORDER);
+
 const ADD_ASSIGNEE_VALUE = "__add_assignee__";
 const ADD_AUTHOR_VALUE = "__add_author__";
 
@@ -59,14 +76,7 @@ export function ActionItemForm({
     if (!merged.has("全員")) {
       merged.set("全員", { id: -1, name: "全員", sortOrder: 0, createdAt: new Date(0), updatedAt: new Date(0) });
     }
-    return Array.from(merged.values()).sort((a, b) => {
-      const aIndex = ASSIGNEE_ORDER.indexOf(a.name);
-      const bIndex = ASSIGNEE_ORDER.indexOf(b.name);
-      if (aIndex !== -1 || bIndex !== -1) {
-        return (aIndex === -1 ? ASSIGNEE_ORDER.length : aIndex) - (bIndex === -1 ? ASSIGNEE_ORDER.length : bIndex);
-      }
-      return a.name.localeCompare(b.name, "ja");
-    });
+    return Array.from(merged.values()).sort((a, b) => compareActionItemAssignees(a.name, b.name));
   }, [assignees]);
   const titles = options?.titles ?? [];
   const authors = options?.authors ?? [];

@@ -1,3 +1,6 @@
+import { inboundInvoiceAllocation, normalizeInboundTrackingNumber as normalizeTrackingNumber } from "@shared/inboundDesk";
+export { normalizeInboundTrackingNumber as normalizeTrackingNumber } from "@shared/inboundDesk";
+
 export type InboundLabel = {
   labelId: string;
   status: string;
@@ -46,22 +49,9 @@ export type InboundInvoiceSummary = {
   }>;
 };
 
-export function normalizeTrackingNumber(value: string): string {
-  return value.normalize("NFKC").trim().replace(/[\s-]/g, "").toLowerCase();
-}
-
 export function invoiceAllocation(value: string | null | undefined) {
-  const normalized = String(value ?? "")
-    .normalize("NFKC")
-    .trim();
-  const match = normalized.match(/^(\d{3})(?:_|$)/);
-  if (!match) return { invoiceNo: null, partner: null, label: "在庫用" };
-  const partner = normalized.split("_")[1]?.trim() || null;
-  return {
-    invoiceNo: match[1],
-    partner,
-    label: `No.${match[1]}${partner ? ` ${partner}` : ""}`,
-  };
+  const { invoiceNo, partner } = inboundInvoiceAllocation(value);
+  return { invoiceNo, partner, label: invoiceNo ? `No.${invoiceNo}${partner ? ` ${partner}` : ""}` : "在庫用" };
 }
 
 export function matchInboundLabels(
@@ -117,34 +107,7 @@ export function boxShippedLabel(box: InboundBox): { text: string; ageDays: numbe
 }
 
 export function groupInboundBoxes(labels: InboundLabel[]): InboundBox[] {
-  const boxes = new Map<string, InboundBox>();
-  for (const label of labels.filter(
-    candidate => candidate.status === "received"
-  )) {
-    const normalizedTracking = normalizeTrackingNumber(label.trackingNumber);
-    const key =
-      normalizedTracking || `no-tracking:${label.purchaseId ?? label.labelId}`;
-    const current = boxes.get(key);
-    if (current) {
-      current.labels.push(label);
-      if (
-        !current.receivedAt ||
-        (label.receivedAt && label.receivedAt < current.receivedAt)
-      ) {
-        current.receivedAt = label.receivedAt;
-      }
-      continue;
-    }
-    boxes.set(key, {
-      key,
-      trackingNumber: label.trackingNumber,
-      carrier: label.carrier,
-      supplierName: label.supplierName,
-      receivedAt: label.receivedAt,
-      labels: [label],
-    });
-  }
-  return Array.from(boxes.values()).sort((a, b) => {
+  return groupLabelsByTracking(labels.filter(candidate => candidate.status === "received")).sort((a, b) => {
     const aTime = a.receivedAt ? Date.parse(a.receivedAt) : 0;
     const bTime = b.receivedAt ? Date.parse(b.receivedAt) : 0;
     return aTime - bTime;

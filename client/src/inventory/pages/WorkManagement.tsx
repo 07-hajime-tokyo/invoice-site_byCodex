@@ -1,3 +1,21 @@
+import {
+  DURATION_PRESETS,
+  toLocalDateTimeInput,
+  formatDateTime,
+  parseNumber,
+  parseOptionalMinutes,
+  getDurationMinutes,
+  formatMinutes,
+  parseDetails,
+  hasDetails,
+  initialForm,
+  formFromLog,
+  initialSplitDraft,
+  resolveCategory,
+  createPayloadFromForm,
+  summarizeCompletedLogs,
+} from "./work-management/model";
+import type { WorkLogRecord, WorkOption, WorkLogForm, SplitDraft } from "./work-management/model";
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3, ChevronDown, ChevronRight, Clock3, GitBranch, Pencil, Play, Plus, RefreshCw, Save, Square, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
@@ -12,187 +30,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { setCurrentWorkWorkerName } from "@/inventory/lib/currentWorker";
 import { trpc } from "@/lib/trpc";
-
-type DateLike = string | Date | null | undefined;
-
-type WorkLogRecord = {
-  id: number;
-  workerName: string;
-  category: string;
-  status: string;
-  startedAt: DateLike;
-  endedAt: DateLike;
-  manualMinutes: number | null;
-  quantity: number;
-  memo: string | null;
-  sourceType: string | null;
-  sourceId: string | null;
-  detailsJson: string | null;
-  createdBy: string | null;
-  createdAt: DateLike;
-};
-
-type WorkOption = {
-  id: number;
-  name: string;
-  sortOrder: number;
-};
-
-type WorkLogForm = {
-  workerName: string;
-  category: string;
-  customCategory: string;
-  startedAt: string;
-  endedAt: string;
-  manualMinutes: string;
-  quantity: string;
-  memo: string;
-  status: "running" | "done";
-  sourceType?: string | null;
-  sourceId?: string | null;
-  detailsJson?: string | null;
-};
-
-type SplitDraft = {
-  category: string;
-  customCategory: string;
-  manualMinutes: string;
-  quantity: string;
-  memo: string;
-};
-
-type DeliveryDetails = {
-  deliveryNo?: string | null;
-  deliveryDate?: string | null;
-  trackingNumber?: string | null;
-  items?: Array<{
-    inventoryId?: number | string | null;
-    title?: string | null;
-    quantity?: number | string | null;
-    managementNo?: string | null;
-  }>;
-};
-
-const DURATION_PRESETS = [30, 60, 90, 120, 150, 180];
-
-function toDate(value: DateLike) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function toLocalDateTimeInput(date = new Date()) {
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
-function toInputDateTime(value: DateLike) {
-  const date = toDate(value);
-  return date ? toLocalDateTimeInput(date) : "";
-}
-
-function formatDateTime(value: DateLike) {
-  const date = toDate(value);
-  if (!date) return "-";
-  return date.toLocaleString("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function parseNumber(value: string, fallback = 0) {
-  const trimmed = value.trim();
-  if (!trimmed) return fallback;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : fallback;
-}
-
-function parseOptionalMinutes(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null;
-}
-
-function getDurationMinutes(log: WorkLogRecord, now: Date) {
-  if (typeof log.manualMinutes === "number") return log.manualMinutes;
-  const started = toDate(log.startedAt);
-  const ended = toDate(log.endedAt);
-  if (started && ended) return Math.max(0, Math.round((ended.getTime() - started.getTime()) / 60000));
-  if (log.status === "running" && started) return Math.max(0, Math.round((now.getTime() - started.getTime()) / 60000));
-  return 0;
-}
-
-function formatMinutes(minutes: number) {
-  if (minutes <= 0) return "0分";
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${rest}分`;
-  if (rest === 0) return `${hours}時間`;
-  return `${hours}時間${rest}分`;
-}
-
-function parseDetails(json: string | null | undefined): DeliveryDetails | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json) as DeliveryDetails;
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function hasDetails(log: WorkLogRecord) {
-  return log.sourceType === "delivery" && Boolean(parseDetails(log.detailsJson)?.items?.length);
-}
-
-function initialForm(): WorkLogForm {
-  return {
-    workerName: "鈴木",
-    category: "入庫登録",
-    customCategory: "",
-    startedAt: "",
-    endedAt: "",
-    manualMinutes: "",
-    quantity: "0",
-    memo: "",
-    status: "done",
-  };
-}
-
-function formFromLog(log: WorkLogRecord): WorkLogForm {
-  return {
-    workerName: log.workerName,
-    category: log.category,
-    customCategory: "",
-    startedAt: toInputDateTime(log.startedAt),
-    endedAt: toInputDateTime(log.endedAt),
-    manualMinutes: log.manualMinutes == null ? "" : String(log.manualMinutes),
-    quantity: String(log.quantity ?? 0),
-    memo: log.memo ?? "",
-    status: log.status === "running" ? "running" : "done",
-    sourceType: log.sourceType,
-    sourceId: log.sourceId,
-    detailsJson: log.detailsJson,
-  };
-}
-
-function initialSplitDraft(categoryOptions: WorkOption[] = []): SplitDraft {
-  const preferredCategory =
-    categoryOptions.find((item) => item.name === "出庫登録") ??
-    categoryOptions.find((item) => item.name !== "その他") ??
-    categoryOptions[0];
-  return {
-    category: preferredCategory?.name ?? "その他",
-    customCategory: "",
-    manualMinutes: "30",
-    quantity: "0",
-    memo: "",
-  };
-}
 
 export default function WorkManagement() {
   const utils = trpc.useUtils();
@@ -327,23 +164,7 @@ export default function WorkManagement() {
   const runningLogs = useMemo(() => logs.filter((log) => log.status === "running"), [logs]);
   const completedLogs = useMemo(() => logs.filter((log) => log.status !== "running"), [logs]);
 
-  const summary = useMemo(() => {
-    const totalMinutes = completedLogs.reduce((sum, log) => sum + getDurationMinutes(log, now), 0);
-    const totalQuantity = completedLogs.reduce((sum, log) => sum + log.quantity, 0);
-    const byCategory = new Map<string, { count: number; minutes: number; quantity: number }>();
-    for (const log of completedLogs) {
-      const current = byCategory.get(log.category) ?? { count: 0, minutes: 0, quantity: 0 };
-      current.count += 1;
-      current.minutes += getDurationMinutes(log, now);
-      current.quantity += log.quantity;
-      byCategory.set(log.category, current);
-    }
-    return {
-      totalMinutes,
-      totalQuantity,
-      categoryRows: Array.from(byCategory.entries()).map(([name, values]) => ({ name, ...values })),
-    };
-  }, [completedLogs, now]);
+  const summary = useMemo(() => summarizeCompletedLogs(completedLogs, now), [completedLogs, now]);
 
   const isMutating =
     startMutation.isPending ||
@@ -376,29 +197,6 @@ export default function WorkManagement() {
       ...(key === "category" && value !== "その他" ? { customCategory: "" } : {}),
     }));
   };
-
-  const resolveCategory = (target: WorkLogForm) => {
-    if (target.category === "その他") return target.customCategory.trim();
-    return target.category.trim();
-  };
-
-  const resolveSplitCategory = () => {
-    if (splitDraft.category === "その他") return splitDraft.customCategory.trim();
-    return splitDraft.category.trim();
-  };
-
-  const createPayloadFromForm = (target: WorkLogForm) => ({
-    workerName: target.workerName.trim(),
-    category: resolveCategory(target),
-    startedAt: target.startedAt || undefined,
-    endedAt: target.endedAt || undefined,
-    manualMinutes: parseOptionalMinutes(target.manualMinutes),
-    quantity: parseNumber(target.quantity),
-    memo: target.memo.trim() || undefined,
-    sourceType: target.sourceType ?? undefined,
-    sourceId: target.sourceId ?? undefined,
-    detailsJson: target.detailsJson ?? undefined,
-  });
 
   const handleStart = () => {
     const category = resolveCategory(form);
@@ -463,7 +261,7 @@ export default function WorkManagement() {
   };
 
   const handleSplit = (log: WorkLogRecord) => {
-    const category = resolveSplitCategory();
+    const category = resolveCategory(splitDraft);
     const manualMinutes = parseNumber(splitDraft.manualMinutes);
     const quantity = parseNumber(splitDraft.quantity);
     const duration = getDurationMinutes(log, now);

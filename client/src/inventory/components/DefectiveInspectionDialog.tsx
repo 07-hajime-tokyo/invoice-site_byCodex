@@ -13,17 +13,8 @@ import type { InboundLabel } from "@/inventory/lib/inboundDesk";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
-const DEFECT_TAG_OPTIONS = [
-  "通電せず", "起動しない", "画面不良", "バッテリー不良", "充電不可",
-  "ボタン・スティック不良", "外装破損", "付属品欠品", "その他",
-] as const;
-
-export type DefectTag = (typeof DEFECT_TAG_OPTIONS)[number];
-export type UploadedDefectPhoto = {
-  url: string;
-  key: string;
-  kind: "whole" | "defect" | "accessory";
-};
+import { DEFECT_TAGS as DEFECT_TAG_OPTIONS, type DefectTag } from "@shared/defectInspection";
+export type { DefectTag, DefectPhoto as UploadedDefectPhoto } from "@shared/defectInspection";
 
 export function fileAsBase64(file: File) {
   return new Promise<string>((resolve, reject) => {

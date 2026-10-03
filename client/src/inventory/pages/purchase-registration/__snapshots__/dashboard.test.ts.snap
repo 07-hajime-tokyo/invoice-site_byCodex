@@ -1,0 +1,1065 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registration cards/dashboard against 4037f50 > captures dashboard empty/stock/ebay/detail states and exact child callback forwarding 1`] = `
+[
+  {
+    "controls": [],
+    "hash": "3bd209dc75adc53c57c2a8e1167ea876db61e76b7ffd1119ccf8a944a8b7a4ab",
+    "text": "引当先を選ぶ 充足 1 / 3 点 仕入合計 ¥300 想定売上 - 想定粗利 - 充足状況 3DS LL ランダムカラー インボイス発注数 - 出庫数 - 必要 3 現在庫 1 入庫まち 2 仕入れ不足 0 平均仕入 ¥100 売価 - 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 3DS LL ランダムカラー - - 3 1 2 0 ¥100 - 仕入れ登録 1件 商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [],
+    "hash": "417ec2adc990a847fe267dbcc5d12f0db452d443ab0d6396bd125d1c5fded7ec",
+    "text": "引当先を選ぶ 充足 0 / 0 点 仕入合計 ¥0 想定売上 - 想定粗利 - 充足状況 表示できる商品がありません 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 表示できる商品がありません 仕入れ登録 0件 該当する仕入れ登録がありません 充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。",
+  },
+  {
+    "controls": [],
+    "hash": "6fecbc4869c33bc9e3a8be31426e7f53daebd7d022840c3d29c8fc04ff8a360e",
+    "text": "引当先を選ぶ 充足 0 / 0 点 仕入合計 ¥300 想定売上 - 想定粗利 - 充足状況 表示できる商品がありません 品目 現在庫 入庫まち 表示できる商品がありません 仕入れ登録 1件 現在庫 3点 商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 - 現在庫 1件 L1 現在庫 3点 旧管理番号: 405_相手_3DSLL 引当先: 405 編集 商品名 3DS LL 在庫数 3個 仕入単価 ¥100 入庫日 2026-09-01 仕入先 仕入先 開く",
+  },
+  {
+    "controls": [],
+    "hash": "5b29941a2008f50f1778e0aa3912b583450cc7eec48c6d25899fd39b1a3b7ffc",
+    "text": "仕入れ登録 1件 商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": undefined,
+        "disabled": undefined,
+        "text": "絞り込み解除",
+      },
+    ],
+    "hash": "7a406a0f24d18e91d8f4251c0426b9947c00c32b75efe568c698244289a5d94f",
+    "text": "引当先を選ぶ 充足 1 / 3 点 仕入合計 ¥0 想定売上 - 想定粗利 - 充足状況 3DS LL ランダムカラー インボイス発注数 - 出庫数 - 必要 3 現在庫 1 入庫まち 2 仕入れ不足 0 平均仕入 ¥100 売価 - 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 3DS LL ランダムカラー - - 3 1 2 0 ¥100 - 仕入れ登録 0件 現在庫すべて 絞り込み解除 該当する仕入れ登録がありません 充足状況の絞り込みを解除すると、すべての仕入れ登録を確認できます。",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "h-7 gap-1.5 px-2 text-xs",
+        "disabled": undefined,
+        "text": "出庫済みを表示1",
+      },
+    ],
+    "hash": "b70e790bcd85801ecff4d0105475aa63cd1271b2aa485888a723175783556d2b",
+    "text": "引当先を選ぶ 充足 1 / 3 点 仕入合計 ¥300 想定売上 - 想定粗利 - 充足状況 3DS LL ランダムカラー インボイス発注数 - 出庫数 - 必要 3 現在庫 1 入庫まち 2 仕入れ不足 0 平均仕入 ¥100 売価 - 品目 インボイス発注数 出庫数 必要 現在庫 入庫まち 仕入れ不足 平均仕入 売価 3DS LL ランダムカラー - - 3 1 2 0 ¥100 - 仕入れ登録 0件 出庫済みを表示 1 該当する仕入れ登録がありません 出庫済みを表示すると確認できます。",
+  },
+]
+`;
+
+exports[`registration cards/dashboard against 4037f50 > captures purchase cards, item/label caps, tracking variants and disabled actions 1`] = `
+[
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": false,
+        "text": "削除",
+      },
+    ],
+    "hash": "0063f3efc9ad228504445788c11e71bd2fb31357f745a817e63ab2fb97ba77e6",
+    "text": "商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "7ff9041606c5058fa19753ae897b9c9326b5b039606e0d4dc3abcef57b866fea",
+    "text": "商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "b0f58a82de03da28c54b629ff807a1d0ee7628b80ffa2df200de58e3566e5429",
+    "text": "商品ID未発行 発注済み 旧管理番号: - 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 発注数 0個 在庫数 0個 仕入単価 ¥0 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "fd1e6eae4b039a74712649910980058a4c693a6f14a153662839408bf3e3b50e",
+    "text": "商品ID未発行 発注済み 旧管理番号: - 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 発注数 0個 在庫数 0個 仕入単価 ¥0 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": false,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": false,
+        "text": "削除",
+      },
+    ],
+    "hash": "91e63165c0edc9adc6c95a264a888ff47ed9229352cfadcc37b68b177ded3741",
+    "text": "L0-0 L0-1 L1-0 L1-1 L2-0 L2-1 L3-0 L3-1 他4件 一部出庫済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先 L0-0 自動 No.405 L0-1 自動 No.405 L1-0 自動 No.405 L1-1 自動 No.405 他8件 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 商品0 商品1 商品2 商品3 他2件 発注数 18個 在庫数 6個 仕入単価 ¥100 発注日 2026-09-01 仕入先 Shop 開く",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": false,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "3c57ddd715077658fe9673bed559e4322d13f128ea6dee357457242bdebf1bee",
+    "text": "L0-0 L0-1 L1-0 L1-1 L2-0 L2-1 L3-0 L3-1 他4件 一部出庫済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先 L0-0 自動 No.405 L0-1 自動 No.405 L1-0 自動 No.405 L1-1 自動 No.405 他8件 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 商品0 商品1 商品2 商品3 他2件 発注数 18個 在庫数 6個 仕入単価 ¥100 発注日 2026-09-01 仕入先 Shop 開く",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": false,
+        "text": "削除",
+      },
+    ],
+    "hash": "5f5f572238d25fdd29f8e98d6308bd95e1cbd0366f24a04afc9560fa33bd3c51",
+    "text": "商品ID未発行 発送済み / 入庫待ち ヤマト運輸 追跡番号 1234-5678-9012 追跡 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を編集 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "15fda13f3b951d12168641dc3107ec0c9234da1d4a1417b1d4baddd7efe660d7",
+    "text": "商品ID未発行 発送済み / 入庫待ち ヤマト運輸 追跡番号 1234-5678-9012 追跡 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を編集 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700",
+        "disabled": undefined,
+        "text": "追跡",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": false,
+        "text": "削除",
+      },
+    ],
+    "hash": "9cc47ec7f23c0b3dc1c6c03a2c705da0e837487fb7de6961047708839364fa86",
+    "text": "商品ID未発行 発送済み / 入庫待ち エコ配 追跡番号 ECO-123 追跡 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を編集 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700",
+        "disabled": undefined,
+        "text": "追跡",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "2a795196e5d47cefa90053f49f9c9bb9ac23736205493cd10f851a0d66896a50",
+    "text": "商品ID未発行 発送済み / 入庫待ち エコ配 追跡番号 ECO-123 追跡 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を編集 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "3260830890e5f7a2f70a8211968af692b786b4f64a3a051d197d0484ec3bd403",
+    "text": "商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 0個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "追跡番号を登録",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": undefined,
+        "text": "出庫履歴",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 sm:w-fit",
+        "disabled": true,
+        "text": "ラベル印刷",
+      },
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+        "disabled": true,
+        "text": "削除",
+      },
+    ],
+    "hash": "4bae27842485bcbf87855451296d8be053f9a3a61138fa9a8f8437273316a9eb",
+    "text": "商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 0個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+  },
+]
+`;
+
+exports[`registration cards/dashboard against 4037f50 > captures purchase cards, item/label caps, tracking variants and disabled actions 2`] = `
+{
+  "controls": [
+    {
+      "ariaLabel": "3DS LLを選択",
+      "checked": true,
+      "className": "mt-1 shrink-0",
+      "disabled": undefined,
+      "text": "",
+    },
+    {
+      "ariaLabel": undefined,
+      "checked": undefined,
+      "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+      "disabled": undefined,
+      "text": "編集",
+    },
+    {
+      "ariaLabel": undefined,
+      "checked": undefined,
+      "className": "w-full gap-2 sm:w-fit",
+      "disabled": undefined,
+      "text": "追跡番号を登録",
+    },
+    {
+      "ariaLabel": undefined,
+      "checked": undefined,
+      "className": "w-full gap-2 sm:w-fit",
+      "disabled": undefined,
+      "text": "出庫履歴",
+    },
+    {
+      "ariaLabel": undefined,
+      "checked": undefined,
+      "className": "w-full gap-2 sm:w-fit",
+      "disabled": true,
+      "text": "ラベル印刷",
+    },
+    {
+      "ariaLabel": undefined,
+      "checked": undefined,
+      "className": "w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 sm:w-fit",
+      "disabled": undefined,
+      "text": "削除",
+    },
+  ],
+  "hash": "c529d2e48821b60da6a5f1da693f0b64c7cf425da8f825bd43955dbf359f2f7b",
+  "text": "商品ID未発行 発注済み 旧管理番号: 405_相手_3DSLL 発注No: P-01 充当先: 商品ID発行後に指定できます 編集 追跡番号を登録 出庫履歴 ラベル印刷 削除 商品名 3DS LL 発注数 3個 在庫数 1個 仕入単価 ¥100 発注日 2026-09-01 仕入先 -",
+}
+`;
+
+exports[`registration cards/dashboard against 4037f50 > captures stock cards/empty states and preserves inventory edit IDs 1`] = `
+[
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+    ],
+    "hash": "76c7cf6db2aeee153d6802ca8a7a0e77657d337a96af88914e4ddc874358e9c4",
+    "text": "L1 現在庫 3点 旧管理番号: 405_相手_3DSLL 引当先: 405 編集 商品名 3DS LL 在庫数 3個 仕入単価 ¥100 入庫日 2026-09-01 仕入先 仕入先 開く",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+    ],
+    "hash": "5a38dd794cde8d264ccd9dae31952e57f46bf7501aafdc502ec56edbb2ad2f18",
+    "text": "商品ID未発行 現在庫 旧管理番号: - 引当先: - 編集 商品名 - 在庫数 1個 仕入単価 ¥0 入庫日 - 仕入先",
+  },
+  {
+    "controls": [
+      {
+        "ariaLabel": undefined,
+        "checked": undefined,
+        "className": "w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 sm:w-fit",
+        "disabled": undefined,
+        "text": "編集",
+      },
+    ],
+    "hash": "c4c42a56060051b0e25bd41d2e22a0f5f4f37c7f780ed8bb0197b02c97a91c2b",
+    "text": "L1 現在庫 旧管理番号: 405_相手_3DSLL 引当先: 405 編集 商品名 3DS LL 在庫数 0.5個 仕入単価 ¥-10 入庫日 2026-09-01 仕入先 仕入先 開く",
+  },
+]
+`;
+
+exports[`registration cards/dashboard against 4037f50 > captures stock cards/empty states and preserves inventory edit IDs 2`] = `
+{
+  "controls": [],
+  "hash": "bfa27477686fbe7aef48b9462203f88e8f6e22b5d9509016eefe5fbcf1a2c68e",
+  "text": "表示なし 説明",
+}
+`;
+
+exports[`registration cards/dashboard against 4037f50 > preserves Ecohai form construction, normalized payload and append/submit/remove order 1`] = `"[["create","form"],["create","input"],["appendInput",{"type":"hidden","name":"slip[]","value":"１２３４５６"}],["appendForm","POST","https://www.ecohai.co.jp/cargo_tracking/search","_blank"],"submit","removeForm"]"`;
+
+exports[`registration cards/dashboard against 4037f50 > preserves Ecohai form construction, normalized payload and append/submit/remove order 2`] = `"[["create","form"],["create","input"],["appendInput",{"type":"hidden","name":"slip[]","value":"１２３４５６"}],["appendForm","POST","https://www.ecohai.co.jp/cargo_tracking/search","_blank"],"submit","submit failed"]"`;
+
+exports[`registration cards/dashboard against 4037f50 > preserves card event payload identities, selection coercion and disabled props 1`] = `
+[
+  [
+    "select",
+    true,
+    true,
+  ],
+  [
+    "select",
+    true,
+    false,
+  ],
+  [
+    "select",
+    true,
+    false,
+  ],
+  [
+    "edit",
+    true,
+  ],
+  [
+    "tracking",
+    true,
+  ],
+  [
+    "history",
+    true,
+  ],
+  [
+    "delete",
+    true,
+  ],
+]
+`;
+
+exports[`registration cards/dashboard against 4037f50 > preserves inventory-ID label precedence, finite positive conversion and item fallback 1`] = `
+[
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+  9,
+  9,
+  9,
+  9,
+  3,
+  9,
+  9,
+]
+`;
+
+exports[`registration cards/dashboard against 4037f50 > preserves shipped-row toggles and resets only when group/filter dependency values change 1`] = `
+{
+  "log": [
+    [
+      "effect",
+      [
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "effect",
+      [
+        undefined,
+        undefined,
+        "現在庫",
+        "stock",
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "effect",
+      [
+        undefined,
+        undefined,
+        "別名",
+        "stock",
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "effect",
+      [
+        undefined,
+        "p",
+        "別名",
+        "stock",
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "effect",
+      [
+        undefined,
+        "p",
+        "別名",
+        "waiting",
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+    [
+      "state",
+      true,
+    ],
+    [
+      "effect",
+      [
+        "invoice-405",
+        "p",
+        "別名",
+        "waiting",
+      ],
+    ],
+    [
+      "state",
+      false,
+    ],
+  ],
+  "output": [
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": true,
+    },
+    {
+      "cards": [
+        1,
+        2,
+      ],
+      "controls": [
+        "出庫済みを非表示1",
+      ],
+      "state": false,
+    },
+    {
+      "cards": [
+        1,
+      ],
+      "controls": [
+        "出庫済みを表示1",
+      ],
+      "state": false,
+    },
+  ],
+}
+`;

@@ -1,0 +1,381 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`client manager original contracts > captures empty, loading, list and create HTML > create 1`] = `
+"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><div class="space-y-3 p-4 bg-muted/30 rounded-lg border border-border"><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">名前 *</label><input placeholder="例: Luca" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">会社名</label><input placeholder="例: ABC GmbH" class="h-8 text-sm mt-1" value=""/></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">メール</label><input placeholder="example@email.com" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">電話</label><input placeholder="+49 177 ..." class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">住所</label><input placeholder="Street, Number" class="h-8 text-sm mt-1" value=""/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">都市</label><input placeholder="Berlin" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">国</label><input placeholder="Germany" class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">追加情報 <span class="text-muted-foreground font-normal">(税関番号・登録番号など)</span></label><textarea placeholder="例: EORI: DE123456789
+税関登録番号: ..." class="w-full mt-1 text-sm border border-border rounded-md px-3 py-2 bg-background resize-y min-h-[60px]"></textarea><p class="text-[10px] text-muted-foreground mt-1">請求書の宛先欄（国名の下）に表示されます</p></div><div class="flex gap-2 pt-1"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-save mr-1"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"></path><path d="M7 3v4a1 1 0 0 0 1 1h7"></path></svg>保存</button><button variant="outline" class="h-8">キャンセル</button></div></div><div class="space-y-2"><div><div class="flex items-start justify-between p-3 bg-background border border-border rounded-lg hover:bg-muted/30 transition-colors"><div><p class="text-sm font-semibold text-foreground">Saved Client</p><p class="text-xs text-muted-foreground mt-0.5">Road, City, JP</p><p class="text-xs text-muted-foreground">client@example.invalid</p></div><div class="flex gap-1 ml-2 flex-shrink-0"><button variant="ghost" class="h-7 w-7"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pencil"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button variant="ghost" class="h-7 w-7 text-destructive hover:text-destructive"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg></button></div></div></div></div></div></article></section>"
+`;
+
+exports[`client manager original contracts > captures empty, loading, list and create HTML > empty 1`] = `"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus mr-1"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg> 新規宛先を追加</button><p class="text-sm text-muted-foreground text-center py-6">宛先が登録されていません</p></div></article></section>"`;
+
+exports[`client manager original contracts > captures empty, loading, list and create HTML > list 1`] = `"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus mr-1"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg> 新規宛先を追加</button><div class="space-y-2"><div><div class="flex items-start justify-between p-3 bg-background border border-border rounded-lg hover:bg-muted/30 transition-colors"><div><p class="text-sm font-semibold text-foreground">Saved Client</p><p class="text-xs text-muted-foreground mt-0.5">Road, City, JP</p><p class="text-xs text-muted-foreground">client@example.invalid</p></div><div class="flex gap-1 ml-2 flex-shrink-0"><button variant="ghost" class="h-7 w-7"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pencil"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button variant="ghost" class="h-7 w-7 text-destructive hover:text-destructive"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg></button></div></div></div></div></div></article></section>"`;
+
+exports[`client manager original contracts > captures empty, loading, list and create HTML > loading 1`] = `"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus mr-1"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg> 新規宛先を追加</button><div class="flex items-center justify-center py-8"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw animate-spin text-muted-foreground"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></div></div></article></section>"`;
+
+exports[`client manager original contracts > edits nullable fields while preserving invisible notes and keeps draft on error > editing 1`] = `
+"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><div class="space-y-2"><div><div class="space-y-3 p-4 bg-muted/30 rounded-lg border border-border"><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">名前 *</label><input placeholder="例: Luca" class="h-8 text-sm mt-1" value="Saved Client"/></div><div><label class="text-xs">会社名</label><input placeholder="例: ABC GmbH" class="h-8 text-sm mt-1" value=""/></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">メール</label><input placeholder="example@email.com" class="h-8 text-sm mt-1" value="client@example.invalid"/></div><div><label class="text-xs">電話</label><input placeholder="+49 177 ..." class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">住所</label><input placeholder="Street, Number" class="h-8 text-sm mt-1" value="Road"/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">都市</label><input placeholder="Berlin" class="h-8 text-sm mt-1" value="City"/></div><div><label class="text-xs">国</label><input placeholder="Germany" class="h-8 text-sm mt-1" value="JP"/></div></div><div><label class="text-xs">追加情報 <span class="text-muted-foreground font-normal">(税関番号・登録番号など)</span></label><textarea placeholder="例: EORI: DE123456789
+税関登録番号: ..." class="w-full mt-1 text-sm border border-border rounded-md px-3 py-2 bg-background resize-y min-h-[60px]"></textarea><p class="text-[10px] text-muted-foreground mt-1">請求書の宛先欄（国名の下）に表示されます</p></div><div class="flex gap-2 pt-1"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-save mr-1"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"></path><path d="M7 3v4a1 1 0 0 0 1 1h7"></path></svg>保存</button><button variant="outline" class="h-8">キャンセル</button></div></div></div></div></div></article></section>"
+`;
+
+exports[`client manager original contracts > edits nullable fields while preserving invisible notes and keeps draft on error 1`] = `
+[
+  [
+    "clients.update",
+    {
+      "address": "Road",
+      "city": "City",
+      "company": "",
+      "country": "JP",
+      "email": "client@example.invalid",
+      "extraInfo": "",
+      "id": 7,
+      "name": "Changed",
+      "notes": "invisible note",
+      "phone": "",
+    },
+  ],
+  [
+    "error",
+    "update failed",
+  ],
+  [
+    "clients.invalidate",
+  ],
+  [
+    "success",
+    "宛先を更新しました",
+  ],
+]
+`;
+
+exports[`client manager original contracts > honors delete confirmation, success/error notifications and invalidation 1`] = `
+[
+  [
+    "clients.delete",
+    {
+      "id": 7,
+    },
+  ],
+  [
+    "error",
+    "delete failed",
+  ],
+  [
+    "clients.invalidate",
+  ],
+  [
+    "success",
+    "宛先を削除しました",
+  ],
+]
+`;
+
+exports[`client manager original contracts > validates then saves all entered fields, keeps whitespace and handles success > after creation 1`] = `"<section open=""><article class="max-w-2xl max-h-[85vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>宛先管理</h2><p class="text-xs text-muted-foreground">請求書の送付先（クライアント）を登録・管理します。</p></header><div class="space-y-4"><button class="h-8"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus mr-1"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg> 新規宛先を追加</button><p class="text-sm text-muted-foreground text-center py-6">宛先が登録されていません</p></div></article></section>"`;
+
+exports[`client manager original contracts > validates then saves all entered fields, keeps whitespace and handles success 1`] = `
+[
+  [
+    "error",
+    "名前は必須です",
+  ],
+  [
+    "clients.create",
+    {
+      "address": "Road",
+      "city": "City",
+      "company": "Company",
+      "country": "Country",
+      "email": "a@example.invalid",
+      "extraInfo": "Extra
+Line",
+      "name": " New Client ",
+      "notes": "",
+      "phone": "123",
+    },
+  ],
+  [
+    "clients.invalidate",
+  ],
+  [
+    "success",
+    "宛先を登録しました",
+  ],
+]
+`;
+
+exports[`initialization and cancellation boundaries > cancels an edit and starts a fresh form, with update pending disabling save 1`] = `
+[
+  [
+    "clients.create",
+    {
+      "address": "",
+      "city": "",
+      "company": "",
+      "country": "",
+      "email": "",
+      "extraInfo": "",
+      "name": "Fresh",
+      "notes": "",
+      "phone": "",
+    },
+  ],
+]
+`;
+
+exports[`initialization and cancellation boundaries > retains the selected logo across close when settings never initialized 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "logo.upload",
+    {
+      "base64": "FIXED",
+      "fileName": "fixed.png",
+      "mimeType": "image/png",
+    },
+  ],
+  [
+    "settings.save",
+    {
+      "logoKey": "fixed-key",
+      "logoUrl": "data:fixed",
+      "senderAddress": "",
+      "senderCity": "",
+      "senderCompany": "",
+      "senderCountry": "",
+      "senderEmail": "",
+      "senderExtraInfo": "",
+      "senderName": "",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > captures defaults, asynchronous initialization and does not overwrite edits on refetch > default sender 1`] = `
+"<section open=""><article class="max-w-md max-h-[90vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg> 差出人情報の設定</h2><p>請求書に表示される差出人（From）のデフォルト情報を設定します。</p></header><div class="space-y-3 py-2"><div><label class="text-xs">会社ロゴ（インボイスに表示）</label><div class="mt-1 flex items-center gap-3"><div class="w-16 h-16 border-2 border-dashed border-border rounded-lg flex items-center justify-center bg-muted/30 overflow-hidden cursor-pointer hover:border-primary/50 transition-colors flex-shrink-0"><span class="text-muted-foreground text-xs text-center px-1">ロゴ</span></div><div class="flex flex-col gap-1"><button type="button" variant="outline" class="h-7 text-xs gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg> 画像を選択</button><p class="text-[10px] text-muted-foreground">PNG/JPG, 2MB以下</p></div></div><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden"/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">名前</label><input placeholder="例: 村上 肥" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">会社名</label><input placeholder="例: Murakami Trading" class="h-8 text-sm mt-1" value=""/></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">メール</label><input placeholder="example@email.com" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">電話</label><input placeholder="+81 ..." class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">住所</label><input placeholder="Street, Number" class="h-8 text-sm mt-1" value=""/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">都市</label><input placeholder="Tokyo" class="h-8 text-sm mt-1" value=""/></div><div><label class="text-xs">国</label><input placeholder="Japan" class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">追加情報 <span class="text-muted-foreground font-normal">(税関番号・登録番号など)</span></label><textarea placeholder="例: 税関登録番号: EORI-12345
+消費税登録番号: JP-67890" class="w-full mt-1 text-sm border border-border rounded-md px-3 py-2 bg-background resize-y min-h-[72px]"></textarea><p class="text-[10px] text-muted-foreground mt-1">請求書の差出人欄（JAPANの下）に表示されます</p></div></div><footer><button variant="outline">キャンセル</button><button>保存する</button></footer></article></section>"
+`;
+
+exports[`sender settings original contracts > captures defaults, asynchronous initialization and does not overwrite edits on refetch > initialized sender 1`] = `
+"<section open=""><article class="max-w-md max-h-[90vh] overflow-y-auto"><header><h2 class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg> 差出人情報の設定</h2><p>請求書に表示される差出人（From）のデフォルト情報を設定します。</p></header><div class="space-y-3 py-2"><div><label class="text-xs">会社ロゴ（インボイスに表示）</label><div class="mt-1 flex items-center gap-3"><div class="w-16 h-16 border-2 border-dashed border-border rounded-lg flex items-center justify-center bg-muted/30 overflow-hidden cursor-pointer hover:border-primary/50 transition-colors flex-shrink-0"><img src="data:image/png;base64,AA==" alt="Logo preview" class="w-full h-full object-contain"/></div><div class="flex flex-col gap-1"><button type="button" variant="outline" class="h-7 text-xs gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg> 画像を選択</button><button type="button" variant="ghost" class="h-7 text-xs text-muted-foreground">削除</button><p class="text-[10px] text-muted-foreground">PNG/JPG, 2MB以下</p></div></div><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden"/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">名前</label><input placeholder="例: 村上 肥" class="h-8 text-sm mt-1" value="Saved Sender"/></div><div><label class="text-xs">会社名</label><input placeholder="例: Murakami Trading" class="h-8 text-sm mt-1" value=""/></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">メール</label><input placeholder="example@email.com" class="h-8 text-sm mt-1" value="sender@example.invalid"/></div><div><label class="text-xs">電話</label><input placeholder="+81 ..." class="h-8 text-sm mt-1" value=""/></div></div><div><label class="text-xs">住所</label><input placeholder="Street, Number" class="h-8 text-sm mt-1" value="Road"/></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs">都市</label><input placeholder="Tokyo" class="h-8 text-sm mt-1" value="Tokyo"/></div><div><label class="text-xs">国</label><input placeholder="Japan" class="h-8 text-sm mt-1" value="JP"/></div></div><div><label class="text-xs">追加情報 <span class="text-muted-foreground font-normal">(税関番号・登録番号など)</span></label><textarea placeholder="例: 税関登録番号: EORI-12345
+消費税登録番号: JP-67890" class="w-full mt-1 text-sm border border-border rounded-md px-3 py-2 bg-background resize-y min-h-[72px]"></textarea><p class="text-[10px] text-muted-foreground mt-1">請求書の差出人欄（JAPANの下）に表示されます</p></div></div><footer><button variant="outline">キャンセル</button><button>保存する</button></footer></article></section>"
+`;
+
+exports[`sender settings original contracts > clears selected file after close and triggers file input through its ref 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "close",
+  ],
+  [
+    "settings.save",
+    {
+      "senderAddress": "Road",
+      "senderCity": "Tokyo",
+      "senderCompany": "",
+      "senderCountry": "JP",
+      "senderEmail": "sender@example.invalid",
+      "senderExtraInfo": "",
+      "senderName": "Saved Sender",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > disables save during upload, then includes logo URL/key only after upload succeeds 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "logo.upload",
+    {
+      "base64": "FIXED",
+      "fileName": "fixed.png",
+      "mimeType": "image/png",
+    },
+  ],
+  [
+    "settings.save",
+    {
+      "logoKey": "uploaded-key",
+      "logoUrl": "data:uploaded",
+      "senderAddress": "",
+      "senderCity": "",
+      "senderCompany": "",
+      "senderCountry": "",
+      "senderEmail": "",
+      "senderExtraInfo": "",
+      "senderName": "",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > does not save on upload rejection and releases uploading state 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "logo.upload",
+    {
+      "base64": "FIXED",
+      "fileName": "fixed.png",
+      "mimeType": "image/png",
+    },
+  ],
+  [
+    "error",
+    "ロゴのアップロードに失敗しました",
+  ],
+]
+`;
+
+exports[`sender settings original contracts > keeps save errors separate from upload errors and preserves draft 1`] = `
+[
+  [
+    "settings.save",
+    {
+      "senderAddress": "",
+      "senderCity": "",
+      "senderCompany": "",
+      "senderCountry": "",
+      "senderEmail": "",
+      "senderExtraInfo": "",
+      "senderName": "Draft",
+      "senderPhone": "",
+    },
+  ],
+  [
+    "error",
+    "save failed",
+  ],
+]
+`;
+
+exports[`sender settings original contracts > limits logo size but accepts exactly 2MiB and defers payload until FileReader completes 1`] = `
+[
+  [
+    "error",
+    "画像サイズは2MB以下にしてください",
+  ],
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "logo.upload",
+    {
+      "base64": "FIXED",
+      "fileName": "fixed.png",
+      "mimeType": "image/png",
+    },
+  ],
+  [
+    "settings.save",
+    {
+      "logoKey": "fixed-key",
+      "logoUrl": "data:fixed",
+      "senderAddress": "",
+      "senderCity": "",
+      "senderCompany": "",
+      "senderCountry": "",
+      "senderEmail": "",
+      "senderExtraInfo": "",
+      "senderName": "",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > omits logo fields if upload returns an empty URL 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "logo.upload",
+    {
+      "base64": "FIXED",
+      "fileName": "fixed.png",
+      "mimeType": "image/png",
+    },
+  ],
+  [
+    "settings.save",
+    {
+      "senderAddress": "",
+      "senderCity": "",
+      "senderCompany": "",
+      "senderCountry": "",
+      "senderEmail": "",
+      "senderExtraInfo": "",
+      "senderName": "",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > removes selected preview/file locally without sending a delete logo payload 1`] = `
+[
+  [
+    "read",
+    "fixed.png",
+  ],
+  [
+    "settings.save",
+    {
+      "senderAddress": "Road",
+      "senderCity": "Tokyo",
+      "senderCompany": "",
+      "senderCountry": "JP",
+      "senderEmail": "sender@example.invalid",
+      "senderExtraInfo": "",
+      "senderName": "Saved Sender",
+      "senderPhone": "",
+    },
+  ],
+]
+`;
+
+exports[`sender settings original contracts > saves all input fields without logo keys, preserves whitespace and closes on success 1`] = `
+[
+  [
+    "settings.save",
+    {
+      "senderAddress": "Road",
+      "senderCity": "City",
+      "senderCompany": "Company",
+      "senderCountry": "Country",
+      "senderEmail": "s@example.invalid",
+      "senderExtraInfo": "Extra
+Line",
+      "senderName": " Sender ",
+      "senderPhone": "123",
+    },
+  ],
+  [
+    "settings.invalidate",
+  ],
+  [
+    "success",
+    "差出人情報を保存しました",
+  ],
+  [
+    "close",
+  ],
+]
+`;
