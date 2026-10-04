@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["./editorItems.ts", "./editorPayload.ts", "./splitInvoices.ts", "./editorReference.ts", "./editor.test.ts"],
+  "exclude": []
+}

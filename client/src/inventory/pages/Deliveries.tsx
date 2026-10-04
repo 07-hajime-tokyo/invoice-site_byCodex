@@ -70,188 +70,27 @@ import {
 } from "@/inventory/components/DefectiveInspectionDialog";
 import type { InboundLabel } from "@/inventory/lib/inboundDesk";
 
-interface InventoryItemLabel {
-  id?: number;
-  labelId: string;
-  status?: string | null;
-  legacyManagementNo?: string | null;
-}
-
-interface InventoryItem {
-  id: number;
-  title: string;
-  quantity: string;
-  unit: string;
-  category?: string;
-  categories?: string[];
-  place?: string;
-  etc?: string;
-  code?: string;
-  unit_price?: number;
-  purchase_unit_price?: number;
-  last_purchase_date?: string | null;
-  updated_at?: string;
-  created_at?: string;
-  supplierUrl?: string | null;
-  supplierName?: string | null;
-  ebayListingUrl?: string | null;
-  itemLabels?: InventoryItemLabel[];
-}
-
-/** 在庫一覧CSVエクスポート */
-function exportInventoryCSV(inventories: InventoryItem[]) {
-  const rows: string[][] = [
-    ["管理番号", "商品名", "カテゴリ", "仕入単価", "在庫数", "単位", "入庫日", "在庫金額", "保管場所"],
-  ];
-  for (const inv of inventories) {
-    const managementNo = getManagementNo(inv.etc);
-    const cat = getInventoryDisplayCategory(inv);
-    const unitPrice = inv.purchase_unit_price ?? inv.unit_price;
-    const stockQty = parseFloat(inv.quantity ?? "0");
-    const stockValue = unitPrice != null && stockQty > 0 ? unitPrice * stockQty : null;
-    rows.push([
-      managementNo || "-",
-      inv.title,
-      cat,
-      unitPrice != null ? String(unitPrice) : "-",
-      inv.quantity ?? "0",
-      inv.unit ?? "",
-      inv.last_purchase_date ?? inv.updated_at?.slice(0, 10) ?? "-",
-      stockValue != null ? String(stockValue) : "-",
-      inv.place ?? "",
-    ]);
-  }
-  const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-  const bom = "\uFEFF";
-  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `在庫一覧_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** 入庫日または最終更新日からの経過日数を返す */
-function normalizeInventoryCategoryName(category?: string | null, title?: string | null): string {
-  const raw = (category ?? "").trim();
-  const compact = `${raw} ${title ?? ""}`.normalize("NFKC").toLowerCase().replace(/[\s\u3000_-]+/g, "");
-  if (
-    compact.includes("vita1000") ||
-    compact.includes("psvita1000") ||
-    compact.includes("pch1000") ||
-    compact.includes("vita1100") ||
-    compact.includes("psvita1100") ||
-    compact.includes("pch1100")
-  ) {
-    return "Vita1000";
-  }
-  return raw || "未分類";
-}
-
-function getInventoryDisplayCategory(inv: InventoryItem): string {
-  return normalizeInventoryCategoryName(inv.categories?.[0] ?? inv.category, inv.title);
-}
-
-function calcDaysSince(dateStr: string | null | undefined): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return null;
-  const diffMs = Date.now() - d.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
-/** 経過日数に応じたバッジの色を返す */
-function daysBadgeClass(days: number): string {
-  if (days <= 14) return "bg-green-100 text-green-800 border-green-200";
-  if (days <= 30) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  if (days <= 60) return "bg-orange-100 text-orange-800 border-orange-200";
-  return "bg-red-100 text-red-800 border-red-200";
-}
-
-interface DeliveryItem {
-  inventoryId: number;
-  title: string;
-  quantity: number;
-  unit: string;
-  checked: boolean;
-  etc?: string; // 管理番号（取引先自動判別用）
-  unitPrice?: number; // 仕入価格（unit_price）
-  sellingPrice?: number | null; // ユーロ建て販売価格（CSVから取得）
-  currency?: string; // 通貨（例: EUR）
-  tradeRecordId?: number | null; // 確定した取引データ行
-  csvProductName?: string | null; // 確定した注文行の商品名。nullは紐づけなし
-}
-
-function formatPrice(price: number | undefined | null): string {
-  if (price === undefined || price === null || !Number.isFinite(price)) return "-";
-  return `¥${price.toLocaleString()}`;
-}
-
-/** etc フィールドから管理番号を取得する（数字・在庫・ebay始まりのみ表示） */
-function getManagementNo(etc: string | undefined): string {
-  if (!etc) return "";
-  // カンマ区切りまたはスペース区切りの先頭部分を管理番号として取得
-  const firstPart = etc.split(",")[0].trim();
-  const raw = firstPart.split(" ")[0].trim();
-  if (/^\d/.test(raw) || /^在庫/.test(raw) || /^ebay/i.test(raw) || /^E/i.test(raw) || /^シャフト/i.test(raw)) return raw;
-  return "";
-}
-
-function getInventoryLabelIds(inv: InventoryItem): string[] {
-  return (inv.itemLabels ?? []).map((label) => label.labelId).filter(Boolean);
-}
-
-function InventoryLabelIds({ inv, managementNo }: { inv: InventoryItem; managementNo: string }) {
-  const labelIds = getInventoryLabelIds(inv);
-  if (labelIds.length === 0) return null;
-  return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      <span className="text-xs font-medium text-muted-foreground">商品ID:</span>
-      {labelIds.map((labelId) => (
-        <span
-          key={labelId}
-          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-xs font-semibold tracking-wide text-emerald-800"
-        >
-          {labelId}
-        </span>
-      ))}
-      {managementNo && <span className="text-[11px] text-muted-foreground">旧管理番号: {managementNo}</span>}
-    </div>
-  );
-}
-
-// ============================================================
-// 在庫編集フォームの型
-// ============================================================
-interface InventoryFormData {
-  title: string;
-  quantity: string;
-  unit: string;
-  category: string;
-  place: string;
-  etc: string;
-  purchase_unit_price: string;
-  supplierUrl: string;
-  supplierName: string;
-  ebayListingUrl: string;
-}
-
-const emptyForm: InventoryFormData = {
-  title: "",
-  quantity: "0",
-  unit: "個",
-  category: "",
-  place: "",
-  etc: "",
-  purchase_unit_price: "",
-  supplierUrl: "",
-  supplierName: "",
-  ebayListingUrl: "",
-};
-
-type ShipmentSheetName = "独発送管理" | "サミー発送管理" | "サイモン発送管理" | "ネレ発送管理";
-const SHIPMENT_SHEET_NAMES: ShipmentSheetName[] = ["独発送管理", "サミー発送管理", "サイモン発送管理", "ネレ発送管理"];
+import { type DeliveryItem, type InventoryItem } from "./deliveries/types";
+import { exportInventoryCSV } from "./deliveries/exportInventoryCsv";
+import {
+  calcDaysSince,
+  daysBadgeClass,
+  formatPrice,
+  getInventoryDisplayCategory,
+  getInventoryLabelIds,
+  getManagementNo,
+  normalizeInventoryCategoryName,
+} from "./deliveries/display";
+import { InventoryLabelIds } from "./deliveries/InventoryLabelIds";
+import { buildCategoryOptions, filterAndSortInventories } from "./deliveries/stockFilters";
+import { calcCategoryTotals, extractPrefixFromManagementNo, lookupSellingPrice } from "./deliveries/stockView";
+import { StockChangeConfirmDialog } from "./deliveries/StockChangeConfirmDialog";
+import { MemoHistoryDialog } from "./deliveries/MemoHistoryDialog";
+import { CategoryDialogs } from "./deliveries/CategoryDialogs";
+import { EditInventoryDialog } from "./deliveries/EditInventoryDialog";
+import { CreateInventoryDialog } from "./deliveries/CreateInventoryDialog";
+import { type InventoryFormData, emptyForm } from "./deliveries/form";
+import { type ShipmentSheetName, SHIPMENT_SHEET_NAMES } from "./deliveries/shipmentSheets";
 
 export default function Deliveries() {
   const [location] = useLocation();
@@ -348,14 +187,6 @@ export default function Deliveries() {
 
   function isShaftManagementNo(etc: string | undefined): boolean {
     return getManagementNo(etc).includes("シャフト");
-  }
-
-  /** 管理番号から先頭の数字部分を抽出する（例: "371_ルカ_New3DS_8/10" → "371"） */
-  function extractPrefixFromManagementNo(etc: string | undefined): string | undefined {
-    const managementNo = getManagementNo(etc);
-    if (!managementNo) return undefined;
-    const match = managementNo.match(/^(\d+)/);
-    return match ? match[1] : undefined;
   }
 
   function extractCommonInvoiceNoFromItems(items: Array<{ etc?: string | null }>): string {
@@ -766,52 +597,25 @@ export default function Deliveries() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  const categoryOptions = useMemo(() => {
-    const cats = new Set<string>();
-    for (const cat of managedCategories ?? []) {
-      if (cat && cat !== "すべて" && cat !== "未分類") cats.add(normalizeInventoryCategoryName(cat));
-    }
-    for (const inv of (inventories ?? []) as InventoryItem[]) {
-      if (inv.quantity === null || inv.quantity === undefined) continue;
-      const cat = getInventoryDisplayCategory(inv);
-      if (cat && cat !== "未分類") cats.add(cat);
-    }
-    return Array.from(cats).sort((a, b) => a.localeCompare(b, "ja"));
-  }, [inventories, managedCategories]);
+  const categoryOptions = useMemo(
+    () => buildCategoryOptions(inventories as InventoryItem[] | undefined, managedCategories),
+    [inventories, managedCategories],
+  );
 
   // カテゴリ一覧を集計
   const categories = useMemo(() => ["すべて", "未分類", ...categoryOptions], [categoryOptions]);
 
   // カテゴリ + 検索フィルター
-  const filteredInventories = useMemo(() => {
-    if (!inventories) return [];
-    // 検索クエリのスペースを除去（「PSP2000」→「PSP 2000」もマッチ）
-    const q = searchQuery.toLowerCase().replace(/\s+/g, "");
-    return (inventories as InventoryItem[])
-      .filter((inv) => {
-        if (inv.quantity === null || inv.quantity === undefined) return false;
-        if (hideZeroStock && parseFloat(inv.quantity ?? "0") <= 0) return false;
-        const cat = getInventoryDisplayCategory(inv);
-        if (selectedCategory !== "すべて" && cat !== selectedCategory) return false;
-        if (q) {
-          const managementNo = getManagementNo(inv.etc).toLowerCase().replace(/\s+/g, "");
-          const labelText = getInventoryLabelIds(inv).join(" ").toLowerCase().replace(/\s+/g, "");
-          return (
-            inv.title.toLowerCase().replace(/\s+/g, "").includes(q) ||
-            (inv.category ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
-            (inv.place ?? "").toLowerCase().replace(/\s+/g, "").includes(q) ||
-            managementNo.includes(q) ||
-            labelText.includes(q)
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const da = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
-        const db = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
-        return db - da;
-      });
-   }, [inventories, searchQuery, selectedCategory, hideZeroStock]);
+  const filteredInventories = useMemo(
+    () =>
+      filterAndSortInventories(
+        inventories as InventoryItem[] | undefined,
+        searchQuery,
+        selectedCategory,
+        hideZeroStock,
+      ),
+    [inventories, searchQuery, selectedCategory, hideZeroStock],
+  );
 
   // 在庫一覧ページネーション
   const {
@@ -872,20 +676,10 @@ export default function Deliveries() {
   }, [checkedItems, customers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // カテゴリ別合計金額
-  const categoryTotals = useMemo(() => {
-    if (!inventories) return new Map<string, number>();
-    const totals = new Map<string, number>();
-    for (const inv of inventories as InventoryItem[]) {
-      if (inv.quantity === null || inv.quantity === undefined) continue;
-      const stockQty = parseFloat(inv.quantity ?? "0");
-      if (stockQty <= 0) continue;
-      const price = inv.purchase_unit_price ?? inv.unit_price ?? 0;
-      if (!price) continue;
-      const cat = getInventoryDisplayCategory(inv);
-      totals.set(cat, (totals.get(cat) ?? 0) + price * stockQty);
-    }
-    return totals;
-  }, [inventories]);
+  const categoryTotals = useMemo(
+    () => calcCategoryTotals(inventories as InventoryItem[] | undefined),
+    [inventories],
+  );
 
   const grandTotal = useMemo(() => {
     let total = 0;
@@ -898,40 +692,10 @@ export default function Deliveries() {
     return categoryTotals.get(selectedCategory) ?? 0;
   }, [selectedCategory, categoryTotals, grandTotal]);
 
-  /**
-   * 管理番号またはインボイスNoからCSVのユーロ建て販売価格を照合する
-   * @param inv 在庫アイテム
-   * @param invoiceNoOverride 管理番号がない場合に使用するインボイスNo
-   */
-  function lookupSellingPrice(inv: InventoryItem, invoiceNoOverride?: string): { sellingPrice: number | null; currency: string } {
-    if (!csvRows || csvRows.length === 0) return { sellingPrice: null, currency: "" };
-    // 管理番号からインボイスNoを抽出
-    const prefix = extractPrefixFromManagementNo(inv.etc);
-    const targetInvoiceNo = prefix ?? invoiceNoOverride;
-    if (!targetInvoiceNo) return { sellingPrice: null, currency: "" };
-    // 同じインボイスNoのCSV行を絞り込み
-    const invoiceRows = csvRows.filter((r) => r.invoiceNo === targetInvoiceNo);
-    if (invoiceRows.length === 0) return { sellingPrice: null, currency: "" };
-    // 商品名で照合（部分一致: CSVの商品名がinv.titleに含まれるか、またはその逆）
-    const titleLower = inv.title.toLowerCase();
-    const matched = invoiceRows.find((r) => {
-      if (!r.productName) return false;
-      const csvNameLower = r.productName.toLowerCase();
-      return titleLower.includes(csvNameLower) || csvNameLower.includes(titleLower);
-    });
-    if (matched && matched.sellingPrice != null) {
-      return { sellingPrice: matched.sellingPrice, currency: matched.currency };
-    }
-    // 部分一致で見つからない場合: 同インボイスの最初の行を使用（フォールバック）
-    const first = invoiceRows.find((r) => r.sellingPrice != null);
-    if (first) return { sellingPrice: first.sellingPrice, currency: first.currency };
-    return { sellingPrice: null, currency: "" };
-  }
-
   function toggleCheck(inv: InventoryItem) {
     const stockQty = parseFloat(inv.quantity ?? "0");
     if (stockQty <= 0) return;
-    const { sellingPrice, currency } = lookupSellingPrice(inv, bulkInvoiceNo || undefined);
+    const { sellingPrice, currency } = lookupSellingPrice(csvRows, inv, bulkInvoiceNo || undefined);
     setDeliveryItems((prev) => {
       const next = new Map(prev);
       const existing = next.get(inv.id);
@@ -2726,344 +2490,48 @@ export default function Deliveries() {
       </Dialog>
 
       {/* 在庫数変更確認ダイアログ */}
-      <Dialog open={!!stockChangeConfirm} onOpenChange={(open) => { if (!open) { setStockChangeConfirm(null); setStockChangeMemo(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>在庫数を変更しますか？</DialogTitle>
-          </DialogHeader>
-          {stockChangeConfirm && (
-            <div className="space-y-3">
-              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm font-medium">
-                {stockChangeConfirm.inv.title}
-              </div>
-              <div className="flex items-center justify-center gap-4 py-2">
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">現在</p>
-                  <p className="text-2xl font-bold">{Math.floor(parseFloat(stockChangeConfirm.inv.quantity ?? "0"))}</p>
-                  <p className="text-xs text-muted-foreground">{stockChangeConfirm.inv.unit}</p>
-                </div>
-                <div className="text-muted-foreground">
-                  {stockChangeConfirm.delta > 0 ? (
-                    <span className="text-green-600 font-bold text-lg">+{stockChangeConfirm.delta} →</span>
-                  ) : (
-                    <span className="text-red-500 font-bold text-lg">{stockChangeConfirm.delta} →</span>
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">変更後</p>
-                  <p className={`text-2xl font-bold ${stockChangeConfirm.newQty === 0 ? "text-muted-foreground" : ""}`}>{stockChangeConfirm.newQty}</p>
-                  <p className="text-xs text-muted-foreground">{stockChangeConfirm.inv.unit}</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground text-center">サイト内DBの在庫数が更新されます</p>
-              {/* メモ入力欄 */}
-              <div className="space-y-1">
-                <Label htmlFor="stock-change-memo" className="text-sm">メモ（任意）</Label>
-                <Textarea
-                  id="stock-change-memo"
-                  placeholder="変更理由や備考を入力..."
-                  value={stockChangeMemo}
-                  onChange={(e) => setStockChangeMemo(e.target.value)}
-                  rows={2}
-                  className="text-sm resize-none"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setStockChangeConfirm(null); setStockChangeMemo(""); }} disabled={isStockChanging}>
-              キャンセル
-            </Button>
-            <Button
-              onClick={handleStockChange}
-              disabled={isStockChanging}
-              className={stockChangeConfirm?.delta && stockChangeConfirm.delta > 0 ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-500 hover:bg-red-600 text-white"}
-            >
-              {isStockChanging ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-              ) : null}
-              変更する
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StockChangeConfirmDialog
+        stockChangeConfirm={stockChangeConfirm}
+        setStockChangeConfirm={setStockChangeConfirm}
+        stockChangeMemo={stockChangeMemo}
+        setStockChangeMemo={setStockChangeMemo}
+        isStockChanging={isStockChanging}
+        handleStockChange={handleStockChange}
+      />
 
       {/* ============================================================ */}
       {/* 在庫数変更履歴（メモ）ダイアログ */}
       {/* ============================================================ */}
-      <Dialog open={!!memoHistoryItem} onOpenChange={(open) => { if (!open) setMemoHistoryItem(null); }}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-muted-foreground" />
-              在庫数変更履歴
-            </DialogTitle>
-          </DialogHeader>
-          {memoHistoryItem && (
-            <div className="space-y-3">
-              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm font-medium">
-                {memoHistoryItem.title}
-              </div>
-              {!memoHistoryData || memoHistoryData.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  変更履歴がありません
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {memoHistoryData.map((memo) => {
-                    const isIncrease = memo.changeType === "increase" || (memo.quantityDelta != null && memo.quantityDelta > 0);
-                    const isDecrease = memo.changeType === "decrease" || (memo.quantityDelta != null && memo.quantityDelta < 0);
-                    return (
-                      <div key={memo.id} className="rounded-md border bg-card px-3 py-2 text-sm space-y-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {isIncrease && <span className="text-green-600 font-bold text-xs">+{memo.quantityDelta}</span>}
-                            {isDecrease && <span className="text-red-500 font-bold text-xs">{memo.quantityDelta}</span>}
-                            {!isIncrease && !isDecrease && <span className="text-muted-foreground text-xs">変更</span>}
-                            {memo.quantityBefore != null && memo.quantityAfter != null && (
-                              <span className="text-muted-foreground text-xs">{memo.quantityBefore} → {memo.quantityAfter}</span>
-                            )}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(memo.createdAt).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                        </div>
-                        {memo.memo && (
-                          <p className="text-xs text-foreground bg-muted/30 rounded px-2 py-1">{memo.memo}</p>
-                        )}
-                        {memo.operatorName && (
-                          <p className="text-xs text-muted-foreground">操作者: {memo.operatorName}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMemoHistoryItem(null)}>閉じる</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5 text-primary" />
-              カテゴリ管理
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddCategory();
-                }}
-                placeholder="カテゴリ名"
-              />
-              <Button
-                onClick={handleAddCategory}
-                disabled={addCategoryMutation.isPending || !newCategoryName.trim()}
-              >
-                {addCategoryMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-            <div className="rounded-md border max-h-72 overflow-y-auto">
-              {categoryOptions.length === 0 ? (
-                <p className="px-3 py-6 text-sm text-muted-foreground text-center">カテゴリがありません</p>
-              ) : (
-                categoryOptions.map((cat) => (
-                  <div key={cat} className="flex items-center justify-between gap-3 px-3 py-2 border-b last:border-0">
-                    <span className="text-sm font-medium truncate">{cat}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                      onClick={() => setCategoryDeleteTarget(cat)}
-                      disabled={deleteCategoryMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>閉じる</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog open={!!categoryDeleteTarget} onOpenChange={(open) => { if (!open) setCategoryDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>カテゴリを削除しますか？</AlertDialogTitle>
-            <AlertDialogDescription>
-              「{categoryDeleteTarget}」を在庫・入庫予定から外して未分類にします。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteCategoryMutation.isPending}>キャンセル</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteCategory}
-              disabled={deleteCategoryMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteCategoryMutation.isPending ? "削除中..." : "削除"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MemoHistoryDialog
+        memoHistoryItem={memoHistoryItem}
+        setMemoHistoryItem={setMemoHistoryItem}
+        memoHistoryData={memoHistoryData}
+      />
+      <CategoryDialogs
+        showCategoryDialog={showCategoryDialog}
+        setShowCategoryDialog={setShowCategoryDialog}
+        newCategoryName={newCategoryName}
+        setNewCategoryName={setNewCategoryName}
+        handleAddCategory={handleAddCategory}
+        addCategoryMutation={addCategoryMutation}
+        categoryOptions={categoryOptions}
+        categoryDeleteTarget={categoryDeleteTarget}
+        setCategoryDeleteTarget={setCategoryDeleteTarget}
+        handleDeleteCategory={handleDeleteCategory}
+        deleteCategoryMutation={deleteCategoryMutation}
+      />
       {/* ============================================================ */}
       {/* 在庫編集ダイアログ */}
       {/* ============================================================ */}
-      <Dialog open={!!editingItem} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5 text-blue-600" />
-              在庫情報を編集
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-title">商品名 <span className="text-destructive">*</span></Label>
-              <Input
-                id="edit-title"
-                value={editForm.title}
-                onChange={(e) => setEditForm(f => ({ ...f, title: e.target.value }))}
-                placeholder="商品名を入力"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-quantity">在庫数</Label>
-                <Input
-                  id="edit-quantity"
-                  type="number"
-                  min={0}
-                  value={editForm.quantity}
-                  onChange={(e) => setEditForm(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder="0"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-unit">単位</Label>
-                <Input
-                  id="edit-unit"
-                  value={editForm.unit}
-                  onChange={(e) => setEditForm(f => ({ ...f, unit: e.target.value }))}
-                  placeholder="個"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-category">カテゴリ</Label>
-              <Select
-                value={editForm.category || "__none__"}
-                onValueChange={(v) => setEditForm(f => ({ ...f, category: v === "__none__" ? "" : v }))}
-              >
-                <SelectTrigger id="edit-category">
-                  <SelectValue placeholder="カテゴリを選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">未分類</SelectItem>
-                  {categoryOptions.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-price">仕入単価（円）</Label>
-              <Input
-                id="edit-price"
-                type="number"
-                min={0}
-                value={editForm.purchase_unit_price}
-                onChange={(e) => setEditForm(f => ({ ...f, purchase_unit_price: e.target.value }))}
-                placeholder="例: 1500"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-place">保管場所</Label>
-              <Input
-                id="edit-place"
-                value={editForm.place}
-                onChange={(e) => setEditForm(f => ({ ...f, place: e.target.value }))}
-                placeholder="保管場所を入力"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-etc">管理番号・備考</Label>
-              <Textarea
-                id="edit-etc"
-                value={editForm.etc}
-                onChange={(e) => setEditForm(f => ({ ...f, etc: e.target.value }))}
-                placeholder="例: E0618_01_A00001, 2024-01-15, 仕入先メモ"
-                rows={3}
-              />
-              <p className="text-xs text-muted-foreground">先頭（カンマ前）が管理番号として扱われます。</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-supplier-name">仕入先名</Label>
-              <Input
-                id="edit-supplier-name"
-                value={editForm.supplierName}
-                onChange={(e) => setEditForm(f => ({ ...f, supplierName: e.target.value }))}
-                placeholder="例: 駿河屋 盛岡MOSSビル店"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-supplier-url">仕入先URL</Label>
-              <Input
-                id="edit-supplier-url"
-                value={editForm.supplierUrl}
-                onChange={(e) => setEditForm(f => ({ ...f, supplierUrl: e.target.value }))}
-                placeholder="https://..."
-                type="url"
-              />
-              {getEbayStockType(editForm.etc) === "stocked" && (
-                <div className="space-y-1.5 pt-2">
-                  <Label htmlFor="edit-ebay-listing-url">自社出品ページ</Label>
-                  <Input
-                    id="edit-ebay-listing-url"
-                    value={editForm.ebayListingUrl}
-                    onChange={(e) => setEditForm(f => ({ ...f, ebayListingUrl: e.target.value }))}
-                    placeholder="https://www.ebay.com/itm/..."
-                    type="url"
-                  />
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">サイト内DBに保存されます</p>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEditingItem(null)} disabled={isEditSubmitting}>
-              キャンセル
-            </Button>
-            <Button
-              onClick={handleEditSubmit}
-              disabled={isEditSubmitting || !editForm.title.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {isEditSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-              ) : (
-                <Pencil className="h-4 w-4 mr-1.5" />
-              )}
-              更新する
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditInventoryDialog
+        editingItem={editingItem}
+        setEditingItem={setEditingItem}
+        editForm={editForm}
+        setEditForm={setEditForm}
+        categoryOptions={categoryOptions}
+        isEditSubmitting={isEditSubmitting}
+        handleEditSubmit={handleEditSubmit}
+      />
 
       {/* 発注済み登録ダイアログ */}
       <Dialog open={showOrderedDialog} onOpenChange={(open) => { if (!open) { setShowOrderedDialog(false); setOrderedTargetInv(null); } }}>
@@ -3225,124 +2693,15 @@ export default function Deliveries() {
       </Dialog>
 
       {/* 新規登録ダイアログ */}
-      <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false); }}><DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-green-600" />
-              新規商品登録
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="create-title">商品名 <span className="text-destructive">*</span></Label>
-              <Input
-                id="create-title"
-                value={createForm.title}
-                onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
-                placeholder="商品名を入力"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-quantity">在庫数</Label>
-                <Input
-                  id="create-quantity"
-                  type="number"
-                  min={0}
-                  value={createForm.quantity}
-                  onChange={(e) => setCreateForm(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder="0"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="create-unit">単位</Label>
-                <Input
-                  id="create-unit"
-                  value={createForm.unit}
-                  onChange={(e) => setCreateForm(f => ({ ...f, unit: e.target.value }))}
-                  placeholder="個"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-category">カテゴリ</Label>
-              <Select
-                value={createForm.category || "__none__"}
-                onValueChange={(v) => setCreateForm(f => ({ ...f, category: v === "__none__" ? "" : v }))}
-              >
-                <SelectTrigger id="create-category">
-                  <SelectValue placeholder="カテゴリを選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">未分類</SelectItem>
-                  {categoryOptions.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-price">仕入単価（円）</Label>
-              <Input
-                id="create-price"
-                type="number"
-                min={0}
-                value={createForm.purchase_unit_price}
-                onChange={(e) => setCreateForm(f => ({ ...f, purchase_unit_price: e.target.value }))}
-                placeholder="例: 1500"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-place">保管場所</Label>
-              <Input
-                id="create-place"
-                value={createForm.place}
-                onChange={(e) => setCreateForm(f => ({ ...f, place: e.target.value }))}
-                placeholder="保管場所を入力"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-etc">備考欄</Label>
-              <Textarea
-                id="create-etc"
-                value={createForm.etc}
-                onChange={(e) => setCreateForm(f => ({ ...f, etc: e.target.value }))}
-                placeholder="備考・管理番号など（例: 368-1, 2024-01-15, 株式会社ABC）"
-                rows={3}
-              />
-              <p className="text-xs text-muted-foreground">管理番号はカンマ区切りの先頭に記入（例: 368-1, ...）</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-supplier-url">仕入先URL</Label>
-              <Input
-                id="create-supplier-url"
-                value={createForm.supplierUrl}
-                onChange={(e) => setCreateForm(f => ({ ...f, supplierUrl: e.target.value }))}
-                placeholder="https://..."
-                type="url"
-              />
-              <p className="text-xs text-muted-foreground">サイト内DBに保存されます</p>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isCreateSubmitting}>
-              キャンセル
-            </Button>
-            <Button
-              onClick={handleCreateSubmit}
-              disabled={isCreateSubmitting || !createForm.title.trim()}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              {isCreateSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-              ) : (
-                <Plus className="h-4 w-4 mr-1.5" />
-              )}
-              登録する
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateInventoryDialog
+        showCreateDialog={showCreateDialog}
+        setShowCreateDialog={setShowCreateDialog}
+        createForm={createForm}
+        setCreateForm={setCreateForm}
+        categoryOptions={categoryOptions}
+        isCreateSubmitting={isCreateSubmitting}
+        handleCreateSubmit={handleCreateSubmit}
+      />
 
       {/* ===== 商品詳細ダイアログ ===== */}
       <Dialog open={!!detailItem} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>

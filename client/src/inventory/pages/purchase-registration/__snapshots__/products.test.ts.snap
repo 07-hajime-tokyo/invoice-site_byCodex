@@ -1,0 +1,1697 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`R09 product rules against actual source at 5873dbe > captures candidate order, duplicate candidates, model ambiguity and management-over-title priority 1`] = `
+[
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "3DS LL White Base",
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "3DS LL White Base",
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "3DS LL どうぶつの森",
+    null,
+    "3DS LL どうぶつの森",
+    "3DS LL どうぶつの森",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    "3DS LL White Base",
+    "3DS LL White Base",
+    "3DS LL White Base",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    "PSP2000 red",
+    "PSP2000 red",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    "PSP3000 blue",
+    "PSP3000 blue",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    null,
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    null,
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "3DS LL どうぶつの森",
+    null,
+    "3DS LL どうぶつの森",
+    "3DS LL どうぶつの森",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    "PS Vita 1000 ブラック",
+    "PS Vita 1000 ブラック",
+  ],
+  [
+    null,
+    null,
+    "PS Vita 1000 ブラック",
+    "PS Vita 1000 ブラック",
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+  [
+    null,
+    null,
+    null,
+    null,
+  ],
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures display names, raw names, missing-title fallbacks and management precedence 1`] = `
+[
+  [
+    "-",
+    "-",
+    "-",
+  ],
+  [
+    "Unknown😀",
+    "Unknown😀",
+    "Unknown😀",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL ホワイト",
+    "3DS LL White Base",
+  ],
+  [
+    "New 3DS LL ランダムカラー",
+    "New 3DS LL ランダムカラー",
+    "New 3DS LL ランダムカラー",
+  ],
+  [
+    "New 3DS LL ランダムカラー",
+    "Ｎｅｗ　３ＤＳ　ＸＬ",
+    "New 3DS LL ランダムカラー",
+  ],
+  [
+    "New 2DS LL モンスターボール",
+    "New 2DS LL モンスターボール",
+    "New 2DS LL モンスターボール",
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "3DS LL どうぶつの森",
+    "3DS LL Animal Crossing",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL Minecraft",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL ピカチュウ",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL Pokemon",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL Mario",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL Luigi",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL Hyrule",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL limited edition",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL ランダムカラー",
+    "3DS LL special edition",
+    "3DS LL ランダムカラー",
+  ],
+  [
+    "Animal-Crossing",
+    "Animal-Crossing",
+    "Animal-Crossing",
+  ],
+  [
+    "animal_crossing",
+    "animal_crossing",
+    "animal_crossing",
+  ],
+  [
+    "animal​crossing",
+    "animal​crossing",
+    "animal​crossing",
+  ],
+  [
+    "PS Vita 1000 ブラック",
+    "PS Vita 1100 ブラック",
+    "PS Vita 1000 ブラック",
+  ],
+  [
+    "PS Vita 1000 レッド・ブルー・ホワイト",
+    "PS Vita 1000 white",
+    "PS Vita 1000 ブラック",
+  ],
+  [
+    "PS Vita 2000 ランダムカラー",
+    "PS Vita 2000",
+    "PS Vita 2000 ランダムカラー",
+  ],
+  [
+    "PSP Go",
+    "PSP Go",
+    "PSP Go",
+  ],
+  [
+    "PSP 3000 ブラック",
+    "PSP3000 piano black",
+    "PSP 3000 ブラック",
+  ],
+  [
+    "PSP 2000 ホワイト",
+    "PSP 2000 セラミックホワイト",
+    "PSP 2000 ホワイト",
+  ],
+  [
+    "PSP 2000 ランダムカラー",
+    "PSP2000 Red",
+    "PSP 2000 ランダムカラー",
+  ],
+  [
+    "New 3DS ランダムカラー",
+    "New3DS",
+    "New 3DS ランダムカラー",
+  ],
+  [
+    "2DS ランダムカラー",
+    "2DS",
+    "2DS ランダムカラー",
+  ],
+  [
+    "3DS ランダムカラー",
+    "3DS",
+    "3DS ランダムカラー",
+  ],
+  [
+    "New 2DS LL ランダムカラー",
+    "New2DSLL",
+    "New 2DS LL ランダムカラー",
+  ],
+  [
+    "3DS LL どうぶつの森",
+    "3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+  ],
+  [
+    "PSP3000",
+    "PSP3000",
+    "PSP3000",
+  ],
+  [
+    "New 3DS LL ランダムカラー",
+    "New 3DS LL ランダムカラー",
+    "New 3DS LL ランダムカラー",
+  ],
+  [
+    "PSP 2000 ランダムカラー",
+    "PSP 2000 ランダムカラー",
+    "PSP 2000 ランダムカラー",
+  ],
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures exact-name precedence, stock candidate order and rejected cross-edition matches 1`] = `
+[
+  [
+    "3DS LL White Base",
+    "3DS LL White Base",
+    null,
+  ],
+  [
+    "3DS LL White Base",
+    "3DS LL White Base",
+    null,
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+    null,
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "New 3DS LL どうぶつの森",
+    null,
+  ],
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures excluded inventory, floor quantities, weighted stock prices and reference preservation 1`] = `
+[
+  {
+    "key": "3ds ll ホワイト",
+    "managementNos": [
+      "405_相手_3DSLLホワイト",
+    ],
+    "matchTexts": [
+      "3DS LL ホワイト",
+      "ゲーム",
+      "405_相手_3DSLLホワイト",
+      "405",
+      "仕入先",
+    ],
+    "required": 0,
+    "secured": 5,
+    "title": "3DS LL ホワイト",
+    "unitPriceCount": 2,
+    "unitPriceTotal": 1000,
+    "waiting": 0,
+  },
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures excluded inventory, floor quantities, weighted stock prices and reference preservation 2`] = `
+[
+  2,
+  3,
+  5,
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures invoice duplicate aggregation, weighted selling prices, first currency and unmatched omission 1`] = `
+[
+  {
+    "invoiceOrdered": 5,
+    "invoiceShipped": 1,
+    "key": "3ds ll ホワイト",
+    "managementNos": [
+      "405_相手_3DSLLホワイト",
+    ],
+    "matchTexts": [
+      "405_相手_3DSLLホワイト",
+    ],
+    "required": 4,
+    "secured": 3,
+    "sellingCurrency": "EUR",
+    "sellingPrice": 22,
+    "sellingPriceJpy": 3400,
+    "title": "3DS LL ホワイト",
+    "unitPriceCount": 2,
+    "unitPriceTotal": 200,
+    "waiting": 4,
+  },
+  {
+    "invoiceOrdered": 0,
+    "invoiceShipped": 1,
+    "key": "new 3ds ll どうぶつの森",
+    "managementNos": [],
+    "matchTexts": [],
+    "required": 0,
+    "secured": 1,
+    "sellingCurrency": "EUR",
+    "sellingPrice": 50,
+    "sellingPriceJpy": null,
+    "title": "New 3DS LL どうぶつの森",
+    "unitPriceCount": 0,
+    "unitPriceTotal": 0,
+    "waiting": 2,
+  },
+  {
+    "invoiceOrdered": -1,
+    "invoiceShipped": 1,
+    "key": "psp2000",
+    "managementNos": [],
+    "matchTexts": [],
+    "required": 0,
+    "secured": 0,
+    "sellingCurrency": "EUR",
+    "sellingPrice": null,
+    "sellingPriceJpy": null,
+    "title": "PSP2000",
+    "unitPriceCount": 0,
+    "unitPriceTotal": 0,
+    "waiting": 0,
+  },
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures summary ordering, unweighted purchase prices and received-row waiting behavior 1`] = `
+[
+  {
+    "key": "3ds ll ランダムカラー",
+    "managementNos": [
+      "405_相手_3DSLLホワイト",
+    ],
+    "matchTexts": [
+      "3DS LL ホワイト",
+      "405_相手_3DSLLホワイト",
+      "3DS LL ランダムカラー",
+    ],
+    "required": 11.5,
+    "secured": 3,
+    "title": "3DS LL ランダムカラー",
+    "unitPriceCount": 4,
+    "unitPriceTotal": 800,
+    "waiting": 3.5,
+  },
+  {
+    "key": "psp 2000 ランダムカラー",
+    "managementNos": [],
+    "matchTexts": [
+      "PSP2000",
+      "PSP 2000 ランダムカラー",
+    ],
+    "required": -2,
+    "secured": -2,
+    "title": "PSP 2000 ランダムカラー",
+    "unitPriceCount": 0,
+    "unitPriceTotal": 0,
+    "waiting": 0,
+  },
+  {
+    "key": "unknown",
+    "managementNos": [],
+    "matchTexts": [
+      "Unknown",
+    ],
+    "required": 3,
+    "secured": 1,
+    "title": "Unknown",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 0,
+  },
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > captures summary ordering, unweighted purchase prices and received-row waiting behavior 2`] = `
+[
+  {
+    "key": "3ds ll white base",
+    "managementNos": [
+      "405_相手_3DSLLホワイト",
+    ],
+    "matchTexts": [
+      "3DS LL ホワイト",
+      "405_相手_3DSLLホワイト",
+      "3DS LL ランダムカラー",
+    ],
+    "required": 11.5,
+    "secured": 3,
+    "title": "3DS LL White Base",
+    "unitPriceCount": 4,
+    "unitPriceTotal": 800,
+    "waiting": 3.5,
+  },
+  {
+    "key": "psp 2000 ランダムカラー",
+    "managementNos": [],
+    "matchTexts": [
+      "PSP2000",
+      "PSP 2000 ランダムカラー",
+    ],
+    "required": -2,
+    "secured": -2,
+    "title": "PSP 2000 ランダムカラー",
+    "unitPriceCount": 0,
+    "unitPriceTotal": 0,
+    "waiting": 0,
+  },
+  {
+    "key": "unknown",
+    "managementNos": [],
+    "matchTexts": [
+      "Unknown",
+    ],
+    "required": 3,
+    "secured": 1,
+    "title": "Unknown",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 0,
+  },
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > keeps detail status filtering, original item references and pass-through paths 1`] = `
+[
+  "[[{"id":1,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":2,"status":"shipped","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":3,"status":"purchased","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":4,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"0","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト","itemLabels":[{"labelId":"A","status":"shipped"}]}]}],[],[],null]",
+  "[[{"id":3,"status":"purchased","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト","itemLabels":[{"labelId":"A","status":"shipped"}]}]}],[{"key":"s1","inventoryId":1,"labelId":null,"status":"stocked","title":"3DS LL ホワイト","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"},{"key":"s1","inventoryId":2,"labelId":null,"status":"stocked","title":"PSP2000","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"}],[{"key":"s1","inventoryId":1,"labelId":null,"status":"stocked","title":"3DS LL ホワイト","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"},{"key":"s1","inventoryId":2,"labelId":null,"status":"stocked","title":"PSP2000","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"}],"現在庫すべて"]",
+  "[[{"id":1,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":2,"status":"shipped","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":4,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"0","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]}],[],[],"入庫まちすべて"]",
+  "[[{"id":3,"status":"purchased","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト"}]},{"id":5,"status":"ordered","purchase_items":[{"id":1,"title":"3DS LL ホワイト","quantity":"3","currentInventoryQuantity":"1","unit_price":"100","etc":"405_相手_3DSLLホワイト","itemLabels":[{"labelId":"A","status":"shipped"}]}]}],[{"key":"s1","inventoryId":1,"labelId":null,"status":"stocked","title":"3DS LL ホワイト","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"},{"key":"s1","inventoryId":2,"labelId":null,"status":"stocked","title":"PSP2000","category":"ゲーム","legacyManagementNo":"405_相手_3DSLLホワイト","allocationLabel":"405","unitPrice":100,"quantity":3,"supplier":{"name":"仕入先","url":"https://example.test"},"purchaseDate":"2026-09-01"}],[],"3DS LL ホワイト / 現在庫"]",
+  "[[],[],[],"unknown / 入庫まち"]",
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > keeps purchase invoice suggestions ahead of direct match while stock direct match stays first 1`] = `
+[
+  {
+    "invoiceOrdered": 5,
+    "invoiceShipped": 1,
+    "key": "psp2000 ホワイト",
+    "managementNos": [
+      "405_相手_PSP2000ホワイト",
+    ],
+    "matchTexts": [
+      "405_相手_PSP2000ホワイト",
+    ],
+    "required": 4,
+    "secured": 1,
+    "sellingCurrency": "EUR",
+    "sellingPrice": 20,
+    "sellingPriceJpy": null,
+    "title": "PSP2000 ホワイト",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 2,
+  },
+  {
+    "invoiceOrdered": 5,
+    "invoiceShipped": 1,
+    "key": "3ds ll ホワイト",
+    "managementNos": [],
+    "matchTexts": [],
+    "required": 4,
+    "secured": 0,
+    "sellingCurrency": "EUR",
+    "sellingPrice": 20,
+    "sellingPriceJpy": null,
+    "title": "3DS LL ホワイト",
+    "unitPriceCount": 0,
+    "unitPriceTotal": 0,
+    "waiting": 0,
+  },
+  {
+    "invoiceOrdered": 5,
+    "invoiceShipped": 1,
+    "key": "3ds ll white base",
+    "managementNos": [
+      "407_相手_3DSLLどうぶつの森",
+    ],
+    "matchTexts": [
+      "407_相手_3DSLLどうぶつの森",
+    ],
+    "required": 4,
+    "secured": 1,
+    "sellingCurrency": "EUR",
+    "sellingPrice": 20,
+    "sellingPriceJpy": null,
+    "title": "3DS LL White Base",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 2,
+  },
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > preserves limited editions, broad limited tags, random color, punctuation and 407 exceptions 1`] = `
+[
+  [
+    "",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "Unknown😀",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "3DS LL ホワイト",
+    null,
+    false,
+    true,
+    true,
+  ],
+  [
+    "New 3DS LL ランダムカラー",
+    null,
+    true,
+    true,
+    false,
+  ],
+  [
+    "Ｎｅｗ　３ＤＳ　ＸＬ",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "New 2DS LL モンスターボール",
+    "monster-ball",
+    false,
+    false,
+    false,
+  ],
+  [
+    "New 3DS LL どうぶつの森",
+    "animal-crossing",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Animal Crossing",
+    "animal-crossing",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Minecraft",
+    "minecraft",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL ピカチュウ",
+    "pikachu",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Pokemon",
+    "pokemon",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Mario",
+    "mario",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Luigi",
+    "luigi",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL Hyrule",
+    "zelda",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL limited edition",
+    "limited",
+    false,
+    false,
+    false,
+  ],
+  [
+    "3DS LL special edition",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "Animal-Crossing",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "animal_crossing",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "animal​crossing",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "PS Vita 1100 ブラック",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "PS Vita 1000 white",
+    null,
+    false,
+    true,
+    true,
+  ],
+  [
+    "PS Vita 2000",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "PSP Go",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "PSP3000 piano black",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "PSP 2000 セラミックホワイト",
+    null,
+    false,
+    true,
+    true,
+  ],
+  [
+    "PSP2000 Red",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "New3DS",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "2DS",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "3DS",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "New2DSLL",
+    null,
+    false,
+    true,
+    false,
+  ],
+  [
+    "407_相手_3DSLLどうぶつの森",
+    "animal-crossing",
+    false,
+    false,
+    true,
+  ],
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > preserves purchase matching versus stock color checks and hint sources 1`] = `
+[
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    true,
+    false,
+  ],
+  [
+    true,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    true,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    false,
+  ],
+  [
+    false,
+    true,
+  ],
+]
+`;
+
+exports[`R09 product rules against actual source at 5873dbe > replaces stock counts only on invoice summaries and preserves untouched product references 1`] = `
+[
+  {
+    "invoiceOrdered": 5,
+    "key": "3ds ll ホワイト",
+    "required": 3,
+    "secured": 5,
+    "title": "3DS LL ホワイト",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 2,
+  },
+  {
+    "key": "unknown",
+    "required": 3,
+    "secured": 1,
+    "title": "Unknown",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 2,
+  },
+  {
+    "invoiceOrdered": 0,
+    "key": "psp2000",
+    "required": 3,
+    "secured": 0,
+    "title": "PSP2000",
+    "unitPriceCount": 1,
+    "unitPriceTotal": 100,
+    "waiting": 2,
+  },
+]
+`;

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "allowJs": true
+  },
+  "include": [
+    "./*.ts",
+    "../routers.ts",
+    "../../tests/regression/invoiceContacts.test.ts",
+    "../../tests/regression/invoicePersistence.test.ts"
+  ],
+  "exclude": []
+}

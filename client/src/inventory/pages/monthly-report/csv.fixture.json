@@ -1,0 +1,12 @@
+{
+  "preview": {
+    "inventorySummary": [
+      { "category": "架空", "managementNo": "001", "title": "架空,商品\"A\"\n改行", "quantity": 2, "unitPrice": 12.5, "totalValue": 25 },
+      { "category": "架空", "title": "単価未設定", "quantity": 3, "unitPrice": null, "totalValue": null },
+      { "category": "別", "title": "無料", "quantity": 1, "unitPrice": 0, "totalValue": 0 }
+    ],
+    "invoiceList": [{ "invoiceNo": "10", "partner": "架空相手", "paymentDate": "2026/09/30", "products": [{ "name": "架空品", "qty": 2, "sellingPrice": 10.5, "currency": "USD", "tradeAmount": 21 }], "totalOrderQty": 2, "purchaseItems": [{ "zaicoId": 1, "title": "発注", "quantity": 2, "unitPrice": 50, "managementNo": "10-A", "status": "ordered" }], "stockItems": [{ "inventoryId": 2, "title": "在庫", "quantity": 3, "unitPrice": null, "managementNo": "10-B", "category": "架空" }], "deliveryItems": [{ "inventoryId": 3, "title": "出庫", "quantity": 4, "unitPrice": 20, "managementNo": "10-C", "deliveredAt": "2026/09/30", "deliveryNo": "10-D" }], "domesticNote": null, "totalPurchaseCost": 100, "totalStockCost": null }]
+  },
+  "overrides": { "10__ordered__1": null, "10__stock__2": 0 },
+  "domestic": [{ "title": "国内卸", "quantity": 2, "unitPrice": "15.50", "supplierName": "架空仕入先" }]
+}

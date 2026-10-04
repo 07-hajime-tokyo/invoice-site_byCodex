@@ -1,3 +1,15 @@
+import {
+  ACTION_ITEM_ASSIGNEE_ORDER,
+  ACTION_ITEM_REVIEWERS,
+  parseActionItemReviewerChecks,
+  normalizeActionItemSingleLineText,
+} from "@shared/actionItems";
+import {
+  MAX_ATTACHMENTS_PER_REQUEST,
+  actionItemAttachmentInputSchema,
+  validateAttachments,
+  buildAttachmentRows,
+} from "./actionItemAttachmentInput";
 import { z } from "zod";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -13,89 +25,11 @@ import { actionItemAttachmentUrl } from "./actionItemAttachmentStorage";
 import { getDb } from "./db";
 
 const actionItemStatusSchema = z.enum(["open", "done"]);
-const defaultAssignees = new Set(["全員", "仕入れ担当", "荷受担当", "出荷担当"]);
-const reviewerNameSchema = z.enum(["村上さん", "鈴木さん", "藤本さん", "野田さん"]);
-const MAX_ATTACHMENTS_PER_REQUEST = 10;
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_BASE64_LENGTH = 12 * 1024 * 1024;
-const allowedImageTypes = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-]);
-
-const actionItemAttachmentInputSchema = z.object({
-  fileName: z.string().max(255).optional(),
-  contentType: z.string().min(1).max(100),
-  dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64_LENGTH),
-});
-
-function cleanText(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function cleanBase64(value: string) {
-  return value.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
-}
-
-function validateAttachment(input: z.infer<typeof actionItemAttachmentInputSchema>) {
-  const contentType = input.contentType.trim().toLowerCase();
-  if (!allowedImageTypes.has(contentType)) {
-    throw new Error("添付できるのは画像ファイルだけです");
-  }
-  const dataBase64 = cleanBase64(input.dataBase64);
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
-    throw new Error("画像データの形式が正しくありません");
-  }
-  const byteLength = Buffer.byteLength(dataBase64, "base64");
-  if (byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new Error("添付画像は1枚8MB以下にしてください");
-  }
-  return {
-    fileName: cleanText(input.fileName ?? "") || "screenshot",
-    contentType,
-    dataBase64,
-  };
-}
-
-type ValidatedAttachmentInput = ReturnType<typeof validateAttachment>;
-
-function validateAttachments(attachments: Array<z.infer<typeof actionItemAttachmentInputSchema>>) {
-  if (attachments.length > MAX_ATTACHMENTS_PER_REQUEST) {
-    throw new Error(`添付は1回${MAX_ATTACHMENTS_PER_REQUEST}枚までです`);
-  }
-  return attachments.map(validateAttachment);
-}
-
-function buildAttachmentRows(
-  actionItemId: number,
-  attachments: ValidatedAttachmentInput[],
-  createdBy: string | null,
-) {
-  return attachments.map((attachment) => ({
-    actionItemId,
-    ...attachment,
-    createdBy,
-  }));
-}
+const defaultAssignees = new Set(ACTION_ITEM_ASSIGNEE_ORDER);
+const reviewerNameSchema = z.enum(ACTION_ITEM_REVIEWERS);
 
 function parseReviewerChecks(value: string | null | undefined): Record<string, boolean> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>)
-        .filter(([key]) => key.length > 0)
-        .map(([key, checked]) => [key, Boolean(checked)]),
-    );
-  } catch {
-    return {};
-  }
+  return Object.fromEntries(Object.entries(parseActionItemReviewerChecks(value)).filter(([key]) => key.length > 0));
 }
 
 async function requireDb() {
@@ -193,9 +127,9 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
-      const title = cleanText(input.title);
-      const assignee = cleanText(input.assignee);
-      const createdBy = cleanText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
+      const title = normalizeActionItemSingleLineText(input.title);
+      const assignee = normalizeActionItemSingleLineText(input.assignee);
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
       const detail = input.detail.trim();
       const validatedAttachments = validateAttachments(input.attachments);
       const result = await db.insert(actionItems).values({
@@ -236,7 +170,7 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const [item] = await db.select({ id: actionItems.id }).from(actionItems).where(eq(actionItems.id, input.actionItemId)).limit(1);
       if (!item) throw new Error("やることが見つかりません");
-      const createdBy = cleanText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "") || ctx.user.name || ctx.user.email || null;
       await db.insert(actionItemAttachments).values(buildAttachmentRows(input.actionItemId, validateAttachments(input.attachments), createdBy));
       return { success: true, count: input.attachments.length };
     }),
@@ -260,10 +194,10 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      const title = cleanText(input.title);
-      const assignee = cleanText(input.assignee);
+      const title = normalizeActionItemSingleLineText(input.title);
+      const assignee = normalizeActionItemSingleLineText(input.assignee);
       const detail = input.detail.trim();
-      const createdBy = cleanText(input.createdBy ?? "");
+      const createdBy = normalizeActionItemSingleLineText(input.createdBy ?? "");
       await db.update(actionItems).set({
         title,
         assignee,
@@ -284,7 +218,7 @@ export const actionItemsRouter = router({
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemAssignees).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
+      await db.insert(actionItemAssignees).ignore().values({ name: normalizeActionItemSingleLineText(input.name), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -305,7 +239,7 @@ export const actionItemsRouter = router({
     .input(z.object({ title: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemTitlePresets).ignore().values({ title: cleanText(input.title), sortOrder: 100 });
+      await db.insert(actionItemTitlePresets).ignore().values({ title: normalizeActionItemSingleLineText(input.title), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -313,7 +247,7 @@ export const actionItemsRouter = router({
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      await db.insert(actionItemAuthors).ignore().values({ name: cleanText(input.name), sortOrder: 100 });
+      await db.insert(actionItemAuthors).ignore().values({ name: normalizeActionItemSingleLineText(input.name), sortOrder: 100 });
       return { success: true };
     }),
 
@@ -366,7 +300,7 @@ export const actionItemsRouter = router({
       const db = await requireDb();
       const [item] = await db.select({ id: actionItems.id }).from(actionItems).where(eq(actionItems.id, input.actionItemId)).limit(1);
       if (!item) throw new Error("やることが見つかりません");
-      const author = cleanText(input.author ?? "") || ctx.user.name || ctx.user.email || null;
+      const author = normalizeActionItemSingleLineText(input.author ?? "") || ctx.user.name || ctx.user.email || null;
       await db.insert(actionItemReplies).values({
         actionItemId: input.actionItemId,
         body: input.body.trim(),
@@ -386,7 +320,7 @@ export const actionItemsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
-      const author = cleanText(input.author ?? "") || null;
+      const author = normalizeActionItemSingleLineText(input.author ?? "") || null;
       await db.update(actionItemReplies).set({
         body: input.body.trim(),
         author,

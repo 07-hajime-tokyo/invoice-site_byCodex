@@ -1,0 +1,17 @@
+{
+  "extends": "../../../../../tsconfig.json",
+  "include": [
+    "./*.ts",
+    "./LabelPrintPanel.tsx",
+    "./MissingTrackingOverview.tsx",
+    "./InboundScan.tsx",
+    "./OutboundBoxes.tsx",
+    "./ShippingPanels.tsx",
+    "./RegistrationDialogs.tsx",
+    "./ReceivedDateLabelPrint.tsx"
+  ],
+  "exclude": [],
+  "compilerOptions": {
+    "incremental": false
+  }
+}

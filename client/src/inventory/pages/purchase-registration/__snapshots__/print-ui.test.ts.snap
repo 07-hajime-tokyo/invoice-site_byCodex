@@ -1,0 +1,865 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`print presentation against 8cfcd9d > keeps QR SVG bytes, aria labels, quiet zone and non-ASCII/capacity behavior 1`] = `
+[
+  {
+    "ariaLabel": "QR ",
+    "hash": "6835a80671295881bd76217471e3568a11d8ee24db2bd0f09fddb1f44a158f4a",
+    "valueLength": 0,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR ABCDEFG",
+    "hash": "ca41ad293d819ff20c332caa3c6291cb8c797e236dc8b58deafa714afbe6086b",
+    "valueLength": 7,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR B123456",
+    "hash": "b2bb299bb54c4a956bbb138e9ea48f39a10eac630d264eb343f887db26f3ca04",
+    "valueLength": 7,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR BARDNSY",
+    "hash": "8f706c8f025dc1e9e3753e51be575c535e69fea8fbf028ea308718be92aedf8f",
+    "valueLength": 7,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR 日本語",
+    "hash": "5947a42ae18d7cefaf4af52e5d238ffd4f73c582b79a0d1393205af07e396384",
+    "valueLength": 3,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "hash": "9c59880735880decde831d149b7625898e50e046c8fdbc6c19744e937d9d5a76",
+    "valueLength": 32,
+    "viewBox": "0 0 25 25",
+  },
+  {
+    "ariaLabel": "QR aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "hash": "5be8b37e615792bf3291ac645d780cf28e3e14312320eec6e616002d0dbf510c",
+    "valueLength": 512,
+    "viewBox": "0 0 25 25",
+  },
+]
+`;
+
+exports[`print presentation against 8cfcd9d > keeps body portal targets, portal children and empty-print short circuits 1`] = `
+[
+  {
+    "blanks": 23,
+    "boxes": 0,
+    "hash": "0c1889068c0ed0dedb73fabf13bca1b7305808753d0a264922975aaa75008d5b",
+    "pages": 1,
+    "text": "ABCDEFG No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "e4cc6cbe88493366bb9827a3eae5c83db48718567443fdf97e870a4a4025ec0d",
+    "pages": 0,
+    "text": "商品IDと旧管理番号の確認シート（1件） ✓ 商品ID 旧管理番号 商品名 3DS LL - 1件 ABCDEFG 405_相手_3DSLL 3DS LL ホワイト",
+  },
+]
+`;
+
+exports[`print presentation against 8cfcd9d > keeps on-screen and printable checklist grouping, sorting, titles and input references 1`] = `
+[
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "e309d222394293d8ee2b23ec71cd3b0af731675d43ffb999e31feaa9c00ab83a",
+    "pages": 0,
+    "text": "付箋の旧管理番号から商品IDを引くための一覧です。チェックした商品IDだけを載せます（未選択なら表示中のすべて）。 ✓ 商品ID 旧管理番号 商品名",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "e991c41ba9276972addbc9d09efe7194530a1fe1b7d2a10390cedad165dbc4cd",
+    "pages": 0,
+    "text": "付箋の旧管理番号から商品IDを引くための一覧です。チェックした商品IDだけを載せます（未選択なら表示中のすべて）。 ✓ 商品ID 旧管理番号 商品名 3DS LL - 2件 □ 3DS LL ホワイト □ ABCDEFG 405_相手_3DSLL 3DS LL ホワイト PSP - 2件 □ B 009_x 画面用タイトル □ C 010_x 3DS LL ホワイト",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "75d212efa20cf2ef2185d60cf238620c643cc267981583f496e1dc64193b4bd1",
+    "pages": 0,
+    "text": "商品IDと旧管理番号の確認シート（4件） ✓ 商品ID 旧管理番号 商品名 3DS LL - 2件 3DS LL ホワイト ABCDEFG 405_相手_3DSLL 3DS LL ホワイト PSP - 2件 B 009_x 画面用タイトル C 010_x 3DS LL ホワイト",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "e991c41ba9276972addbc9d09efe7194530a1fe1b7d2a10390cedad165dbc4cd",
+    "pages": 0,
+    "text": "付箋の旧管理番号から商品IDを引くための一覧です。チェックした商品IDだけを載せます（未選択なら表示中のすべて）。 ✓ 商品ID 旧管理番号 商品名 3DS LL - 2件 □ 3DS LL ホワイト □ ABCDEFG 405_相手_3DSLL 3DS LL ホワイト PSP - 2件 □ B 009_x 画面用タイトル □ C 010_x 3DS LL ホワイト",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "hash": "75d212efa20cf2ef2185d60cf238620c643cc267981583f496e1dc64193b4bd1",
+    "pages": 0,
+    "text": "商品IDと旧管理番号の確認シート（4件） ✓ 商品ID 旧管理番号 商品名 3DS LL - 2件 3DS LL ホワイト ABCDEFG 405_相手_3DSLL 3DS LL ホワイト PSP - 2件 B 009_x 画面用タイトル C 010_x 3DS LL ホワイト",
+  },
+]
+`;
+
+exports[`print presentation against 8cfcd9d > keeps print-panel selection, persistence, callbacks and print effects verbatim 1`] = `"add3f71f072f8a07a84de136714d3326696ed3a6334057e7a85f548d6d5f71b7"`;
+
+exports[`print presentation against 8cfcd9d > keeps start offsets/page boundaries, blank-ID filtering and exact box-label decoration 1`] = `
+[
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "undefined",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "0",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "1",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "2",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "24",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "25",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "-1",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "2.9",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "NaN",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 0,
+    "count": 0,
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pages": 0,
+    "startPosition": "Infinity",
+    "text": "",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "undefined",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "0",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "1",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 1,
+    "hash": "0982b4d36d95961289f9fcbd1cba50e6643947611995facec20ac7e229911cff",
+    "pages": 1,
+    "startPosition": "2",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 1,
+    "hash": "2b19d8e5e0822ecbd382928af5949ab085b54a017d531f820bbf42756237bb5b",
+    "pages": 1,
+    "startPosition": "24",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 1,
+    "hash": "2b19d8e5e0822ecbd382928af5949ab085b54a017d531f820bbf42756237bb5b",
+    "pages": 1,
+    "startPosition": "25",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "-1",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 1,
+    "hash": "0982b4d36d95961289f9fcbd1cba50e6643947611995facec20ac7e229911cff",
+    "pages": 1,
+    "startPosition": "2.9",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "NaN",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 1,
+    "hash": "cccda4563f789e6c583736fa48fc7365347649317bc5fd4dd28e9e0e28fd0f95",
+    "pages": 1,
+    "startPosition": "Infinity",
+    "text": "B123456 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "undefined",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "0",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 23,
+    "hash": "4ae868398e7103a098d1bf3b9dfb28a0f9d97abbf3bf0606ddf1cb0b25be7c55",
+    "pages": 1,
+    "startPosition": "2",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 23,
+    "hash": "38c47ccf742b5200219e21dd0b5fc96162220a6fe295c509d310d1faad449d9e",
+    "pages": 2,
+    "startPosition": "24",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 23,
+    "hash": "38c47ccf742b5200219e21dd0b5fc96162220a6fe295c509d310d1faad449d9e",
+    "pages": 2,
+    "startPosition": "25",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "-1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 23,
+    "hash": "4ae868398e7103a098d1bf3b9dfb28a0f9d97abbf3bf0606ddf1cb0b25be7c55",
+    "pages": 1,
+    "startPosition": "2.9",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "NaN",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 23,
+    "hash": "5d727da4a32938aeed75ba408ac9687ec189dd693ae7580feec58be86089ba4c",
+    "pages": 1,
+    "startPosition": "Infinity",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "undefined",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "0",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 24,
+    "hash": "0769ff7e2a39883f3ea0bac96cc1a20500cb73e071a81af6aa99c2fba0499571",
+    "pages": 2,
+    "startPosition": "2",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 24,
+    "hash": "58636d649dd80af3be8bf745e7ba45d75b16d2842545786cfc3597e0555403c2",
+    "pages": 2,
+    "startPosition": "24",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 24,
+    "hash": "58636d649dd80af3be8bf745e7ba45d75b16d2842545786cfc3597e0555403c2",
+    "pages": 2,
+    "startPosition": "25",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "-1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 24,
+    "hash": "0769ff7e2a39883f3ea0bac96cc1a20500cb73e071a81af6aa99c2fba0499571",
+    "pages": 2,
+    "startPosition": "2.9",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "NaN",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 24,
+    "hash": "9b5e4bb3e44961bc9b7920e7bfda879bfe6894f9d29a12fda584b7905400ba7c",
+    "pages": 1,
+    "startPosition": "Infinity",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "undefined",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "0",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 25,
+    "hash": "81182c43e8d7b6ffc81195b0c9492e7d54aa7b5fb5109db31747aae296d9aa42",
+    "pages": 2,
+    "startPosition": "2",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 25,
+    "hash": "efb3f076c29ff2ad629ae0d0cc1cdc2ce520ba459210fae3df53693d534facdc",
+    "pages": 2,
+    "startPosition": "24",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 25,
+    "hash": "efb3f076c29ff2ad629ae0d0cc1cdc2ce520ba459210fae3df53693d534facdc",
+    "pages": 2,
+    "startPosition": "25",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "-1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 25,
+    "hash": "81182c43e8d7b6ffc81195b0c9492e7d54aa7b5fb5109db31747aae296d9aa42",
+    "pages": 2,
+    "startPosition": "2.9",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "NaN",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 25,
+    "hash": "fee4860228df408a7764126cf0015dd3c97fa7dbc53f1cb7e6f2f1221e4938d6",
+    "pages": 2,
+    "startPosition": "Infinity",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "undefined",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "0",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 48,
+    "hash": "0c66ac0ad167652a8c00a619883a7d1068126380bc9bde77b80ccec1b36d2a87",
+    "pages": 3,
+    "startPosition": "2",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 48,
+    "hash": "d10645647fd1c760283e7f27021dae817d9a78d6788c93841102796fc48d4a1d",
+    "pages": 3,
+    "startPosition": "24",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 23,
+    "boxes": 1,
+    "count": 48,
+    "hash": "d10645647fd1c760283e7f27021dae817d9a78d6788c93841102796fc48d4a1d",
+    "pages": 3,
+    "startPosition": "25",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "-1",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 1,
+    "boxes": 1,
+    "count": 48,
+    "hash": "0c66ac0ad167652a8c00a619883a7d1068126380bc9bde77b80ccec1b36d2a87",
+    "pages": 3,
+    "startPosition": "2.9",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "NaN",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+  {
+    "blanks": 0,
+    "boxes": 1,
+    "count": 48,
+    "hash": "332ee498369e4763aa15c6f43c1a92e6f6cd0b9d96c76b0a3ba473ffc2c332b2",
+    "pages": 2,
+    "startPosition": "Infinity",
+    "text": "B123456 No.405 3DSLL白 BARDNSY No.405 3DSLL白 ID2 No.405 3DSLL白 ID3 No.405 3DSLL白 ID4 No.405 3DSLL白 ID5 No.405 3DSLL白 ID6 No.405 3DSLL白 ID7 No.405 3DSLL白 ID8 No.405 3DSLL白 ID9 No.405 3DSLL白 ID10 No.405 3DSLL白 ID11 No.405 3DSLL白 ID12 No.405 3DSLL白 ID13 No.405 3DSLL白 ID14 No.405 3DSLL白 ID15 No.405 3DSLL白 ID16 No.405 3DSLL白 ID17 No.405 3DSLL白 ID18 No.405 3DSLL白 ID19 No.405 3DSLL白 ID20 No.405 3DSLL白 ID21 No.405 3DSLL白 ID22 No.405 3DSLL白 ID23 No.405 3DSLL白 ID24 No.405 3DSLL白 ID25 No.405 3DSLL白 ID26 No.405 3DSLL白 ID27 No.405 3DSLL白 ID28 No.405 3DSLL白 ID29 No.405 3DSLL白 ID30 No.405 3DSLL白 ID31 No.405 3DSLL白 ID32 No.405 3DSLL白 ID33 No.405 3DSLL白 ID34 No.405 3DSLL白 ID35 No.405 3DSLL白 ID36 No.405 3DSLL白 ID37 No.405 3DSLL白 ID38 No.405 3DSLL白 ID39 No.405 3DSLL白 ID40 No.405 3DSLL白 ID41 No.405 3DSLL白 ID42 No.405 3DSLL白 ID43 No.405 3DSLL白 ID44 No.405 3DSLL白 ID45 No.405 3DSLL白 ID46 No.405 3DSLL白 ID47 No.405 3DSLL白",
+  },
+]
+`;
+
+exports[`print presentation against 8cfcd9d > keeps start offsets/page boundaries, blank-ID filtering and exact box-label decoration 2`] = `
+{
+  "blanks": 0,
+  "boxes": 0,
+  "hash": "31a47af19f3d7445f8cd64ce24669c6df0cb75b74df7a1ad8b3a3a13d64dc0b7",
+  "pages": 1,
+  "text": "b123456 No.405 3DSLL白 B1234567 No.405 3DSLL白 B123456 No.405 3DSLL白 ABCDEFG 印刷名",
+}
+`;
+
+exports[`print presentation against 8cfcd9d > preserves the complete print CSS including sheet dimensions, breaks and docpack exclusion 1`] = `
+"<style>
+      .label-print-root {
+        display: none;
+      }
+
+      .checklist-print-root {
+        display: none;
+      }
+
+      @media print {
+        @page {
+          size: 210mm 297mm;
+          margin: 0;
+        }
+
+        html,
+        body {
+          width: 210mm !important;
+          min-width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+        }
+
+        body {
+          overflow: visible !important;
+        }
+
+        body > *:not(.label-print-root):not(.checklist-print-root):not(.docpack-print-root) {
+          display: none !important;
+        }
+
+        .label-print-root {
+          display: block !important;
+          position: static !important;
+          box-sizing: border-box;
+          width: 210mm !important;
+          min-height: 0;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          color: #0f172a !important;
+        }
+
+        .label-print-sheet {
+          box-sizing: border-box;
+          display: grid !important;
+          grid-template-columns: repeat(3, 66mm);
+          grid-template-rows: repeat(8, 33.9mm);
+          column-gap: 3mm;
+          row-gap: 0;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          margin: 0 !important;
+          padding: 12.9mm 3mm;
+          align-content: start;
+          justify-content: start;
+          overflow: hidden;
+        }
+
+        .label-print-sheet:not(:last-child) {
+          break-after: page;
+          page-break-after: always;
+        }
+
+        .label-print-sheet:last-child {
+          break-after: auto;
+          page-break-after: auto;
+        }
+
+        .label-print-item {
+          box-sizing: border-box;
+          display: grid !important;
+          grid-template-columns: minmax(0, 1fr) 20mm;
+          column-gap: 2mm;
+          align-items: center;
+          width: 66mm;
+          height: 33.9mm;
+          overflow: hidden;
+          padding: 2.4mm 2.8mm;
+          break-inside: avoid;
+          page-break-inside: avoid;
+          color: #0f172a;
+          background: #fff;
+          font-family: Arial, sans-serif;
+        }
+
+        .label-print-box {
+          border: 1.2mm solid #0f172a;
+          padding: 1.4mm 1.8mm;
+        }
+
+        .label-print-box .label-print-id {
+          font-size: 17pt;
+          letter-spacing: 0.12em;
+        }
+
+        .label-print-id {
+          margin-bottom: 1.2mm;
+          font-family: Consolas, "Courier New", monospace;
+          font-size: 13pt;
+          font-weight: 700;
+          line-height: 1.05;
+          letter-spacing: 0.08em;
+        }
+
+        .label-print-ref {
+          margin-bottom: 1mm;
+          overflow: hidden;
+          font-size: 6.6pt;
+          line-height: 1.15;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .label-print-title {
+          max-height: 11mm;
+          overflow: hidden;
+          font-size: 7.3pt;
+          font-weight: 700;
+          line-height: 1.18;
+        }
+
+        .label-print-qr {
+          width: 20mm;
+          height: 20mm;
+          justify-self: end;
+        }
+
+        .label-print-qr svg {
+          display: block !important;
+          width: 100% !important;
+          height: 100% !important;
+        }
+
+        .checklist-print-root {
+          display: block !important;
+          box-sizing: border-box;
+          width: 210mm !important;
+          padding: 10mm 8mm;
+          color: #0f172a !important;
+          background: #fff !important;
+          font-family: Arial, sans-serif;
+        }
+
+        .checklist-print-head {
+          margin-bottom: 4mm;
+          font-size: 11pt;
+          font-weight: 700;
+        }
+
+        .checklist-print-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 8.6pt;
+        }
+
+        .checklist-print-table th,
+        .checklist-print-table td {
+          border: 0.2mm solid #94a3b8;
+          padding: 1.3mm 1.6mm;
+          text-align: left;
+        }
+
+        /* ページをまたいでも見出し行を繰り返す */
+        .checklist-print-table thead {
+          display: table-header-group;
+        }
+
+        .checklist-print-table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .checklist-print-group td {
+          background: #e2e8f0;
+          font-weight: 700;
+        }
+
+        .checklist-print-check {
+          width: 9mm;
+        }
+
+        .checklist-print-idcol {
+          width: 26mm;
+          font-family: Consolas, "Courier New", monospace;
+          font-weight: 700;
+        }
+      }
+    </style>"
+`;

@@ -228,3 +228,12 @@ describe("発注の無いラベルは到着予定に出さない", () => {
     expect(result.untrackedLabels).toHaveLength(1);
   });
 });
+
+describe("荷受固有の割当表記", () => {
+  it("全角を正規化し、3桁と区切りの契約を維持する", () => {
+    expect(invoiceAllocation(" ４０３_架空_商品 ")).toEqual({ invoiceNo: "403", partner: "架空", label: "No.403 架空" });
+    expect(invoiceAllocation("403")).toEqual({ invoiceNo: "403", partner: null, label: "No.403" });
+    for (const value of [null, "", "4030_架空", "40_架空", "403-架空"])
+      expect(invoiceAllocation(value)).toEqual({ invoiceNo: null, partner: null, label: "在庫用" });
+  });
+});

@@ -1,18 +1,9 @@
 import type { YahooClosedPrices } from "./yahooClosedPrices";
 
-export const DEFECT_TAGS = [
-  "通電せず",
-  "起動しない",
-  "画面不良",
-  "バッテリー不良",
-  "充電不可",
-  "ボタン・スティック不良",
-  "外装破損",
-  "付属品欠品",
-  "その他",
-] as const;
-
-export const DEFECT_PHOTO_KINDS = ["whole", "defect", "accessory"] as const;
+import type { DefectPhoto } from "@shared/defectInspection";
+// 既存の呼出元との互換性を保つ。定義の正本はshared側。
+export { DEFECT_TAGS, DEFECT_PHOTO_KINDS } from "@shared/defectInspection";
+export type { DefectTag, DefectPhotoKind, DefectPhoto } from "@shared/defectInspection";
 
 /**
  * ヤフオクへ回す理由の区分。
@@ -21,9 +12,6 @@ export const DEFECT_PHOTO_KINDS = ["whole", "defect", "accessory"] as const;
  */
 export const LISTING_KINDS = ["junk", "surplus"] as const;
 
-export type DefectTag = (typeof DEFECT_TAGS)[number];
-export type DefectPhotoKind = (typeof DEFECT_PHOTO_KINDS)[number];
-export type DefectPhoto = { url: string; key: string; kind: DefectPhotoKind };
 export type ListingKind = (typeof LISTING_KINDS)[number];
 
 /** 区分を持たない旧データはすべてジャンクとして扱う */

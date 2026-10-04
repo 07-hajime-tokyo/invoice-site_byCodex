@@ -1,0 +1,14 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "../InvoicePage.tsx",
+    "./InvoiceEditor.tsx",
+    "./InvoiceList.tsx",
+    "./editorControlsReference.tsx",
+    "./listReference.tsx"
+  ],
+  "exclude": []
+}

@@ -12,6 +12,7 @@ import { existsSync } from "fs";
 import { tmpdir } from "os";
 import https from "https";
 import http from "http";
+import { calculateInvoiceTotals } from "../shared/invoiceAmounts";
 
 // Font CDN URLs (uploaded to Manus CDN for production use)
 const FONT_REGULAR_CDN = "https://d2xsxph8kpxj0f.cloudfront.net/310519663302463978/YRDUeX7pwHASZfWQdk8vrK/NotoSansJP-Regular_e0324c78.ttf";
@@ -353,12 +354,7 @@ function drawInvoice(doc: PDFKit.PDFDocument, params: InvoicePdfParams) {
   y += HEADER_H + 2;
 
   // Item rows
-  const subtotal = items.reduce((s, item) => s + item.quantity * item.unitPrice, 0);
-  const taxTotal = items.reduce((s, item) => {
-    const rate = (item.tax ?? 0) / 100;
-    return s + item.quantity * item.unitPrice * rate;
-  }, 0);
-  const grandTotal = subtotal + taxTotal;
+  const { subtotal, taxTotal, total: grandTotal } = calculateInvoiceTotals(items);
 
   items.forEach((item, i) => {
     const hasSubText = !!item.subText;

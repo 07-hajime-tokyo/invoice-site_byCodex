@@ -1,0 +1,24 @@
+export type PurchaseHistoryItem = {
+  id: number;
+  zaicoId: number;
+  kanriNo: string | null;
+  title: string;
+  category: string | null;
+  supplier: string | null;
+  quantity: string;
+  unitPrice: string | null;
+  purchaseDate: string;
+  inventoryId: number | null;
+  cancelled: number;
+  operatorName: string | null;
+  createdAt: Date;
+  supplierUrl?: string | null;
+  supplierName?: string | null;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  receiptAckPurchaseId?: number | null;
+  receiptAckStatus?: string | null;
+  receiptAckSource?: string | null;
+  receiptAckAt?: string | Date | null;
+  receiptAckNote?: string | null;
+};

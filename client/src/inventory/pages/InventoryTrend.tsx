@@ -1,3 +1,5 @@
+import { fmt, fmtDateTime, CHANGE_TYPE_LABELS } from "./inventory-trend/presentation";
+import { buildTrendChartData, buildTrendTableRows, filterInventoryChangeLogs } from "./inventory-trend/model";
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -16,27 +18,6 @@ import {
   Legend,
 } from "recharts";
 
-function fmt(n: number | null | undefined): string {
-  if (n == null) return "-";
-  return `¥${Math.round(n).toLocaleString("ja-JP")}`;
-}
-
-function fmtDateTime(value: unknown): string {
-  if (!value) return "-";
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-const CHANGE_TYPE_LABELS: Record<string, string> = {
-  created: "新規登録",
-  updated: "変更",
-  deleted: "削除",
-  increase: "在庫増",
-  decrease: "在庫減",
-  set: "在庫数の修正",
-};
-
 export default function InventoryTrend() {
   const [keyword, setKeyword] = useState("");
 
@@ -52,39 +33,9 @@ export default function InventoryTrend() {
     refetch: refetchLogs,
   } = trpc.inventory.inventoryMemo.listAll.useQuery({ limit: 500 });
 
-  /** グラフは古い順に並べる */
-  const chartData = useMemo(() => {
-    return snapshots
-      .filter((row) => row.breakdown != null)
-      .map((row) => ({
-        date: row.date.slice(5),
-        売り先未定: Math.round(row.breakdown!.unassignedAmount),
-        売り先決定済み: Math.round(row.breakdown!.assignedAmount),
-        合計: Math.round(row.breakdown!.totalAmount),
-      }))
-      .reverse();
-  }, [snapshots]);
-
-  /** 前日との差分を付けた表 */
-  const tableRows = useMemo(() => {
-    return snapshots.map((row, index) => {
-      const prev = snapshots[index + 1];
-      const total = row.breakdown?.totalAmount ?? null;
-      const prevTotal = prev?.breakdown?.totalAmount ?? null;
-      const delta = total != null && prevTotal != null ? total - prevTotal : null;
-      return { ...row, delta };
-    });
-  }, [snapshots]);
-
-  const filteredLogs = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return changeLogs;
-    return changeLogs.filter((log) =>
-      [log.title, log.memo, log.operatorName, log.changeType]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q))
-    );
-  }, [changeLogs, keyword]);
+  const chartData = useMemo(() => buildTrendChartData(snapshots), [snapshots]);
+  const tableRows = useMemo(() => buildTrendTableRows(snapshots), [snapshots]);
+  const filteredLogs = useMemo(() => filterInventoryChangeLogs(changeLogs, keyword), [changeLogs, keyword]);
 
   return (
     <div className="space-y-4 p-4">
