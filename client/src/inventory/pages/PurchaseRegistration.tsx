@@ -55,6 +55,10 @@ import {
   type ZeroStockPurchaseStatus,
 } from "@/inventory/pages/purchaseRegistrationZeroStock";
 import {
+  normalizeStockProposalTitleForGrouping,
+  stockProposalProductKey,
+} from "@/inventory/pages/purchaseRegistrationStockProposal";
+import {
   Boxes,
   CalendarDays,
   Check,
@@ -2202,12 +2206,7 @@ function stockItemStatusBadgeClass(item: StockItemView): string {
 }
 
 function normalizeStockProposalTitle(title: string): string {
-  let normalizedTitle = title.replace(/^登録漏れ\s*/u, "").replace(/\s+/g, " ").trim();
-  if (!normalizedTitle) return "-";
-  normalizedTitle = normalizedTitle.replace(/\b(?:ps\s*)?vita\s*1[01]00\b/gi, "Vita 1000");
-  normalizedTitle = normalizedTitle.replace(/\bnew\s*3ds\s*(?:ll|xl)\b/gi, "New 3DS LL");
-  normalizedTitle = normalizedTitle.replace(/\b3ds\s*(?:ll|xl)\b/gi, "3DS LL");
-  return normalizedTitle;
+  return normalizeStockProposalTitleForGrouping(title);
 }
 
 function stockProposalModelName(title: string, category?: string | null): string {
@@ -2307,7 +2306,7 @@ function getOrCreateStockProposalProduct(
   model: string,
 ): StockProposalProduct {
   const normalizedTitle = normalizeStockProposalTitle(title);
-  const key = `${model}::${productKey(normalizedTitle)}`;
+  const key = `${model}::${stockProposalProductKey(normalizedTitle)}`;
   const current = map.get(key);
   if (current) return current;
   const created: StockProposalProduct = {
