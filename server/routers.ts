@@ -1035,10 +1035,8 @@ function allocateQtyToTrades(
 }
 
 type TradeShipmentRegistrationProgress = {
-  shippedQtyByTradeId: Map<number, number>;
   fedexRegisteredQtyByTradeId: Map<number, number>;
   registeredQtyByTradeId: Map<number, number>;
-  invoiceNosWithShipmentSignal: Set<string>;
 };
 
 async function getTradeShipmentRegistrationProgress(
@@ -1055,10 +1053,8 @@ async function getTradeShipmentRegistrationProgress(
 
   if (invoiceNos.length === 0) {
     return {
-      shippedQtyByTradeId: new Map(),
       fedexRegisteredQtyByTradeId: new Map(),
       registeredQtyByTradeId: new Map(),
-      invoiceNosWithShipmentSignal: new Set(),
     };
   }
   const invoiceNoSet = new Set(invoiceNos.map((invoiceNo) => String(invoiceNo)));
@@ -1073,7 +1069,7 @@ async function getTradeShipmentRegistrationProgress(
     ];
   });
 
-  const [allTrades, allItems, allFedexRows] = await Promise.all([
+  const [allTrades, allFedexRows] = await Promise.all([
     db
       .select()
       .from(tradeRecords)
@@ -1081,12 +1077,8 @@ async function getTradeShipmentRegistrationProgress(
       .orderBy(asc(tradeRecords.id)),
     db
       .select()
-      .from(shipmentItems)
-      .where(inArray(shipmentItems.invoiceNo, invoiceNos)),
-    db
-      .select()
       .from(fedexShipments)
-      .where(or(...fedexShipmentConditions))
+      .where(and(or(...fedexShipmentConditions), isNull(fedexShipments.cancelledAt)))
       .orderBy(asc(fedexShipments.id)),
   ]);
 
@@ -1099,16 +1091,6 @@ async function getTradeShipmentRegistrationProgress(
     tradesByInvoiceNo.set(invoiceNo, trades);
   }
 
-  const shipmentItemQtyByTradeId = new Map<number, number>();
-  const invoiceNosWithShipmentSignal = new Set<string>();
-
-  for (const item of allItems) {
-    let tradeId = getShipmentTradeRecordId(item);
-    if (!tradeId) continue;
-    addTradeQuantity(shipmentItemQtyByTradeId, tradeId, item.quantity);
-    invoiceNosWithShipmentSignal.add(String(item.invoiceNo));
-  }
-
   const fedexItemsByInvoiceNo = new Map<string, FedexAllocationItem[]>();
   for (const shipment of allFedexRows) {
     const deliveryInvoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
@@ -1118,7 +1100,6 @@ async function getTradeShipmentRegistrationProgress(
       const items = fedexItemsByInvoiceNo.get(invoiceNo) ?? [];
       items.push({ ...item, deliveryNo: shipment.deliveryNo });
       fedexItemsByInvoiceNo.set(invoiceNo, items);
-      invoiceNosWithShipmentSignal.add(invoiceNo);
     }
   }
 
@@ -1132,22 +1113,13 @@ async function getTradeShipmentRegistrationProgress(
   }
 
   const registeredQtyByTradeId = new Map<number, number>();
-  const tradeIds = new Set<number>([
-    ...Array.from(shipmentItemQtyByTradeId.keys()),
-    ...Array.from(fedexQtyByTradeId.keys()),
-  ]);
-  for (const tradeId of tradeIds) {
-    registeredQtyByTradeId.set(
-      tradeId,
-      Math.max(shipmentItemQtyByTradeId.get(tradeId) ?? 0, fedexQtyByTradeId.get(tradeId) ?? 0),
-    );
+  for (const [tradeId, quantity] of fedexQtyByTradeId) {
+    registeredQtyByTradeId.set(tradeId, quantity);
   }
 
   return {
-    shippedQtyByTradeId: shipmentItemQtyByTradeId,
     fedexRegisteredQtyByTradeId: fedexQtyByTradeId,
     registeredQtyByTradeId,
-    invoiceNosWithShipmentSignal,
   };
 }
 
@@ -1158,19 +1130,14 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
   return rows.map((row): T => {
     const invoiceNo = row.no == null ? null : Number(row.no);
     const tradeId = Number(row.id);
-    const shipmentQty = progress.shippedQtyByTradeId.get(tradeId) ?? 0;
     const fedexQty = progress.fedexRegisteredQtyByTradeId.get(tradeId) ?? 0;
-    const hasActualShipmentQty =
-      progress.shippedQtyByTradeId.has(tradeId) || progress.fedexRegisteredQtyByTradeId.has(tradeId);
     const status = deriveTradeShipmentRegistrationStatus({
       status: row.status,
       invoiceNo,
       paymentDate: row.paymentDate,
       orderedQty: toNumber(row.quantity),
       registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
-      actualShippedQty: hasActualShipmentQty ? Math.max(shipmentQty, fedexQty) : undefined,
       fedexRegisteredQty: fedexQty,
-      hasShipmentSignal: invoiceNo !== null && progress.invoiceNosWithShipmentSignal.has(String(invoiceNo)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };
   });

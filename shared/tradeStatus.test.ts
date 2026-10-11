@@ -26,40 +26,34 @@ describe("tradeStatus", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
-        invoiceNo: 390,
+        invoiceNo: 400,
         orderedQty: 10,
         registeredQty: 10,
-        actualShippedQty: 10,
-        fedexRegisteredQty: 0,
-        hasShipmentSignal: true,
+        fedexRegisteredQty: 10,
       }),
     ).toBe("complete");
   });
 
-  it("uses site shipment quantities over sheet remaining status", () => {
+  it("uses FedEx registration quantities over sheet remaining status", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "remaining 1",
-        invoiceNo: 393,
+        invoiceNo: 419,
         orderedQty: 10,
         registeredQty: 10,
-        actualShippedQty: 10,
-        fedexRegisteredQty: 0,
-        hasShipmentSignal: true,
+        fedexRegisteredQty: 10,
       }),
     ).toBe("complete");
   });
 
-  it("shows simple remaining when actual shipments are short", () => {
+  it("shows simple remaining when FedEx registrations are short", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
         invoiceNo: 400,
         orderedQty: 6,
         registeredQty: 5,
-        actualShippedQty: 5,
         fedexRegisteredQty: 5,
-        hasShipmentSignal: true,
       }),
     ).toBe("\u6b8b1");
   });
@@ -71,11 +65,21 @@ describe("tradeStatus", () => {
         invoiceNo: 400,
         orderedQty: 10,
         registeredQty: 9,
-        actualShippedQty: 10,
         fedexRegisteredQty: 10,
-        hasShipmentSignal: true,
       }),
     ).toBe("complete");
+  });
+
+  it("does not count delivery-history-only quantities as shipment registration", () => {
+    expect(
+      deriveTradeShipmentRegistrationStatus({
+        status: "complete",
+        invoiceNo: 420,
+        orderedQty: 6,
+        registeredQty: 6,
+        fedexRegisteredQty: 0,
+      }),
+    ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b6\u53f0\uff09");
   });
 
   it("keeps invoice numbers through 399 complete even without site shipment registration", () => {
@@ -85,8 +89,6 @@ describe("tradeStatus", () => {
         invoiceNo: 399,
         orderedQty: 5,
         registeredQty: 0,
-        actualShippedQty: 5,
-        hasShipmentSignal: true,
       }),
     ).toBe("complete");
     expect(
@@ -96,7 +98,6 @@ describe("tradeStatus", () => {
         orderedQty: 5,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: false,
       }),
     ).toBe("complete");
   });
@@ -109,7 +110,6 @@ describe("tradeStatus", () => {
         orderedQty: 5,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: false,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09");
   });
@@ -122,7 +122,6 @@ describe("tradeStatus", () => {
         orderedQty: 6,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: false,
       }),
     ).toBe("");
     expect(
@@ -132,7 +131,6 @@ describe("tradeStatus", () => {
         orderedQty: 5,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: false,
       }),
     ).toBe("complete");
   });
@@ -145,7 +143,6 @@ describe("tradeStatus", () => {
         orderedQty: 6,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: true,
       }),
     ).toBe("");
     expect(
@@ -155,9 +152,8 @@ describe("tradeStatus", () => {
         orderedQty: 6,
         registeredQty: 0,
         fedexRegisteredQty: 0,
-        hasShipmentSignal: true,
       }),
-    ).toBe("complete");
+    ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b6\u53f0\uff09");
   });
 
   it("replaces sheet remaining count with site shipment remaining count", () => {
@@ -167,9 +163,7 @@ describe("tradeStatus", () => {
         invoiceNo: 404,
         orderedQty: 5,
         registeredQty: 4,
-        actualShippedQty: 4,
         fedexRegisteredQty: 4,
-        hasShipmentSignal: true,
       }),
     ).toBe("\u6b8b1");
   });
@@ -181,7 +175,7 @@ describe("tradeStatus", () => {
         invoiceNo: 393,
         orderedQty: 6,
         registeredQty: 5,
-        hasShipmentSignal: true,
+        fedexRegisteredQty: 5,
       }),
     ).toBe("\u6b8b1");
   });
@@ -193,7 +187,6 @@ describe("tradeStatus", () => {
         invoiceNo: 383,
         orderedQty: 10,
         registeredQty: 0,
-        hasShipmentSignal: true,
       }),
     ).toBe("complete");
     expect(
@@ -203,7 +196,6 @@ describe("tradeStatus", () => {
         paymentDate: "2025-06-01",
         orderedQty: 10,
         registeredQty: 0,
-        hasShipmentSignal: true,
       }),
     ).toBe("complete");
   });
