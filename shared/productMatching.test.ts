@@ -233,11 +233,11 @@ describe("productMatching", () => {
     expect(inventoryItemCanMatchCsvProduct(
       "PSP 3000 425_サミー_PSP3000画面不良_1/15",
       "PSP 3000 画面不具合",
-  )).toBe(true);
-  expect(inventoryItemCanMatchCsvProduct(
-    "3DS LL 427_サミー_外装傷あり_1/10",
-    "3DS LL Blackbase with damage exterior",
-  )).toBe(true);
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "3DS LL 427_サミー_外装傷あり_1/10",
+      "3DS LL Blackbase with damage exterior",
+    )).toBe(true);
   });
 
   it("Vita1100をVita1000注文行に色で紐づける", () => {
