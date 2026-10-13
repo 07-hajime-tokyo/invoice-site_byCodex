@@ -168,7 +168,7 @@ const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
   ["limited", ["限定版", "限定", "limited edition", "limited", "special edition"]],
 ];
 
-type ConditionQualifier = "good" | "screen-defect" | "junk";
+type ConditionQualifier = "good" | "screen-defect" | "exterior-damage" | "junk";
 
 const CONDITION_QUALIFIER_KEYWORDS: Array<[ConditionQualifier, string[]]> = [
   ["screen-defect", [
@@ -183,6 +183,24 @@ const CONDITION_QUALIFIER_KEYWORDS: Array<[ConditionQualifier, string[]]> = [
     "screen faulty",
     "screenburn",
     "screen burn",
+  ]],
+  ["exterior-damage", [
+    "外装傷あり",
+    "外装傷有り",
+    "外装傷",
+    "外装キズ",
+    "外装きず",
+    "外観傷あり",
+    "外観傷有り",
+    "外観傷",
+    "筐体傷あり",
+    "筐体傷",
+    "damage exterior",
+    "damaged exterior",
+    "exterior damage",
+    "exterior damaged",
+    "with damage exterior",
+    "with exterior damage",
   ]],
   ["good", [
     "状態良",

@@ -211,6 +211,16 @@ describe("productMatching", () => {
       .toBe("PSP 3000 bad screens");
   });
 
+  it("管理番号の外装傷ありをdamage exterior行へ分類する", () => {
+  const products = [
+    { name: "3DS LL Blackbase", qty: 10 },
+    { name: "3DS LL Blackbase with damage exterior", qty: 10 },
+  ];
+
+  expect(suggestCsvProduct("3DS LL", "427_サミー_外装傷あり_1/10", products)?.name)
+    .toBe("3DS LL Blackbase with damage exterior");
+});
+
   it("現在庫照合でも管理番号の状態表記とインボイス状態行を合わせる", () => {
     expect(inventoryItemCanMatchCsvProduct(
       "DS Lite 424_サミー_DSLiteジャンク_1/20",
@@ -223,7 +233,11 @@ describe("productMatching", () => {
     expect(inventoryItemCanMatchCsvProduct(
       "PSP 3000 425_サミー_PSP3000画面不良_1/15",
       "PSP 3000 画面不具合",
-    )).toBe(true);
+  )).toBe(true);
+  expect(inventoryItemCanMatchCsvProduct(
+    "3DS LL 427_サミー_外装傷あり_1/10",
+    "3DS LL Blackbase with damage exterior",
+  )).toBe(true);
   });
 
   it("Vita1100をVita1000注文行に色で紐づける", () => {
