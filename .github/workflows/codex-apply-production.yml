@@ -1,0 +1,102 @@
+name: Codex apply production changes
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply Codex patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/codex-production.patch <<'PATCH'
+diff --git a/shared/productMatching.test.ts b/shared/productMatching.test.ts
+index 504d568..d00e083 100644
+--- a/shared/productMatching.test.ts
++++ b/shared/productMatching.test.ts
+@@ -211,6 +211,16 @@ describe("productMatching", () => {
+       .toBe("PSP 3000 bad screens");
+   });
+ 
++  it("管理番号の外装傷ありをdamage exterior行へ分類する", () => {
++    const products = [
++      { name: "3DS LL Blackbase", qty: 10 },
++      { name: "3DS LL Blackbase with damage exterior", qty: 10 },
++    ];
++
++    expect(suggestCsvProduct("3DS LL", "427_サミー_外装傷あり_1/10", products)?.name)
++      .toBe("3DS LL Blackbase with damage exterior");
++  });
++
+   it("現在庫照合でも管理番号の状態表記とインボイス状態行を合わせる", () => {
+     expect(inventoryItemCanMatchCsvProduct(
+       "DS Lite 424_サミー_DSLiteジャンク_1/20",
+@@ -224,6 +234,10 @@ describe("productMatching", () => {
+       "PSP 3000 425_サミー_PSP3000画面不良_1/15",
+       "PSP 3000 画面不具合",
+     )).toBe(true);
++    expect(inventoryItemCanMatchCsvProduct(
++      "3DS LL 427_サミー_外装傷あり_1/10",
++      "3DS LL Blackbase with damage exterior",
++    )).toBe(true);
+   });
+ 
+   it("Vita1100をVita1000注文行に色で紐づける", () => {
+diff --git a/shared/productMatching.ts b/shared/productMatching.ts
+index 99f5dbb..284ee9f 100644
+--- a/shared/productMatching.ts
++++ b/shared/productMatching.ts
+@@ -168,7 +168,7 @@ const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
+   ["limited", ["限定版", "限定", "limited edition", "limited", "special edition"]],
+ ];
+ 
+-type ConditionQualifier = "good" | "screen-defect" | "junk";
++type ConditionQualifier = "good" | "screen-defect" | "exterior-damage" | "junk";
+ 
+ const CONDITION_QUALIFIER_KEYWORDS: Array<[ConditionQualifier, string[]]> = [
+   ["screen-defect", [
+@@ -184,6 +184,24 @@ const CONDITION_QUALIFIER_KEYWORDS: Array<[ConditionQualifier, string[]]> = [
+     "screenburn",
+     "screen burn",
+   ]],
++  ["exterior-damage", [
++    "外装傷あり",
++    "外装傷有り",
++    "外装傷",
++    "外装キズ",
++    "外装きず",
++    "外観傷あり",
++    "外観傷有り",
++    "外観傷",
++    "筐体傷あり",
++    "筐体傷",
++    "damage exterior",
++    "damaged exterior",
++    "exterior damage",
++    "exterior damaged",
++    "with damage exterior",
++    "with exterior damage",
++  ]],
+   ["good", [
+     "状態良",
+     "良品",
+PATCH
+          git apply /tmp/codex-production.patch
+          rm -f .github/workflows/codex-apply-production.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add shared/productMatching.ts shared/productMatching.test.ts .github/workflows/codex-apply-production.yml
+          git commit -m "Match exterior damage invoice rows"
+          git push origin HEAD:main
