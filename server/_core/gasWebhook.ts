@@ -9,6 +9,7 @@ import {
   purchaseHistories,
 } from "../../drizzle/schema";
 import { createInventoryMemo, ensureInventoryItemLabels, getDb } from "../inventory/db";
+import { ENV } from "./env";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -484,6 +485,11 @@ export function registerGasWebhookRoutes(app: Express) {
     const auth = requireGasSecret(req);
     if (!auth.ok) {
       sendError(res, auth.status, auth.message);
+      return;
+    }
+
+    if (ENV.isStaging) {
+      res.json({ success: true, skipped: true, reason: "staging environment", message: "GAS webhook disabled in staging" });
       return;
     }
 

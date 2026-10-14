@@ -16,6 +16,14 @@ export function normalizeStockProposalTitle(title: string): string {
   return normalizedTitle;
 }
 
+export function stockProposalProductKey(title: string): string {
+  return normalizeStockProposalTitle(title)
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s　・･_\-‐‑‒–—―,、，/／&＆×xX]+/g, "");
+}
+
 export function stockProposalModelName(title: string, category?: string | null): string {
   const fromTitle = stockModelName(title);
   if (fromTitle !== "その他") return fromTitle;

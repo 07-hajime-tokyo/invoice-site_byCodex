@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "staff/yousunafu/local-remake-setup": false
+      "staff/yousunafu/local-remake-setup": false,
+      "cursor/preview-deployment-merge-e261": true
     }
   },
   "buildCommand": "pnpm run build",
