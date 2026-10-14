@@ -168,6 +168,65 @@ const LIMITED_EDITION_PRODUCT_KEYWORDS: Array<[string, string[]]> = [
   ["limited", ["限定版", "限定", "limited edition", "limited", "special edition"]],
 ];
 
+type ConditionQualifier = "good" | "screen-defect" | "exterior-damage" | "junk";
+
+const CONDITION_QUALIFIER_KEYWORDS: Array<[ConditionQualifier, string[]]> = [
+  ["screen-defect", [
+    "画面不良",
+    "画面不具合",
+    "液晶不良",
+    "液晶不具合",
+    "bad screen",
+    "bad screens",
+    "screen issue",
+    "screen defect",
+    "screen faulty",
+    "screenburn",
+    "screen burn",
+  ]],
+  ["exterior-damage", [
+    "外装傷あり",
+    "外装傷有り",
+    "外装傷",
+    "外装キズ",
+    "外装きず",
+    "外観傷あり",
+    "外観傷有り",
+    "外観傷",
+    "筐体傷あり",
+    "筐体傷",
+    "damage exterior",
+    "damaged exterior",
+    "exterior damage",
+    "exterior damaged",
+    "with damage exterior",
+    "with exterior damage",
+  ]],
+  ["good", [
+    "状態良",
+    "良品",
+    "動作品",
+    "動作確認済",
+    "good condition",
+    "working",
+    "tested",
+  ]],
+  ["junk", [
+    "ジャンク",
+    "動作不良",
+    "起動不良",
+    "通電不良",
+    "故障",
+    "bad condition",
+    "faulty",
+    "junk",
+    "damaged",
+    "damage",
+    "not working",
+    "non working",
+  ]],
+];
+
 export function normalizeText(value: string): string {
   return value
     .normalize("NFKC")
@@ -273,6 +332,15 @@ function limitedEditionKeysCompatible(a: string | null, b: string | null): boole
   return a === b || a === "limited" || b === "limited";
 }
 
+function conditionQualifierKey(value: string): ConditionQualifier | null {
+  const target = normalizeLooseText(value);
+  if (!target) return null;
+  for (const [key, keywords] of CONDITION_QUALIFIER_KEYWORDS) {
+    if (keywords.some((keyword) => target.includes(normalizeLooseText(keyword)))) return key;
+  }
+  return null;
+}
+
 export function productNamesCanMatch(itemText: string, csvProductName: string): boolean {
   return limitedEditionKeysCompatible(limitedEditionProductKey(itemText), limitedEditionProductKey(csvProductName));
 }
@@ -300,6 +368,15 @@ export function inventoryItemCanMatchCsvProduct(itemText: string, csvProductName
   const targetLimitedKey = limitedEditionProductKey(targetText);
   const csvLimitedKey = limitedEditionProductKey(csvProductName);
   if (!limitedEditionKeysCompatible(targetLimitedKey, csvLimitedKey)) return false;
+
+  const targetCondition = conditionQualifierKey(targetText);
+  const csvCondition = conditionQualifierKey(csvProductName);
+  if (targetCondition && csvCondition) {
+    const targetModel = extractModel(targetText);
+    const csvModel = extractModel(csvProductName);
+    if (targetModel && csvModel && targetModel !== csvModel) return false;
+    return targetCondition === csvCondition;
+  }
 
   const csvColor = extractColor(csvProductName);
   if (isRandomColor(csvColor) || isOtherColor(csvColor) || isColorlessRandomColor(csvColor)) return true;
@@ -429,6 +506,13 @@ function scoreCsvProduct(itemTitle: string, managementNo: string, csvProductName
   const csvColor = extractColor(csvProductName);
   const managementText = normalizeLooseText(managementNo);
   const csvColorText = normalizeLooseText(csvColor);
+  const targetCondition = conditionQualifierKey(targetText);
+  const csvCondition = conditionQualifierKey(csvProductName);
+
+  if (targetCondition && csvCondition) {
+    return targetCondition === csvCondition ? 85 : -1;
+  }
+  if (csvCondition && !targetCondition) return targetIsRandomColor ? 25 : 35;
 
   if (isVita2000AquaBlueMisdelivery(itemTitle, csvProductName)) return 80;
   if (isBaseColorProduct(csvColor)) {
