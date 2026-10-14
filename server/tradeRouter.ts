@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { requiresShipmentTracking } from "@shared/tradeStatus";
+import { gateGoogleSheetsWrite } from "./_core/externalWriteGates";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import {
@@ -1457,14 +1458,19 @@ export const tradeRouter = router({
       .mutation(async ({ input }) => {
         const { sheets } = await assertTradeSheetExists(input.sheetName, TRADE_VIEW_SPREADSHEET_ID);
         const cell = `${spreadsheetColumnName(input.column)}${input.row}`;
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
-          range: `${quoteSheetName(input.sheetName)}!${cell}`,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[input.value]] },
-        }).catch((error) => {
-          throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
-        });
+        await gateGoogleSheetsWrite(
+          'updateTradeViewCell',
+          async () => {
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+              range: `${quoteSheetName(input.sheetName)}!${cell}`,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[input.value]] },
+            }).catch((error) => {
+              throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
+            });
+          }
+        )();
         tradeShipmentProgressCache = null;
         return { success: true, cell };
       }),
