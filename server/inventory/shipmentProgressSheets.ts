@@ -1,3 +1,11 @@
+import {
+  type TradeShipmentProgressEntry,
+  parseShipmentProgressSheetRows,
+} from "@shared/tradeSheetStatus";
+import { google } from "googleapis";
+import { TRADE_VIEW_SPREADSHEET_ID } from "../_core/spreadsheetIds";
+
+const TRADE_SHIPMENT_SHEET_NAME_KEYWORD = "発送進捗";
 
 let orderManagementShipmentProgressCache: {
   expiresAt: number;

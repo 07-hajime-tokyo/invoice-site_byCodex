@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Google Maps API Integration for Manus WebDev Templates
  * 

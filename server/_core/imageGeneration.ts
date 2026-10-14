@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Image generation helper using internal ImageService
  *

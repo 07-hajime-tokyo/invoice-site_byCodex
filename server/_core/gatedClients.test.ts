@@ -103,18 +103,27 @@ describe("Gated Clients", () => {
   });
 
   describe("safeFetch", () => {
+    const realFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = realFetch;
+    });
+
     it("allows GET requests to external APIs", async () => {
       process.env.APP_ENV = "staging";
       
-      // Mock fetch
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ data: "test" }),
+      let fetchCalled = false;
+      global.fetch = vi.fn(async () => {
+        fetchCalled = true;
+        return {
+          ok: true,
+          json: async () => ({ data: "test" }),
+        } as Response;
       });
       
       await safeFetch("https://api.example.com/data", { method: "GET" });
       
-      expect(global.fetch).toHaveBeenCalled();
+      expect(fetchCalled).toBe(true);
     });
 
     it("blocks POST requests to external APIs in staging", async () => {
@@ -160,48 +169,57 @@ describe("Gated Clients", () => {
     it("allows localhost requests in staging", async () => {
       process.env.APP_ENV = "staging";
       
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ data: "test" }),
+      let fetchCalled = false;
+      global.fetch = vi.fn(async () => {
+        fetchCalled = true;
+        return {
+          ok: true,
+          json: async () => ({ data: "test" }),
+        } as Response;
       });
       
       await safeFetch("http://localhost:3000/api/test", { method: "POST" });
       
-      expect(global.fetch).toHaveBeenCalled();
+      expect(fetchCalled).toBe(true);
     });
 
     it("allows writes when APP_ENV=production", async () => {
+      const originalEnv = process.env.APP_ENV;
       process.env.APP_ENV = "production";
       
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true }),
+      let fetchCalled = false;
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn(async () => {
+        fetchCalled = true;
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        } as Response;
       });
       
-      await safeFetch("https://api.ebay.com/order", {
-        method: "POST",
-        body: JSON.stringify({ test: "data" }),
-      });
-      
-      expect(global.fetch).toHaveBeenCalled();
+      try {
+        await safeFetch("https://api.ebay.com/order", {
+          method: "POST",
+          body: JSON.stringify({ test: "data" }),
+        });
+        
+        expect(fetchCalled).toBe(true);
+      } finally {
+        global.fetch = originalFetch;
+        process.env.APP_ENV = originalEnv;
+      }
     });
 
-    it("identifies and logs different external services", async () => {
+    it("blocks GAS script.google.com even for GET requests", async () => {
       process.env.APP_ENV = "staging";
-      const services = [
-        "https://api.ebay.com/sell",
-        "https://api.fedex.com/track",
-        "https://api.zaico.co.jp/inventory",
-        "https://generativelanguage.googleapis.com/v1/generate",
-        "https://api.frankfurter.dev/latest",
-        "https://script.google.com/macros/s/test/exec",
-      ];
-
-      for (const url of services) {
-        const response = await safeFetch(url, { method: "POST" });
-        const data = await response.json();
-        expect(data.blocked).toBe(true);
-      }
+      
+      const response = await safeFetch("https://script.google.com/macros/s/test/exec", {
+        method: "GET",
+      });
+      
+      const data = await response.json();
+      expect(data.blocked).toBe(true);
+      expect(data.message).toContain("GAS script blocked");
     });
   });
 });

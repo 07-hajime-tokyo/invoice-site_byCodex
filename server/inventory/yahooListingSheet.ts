@@ -8,6 +8,7 @@ import type { DefectiveSheetPayload } from "./defectiveListing";
  * GASは経由せず、サービスアカウントでSheets APIを直接叩く。
  * 共有ドライブ 0AM4oG1O4rVpLUk9PVA の中にあるので、サービスアカウントは
  * ドライブのメンバー権限でそのまま書き込める（個別共有は不要）。
+ */
 
 export const YAHOO_LISTING_SHEET_NAME = "出品待ち";
 

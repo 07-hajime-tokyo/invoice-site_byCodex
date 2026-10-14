@@ -1,3 +1,4 @@
+import { safeFetch } from "../_core/gatedClients";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import {

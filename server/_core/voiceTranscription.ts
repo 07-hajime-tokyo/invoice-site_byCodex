@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Voice transcription helper using internal Speech-to-Text service
  *

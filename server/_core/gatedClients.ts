@@ -101,6 +101,7 @@ export function createGatedSheetsClient(auth: Auth.GoogleAuth | Auth.JWT | Auth.
 /**
  * Gated fetch wrapper for external APIs.
  * Blocks write requests to external hosts when allowExternalWrites() is false.
+ * Also blocks GAS script.google.com (GET included, as doGet can trigger writes).
  */
 export async function gatedFetch(
   url: string | URL,
@@ -118,7 +119,29 @@ export async function gatedFetch(
     return fetch(url, init);
   }
   
-  // Allow read operations
+  // Check if this is our own storage/API (not external)
+  const storageUrl = process.env.STORAGE_API_URL || "";
+  const isOwnService = storageUrl && hostname.includes(new URL(storageUrl).hostname);
+  if (isOwnService) {
+    return fetch(url, init);
+  }
+  
+  // Block GAS scripts entirely (GET can trigger writes via doGet) - only in staging
+  if (hostname.includes("script.google.com") || hostname.includes("apps-script.google.com")) {
+    if (!allowExternalWrites()) {
+      logBlockedWrite("GAS Script", `${method} ${parsedUrl.pathname}`);
+      return new Response(
+        JSON.stringify({ success: true, blocked: true, message: "Staging environment - GAS script blocked" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+    return fetch(url, init);
+  }
+  
+  // Allow read operations for other external APIs
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
     return fetch(url, init);
   }
@@ -132,7 +155,6 @@ export async function gatedFetch(
       : hostname.includes("frankfurter") ? "Currency API"
       : hostname.includes("chatwork") ? "Chatwork API"
       : hostname.includes("slack") ? "Slack API"
-      : hostname.includes("script.google.com") ? "GAS Script"
       : `External API (${hostname})`;
     
     logBlockedWrite(service, `${method} ${parsedUrl.pathname}`);

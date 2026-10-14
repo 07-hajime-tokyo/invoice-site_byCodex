@@ -1537,7 +1537,7 @@ export const tradeRouter = router({
     getExchangeRates: protectedProcedure.query(async () => {
       const sheets = getSheetsClient();
       const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: SPREADSHEET_ID(),
         range: `${SHEET_NAME}!G1:H2`,
       });
       const rows = response.data.values ?? [];
@@ -1568,7 +1568,7 @@ export const tradeRouter = router({
       .query(async ({ input }) => {
         const sheets = getSheetsClient();
         const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!C:C`,
         });
         const rows = response.data.values ?? [];
@@ -1674,7 +1674,7 @@ export const tradeRouter = router({
         const sheets = getSheetsClient();
         // C列(インボイスNo)とE列(商品名)を同時取得し、インボイスNo+商品名で行を特定
         const searchResponse = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!C:E`,
         });
         const rows = searchResponse.data.values ?? [];
@@ -1715,7 +1715,7 @@ export const tradeRouter = router({
         }
         // A〜H列（商品価格(円)のI列は数式のため書き込まない）とJ列（状況）を別々に更新
         await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           requestBody: {
             valueInputOption: "USER_ENTERED",
             data: [
@@ -1839,7 +1839,7 @@ export const tradeRouter = router({
         }
         const sheets = getSheetsClient();
         await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           requestBody: {
             valueInputOption: "USER_ENTERED",
             data: [
@@ -1850,7 +1850,7 @@ export const tradeRouter = router({
         });
         // 現在の最終行番号を取得して、追加後の行番号を計算する
         const existingData = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!A:A`,
         });
         const existingRows = existingData.data.values ?? [];
@@ -1870,7 +1870,7 @@ export const tradeRouter = router({
           input.status,
         ];
         await sheets.spreadsheets.values.append({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!A:J`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [newRow] },

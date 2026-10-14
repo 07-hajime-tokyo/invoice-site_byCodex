@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Quick example (matches curl usage):
  *   await callDataApi("Youtube/search", {
