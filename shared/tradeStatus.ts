@@ -38,61 +38,50 @@ export function formatRemainingQty(value: number) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
 }
 
+/**
+ * No.399以下のインボイスは発送登録なしでも完了として扱う。
+ * これは出庫登録の仕組みができる前の取引に対する特別ルール。
+ */
+export function isLegacyCompleteInvoice(invoiceNo: number | null | undefined): boolean {
+  const no = Number(invoiceNo ?? 0);
+  return Number.isFinite(no) && no > 0 && no <= 399;
+}
+
+/**
+ * No.400以降のインボイスで発送記録の取得が必要なものかどうか。
+ * No.399以下は常にfalse（発送記録不要）。
+ */
+export function requiresShipmentTracking(invoiceNo: number | null | undefined): boolean {
+  const no = Number(invoiceNo ?? 0);
+  return Number.isFinite(no) && no > 399;
+}
+
 export function deriveTradeShipmentRegistrationStatus(input: {
   status: string | null;
   invoiceNo: number | null;
   paymentDate?: string | null;
   orderedQty: number;
   registeredQty: number;
-  actualShippedQty?: number;
   fedexRegisteredQty?: number;
-  hasShipmentSignal: boolean;
 }) {
   const currentStatus = input.status ?? "";
   if (isClosedTradeYear(input.paymentDate)) return currentStatus;
 
-  const invoiceNo = Number(input.invoiceNo ?? 0);
   if (input.orderedQty <= 0) return currentStatus;
-  const fedexRegisteredQty = input.fedexRegisteredQty ?? 0;
-  const effectiveRegisteredQty = Math.max(input.registeredQty, fedexRegisteredQty);
-  const hasSiteShipmentQty =
-    input.actualShippedQty !== undefined ||
-    input.registeredQty > 0 ||
-    fedexRegisteredQty > 0;
-  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
+  const effectiveRegisteredQty = Math.max(0, input.fedexRegisteredQty ?? input.registeredQty);
+  const hasSiteShipmentQty = effectiveRegisteredQty > 0;
+  if (isLegacyCompleteInvoice(input.invoiceNo) && !hasSiteShipmentQty) {
     return "complete";
   }
-  if (isTradeRemainingStatus(currentStatus) && !hasSiteShipmentQty && !input.hasShipmentSignal) {
-    return "";
-  }
-  if (!hasSiteShipmentQty && input.hasShipmentSignal) {
-    return isTradeRemainingStatus(currentStatus) ? "" : currentStatus;
-  }
-
-  if (isTradeStatusComplete(currentStatus)) {
-    const actualShippedQty = input.actualShippedQty ?? input.orderedQty;
-    const actualRemaining = Math.max(0, input.orderedQty - actualShippedQty);
-    if (actualRemaining > 0) {
-      return `\u6b8b${formatRemainingQty(actualRemaining)}`;
+  if (!hasSiteShipmentQty) {
+    if (isTradeStatusComplete(currentStatus)) {
+      return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(input.orderedQty)}\u53f0\uff09`;
     }
-
-    const registrationRemaining = Math.max(0, input.orderedQty - effectiveRegisteredQty);
-    return registrationRemaining <= 0
-      ? "complete"
-      : `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;
-  }
-
-  if (!input.hasShipmentSignal) return currentStatus;
-
-  const actualShippedQty =
-    input.actualShippedQty ?? effectiveRegisteredQty;
-  const actualRemaining = Math.max(0, input.orderedQty - actualShippedQty);
-  if (actualRemaining > 0) {
-    return `\u6b8b${formatRemainingQty(actualRemaining)}`;
+    if (isTradeRemainingStatus(currentStatus)) return "";
+    return currentStatus;
   }
 
   const registrationRemaining = Math.max(0, input.orderedQty - effectiveRegisteredQty);
   if (registrationRemaining <= 0) return "complete";
-  if (!isTradeStatusComplete(currentStatus) && !isTradeRemainingStatus(currentStatus)) return currentStatus;
-  return `\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b${formatRemainingQty(registrationRemaining)}\u53f0\uff09`;
+  return `\u6b8b${formatRemainingQty(registrationRemaining)}`;
 }

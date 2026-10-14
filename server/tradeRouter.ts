@@ -1,8 +1,11 @@
-import { google } from "googleapis";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
+import { requiresShipmentTracking } from "@shared/tradeStatus";
+import { createGatedSheetsClient, safeFetch } from "./_core/gatedClients";
+import { SPREADSHEET_ID, TRADE_VIEW_SPREADSHEET_ID } from "./_core/spreadsheetIds";
+import { google } from "googleapis";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import {
@@ -15,9 +18,7 @@ import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedIn
 import { tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
 import { eq, desc, asc, or, like, and, sql, isNotNull, inArray } from "drizzle-orm";
 
-const SPREADSHEET_ID = "1yOBlT5PbKGQOILcd0LUqo0_Ql_27g6MbQLb-g5cHVyw";
 const SHEET_NAME = "全体";
-const TRADE_VIEW_SPREADSHEET_ID = "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
 const TRADE_VIEW_DEFAULT_SHEET_NAME = "独発送管理";
 const TRADE_VIEW_SHEET_NAME_KEYWORD = "発送管理";
 const TRADE_SHEET_WRITE_BACK_ENABLED = false;
@@ -42,7 +43,8 @@ function getServiceAccountCredentials() {
   return fixServiceAccountJson(serviceAccountJson);
 }
 
-function getSheetsAccessError(error: unknown, spreadsheetId = SPREADSHEET_ID) {
+function getSheetsAccessError(error: unknown, spreadsheetId: string | (() => string)) {
+  const resolvedId = typeof spreadsheetId === "function" ? spreadsheetId() : spreadsheetId;
   const message = error instanceof Error ? error.message : String(error);
   const status = typeof error === "object" && error !== null && "code" in error
     ? String((error as { code?: unknown }).code)
@@ -317,7 +319,7 @@ async function getSheetShipmentProgressByInvoice() {
 
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({
-    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
     fields: "sheets.properties(title,index,hidden)",
   }).catch((error) => {
     throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
@@ -334,7 +336,7 @@ async function getSheetShipmentProgressByInvoice() {
   if (tabs.length === 0) return new Map<string, SheetShipmentProgress[]>();
 
   const response = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+    spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
     ranges: tabs.map((tab) => `${quoteSheetName(tab.title)}!B:G`),
     valueRenderOption: "FORMATTED_VALUE",
   }).catch((error) => {
@@ -466,7 +468,7 @@ function applyManualCompleteTradeStatuses<T extends { no: number | null; status:
   });
 }
 
-async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID) {
+async function assertTradeSheetExists(sheetName: string, spreadsheetId = SPREADSHEET_ID()) {
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({
     spreadsheetId,
@@ -651,7 +653,7 @@ async function getTradeShipmentRegistrationProgress(
     new Set(
       rows
         .map((row) => Number(row.no ?? 0))
-        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 399),
+        .filter(requiresShipmentTracking),
     ),
   );
 
@@ -770,9 +772,7 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
       paymentDate: row.paymentDate,
       orderedQty: toNumber(row.quantity),
       registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
-      actualShippedQty: hasActualShipmentQty ? Math.max(shipmentQty, fedexQty) : undefined,
       fedexRegisteredQty: fedexQty,
-      hasShipmentSignal: invoiceNo !== null && progress.invoiceNosWithShipmentSignal.has(String(invoiceNo)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };
   });
@@ -1008,7 +1008,7 @@ export async function recalcShippingCosts(
       const loadUsdRate = async () => {
         if (usdRate !== null) return usdRate;
         try {
-          const rateRes = await fetch(`https://api.frankfurter.dev/v1/${group.shippingDate}?base=USD&symbols=JPY`);
+          const rateRes = await safeFetch(`https://api.frankfurter.dev/v1/${group.shippingDate}?base=USD&symbols=JPY`);
           if (rateRes.ok) {
             const rateData = await rateRes.json() as { rates?: { JPY?: number } };
             usdRate = rateData.rates?.JPY ?? null;
@@ -1337,11 +1337,11 @@ export const tradeRouter = router({
 
     getSheetTabs: protectedProcedure.query(async () => {
       if (!canSyncTradeSheet()) {
-        return { configured: false as const, spreadsheetId: TRADE_VIEW_SPREADSHEET_ID, tabs: [] };
+        return { configured: false as const, spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(), tabs: [] };
       }
       const sheets = getSheetsClient();
       const metadata = await sheets.spreadsheets.get({
-        spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+        spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
         fields: "spreadsheetId,spreadsheetUrl,sheets.properties(title,index,hidden,gridProperties(rowCount,columnCount))",
       }).catch((error) => {
         throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
@@ -1358,8 +1358,8 @@ export const tradeRouter = router({
         .sort((a, b) => a.index - b.index);
       return {
         configured: true as const,
-        spreadsheetId: metadata.data.spreadsheetId ?? TRADE_VIEW_SPREADSHEET_ID,
-        spreadsheetUrl: metadata.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${TRADE_VIEW_SPREADSHEET_ID}/edit`,
+        spreadsheetId: metadata.data.spreadsheetId ?? TRADE_VIEW_SPREADSHEET_ID(),
+        spreadsheetUrl: metadata.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${TRADE_VIEW_SPREADSHEET_ID()}/edit`,
         tabs,
       };
     }),
@@ -1374,7 +1374,7 @@ export const tradeRouter = router({
       }))
       .query(async ({ input }) => {
         const sheetName = input.sheetName?.trim() || TRADE_VIEW_DEFAULT_SHEET_NAME;
-        const { sheets, sheet } = await assertTradeSheetExists(sheetName, TRADE_VIEW_SPREADSHEET_ID);
+        const { sheets, sheet } = await assertTradeSheetExists(sheetName, TRADE_VIEW_SPREADSHEET_ID());
         const totalColumnCount = Math.min(sheet.gridProperties?.columnCount ?? input.maxColumns, 225);
         const totalRowCount = sheet.gridProperties?.rowCount ?? input.maxRows;
         const startRow = Math.min(input.startRow, Math.max(totalRowCount, 1));
@@ -1409,7 +1409,7 @@ export const tradeRouter = router({
           : [];
         const bodyRanges = ranges.map((range) => rangeToA1(range, startRow, endRow));
         const response = await sheets.spreadsheets.values.batchGet({
-          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
           ranges: [...frozenRanges, ...bodyRanges],
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
@@ -1456,10 +1456,10 @@ export const tradeRouter = router({
         value: z.string().max(2000),
       }))
       .mutation(async ({ input }) => {
-        const { sheets } = await assertTradeSheetExists(input.sheetName, TRADE_VIEW_SPREADSHEET_ID);
+        const { sheets } = await assertTradeSheetExists(input.sheetName, TRADE_VIEW_SPREADSHEET_ID());
         const cell = `${spreadsheetColumnName(input.column)}${input.row}`;
         await sheets.spreadsheets.values.update({
-          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
           range: `${quoteSheetName(input.sheetName)}!${cell}`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[input.value]] },
@@ -1476,7 +1476,7 @@ export const tradeRouter = router({
         const invoiceNo = input.invoiceNo.trim();
         const sheets = getSheetsClient();
         const metadata = await sheets.spreadsheets.get({
-          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
           fields: "sheets.properties(title,index,hidden,gridProperties(columnCount))",
         }).catch((error) => {
           throw getSheetsAccessError(error, TRADE_VIEW_SPREADSHEET_ID);
@@ -1493,7 +1493,7 @@ export const tradeRouter = router({
         if (tabs.length === 0) return { found: false as const };
 
         const response = await sheets.spreadsheets.values.batchGet({
-          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+          spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
           ranges: tabs.map((tab) => `${quoteSheetName(tab.title)}!B:B`),
           valueRenderOption: "FORMATTED_VALUE",
         }).catch((error) => {
@@ -1508,7 +1508,7 @@ export const tradeRouter = router({
               const rowNumber = rowIndex + 1;
               const maxColumn = Math.min(tabs[tabIndex].columnCount || 225, 225);
               const rowResponse = await sheets.spreadsheets.values.get({
-                spreadsheetId: TRADE_VIEW_SPREADSHEET_ID,
+                spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
                 range: `${quoteSheetName(tabs[tabIndex].title)}!A${rowNumber}:${spreadsheetColumnName(maxColumn)}${rowNumber}`,
                 valueRenderOption: "FORMATTED_VALUE",
               }).catch((error) => {
@@ -1537,7 +1537,7 @@ export const tradeRouter = router({
     getExchangeRates: protectedProcedure.query(async () => {
       const sheets = getSheetsClient();
       const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: SPREADSHEET_ID(),
         range: `${SHEET_NAME}!G1:H2`,
       });
       const rows = response.data.values ?? [];
@@ -1568,7 +1568,7 @@ export const tradeRouter = router({
       .query(async ({ input }) => {
         const sheets = getSheetsClient();
         const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!C:C`,
         });
         const rows = response.data.values ?? [];
@@ -1674,7 +1674,7 @@ export const tradeRouter = router({
         const sheets = getSheetsClient();
         // C列(インボイスNo)とE列(商品名)を同時取得し、インボイスNo+商品名で行を特定
         const searchResponse = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!C:E`,
         });
         const rows = searchResponse.data.values ?? [];
@@ -1715,7 +1715,7 @@ export const tradeRouter = router({
         }
         // A〜H列（商品価格(円)のI列は数式のため書き込まない）とJ列（状況）を別々に更新
         await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           requestBody: {
             valueInputOption: "USER_ENTERED",
             data: [
@@ -1839,7 +1839,7 @@ export const tradeRouter = router({
         }
         const sheets = getSheetsClient();
         await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           requestBody: {
             valueInputOption: "USER_ENTERED",
             data: [
@@ -1850,7 +1850,7 @@ export const tradeRouter = router({
         });
         // 現在の最終行番号を取得して、追加後の行番号を計算する
         const existingData = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!A:A`,
         });
         const existingRows = existingData.data.values ?? [];
@@ -1870,7 +1870,7 @@ export const tradeRouter = router({
           input.status,
         ];
         await sheets.spreadsheets.values.append({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: SPREADSHEET_ID(),
           range: `${SHEET_NAME}!A:J`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [newRow] },

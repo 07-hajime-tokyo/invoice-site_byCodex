@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Voice transcription helper using internal Speech-to-Text service
  *
@@ -94,7 +95,7 @@ export async function transcribeAudio(
     let audioBuffer: Buffer;
     let mimeType: string;
     try {
-      const response = await fetch(options.audioUrl);
+      const response = await safeFetch(options.audioUrl);
       if (!response.ok) {
         return {
           error: "Failed to download audio file",
@@ -152,7 +153,7 @@ export async function transcribeAudio(
       baseUrl
     ).toString();
 
-    const response = await fetch(fullUrl, {
+    const response = await safeFetch(fullUrl, {
       method: "POST",
       headers: {
         authorization: `Bearer ${ENV.forgeApiKey}`,

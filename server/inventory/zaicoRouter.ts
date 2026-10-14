@@ -1,3 +1,4 @@
+import { safeFetch } from "../_core/gatedClients";
 import { parseMoneyNumber } from "./inventoryMoney";
 import { getOrderRowsFromTradeRecords } from "./orderTradeRows";
 import { invoiceNoPrefixFromDeliveryNo } from "./deliveryInvoiceAttribution";
@@ -159,12 +160,12 @@ async function readGithubCsvResponse(res: Response): Promise<string> {
 }
 
 async function fetchCsvFromGithub(url: string, errorLabel: string): Promise<string> {
-  const rawRes = await fetch(url, { headers: buildGithubHeaders() });
+  const rawRes = await safeFetch(url, { headers: buildGithubHeaders() });
   if (rawRes.ok) return readGithubCsvResponse(rawRes);
 
   const apiUrl = rawGithubUrlToContentsApi(url);
   if (apiUrl && getGithubCsvToken()) {
-    const apiRes = await fetch(apiUrl, { headers: buildGithubHeaders("application/vnd.github+json") });
+    const apiRes = await safeFetch(apiUrl, { headers: buildGithubHeaders("application/vnd.github+json") });
     if (apiRes.ok) return readGithubCsvResponse(apiRes);
     throw new Error(`${errorLabel}: ${rawRes.status}; GitHub API fallback: ${apiRes.status}`);
   }
@@ -2164,7 +2165,7 @@ export const zaicoRouter = router({
                 trackingNumber: input.trackingNumber,
                 items: fedexItems,
               };
-              const res0 = await fetch(gasUrl, {
+              const res0 = await safeFetch(gasUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(gasPayload),
@@ -2173,7 +2174,7 @@ export const zaicoRouter = router({
               let text: string;
               if (res0.status === 302 || res0.status === 301) {
                 const redirectUrl = res0.headers.get("location") ?? gasUrl;
-                const res0r = await fetch(redirectUrl, { method: "GET" });
+                const res0r = await safeFetch(redirectUrl, { method: "GET" });
                 text = await res0r.text();
               } else {
                 text = await res0.text();

@@ -1,37 +1,9 @@
 {
   "git": {
-    "deploymentEnabled": {
-      "staff/yousunafu/local-remake-setup": false
-    }
+    "deploymentEnabled": true
   },
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist/public",
-  "crons": [
-    {
-      "path": "/api/cron/fedex-missing",
-      "schedule": "0 22 * * *"
-    },
-    {
-      "path": "/api/cron/inbound-classify",
-      "schedule": "0 22 * * *"
-    },
-    {
-      "path": "/api/cron/inventory-snapshot",
-      "schedule": "50 14 * * *"
-    },
-    {
-      "path": "/api/cron/defective-yahoo-prices",
-      "schedule": "5 15 * * *"
-    },
-    {
-      "path": "/api/cron/receipt-ack-import",
-      "schedule": "30 2 * * *"
-    },
-    {
-      "path": "/api/cron/receipt-ack-stale",
-      "schedule": "0 3 * * *"
-    }
-  ],
   "headers": [
     {
       "source": "/",

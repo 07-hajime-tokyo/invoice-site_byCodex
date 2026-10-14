@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Quick example (matches curl usage):
  *   await callDataApi("Youtube/search", {
@@ -28,7 +29,7 @@ export async function callDataApi(
   const baseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
   const fullUrl = new URL("webdevtoken.v1.WebDevService/CallApi", baseUrl).toString();
 
-  const response = await fetch(fullUrl, {
+  const response = await safeFetch(fullUrl, {
     method: "POST",
     headers: {
       accept: "application/json",

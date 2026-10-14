@@ -9,6 +9,7 @@ import {
   purchaseHistories,
 } from "../../drizzle/schema";
 import { createInventoryMemo, ensureInventoryItemLabels, getDb } from "../inventory/db";
+import { gateGASWebhook } from "./externalWriteGates";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -481,6 +482,17 @@ export function registerGasWebhookRoutes(app: Express) {
   }
 
   async function handlePurchaseWebhook(req: Request, res: Response, defaultMarkPurchased: boolean) {
+    const gate = gateGASWebhook('purchase-webhook');
+    if (!gate.allowed) {
+      res.status(200).json({
+        success: false,
+        blocked: true,
+        reason: gate.reason,
+        message: "GAS webhook is disabled in staging environment"
+      });
+      return;
+    }
+
     const auth = requireGasSecret(req);
     if (!auth.ok) {
       sendError(res, auth.status, auth.message);

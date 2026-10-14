@@ -1,3 +1,5 @@
+import { createGatedSheetsClient } from "../_core/gatedClients";
+import { YAHOO_LISTING_SPREADSHEET_ID } from "../_core/spreadsheetIds";
 import { google } from "googleapis";
 import type { DefectiveSheetPayload } from "./defectiveListing";
 
@@ -7,8 +9,6 @@ import type { DefectiveSheetPayload } from "./defectiveListing";
  * 共有ドライブ 0AM4oG1O4rVpLUk9PVA の中にあるので、サービスアカウントは
  * ドライブのメンバー権限でそのまま書き込める（個別共有は不要）。
  */
-export const YAHOO_LISTING_SPREADSHEET_ID =
-  "1y6g_HJNZm_BW1X_3M3bY28ZLMR-JKD0cBhBPfIsUCKs";
 
 export const YAHOO_LISTING_SHEET_NAME = "出品待ち";
 
@@ -38,7 +38,7 @@ const DEFAULT_ROW_HEIGHT_PX = 21;
 const PHOTO_ROW_HEIGHT_PX = 60;
 
 export function yahooListingSheetUrl() {
-  return `https://docs.google.com/spreadsheets/d/${YAHOO_LISTING_SPREADSHEET_ID}/edit`;
+  return `https://docs.google.com/spreadsheets/d/${YAHOO_LISTING_SPREADSHEET_ID()}/edit`;
 }
 
 function getServiceAccountCredentials() {
@@ -58,7 +58,7 @@ function getSheetsClient() {
     credentials,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
-  return google.sheets({ version: "v4", auth });
+  return createGatedSheetsClient(auth);
 }
 
 function formulaText(value: unknown) {
@@ -152,7 +152,7 @@ type SheetsClient = NonNullable<ReturnType<typeof getSheetsClient>>;
 
 async function ensureSheet(sheets: SheetsClient) {
   const metadata = await sheets.spreadsheets.get({
-    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
     fields: "sheets.properties(sheetId,title)",
   });
   const existing = (metadata.data.sheets ?? []).find(
@@ -162,7 +162,7 @@ async function ensureSheet(sheets: SheetsClient) {
     return existing.properties.sheetId;
   }
   const created = await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
     requestBody: {
       requests: [
         { addSheet: { properties: { title: YAHOO_LISTING_SHEET_NAME } } },
@@ -177,7 +177,7 @@ async function ensureSheet(sheets: SheetsClient) {
 
 async function ensureHeaders(sheets: SheetsClient, sheetId: number) {
   const current = await sheets.spreadsheets.values.get({
-    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+    spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
     range: `${YAHOO_LISTING_SHEET_NAME}!1:1`,
   });
   const headers = (current.data.values?.[0] ?? []).map(value => String(value));
@@ -187,13 +187,13 @@ async function ensureHeaders(sheets: SheetsClient, sheetId: number) {
   }
   if (merged.length !== headers.length || merged.some((h, i) => h !== headers[i])) {
     await sheets.spreadsheets.values.update({
-      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
       range: `${YAHOO_LISTING_SHEET_NAME}!1:1`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [merged] },
     });
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
       requestBody: {
         requests: [
           {
@@ -237,7 +237,7 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
     const productIdColumn = headers.indexOf("商品ID");
     const idRange = `${YAHOO_LISTING_SHEET_NAME}!${columnLetter(productIdColumn)}2:${columnLetter(productIdColumn)}`;
     const existingIds = await sheets.spreadsheets.values.get({
-      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
       range: idRange,
     });
     const rows = existingIds.data.values ?? [];
@@ -248,7 +248,7 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
     // 既存行は1つ下へずれるが、人が入れた4列も行ごと動くので対応関係は崩れない
     if (matchIndex < 0 && rows.length > 0) {
       await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+        spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
         requestBody: {
           requests: [
             {
@@ -274,14 +274,14 @@ export async function writeYahooListingRow(payload: DefectiveSheetPayload) {
     }).filter(entry => !entry.range.includes("!undefined"));
 
     await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
       requestBody: { valueInputOption: "USER_ENTERED", data },
     });
 
     // 説明文には改行が入るので、書いた直後にSheetsが行を自動で高くする。
     // 折り返しを切るだけでは既に付いた高さは戻らないため、高さも既定値へ戻す。
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID,
+      spreadsheetId: YAHOO_LISTING_SPREADSHEET_ID(),
       requestBody: {
         requests: [
           {

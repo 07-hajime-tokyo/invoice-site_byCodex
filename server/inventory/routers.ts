@@ -115,6 +115,8 @@ function readStartupBooleanEnv(name: string): boolean | undefined {
 function shouldRunInventoryOneTimeRepairs(): boolean {
   const explicit = readStartupBooleanEnv("RUN_INVENTORY_ONE_TIME_REPAIRS");
   if (explicit !== undefined) return explicit;
+  // In staging environment, do not run repairs unless explicitly enabled
+  if (process.env.APP_ENV === "staging") return false;
   return process.env.NODE_ENV !== "production";
 }
 

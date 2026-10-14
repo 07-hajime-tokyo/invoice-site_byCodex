@@ -1,4 +1,5 @@
 import { inboundInvoiceAllocation, normalizeInboundTrackingNumber as normalizeTrackingNumber } from "@shared/inboundDesk";
+import { isLegacyCompleteInvoice } from "@shared/tradeStatus";
 export { normalizeInboundTrackingNumber as normalizeTrackingNumber } from "@shared/inboundDesk";
 
 export type InboundLabel = {
@@ -191,7 +192,7 @@ export function buildInboundInvoiceRollups(
  */
 export function isCompletedInvoiceRollup(rollup: InboundInvoiceRollup): boolean {
   const invoiceNo = Number(rollup.key);
-  if (!Number.isFinite(invoiceNo) || invoiceNo <= 399) return true;
+  if (isLegacyCompleteInvoice(invoiceNo)) return true;
   const ordered = Number(rollup.csvOrderQty) || 0;
   const delivered = Number(rollup.deliveredCount) || 0;
   return ordered > 0 && delivered >= ordered;

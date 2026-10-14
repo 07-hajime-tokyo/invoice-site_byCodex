@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
 
@@ -85,7 +86,7 @@ export async function notifyOwner(
   const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await safeFetch(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",

@@ -1,3 +1,4 @@
+import { safeFetch } from "./gatedClients";
 /**
  * Image generation helper using internal ImageService
  *
@@ -50,7 +51,7 @@ export async function generateImage(
     baseUrl
   ).toString();
 
-  const response = await fetch(fullUrl, {
+  const response = await safeFetch(fullUrl, {
     method: "POST",
     headers: {
       accept: "application/json",

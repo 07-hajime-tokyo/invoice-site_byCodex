@@ -8,6 +8,7 @@ import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
 import { refreshStaleDefectiveListings } from "../inventory/defectiveSync";
 import { checkReceiptAckStale } from "../inventory/receiptAck";
 import { importReceiptAckFromDrive } from "../inventory/receiptAckDrive";
+import { gateCronJob } from "./externalWriteGates";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -27,6 +28,16 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/fedex-missing", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gate = gateCronJob('fedex-missing');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
       return;
     }
 
@@ -50,6 +61,16 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/inventory-snapshot", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gate = gateCronJob('inventory-snapshot');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
       return;
     }
 
@@ -91,6 +112,16 @@ export function registerCronRoutes(app: Express) {
       return;
     }
 
+    const gate = gateCronJob('inbound-classify');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
+      return;
+    }
+
     try {
       const result = await reclassifyInboundAuto();
       res.json(result);
@@ -109,6 +140,16 @@ export function registerCronRoutes(app: Express) {
       return;
     }
 
+    const gate = gateCronJob('defective-yahoo-prices');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
+      return;
+    }
+
     try {
       res.json(await refreshStaleDefectiveListings());
     } catch (error) {
@@ -123,6 +164,16 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/receipt-ack-import", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gate = gateCronJob('receipt-ack-import');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
       return;
     }
 
@@ -162,6 +213,16 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/receipt-ack-stale", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gate = gateCronJob('receipt-ack-stale');
+    if (!gate.allowed) {
+      res.status(200).json({ 
+        skipped: true, 
+        reason: gate.reason,
+        message: "Cron job skipped in staging environment"
+      });
       return;
     }
 

@@ -18,13 +18,10 @@ export const appRouter = router({
   system: systemRouter,
   inventory: inventoryRouter,
   auth: authRouter,
-
   quoteProxy: quoteProxyRouter,
-
-  // Trade data management
   trade: tradeRouter,
 
-  // ─── Invoice clients (宛先管理) ───────────────────────────────────────────
+  // ─── Invoice Clients (請求書の顧客) ────────────────────────────────────────────
   invoiceClients: invoiceClientsRouter,
 
   // ─── Invoices (請求書) ────────────────────────────────────────────────────

@@ -154,12 +154,14 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.lastSignedIn = user.lastSignedIn;
       updateSet.lastSignedIn = user.lastSignedIn;
     }
+    
+    // Set role for INSERT only (not in UPDATE to avoid changing existing user roles)
     if (user.role !== undefined) {
       values.role = user.role;
-      updateSet.role = user.role;
+      // Do NOT add to updateSet - preserve existing user's role
     } else if (user.openId === ENV.ownerOpenId) {
       values.role = 'admin';
-      updateSet.role = 'admin';
+      // Do NOT add to updateSet - preserve existing user's role
     }
 
     if (!values.lastSignedIn) {
@@ -170,11 +172,25 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
+    console.log("[Database] upsertUser attempt:", { 
+      openId: user.openId, 
+      email: user.email,
+      insertRole: values.role,
+      updateSetKeys: Object.keys(updateSet)
+    });
+
     await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet,
     });
+    
+    console.log("[Database] upsertUser success");
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
+    console.error("[Database] Error details:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      cause: error instanceof Error && 'cause' in error ? error.cause : undefined,
+    });
     throw error;
   }
 }
