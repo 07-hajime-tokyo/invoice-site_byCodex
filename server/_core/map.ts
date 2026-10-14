@@ -71,7 +71,7 @@ export async function makeRequest<T = unknown>(
     }
   });
 
-  const response = await fetch(url.toString(), {
+  const response = await safeFetch(url.toString(), {
     method: options.method || "GET",
     headers: {
       "Content-Type": "application/json",

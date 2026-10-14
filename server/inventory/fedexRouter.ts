@@ -262,9 +262,9 @@ export const fedexRouter = router({
               trackingNumber: input.trackingNumber,
               items,
             };
-            const res = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
+            const res = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
             let text: string;
-            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; const r2 = await fetch(loc, { method: "GET" }); text = await r2.text(); }
+            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; const r2 = await safeFetch(loc, { method: "GET" }); text = await r2.text(); }
             else { text = await res.text(); }
             try { return JSON.parse(text); } catch { return { success: false, message: text }; }
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
@@ -448,7 +448,7 @@ export const fedexRouter = router({
             sheetName: record.sheetName,
             trackingNumber: record.trackingNumber,
           };
-          const res1 = await fetch(gasUrl, {
+          const res1 = await safeFetch(gasUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -457,7 +457,7 @@ export const fedexRouter = router({
           let text: string;
           if (res1.status === 302 || res1.status === 301) {
             const redirectUrl = res1.headers.get("location") ?? gasUrl;
-            const res2 = await fetch(redirectUrl, { method: "GET" });
+            const res2 = await safeFetch(redirectUrl, { method: "GET" });
             text = await res2.text();
           } else {
             text = await res1.text();
@@ -521,7 +521,7 @@ export const fedexRouter = router({
             spreadsheetStatus: "pending",
           });
           const postGas = async (payload: Record<string, unknown>): Promise<{ success: boolean; message?: string }> => {
-            const res1 = await fetch(gasUrl, {
+            const res1 = await safeFetch(gasUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
@@ -530,7 +530,7 @@ export const fedexRouter = router({
             let text: string;
             if (res1.status === 302 || res1.status === 301) {
               const redirectUrl = res1.headers.get("location") ?? gasUrl;
-              const res2 = await fetch(redirectUrl, { method: "GET" });
+              const res2 = await safeFetch(redirectUrl, { method: "GET" });
               text = await res2.text();
             } else {
               text = await res1.text();
@@ -624,9 +624,9 @@ export const fedexRouter = router({
           try {
             const invoiceNo = invoiceNoFromDeliveryNo(deliveryNo);
             const payload = { secret, action: "writeShipmentBatch", deliveryNo, invoiceNo, sheetName, shippingDate: input.shippingDate, trackingNumber, items };
-            const res = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
+            const res = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), redirect: "manual" });
             let text: string;
-            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; const r2 = await fetch(loc, { method: "GET" }); text = await r2.text(); }
+            if (res.status === 302 || res.status === 301) { const loc = res.headers.get("location") ?? gasUrl; const r2 = await safeFetch(loc, { method: "GET" }); text = await r2.text(); }
             else { text = await res.text(); }
             try { return JSON.parse(text); } catch { return { success: false, message: text }; }
           } catch (e) { return { success: false, message: e instanceof Error ? e.message : String(e) }; }
@@ -806,12 +806,12 @@ export const fedexRouter = router({
         try {
           const secret = process.env.GAS_WEBHOOK_SECRET ?? "";
           const delPayload = { secret, action: "deleteShipmentBatch", sheetName: input.sheetName, trackingNumber: input.trackingNumber };
-          const delRes = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(delPayload), redirect: "manual" });
-          if (delRes.status === 302 || delRes.status === 301) { const loc = delRes.headers.get("location") ?? gasUrl; await fetch(loc, { method: "GET" }); }
+          const delRes = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(delPayload), redirect: "manual" });
+          if (delRes.status === 302 || delRes.status === 301) { const loc = delRes.headers.get("location") ?? gasUrl; await safeFetch(loc, { method: "GET" }); }
           const writePayload = { secret, action: "writeShipmentBatch", sheetName: input.sheetName, shippingDate: input.shippingDate, trackingNumber: input.trackingNumber, items: mergedItems };
-          const writeRes = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(writePayload), redirect: "manual" });
+          const writeRes = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(writePayload), redirect: "manual" });
           let text: string;
-          if (writeRes.status === 302 || writeRes.status === 301) { const loc = writeRes.headers.get("location") ?? gasUrl; const r2 = await fetch(loc, { method: "GET" }); text = await r2.text(); } else { text = await writeRes.text(); }
+          if (writeRes.status === 302 || writeRes.status === 301) { const loc = writeRes.headers.get("location") ?? gasUrl; const r2 = await safeFetch(loc, { method: "GET" }); text = await r2.text(); } else { text = await writeRes.text(); }
           let result: { success: boolean; message?: string };
           try { result = JSON.parse(text); } catch { result = { success: false, message: text }; }
           if (result.success) {

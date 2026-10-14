@@ -1,3 +1,4 @@
+import { safeFetch } from "../_core/gatedClients";
 type InvoiceImageAnalysisResult = {
   items: Array<{ description: string; subText?: string; quantity: number; unitPrice: number; currency: string }>;
   detectedSender: string | null;
@@ -152,7 +153,7 @@ export async function analyzeInvoiceImageWithGemini(input: { base64: string; mim
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const res = await safeFetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

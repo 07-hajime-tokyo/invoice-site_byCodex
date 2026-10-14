@@ -1,3 +1,4 @@
+import { safeFetch } from "./_core/gatedClients";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
@@ -59,7 +60,7 @@ export const whatsappHistoryRouter = router({
               const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
               const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
               if (forgeUrl && forgeKey) {
-                const res = await fetch(`${forgeUrl}/v1/chat/completions`, {
+                const res = await safeFetch(`${forgeUrl}/v1/chat/completions`, {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -237,13 +238,13 @@ export const whatsappHistoryRouter = router({
 
         if (item.type === "screenshot" && item.imageUrl) {
           // Fetch image from S3 and analyze
-          const imgRes = await fetch(item.imageUrl);
+          const imgRes = await safeFetch(item.imageUrl);
           if (!imgRes.ok) throw new Error("画像の取得に失敗しました");
           const arrayBuffer = await imgRes.arrayBuffer();
           const base64 = Buffer.from(arrayBuffer).toString("base64");
           const mimeType = item.mimeType ?? "image/png";
 
-          const res = await fetch(`${forgeUrl}/v1/chat/completions`, {
+          const res = await safeFetch(`${forgeUrl}/v1/chat/completions`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

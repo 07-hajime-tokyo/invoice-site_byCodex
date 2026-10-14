@@ -1,3 +1,4 @@
+import { safeFetch } from "./_core/gatedClients";
 /**
  * WhatsApp会話履歴 — 取り込みテキストの解析と、Geminiによる日本語訳。
  *
@@ -160,7 +161,7 @@ type TranslationInput = { id: number; text: string };
 
 async function translateChunk(items: TranslationInput[], apiKey: string, model: string): Promise<Map<number, string>> {
   const payload = items.map((item, index) => ({ i: index, t: item.text }));
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const res = await safeFetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({

@@ -85,7 +85,7 @@ export async function notifyOwner(
   const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await safeFetch(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",

@@ -1,13 +1,3 @@
-import {
-  type TradeShipmentProgressEntry,
-  parseShipmentProgressSheetRows,
-} from "@shared/tradeSheetStatus";
-import { google } from "googleapis";
-
-const TRADE_SHIPMENT_SPREADSHEET_ID =
-  "133cDct4krrsJDeXpO9l0fIrd3-ZYDc39u6-JpQvcxv4";
-
-const TRADE_SHIPMENT_SHEET_NAME_KEYWORD = "発送管理";
 
 let orderManagementShipmentProgressCache: {
   expiresAt: number;
@@ -49,7 +39,7 @@ function getShipmentSheetAccessError(error: unknown) {
 
   if (status === "403" || message.toLowerCase().includes("permission")) {
     return new Error(
-      `Google Sheetsの権限がありません。スプシID ${TRADE_SHIPMENT_SPREADSHEET_ID} をサービスアカウントに共有してください。詳細: ${message}`
+      `Google Sheetsの権限がありません。スプシID ${TRADE_VIEW_SPREADSHEET_ID()} をサービスアカウントに共有してください。詳細: ${message}`
     );
   }
 
@@ -82,7 +72,7 @@ export async function getOrderManagementShipmentProgressByInvoice() {
 
   const metadata = await sheets.spreadsheets
     .get({
-      spreadsheetId: TRADE_SHIPMENT_SPREADSHEET_ID,
+      spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
       fields: "sheets.properties(title,index,hidden)",
     })
     .catch(error => {
@@ -109,7 +99,7 @@ export async function getOrderManagementShipmentProgressByInvoice() {
 
   const response = await sheets.spreadsheets.values
     .batchGet({
-      spreadsheetId: TRADE_SHIPMENT_SPREADSHEET_ID,
+      spreadsheetId: TRADE_VIEW_SPREADSHEET_ID(),
       ranges: tabs.map(tab => `${quoteShipmentSheetName(tab.title)}!B:G`),
       valueRenderOption: "FORMATTED_VALUE",
     })

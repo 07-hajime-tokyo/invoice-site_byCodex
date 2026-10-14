@@ -50,7 +50,7 @@ export async function generateImage(
     baseUrl
   ).toString();
 
-  const response = await fetch(fullUrl, {
+  const response = await safeFetch(fullUrl, {
     method: "POST",
     headers: {
       accept: "application/json",

@@ -205,8 +205,8 @@ export const deliveryHistoryRouter = router({
             try {
               // 削除
               const delPayload = { secret, action: "deleteShipmentBatch", sheetName: shipment.sheetName, trackingNumber };
-              const delRes = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(delPayload), redirect: "manual" });
-              if (delRes.status === 302 || delRes.status === 301) { const loc = delRes.headers.get("location") ?? gasUrl; await fetch(loc, { method: "GET" }); }
+              const delRes = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(delPayload), redirect: "manual" });
+              if (delRes.status === 302 || delRes.status === 301) { const loc = delRes.headers.get("location") ?? gasUrl; await safeFetch(loc, { method: "GET" }); }
 
               // 再書き込み（同じ追跡番号の全記録を取得して合算）
               const allSameTracking = allAffected.filter((s) => s.trackingNumber === trackingNumber);
@@ -223,9 +223,9 @@ export const deliveryHistoryRouter = router({
               const mergedGasItems = Array.from(mergedGasMap.values());
               const invoiceNo = invoiceNoFromDeliveryNo(shipment.deliveryNo);
               const writePayload = { secret, action: "writeShipmentBatch", deliveryNo: shipment.deliveryNo, invoiceNo, sheetName: shipment.sheetName, shippingDate: shipment.shippingDate, trackingNumber, items: mergedGasItems };
-              const writeRes = await fetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(writePayload), redirect: "manual" });
+              const writeRes = await safeFetch(gasUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(writePayload), redirect: "manual" });
               let writeText: string;
-              if (writeRes.status === 302 || writeRes.status === 301) { const loc = writeRes.headers.get("location") ?? gasUrl; const r2 = await fetch(loc, { method: "GET" }); writeText = await r2.text(); }
+              if (writeRes.status === 302 || writeRes.status === 301) { const loc = writeRes.headers.get("location") ?? gasUrl; const r2 = await safeFetch(loc, { method: "GET" }); writeText = await r2.text(); }
               else { writeText = await writeRes.text(); }
               let writeResult: { success: boolean; message?: string };
               try { writeResult = JSON.parse(writeText); } catch { writeResult = { success: false, message: writeText }; }

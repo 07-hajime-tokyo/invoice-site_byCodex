@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { desc } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
+import { safeFetch } from "../_core/gatedClients";
 import {
   deliveryHistories,
   fedexShipments,
@@ -593,7 +594,7 @@ async function getEbayAccessToken() {
     scope: process.env.EBAY_SCOPES?.trim() || "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
   });
 
-  const res = await fetch(`${getEbayEndpointBase()}/identity/v1/oauth2/token`, {
+  const res = await safeFetch(`${getEbayEndpointBase()}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
@@ -621,7 +622,7 @@ async function fetchEbayOrders(orderIds: string[]): Promise<EbayOrderSummary[]> 
   const results: EbayOrderSummary[] = [];
   for (const orderId of uniqueOrderIds) {
     try {
-      const res = await fetch(`${getEbayEndpointBase()}/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}`, {
+      const res = await safeFetch(`${getEbayEndpointBase()}/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}`, {
         headers: {
           Authorization: `Bearer ${auth.token}`,
           Accept: "application/json",
@@ -1175,7 +1176,7 @@ ${context}`;
   const forgeUrl = process.env.BUILT_IN_FORGE_API_URL;
   const forgeKey = process.env.BUILT_IN_FORGE_API_KEY;
   if (forgeUrl && forgeKey) {
-    const res = await fetch(`${forgeUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+    const res = await safeFetch(`${forgeUrl.replace(/\/$/, "")}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1198,7 +1199,7 @@ ${context}`;
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return makeFallbackReport(input);
   const geminiModel = process.env.AI_INVESTIGATION_GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
+  const res = await safeFetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
