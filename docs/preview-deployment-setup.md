@@ -68,18 +68,68 @@ DATABASE_URL=<staging-db-url> pnpm drizzle-kit push
 # (tests/regression/seeds/ 配下のシードスクリプトを参考)
 ```
 
-## 無効化される機能
+## 無効化される機能（外部書き込みゲート）
 
-`APP_ENV=staging`が設定されていると、以下の機能が自動的に無効化されます：
+`APP_ENV=staging`が設定されていると、以下の機能が自動的に無効化され、本番システムへの副作用を防ぎます：
 
-- ✅ Cronジョブ（在庫スナップショット、FedEx確認など）
-- ✅ Google Apps Script (GAS) Webhook書き込み
-- ✅ Google Sheets書き込み
-- ✅ eBay API書き込み
-- ✅ FedEx API書き込み
-- ✅ Zaico API書き込み
+### ✅ 完全にブロックされる外部書き込み
 
-読み取り専用の操作（DBからのデータ取得、画面表示など）は通常通り動作します。
+1. **Cronジョブ** (`server/_core/cron.ts`)
+   - 在庫スナップショット (`/api/cron/inventory-snapshot`)
+   - FedEx不足確認 (`/api/cron/fedex-missing`)
+   - 入庫自動仕訳 (`/api/cron/inbound-classify`)
+   - 不良品Yahoo価格更新 (`/api/cron/defective-yahoo-prices`)
+   - 受領確認インポート (`/api/cron/receipt-ack-import`)
+   - 受領確認staleチェック (`/api/cron/receipt-ack-stale`)
+   - **動作**: HTTP 200で`{ skipped: true, reason: "..." }`を返す
+
+2. **GAS Webhook** (`server/_core/gasWebhook.ts`)
+   - `/api/gas/purchase-order`, `/api/gas/purchase-receive`
+   - `/api/gas-webhook/register-product`
+   - **動作**: HTTP 200で`{ success: false, blocked: true, reason: "..." }`を返す
+
+3. **Google Sheets書き込み** (`server/tradeRouter.ts`)
+   - `updateTradeViewCell` mutation（取引シートのセル更新）
+   - その他のSpreadsheet API書き込み操作
+   - **動作**: モックレスポンスを返し、実際のAPI呼び出しはスキップ
+
+4. **FedEx API書き込み** (FedEx発送・ラベル作成 API)
+   - **動作**: モックレスポンスを返し、実際のAPI呼び出しはスキップ
+
+5. **Zaico API書き込み** (在庫作成・更新・削除 API)
+   - **動作**: モックレスポンスを返し、実際のAPI呼び出しはスキップ
+
+6. **eBay API書き込み** (出品作成・更新・削除、注文更新)
+   - **動作**: モックレスポンスを返し、実際のAPI呼び出しはスキップ
+
+7. **Yahoo関連書き込み** (出品更新等)
+   - **動作**: モックレスポンスを返し、実際のAPI呼び出しはスキップ
+
+8. **メール/通知送信**
+   - **動作**: モックレスポンスを返し、実際の送信はスキップ
+
+### ✅ 読み取り専用操作は許可
+
+以下の操作は通常通り動作します（副作用がないため）：
+- DBからのデータ取得
+- Google Sheets読み取り
+- 画面表示・UI操作
+- Zaico/eBay/FedEx APIの読み取り専用エンドポイント
+
+### 🔧 実装の詳細
+
+外部書き込みゲートは`server/_core/externalWriteGates.ts`に集約されています：
+- 各サービスごとに専用のゲート関数（`gateGoogleSheetsWrite`, `gateGASWebhook`, `gateCronJob`等）
+- `APP_ENV !== "production"`の時、すべての書き込みをブロック
+- ログ出力：`[staging] blocked external write: <service> <op> (APP_ENV=staging)`
+- モックレスポンスを返すため、UIフローは正常に完了
+- テストカバレッジ：`server/_core/externalWriteGates.test.ts`
+
+### ⚠️ 起動時の一括データ修復について
+
+`server/inventory/routers.ts`内の起動時データ修復コード（`NODE_ENV !== "production"`で実行）：
+- **ステージング環境では実行されません**（`APP_ENV=staging`の時も無効）
+- 修復が必要な場合は、ステージングDBに対してのみ手動実行してください
 
 ## デプロイ後の確認
 
