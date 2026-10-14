@@ -1,6 +1,5 @@
 import type { StockProposalProduct, StockProposalDetail } from "./viewTypes";
-import { productKey } from "./productText";
-import { normalizeStockProposalTitle } from "./stockProposalRules";
+import { normalizeStockProposalTitle, stockProposalProductKey } from "./stockProposalRules";
 
 // These helpers intentionally mutate only the per-call proposal accumulator/map.
 
@@ -31,7 +30,7 @@ export function getOrCreateStockProposalProduct(
   model: string,
 ): StockProposalProduct {
   const normalizedTitle = normalizeStockProposalTitle(title);
-  const key = `${model}::${productKey(normalizedTitle)}`;
+  const key = `${model}::${stockProposalProductKey(normalizedTitle)}`;
   const current = map.get(key);
   if (current) return current;
   const created: StockProposalProduct = {

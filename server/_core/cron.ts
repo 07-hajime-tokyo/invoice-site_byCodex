@@ -8,6 +8,7 @@ import { EMAIL_AUTH_LOGIN_METHOD } from "./emailAuth";
 import { refreshStaleDefectiveListings } from "../inventory/defectiveSync";
 import { checkReceiptAckStale } from "../inventory/receiptAck";
 import { importReceiptAckFromDrive } from "../inventory/receiptAckDrive";
+import { ENV } from "./env";
 
 function isAuthorizedCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -27,6 +28,11 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/fedex-missing", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
       return;
     }
 
@@ -50,6 +56,11 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/inventory-snapshot", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
       return;
     }
 
@@ -91,6 +102,11 @@ export function registerCronRoutes(app: Express) {
       return;
     }
 
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
+      return;
+    }
+
     try {
       const result = await reclassifyInboundAuto();
       res.json(result);
@@ -106,6 +122,11 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/defective-yahoo-prices", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
       return;
     }
 
@@ -126,7 +147,12 @@ export function registerCronRoutes(app: Express) {
       return;
     }
 
-    try {
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
+      return;
+    }
+
+    try{
       const result = await importReceiptAckFromDrive();
       console.info("[cron/receipt-ack-import] done", {
         status: result.status,
@@ -162,6 +188,11 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/receipt-ack-stale", async (req, res) => {
     if (!isAuthorizedCronRequest(req)) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (ENV.isStaging) {
+      res.json({ skipped: true, reason: "staging environment" });
       return;
     }
 

@@ -187,6 +187,59 @@ describe("productMatching", () => {
     expect(suggestCsvProduct("PSP 3000 good condition", "", products)?.name).toBe("PSP 3000 ランダムカラー");
   });
 
+  it("管理番号の状態表記でDS Liteの良品とジャンクを分ける", () => {
+    const products = [
+      { name: "DS Lite good condition", qty: 30 },
+      { name: "DS Lite 動作不良", qty: 20 },
+    ];
+
+    expect(suggestCsvProduct("DS Lite", "424_サミー_DSLite状態良_1/30", products)?.name)
+      .toBe("DS Lite good condition");
+    expect(suggestCsvProduct("DS Lite", "424_サミー_DSLiteジャンク_1/20", products)?.name)
+      .toBe("DS Lite 動作不良");
+  });
+
+  it("管理番号の状態表記でPSP3000の良品と画面不良を分ける", () => {
+    const products = [
+      { name: "PSP 3000 good condition", qty: 30 },
+      { name: "PSP 3000 bad screens", qty: 15 },
+    ];
+
+    expect(suggestCsvProduct("PSP 3000", "425_サミー_PSP3000状態良_1/30", products)?.name)
+      .toBe("PSP 3000 good condition");
+    expect(suggestCsvProduct("PSP 3000", "425_サミー_PSP3000画面不良_1/15", products)?.name)
+      .toBe("PSP 3000 bad screens");
+  });
+
+  it("管理番号の外装傷ありをdamage exterior行へ分類する", () => {
+    const products = [
+      { name: "3DS LL Blackbase", qty: 10 },
+      { name: "3DS LL Blackbase with damage exterior", qty: 10 },
+    ];
+
+    expect(suggestCsvProduct("3DS LL", "427_サミー_外装傷あり_1/10", products)?.name)
+      .toBe("3DS LL Blackbase with damage exterior");
+  });
+
+  it("現在庫照合でも管理番号の状態表記とインボイス状態行を合わせる", () => {
+    expect(inventoryItemCanMatchCsvProduct(
+      "DS Lite 424_サミー_DSLiteジャンク_1/20",
+      "DS Lite 動作不良",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "DS Lite 424_サミー_DSLiteジャンク_1/20",
+      "DS Lite good condition",
+    )).toBe(false);
+    expect(inventoryItemCanMatchCsvProduct(
+      "PSP 3000 425_サミー_PSP3000画面不良_1/15",
+      "PSP 3000 画面不具合",
+    )).toBe(true);
+    expect(inventoryItemCanMatchCsvProduct(
+      "3DS LL 427_サミー_外装傷あり_1/10",
+      "3DS LL Blackbase with damage exterior",
+    )).toBe(true);
+  });
+
   it("Vita1100をVita1000注文行に色で紐づける", () => {
     const products = [
       { name: "PS Vita 1000 ブラック", qty: 5 },
