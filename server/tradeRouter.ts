@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
+import { requiresShipmentTracking } from "@shared/tradeStatus";
 import { getAllInvoiceMemos } from "./inventory/db";
 import { normalizeLooseText, suggestCsvProduct } from "@shared/productMatching";
 import {
@@ -651,7 +652,7 @@ async function getTradeShipmentRegistrationProgress(
     new Set(
       rows
         .map((row) => Number(row.no ?? 0))
-        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 399),
+        .filter(requiresShipmentTracking),
     ),
   );
 
@@ -770,9 +771,7 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
       paymentDate: row.paymentDate,
       orderedQty: toNumber(row.quantity),
       registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
-      actualShippedQty: hasActualShipmentQty ? Math.max(shipmentQty, fedexQty) : undefined,
       fedexRegisteredQty: fedexQty,
-      hasShipmentSignal: invoiceNo !== null && progress.invoiceNosWithShipmentSignal.has(String(invoiceNo)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };
   });

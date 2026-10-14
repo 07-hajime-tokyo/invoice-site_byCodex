@@ -38,6 +38,24 @@ export function formatRemainingQty(value: number) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
 }
 
+/**
+ * No.399以下のインボイスは発送登録なしでも完了として扱う。
+ * これは出庫登録の仕組みができる前の取引に対する特別ルール。
+ */
+export function isLegacyCompleteInvoice(invoiceNo: number | null | undefined): boolean {
+  const no = Number(invoiceNo ?? 0);
+  return Number.isFinite(no) && no > 0 && no <= 399;
+}
+
+/**
+ * No.400以降のインボイスで発送記録の取得が必要なものかどうか。
+ * No.399以下は常にfalse（発送記録不要）。
+ */
+export function requiresShipmentTracking(invoiceNo: number | null | undefined): boolean {
+  const no = Number(invoiceNo ?? 0);
+  return Number.isFinite(no) && no > 399;
+}
+
 export function deriveTradeShipmentRegistrationStatus(input: {
   status: string | null;
   invoiceNo: number | null;
@@ -49,11 +67,10 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   const currentStatus = input.status ?? "";
   if (isClosedTradeYear(input.paymentDate)) return currentStatus;
 
-  const invoiceNo = Number(input.invoiceNo ?? 0);
   if (input.orderedQty <= 0) return currentStatus;
   const effectiveRegisteredQty = Math.max(0, input.fedexRegisteredQty ?? input.registeredQty);
   const hasSiteShipmentQty = effectiveRegisteredQty > 0;
-  if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
+  if (isLegacyCompleteInvoice(input.invoiceNo) && !hasSiteShipmentQty) {
     return "complete";
   }
   if (!hasSiteShipmentQty) {
