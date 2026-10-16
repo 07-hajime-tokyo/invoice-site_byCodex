@@ -45,6 +45,7 @@ import { stocktakeRouter } from './stocktake';
 import { outboundBoxesRouter } from "./outboundBoxes";
 import { getReceiptAckSummary, markReceiptAckDone } from "./receiptAck";
 import { processInventoryDelivery } from "./deliveryService";
+import { restoreDeliveryItemsForInventory } from "./deliveryHistoryRestore";
 import { recordWorkLog, workLogsRouter } from "./workLogs";
 import { diffInventoryFields, recordInventoryChange } from "./changeLog";
 import { captureDailySnapshot, listDailySnapshots } from "./dailySnapshot";
@@ -1952,7 +1953,7 @@ function fullRestoreInventoryValues(snapshot: FullRestoreInventorySnapshot): Ins
     ebayListingUrl: snapshot.ebayListingUrl ?? null,
     ebayOrderUrl: snapshot.ebayOrderUrl ?? null,
     ebayOrderStatus: normalizeEbayOrderStatus(snapshot.ebayOrderStatus ?? "normal"),
-    isDeleted: Number(snapshot.isDeleted ?? 0),
+    isDeleted: 0,
   };
 }
 
@@ -8590,8 +8591,10 @@ export const inventoryRouter = router({
         const record = records.find(r => r.id === input.id);
         if (!record) throw new Error("削除済み商品が見つかりません");
         const snapshot = JSON.parse(record.snapshotJson);
+        const existingInventory = await getLocalInventoryByZaicoIdOrId(record.zaicoId);
         await upsertLocalInventory({
-          zaicoId: record.zaicoId ?? null,
+          id: existingInventory?.id,
+          zaicoId: existingInventory ? existingInventory.zaicoId : record.zaicoId ?? null,
           title: String(snapshot.title ?? record.title),
           quantity: Math.round(parseFloat(String(snapshot.quantity ?? record.quantity ?? "0")) || 0),
           unit: snapshot.unit ?? record.unit ?? "個",
@@ -8603,6 +8606,7 @@ export const inventoryRouter = router({
           supplierName: null,
           isDeleted: 0,
         });
+        await restoreDeliveryItemsForInventory([record.zaicoId, existingInventory?.id, existingInventory?.zaicoId]);
         await removeDeletedInventory(input.id);
         return { success: true };
         const token = resolveOperatorToken(input.operatorKey);
@@ -8786,8 +8790,10 @@ export const inventoryRouter = router({
         const record = records.find((item) => item.id === input.id);
         if (!record) throw new Error("削除済み商品が見つかりません");
         const snapshot = JSON.parse(record.snapshotJson);
+        const existingInventory = await getLocalInventoryByZaicoIdOrId(record.zaicoId);
         await upsertLocalInventory({
-          zaicoId: record.zaicoId ?? null,
+          id: existingInventory?.id,
+          zaicoId: existingInventory ? existingInventory.zaicoId : record.zaicoId ?? null,
           title: String(snapshot.title ?? record.title),
           quantity: Math.max(0, Math.round(parseFloat(String(snapshot.quantity ?? record.quantity ?? "0")) || 0)),
           unit: snapshot.unit ?? record.unit ?? "個",
@@ -8802,6 +8808,7 @@ export const inventoryRouter = router({
           ebayOrderStatus: normalizeEbayOrderStatus(snapshot.ebayOrderStatus ?? "normal"),
           isDeleted: 0,
         });
+        await restoreDeliveryItemsForInventory([record.zaicoId, existingInventory?.id, existingInventory?.zaicoId]);
         await removeDeletedInventory(input.id);
         return { success: true };
       }),
@@ -8859,6 +8866,13 @@ export const inventoryRouter = router({
           }
         }
 
+        if (restoredInventoryId != null) {
+          await restoreDeliveryItemsForInventory([
+            restoredInventoryId,
+            previousInventoryId,
+            snapshot.inventory?.zaicoId == null ? null : Number(snapshot.inventory.zaicoId),
+          ]);
+        }
         await recordInventoryChange({
           inventoryId: restoredInventoryId ?? memo.zaicoInventoryId,
           title: String(snapshot.inventory?.title ?? snapshot.purchases[0]?.title ?? memo.title ?? "完全復元"),
@@ -8915,7 +8929,8 @@ export const inventoryRouter = router({
           ebayOrderStatus: normalizeEbayOrderStatus(restored.ebayOrderStatus ?? inventory.ebayOrderStatus),
         };
 
-        await updateLocalInventory(inventory.id, nextValues);
+        await updateLocalInventory(inventory.id, { ...nextValues, isDeleted: 0 });
+        await restoreDeliveryItemsForInventory([inventory.id, inventory.zaicoId]);
         await ensureInventoryItemLabelsForInventory({
           localInventoryId: inventory.id,
           legacyManagementNo: getInventoryManagementNo(nextValues.etc),

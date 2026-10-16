@@ -32,6 +32,10 @@ export default function DeletedItems() {
       toast.success(`${restoreTarget?.title} を在庫一覧に復元しました。`);
       setRestoreTarget(null);
       utils.inventory.deletedItems.list.invalidate();
+      utils.inventory.zaico.getInventories.invalidate();
+      utils.inventory.zaico.getInventoryById.invalidate();
+      utils.inventory.deliveryHistory.invalidate();
+      utils.inventory.restoreManagement.search.invalidate();
       refetch();
     },
     onError: (err) => {

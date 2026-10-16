@@ -95,6 +95,14 @@ export default function RestoreManagement() {
     { query, limit: 100 },
   );
 
+  const refreshRestoredInventory = () => Promise.all([
+    utils.inventory.deliveryHistory.invalidate(),
+    utils.inventory.zaico.getInventoryById.invalidate(),
+    utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+    utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+    utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+  ]);
+
   const restoreDeletedMutation = trpc.inventory.restoreManagement.restoreDeleted.useMutation({
     onSuccess: async () => {
       toast.success("削除済み商品を復元しました");
@@ -103,6 +111,7 @@ export default function RestoreManagement() {
         utils.inventory.restoreManagement.search.invalidate(),
         utils.inventory.deletedItems.list.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
+        refreshRestoredInventory(),
       ]);
     },
     onError: (error) => toast.error(`復元に失敗しました: ${error.message}`),
@@ -116,6 +125,8 @@ export default function RestoreManagement() {
         utils.inventory.restoreManagement.search.invalidate(),
         utils.inventory.inventoryMemo.listAll.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.deletedItems.list.invalidate(),
+        refreshRestoredInventory(),
       ]);
     },
     onError: (error) => toast.error(`履歴復元に失敗しました: ${error.message}`),
@@ -129,6 +140,7 @@ export default function RestoreManagement() {
         utils.inventory.restoreManagement.search.invalidate(),
         utils.inventory.inventoryMemo.listAll.invalidate(),
         utils.inventory.zaico.getInventories.invalidate(),
+        refreshRestoredInventory(),
         utils.inventory.zaico.getPurchases.invalidate(),
         utils.inventory.deletedItems.list.invalidate(),
       ]);

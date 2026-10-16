@@ -5780,6 +5780,8 @@ function StockPanel({
   categoryOptions,
   onOpenCategoryDialog,
   onOpenEdit,
+  onDelete,
+  deletingInventoryId,
 }: {
   inventories: InventoryItem[];
   purchaseRows: PurchaseRow[];
@@ -5790,6 +5792,8 @@ function StockPanel({
   categoryOptions: string[];
   onOpenCategoryDialog: () => void;
   onOpenEdit: (inventoryId: number) => void;
+  onDelete: (item: StockItemView) => void;
+  deletingInventoryId: number | null;
 }) {
   const allStockItems = buildStockItemViewsFromInventories(inventories);
   const zeroStockPurchaseItems = buildZeroStockPurchaseItemViewsFromRows(purchaseRows, inventories);
@@ -5965,16 +5969,34 @@ function StockPanel({
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-                            onClick={() => onOpenEdit(item.inventoryId)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                            編集
-                          </Button>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                              onClick={() => onOpenEdit(item.inventoryId)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                              編集
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 text-destructive hover:bg-destructive/10"
+                              aria-label={`${item.title}を削除`}
+                              title="商品を削除"
+                              disabled={deletingInventoryId !== null}
+                              onClick={() => onDelete(item)}
+                            >
+                              {deletingInventoryId === item.inventoryId ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )) : null}
@@ -8146,6 +8168,7 @@ export default function PurchaseRegistration() {
   const [printedStartPosition, setPrintedStartPosition] = useState(1);
   const [receivedShippingLabels, setReceivedShippingLabels] = useState<LabelView[]>([]);
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+  const [deletingInventoryId, setDeletingInventoryId] = useState<number | null>(null);
   const [trackingDialogRow, setTrackingDialogRow] = useState<PurchaseRow | null>(null);
   const [editingPurchaseRow, setEditingPurchaseRow] = useState<PurchaseRow | null>(null);
   const [purchaseEditForm, setPurchaseEditForm] = useState<PurchaseEditFormState>({
@@ -9003,6 +9026,36 @@ export default function PurchaseRegistration() {
     }
   };
 
+  const handleDeleteStockItem = async (item: StockItemView) => {
+    if (deleteInventoryMutation.isPending) return;
+    const inventory = inventoryItems.find((inventory) => inventory.id === item.inventoryId);
+    const labelCount = inventory?.itemLabels?.length ?? 0;
+    const quantity = Number(inventory?.quantity ?? item.quantity);
+    const message = labelCount > 1 || quantity > 1
+      ? `${item.title} を削除しますか？\n同じ在庫に含まれる商品もまとめて削除されます（${Math.max(labelCount, quantity)}点）。\n削除済み商品に保存されます。`
+      : `${item.title} を削除しますか？\n削除済み商品に保存されます。`;
+    if (!window.confirm(message)) return;
+    setDeletingInventoryId(item.inventoryId);
+    try {
+      await deleteInventoryMutation.mutateAsync({ inventoryId: item.inventoryId });
+      toast.success(`${item.title} を削除済み商品に移動しました`);
+      await Promise.all([
+        utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
+        utils.inventory.zaico.getPurchasesWithCategory.invalidate(),
+        utils.inventory.zaico.getInventories.invalidate(),
+        utils.inventory.zaico.getInventoryById.invalidate(),
+        utils.inventory.orderManagement.getPurchaseRegistrationInvoices.invalidate(),
+        utils.inventory.deletedItems.list.invalidate(),
+        utils.inventory.restoreManagement.search.invalidate(),
+        utils.inventory.deliveryHistory.invalidate(),
+      ]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "削除に失敗しました");
+    } finally {
+      setDeletingInventoryId(null);
+    }
+  };
+
   const handleDeletePurchaseRow = async (row: PurchaseRow) => {
     const inventoryId = purchaseRowInventoryId(row);
     if (!inventoryId) {
@@ -9325,6 +9378,8 @@ export default function PurchaseRegistration() {
                   categoryOptions={categoryOptions}
                   onOpenCategoryDialog={() => setShowStockCategoryDialog(true)}
                   onOpenEdit={handleOpenStockEditDialog}
+                  onDelete={handleDeleteStockItem}
+                  deletingInventoryId={deletingInventoryId}
                 />
               </TabsContent>
               <TabsContent value="shipping">
