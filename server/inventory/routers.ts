@@ -3455,6 +3455,10 @@ function buildPurchaseTrackingUpdate(input: PurchaseTrackingSyncInput) {
     update.carrier = hasOwnPurchaseTrackingField(input, "carrier")
       ? normalizePurchaseTrackingValue(input.carrier)
       : null;
+    if (update.trackingNumber === null) {
+      update.shipDate = null;
+      update.carrier = null;
+    }
   } else if (hasOwnPurchaseTrackingField(input, "carrier")) {
     update.carrier = normalizePurchaseTrackingValue(input.carrier);
   }
@@ -3607,8 +3611,7 @@ async function recordPurchaseTrackingAuditLog(
 }
 
 function requiresLocalPurchaseTrackingTarget(input: PurchaseTrackingSyncInput): boolean {
-  if (!hasOwnPurchaseTrackingField(input, "trackingNumber")) return false;
-  return normalizePurchaseTrackingValue(input.trackingNumber) != null;
+  return hasOwnPurchaseTrackingField(input, "trackingNumber");
 }
 
 function assertLocalPurchaseTrackingSynced(input: PurchaseTrackingSyncInput, updatedCount: number) {
@@ -3637,8 +3640,8 @@ function localPurchaseMatchesTrackingTarget(row: LocalPurchaseRow, input: Purcha
 async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInput) {
   const db = await getDb();
   if (!db) return { updatedCount: 0, targetIds: [] as number[] };
-  const { localPurchases: lpTbl } = await import("../../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
+  const { localPurchases: lpTbl, purchaseExtras } = await import("../../drizzle/schema");
+  const { eq, inArray } = await import("drizzle-orm");
   const trackingNumberWasProvided = hasOwnPurchaseTrackingField(input, "trackingNumber");
   const trackingUpdate = buildPurchaseTrackingUpdate(input);
   if (Object.keys(trackingUpdate).length === 0) return { updatedCount: 0, targetIds: [] as number[] };
@@ -3649,6 +3652,18 @@ async function syncLocalPurchaseTrackingFromExtra(input: PurchaseTrackingSyncInp
     ? directMatches
     : localPurchases.filter((row) => localPurchaseMatchesTrackingTarget(row, input));
   const uniqueTargets = Array.from(new Map(targets.map((row) => [row.id, row])).values());
+
+  if (trackingNumberWasProvided && !hasTrackingNumber && uniqueTargets.length > 0) {
+    // Clear legacy fallback values too, so a later read cannot restore the cancelled tracking.
+    const extraIds = Array.from(new Set([
+      input.zaicoId,
+      input.inventoryId,
+      ...uniqueTargets.flatMap((purchase) => [purchase.id, purchase.zaicoId, purchase.localInventoryId]),
+    ].filter((id): id is number => typeof id === "number" && id > 0)));
+    await db.update(purchaseExtras)
+      .set({ shipDate: null, trackingNumber: null, carrier: null })
+      .where(inArray(purchaseExtras.zaicoId, extraIds));
+  }
 
   for (const purchase of uniqueTargets) {
     const updateData: Partial<typeof lpTbl.$inferInsert> = {

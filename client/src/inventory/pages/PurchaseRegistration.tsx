@@ -8783,9 +8783,9 @@ export default function PurchaseRegistration() {
       if (shouldUpdateTracking) {
         await upsertPurchaseExtraMutation.mutateAsync({
           zaicoId: editingPurchaseRow.id,
-          shipDate: purchaseEditForm.shipDate || undefined,
-          trackingNumber: trackingNumber || undefined,
-          carrier: nextCarrier,
+          shipDate: trackingNumber ? purchaseEditForm.shipDate || null : null,
+          trackingNumber: trackingNumber || null,
+          carrier: trackingNumber ? nextCarrier ?? null : null,
           note: editingPurchaseRow.extra?.note ?? undefined,
           inventoryId,
           managementNo: cleanLegacyManagementNo(purchaseEditForm.managementNo || firstItem.etc),
@@ -8925,22 +8925,18 @@ export default function PurchaseRegistration() {
   const handleSubmitTracking = async () => {
     if (!trackingDialogRow || upsertPurchaseExtraMutation.isPending) return;
     const trackingNumber = trackingForm.trackingNumber.trim();
-    if (!trackingNumber) {
-      toast.error("追跡番号を入力してください");
-      return;
-    }
     try {
       await upsertPurchaseExtraMutation.mutateAsync({
         zaicoId: trackingDialogRow.id,
-        shipDate: trackingForm.shipDate || undefined,
-        trackingNumber,
-        carrier: trackingForm.carrier === "auto" ? undefined : trackingForm.carrier,
+        shipDate: trackingNumber ? trackingForm.shipDate || null : null,
+        trackingNumber: trackingNumber || null,
+        carrier: trackingNumber && trackingForm.carrier !== "auto" ? trackingForm.carrier : null,
         note: trackingDialogRow.extra?.note ?? undefined,
         inventoryId: purchaseRowInventoryId(trackingDialogRow) ?? undefined,
         managementNo: getManagementNos(trackingDialogRow.purchase_items)[0],
         labelId: getItemLabels(trackingDialogRow.purchase_items)[0]?.labelId,
       });
-      toast.success("追跡番号を登録しました");
+      toast.success(trackingNumber ? "追跡番号を保存しました" : "追跡情報を解除しました");
       setTrackingDialogRow(null);
       await Promise.all([
         utils.inventory.zaico.getPurchasesWithCategoryPage.invalidate(),
@@ -8951,7 +8947,7 @@ export default function PurchaseRegistration() {
       void refetch();
       void refetchAllPurchaseRegistrations();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "追跡番号の登録に失敗しました");
+      toast.error(error instanceof Error ? error.message : "追跡番号の保存に失敗しました");
     }
   };
 
@@ -9736,7 +9732,7 @@ export default function PurchaseRegistration() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Truck className="h-5 w-5 text-blue-600" />
-                追跡番号を登録
+                {trackingDialogRow?.extra?.trackingNumber ? "追跡番号を編集" : "追跡番号を登録"}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
@@ -9825,10 +9821,10 @@ export default function PurchaseRegistration() {
               <Button
                 type="button"
                 onClick={handleSubmitTracking}
-                disabled={upsertPurchaseExtraMutation.isPending || !trackingForm.trackingNumber.trim()}
+                disabled={upsertPurchaseExtraMutation.isPending}
               >
                 {upsertPurchaseExtraMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-                追跡番号を登録
+                保存
               </Button>
             </DialogFooter>
           </DialogContent>
