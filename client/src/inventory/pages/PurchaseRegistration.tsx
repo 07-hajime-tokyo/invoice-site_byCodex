@@ -5872,11 +5872,12 @@ function StockPanel({
       ) : (
         <div className="overflow-hidden rounded-md border bg-background">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">ID</th>
                   <th className="px-4 py-3 text-left font-medium">商品</th>
+                  <th className="w-24 whitespace-nowrap px-4 py-3 text-right font-medium">在庫数</th>
                   <th className="px-4 py-3 text-left font-medium">引当先</th>
                   <th className="px-4 py-3 text-left font-medium">仕入先</th>
                   <th className="px-4 py-3 text-left font-medium">仕入単価</th>
@@ -5888,7 +5889,7 @@ function StockPanel({
                 {stockGroups.map((group) => (
                   <Fragment key={group.name}>
                     <tr key={`${group.name}-header`} className="border-b bg-slate-50">
-                      <td colSpan={7} className="p-0">
+                      <td colSpan={8} className="p-0">
                         <button
                           type="button"
                           className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100"
@@ -5919,13 +5920,13 @@ function StockPanel({
                           ) : (
                             <Badge variant="outline">未発行</Badge>
                           )}
-                          {item.quantity > 1 ? (
-                            <div className="mt-1 text-xs text-muted-foreground">{item.quantity.toLocaleString()}点</div>
-                          ) : null}
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-medium">{item.title}</div>
                           <div className="mt-1 text-xs text-muted-foreground">旧管理番号: {item.legacyManagementNo}</div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">
+                          {(item.zeroStockPurchase ? 0 : item.quantity).toLocaleString()}点
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
