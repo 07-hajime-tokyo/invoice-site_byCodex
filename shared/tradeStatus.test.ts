@@ -6,9 +6,57 @@ import {
   isTradeProcurementMissing,
   isTradeRemainingStatus,
   isTradeStatusComplete,
+  isTradeShipmentConfirmed,
 } from "./tradeStatus";
 
 describe("tradeStatus", () => {
+  const confirmedRow = { id: 690003, no: 400, partner: "Maxim", productName: "Vita 1000 Black", quantity: "5.00" };
+  const confirmation = JSON.stringify({
+    version: 1, confirmedShipped: true, tradeId: confirmedRow.id, invoiceNo: confirmedRow.no,
+    partner: confirmedRow.partner, productName: confirmedRow.productName, quantity: 5,
+  });
+
+  it("keeps the specifically confirmed shipment complete despite missing registrations", () => {
+    expect(isTradeShipmentConfirmed(confirmedRow, confirmation)).toBe(true);
+    for (const registeredQty of [0, 4]) {
+      expect(deriveTradeShipmentRegistrationStatus({
+        status: "complete", invoiceNo: 400, orderedQty: 5, registeredQty,
+        fedexRegisteredQty: registeredQty,
+        shipmentConfirmed: isTradeShipmentConfirmed(confirmedRow, confirmation),
+      })).toBe("complete");
+    }
+  });
+
+  it("does not apply a confirmation to other rows or a changed order", () => {
+    for (const change of [
+      { id: 690004 }, { no: 414 }, { partner: "Sammy" },
+      { productName: "Vita 1000 White" }, { quantity: "6.00" }, { quantity: "0" },
+    ]) {
+      expect(isTradeShipmentConfirmed({ ...confirmedRow, ...change }, confirmation)).toBe(false);
+    }
+    expect(deriveTradeShipmentRegistrationStatus({
+      status: "complete", invoiceNo: 400, orderedQty: 5, registeredQty: 4,
+      shipmentConfirmed: false,
+    })).toBe("\u6b8b1");
+  });
+
+  it("ignores absent, malformed, unsupported, or revoked confirmations", () => {
+    for (const memo of [undefined, "1", "broken", "null", "{}",
+      JSON.stringify({ ...JSON.parse(confirmation), version: 2 }),
+      JSON.stringify({ ...JSON.parse(confirmation), confirmedShipped: false }),
+    ]) {
+      expect(isTradeShipmentConfirmed(confirmedRow, memo)).toBe(false);
+    }
+  });
+
+  it("still treats confirmed shipments with missing procurement as incomplete", () => {
+    const status = deriveTradeShipmentRegistrationStatus({
+      status: "", invoiceNo: 400, orderedQty: 5, registeredQty: 0, shipmentConfirmed: true,
+    });
+    expect(isTradeIncompleteForList({ status, procurementTotal: 0 })).toBe(true);
+    expect(isTradeIncompleteForList({ status, procurementTotal: 86540 })).toBe(false);
+  });
+
   it("treats complete and Japanese complete as complete", () => {
     expect(isTradeStatusComplete("complete")).toBe(true);
     expect(isTradeStatusComplete("\u5b8c\u4e86")).toBe(true);

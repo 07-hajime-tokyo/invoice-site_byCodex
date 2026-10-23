@@ -38,6 +38,25 @@ export function formatRemainingQty(value: number) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
 }
 
+export const TRADE_SHIPMENT_CONFIRMATION_MEMO_KEY = "__trade_shipment_confirmation__";
+
+export function isTradeShipmentConfirmed(
+  row: { id: number; no: number | null; partner: string | null; productName: string | null; quantity: unknown },
+  memo: string | undefined,
+) {
+  if (!memo) return false;
+  try {
+    const confirmation = JSON.parse(memo);
+    const quantity = Number(row.quantity);
+    return confirmation?.version === 1 && confirmation.confirmedShipped === true &&
+      confirmation.tradeId === row.id && confirmation.invoiceNo === row.no &&
+      confirmation.partner === row.partner && confirmation.productName === row.productName &&
+      Number.isFinite(quantity) && quantity > 0 && confirmation.quantity === quantity;
+  } catch {
+    return false;
+  }
+}
+
 export function deriveTradeShipmentRegistrationStatus(input: {
   status: string | null;
   invoiceNo: number | null;
@@ -45,7 +64,9 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   orderedQty: number;
   registeredQty: number;
   fedexRegisteredQty?: number;
+  shipmentConfirmed?: boolean;
 }) {
+  if (input.shipmentConfirmed) return "complete";
   const currentStatus = input.status ?? "";
   if (isClosedTradeYear(input.paymentDate)) return currentStatus;
 

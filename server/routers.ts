@@ -17,6 +17,8 @@ import {
   isClosedTradeYear,
   isTradeIncompleteForList,
   isTradeStatusComplete,
+  isTradeShipmentConfirmed,
+  TRADE_SHIPMENT_CONFIRMATION_MEMO_KEY,
 } from "@shared/tradeStatus";
 import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "@shared/invoiceKey";
 import { TRPCError } from "@trpc/server";
@@ -1126,6 +1128,7 @@ async function getTradeShipmentRegistrationProgress(
 function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
   rows: T[],
   progress: TradeShipmentRegistrationProgress,
+  shipmentConfirmations: Map<string, string>,
 ) {
   return rows.map((row): T => {
     const invoiceNo = row.no == null ? null : Number(row.no);
@@ -1138,6 +1141,7 @@ function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
       orderedQty: toNumber(row.quantity),
       registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
       fedexRegisteredQty: fedexQty,
+      shipmentConfirmed: isTradeShipmentConfirmed(row, shipmentConfirmations.get(`trade:${tradeId}`)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };
   });
@@ -1727,10 +1731,16 @@ export const appRouter = router({
           : await db.select().from(tradeRecords).orderBy(orderExpr);
         const baseRows = await applyDisplayedEuroRateRepairs(db, baseRowsFromDb);
         const rowsWithManualCompleteStatus = applyManualCompleteTradeStatuses(baseRows, manualCompleteSet);
+        const shipmentConfirmations = new Map(
+          invoiceMemos
+            .filter((memo) => memo.colorKey === TRADE_SHIPMENT_CONFIRMATION_MEMO_KEY)
+            .map((memo) => [memo.invoiceKey, memo.memo]),
+        );
         const shipmentRegistrationProgress = await getTradeShipmentRegistrationProgress(db, rowsWithManualCompleteStatus);
         const rowsWithShipmentRegistrationStatus = applyTradeShipmentRegistrationStatuses(
           rowsWithManualCompleteStatus,
           shipmentRegistrationProgress,
+          shipmentConfirmations,
         );
         const rowsWithComputedStatus = applyClosedTradeYearStatuses(rowsWithShipmentRegistrationStatus);
         const statusFilter = input.status.trim().toLowerCase();
