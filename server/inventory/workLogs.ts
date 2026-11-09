@@ -3,6 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { workLogCategories, workLogs, workLogWorkers } from "../../drizzle/schema";
 import { getDb } from "./db";
+import type { AppDatabase } from "../_core/database";
 
 function cleanText(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -21,8 +22,10 @@ async function requireDb() {
   return db;
 }
 
-async function ensureOptions(workerName: string, category: string) {
-  const db = await requireDb();
+type WorkLogExecutor = Pick<AppDatabase, "select" | "insert" | "update">;
+
+async function ensureOptions(workerName: string, category: string, executor?: WorkLogExecutor) {
+  const db = executor ?? await requireDb();
   await db.insert(workLogWorkers).ignore().values({ name: workerName, sortOrder: 100 });
   await db.insert(workLogCategories).ignore().values({ name: category, sortOrder: 100 });
 }
@@ -84,17 +87,20 @@ type RecordWorkLogInput = {
   detailsJson?: string | null;
 };
 
-export async function recordWorkLog(input: RecordWorkLogInput) {
-  const db = await requireDb();
+export async function recordWorkLog(
+  input: RecordWorkLogInput,
+  options?: { executor?: WorkLogExecutor; standalone?: boolean },
+) {
+  const db = options?.executor ?? await requireDb();
   const workerName = cleanText(input.workerName || "野田");
   const category = cleanText(input.category || "その他");
-  await ensureOptions(workerName, category);
+  await ensureOptions(workerName, category, db);
   const status = input.status ?? "done";
   const sourceType = input.sourceType?.trim() || null;
   const sourceId = input.sourceId?.trim() || null;
   const detailsJson = input.detailsJson?.trim() || null;
 
-  if (status === "done" && sourceType) {
+  if (status === "done" && sourceType && !options?.standalone) {
     const [runningLog] = await db.select().from(workLogs).where(and(
       eq(workLogs.workerName, workerName),
       eq(workLogs.category, category),

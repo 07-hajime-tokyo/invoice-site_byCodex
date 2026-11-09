@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, like, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   actionItems,
@@ -12,18 +12,16 @@ import {
   workLogs,
 } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
+import type { AppDatabase } from "../_core/database";
 import {
-  createPurchaseHistory,
   getAllPurchaseExtras,
   getDb,
-  getLocalInventoryById,
-  getLocalPurchaseById,
-  updateLocalInventory,
   updateLocalPurchaseStatus,
   createDeliveryHistory,
   createStandaloneItemLabel,
 } from "./db";
 import { recordWorkLog } from "./workLogs";
+import { assertInboundCapacity } from "./inboundAccounting";
 import {
   DEFECT_PHOTO_KINDS,
   DEFECT_TAGS,
@@ -188,15 +186,25 @@ async function requireDb() {
   return db;
 }
 
+type InboundExecutor = Pick<AppDatabase, "select" | "insert" | "update">;
+
+async function loadCountedLabelIds(db: InboundExecutor) {
+  const logs = await db.select({ sourceId: workLogs.sourceId }).from(workLogs)
+    .where(eq(workLogs.sourceType, "purchase-label"));
+  return new Set(logs.flatMap(log => splitSourceIds(log.sourceId)));
+}
+
 async function findPurchaseForLabel(
-  label: typeof inventoryItemLabels.$inferSelect
+  label: typeof inventoryItemLabels.$inferSelect,
+  executor?: InboundExecutor,
 ) {
+  const db = executor ?? await requireDb();
   if (label.purchaseId) {
-    const purchase = await getLocalPurchaseById(label.purchaseId);
+    const [purchase] = await db.select().from(localPurchases)
+      .where(eq(localPurchases.id, label.purchaseId)).limit(1);
     if (purchase) return purchase;
   }
   if (!label.localInventoryId) return null;
-  const db = await requireDb();
   const purchases = await db
     .select()
     .from(localPurchases)
@@ -247,10 +255,10 @@ export async function insertInspectionActionItem(input: {
   title: string;
   legacyManagementNo: string | null;
   createdBy: string;
-}) {
+}, executor?: InboundExecutor) {
   const { invoiceNo, partner } = invoiceAllocation(input.legacyManagementNo);
   if (!invoiceNo) return null;
-  const db = await requireDb();
+  const db = executor ?? await requireDb();
   const sourceKey = input.labelId.trim().toUpperCase();
   const [existing] = await db
     .select({ id: actionItems.id })
@@ -332,7 +340,7 @@ async function recordInspection(input: {
   purchaseHistoryId: number | null;
   defectTags?: readonly string[];
   photoCount?: number;
-}) {
+}, executor: InboundExecutor) {
   const now = new Date();
   await recordWorkLog({
     workerName: input.workerName,
@@ -357,7 +365,7 @@ async function recordInspection(input: {
       defectTags: input.defectTags ?? [],
       photoCount: input.photoCount ?? 0,
     }),
-  });
+  }, { executor });
 }
 
 async function loadRestockCandidate(labelId: string) {
@@ -2239,208 +2247,225 @@ export const inboundDeskRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       const labelId = input.labelId.trim().toUpperCase();
-      const [label] = await db
-        .select()
-        .from(inventoryItemLabels)
-        .where(eq(inventoryItemLabels.labelId, labelId))
-        .limit(1);
-      if (!label)
+      const [candidate] = await db.select().from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.labelId, labelId)).limit(1);
+      if (!candidate)
         throw new TRPCError({
           code: "NOT_FOUND",
           message: `商品ID ${labelId} が見つかりません`,
         });
-      if (normalizeStatus(label.status) !== "received") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `${labelId} は検品待ちではありません`,
-        });
-      }
-      if (!label.localInventoryId) {
+      if (!candidate.localInventoryId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `${labelId} に在庫情報が紐づいていません`,
         });
       }
 
-      const sourceInventory = await getLocalInventoryById(
-        label.localInventoryId
-      );
-      if (!sourceInventory) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: `${labelId} の在庫情報が見つかりません`,
-        });
-      }
-      const purchase = await findPurchaseForLabel(label);
-      const counted = await labelWasAlreadyCounted(labelId);
-      const currentQuantity = Number(sourceInventory.quantity ?? 0);
-      const workerName = operatorName(
-        input.operatorName,
-        ctx.user.name ?? ctx.user.email
-      );
-      const today = new Date().toISOString().slice(0, 10);
-      const now = new Date();
-      let nextInventoryId = sourceInventory.id;
-      let actionItemId: number | null = null;
-      let purchaseHistoryId: number | null = null;
-      let quantityDelta = 0;
-      const requestReplacement =
-        input.outcome === "stocked"
-          ? false
-          : (input.requestReplacement ?? input.outcome === "defective");
-      const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
-      if (
-        (input.outcome === "defective" || input.outcome === "junk") &&
-        defectPhotos.some(
-          photo => !photo.key.startsWith(`defective/${labelId}/`)
-        )
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "写真の商品IDと動作確認対象の商品IDが一致しません",
-        });
-      }
+      const result = await db.transaction(async tx => {
+        // Inventory first: label backfill and concurrent inspections share this lock.
+        const [sourceInventory] = await tx.select().from(localInventories)
+          .where(eq(localInventories.id, candidate.localInventoryId!)).limit(1).for("update");
+        const [label] = await tx.select().from(inventoryItemLabels)
+          .where(eq(inventoryItemLabels.labelId, labelId)).limit(1).for("update");
+        if (!label || label.localInventoryId !== candidate.localInventoryId) {
+          throw new TRPCError({ code: "CONFLICT", message: `${labelId} の在庫情報が変更されました` });
+        }
+        const status = normalizeStatus(label.status);
+        if (status !== "received") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `${labelId} は検品待ちではありません` });
+        }
+        if (!sourceInventory || sourceInventory.isDeleted) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `${labelId} の在庫情報が見つかりません` });
+        }
 
-      if (input.outcome === "stocked") {
+        const purchase = await findPurchaseForLabel(label, tx);
+        const currentQuantity = Number(sourceInventory.quantity ?? 0);
+        const counted = (await loadCountedLabelIds(tx)).has(labelId);
         if (!counted) {
-          quantityDelta = 1;
-          await updateLocalInventory(sourceInventory.id, {
-            quantity: currentQuantity + 1,
-          });
-          const historyZaicoId =
-            purchase?.zaicoId ??
-            purchase?.id ??
-            sourceInventory.zaicoId ??
-            sourceInventory.id;
-          purchaseHistoryId = insertIdFromResult(await createPurchaseHistory({
-            zaicoId: historyZaicoId,
-            kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
-            title: label.title,
-            category: purchase?.category ?? sourceInventory.category ?? null,
-            supplier:
-              purchase?.supplierName ?? sourceInventory.supplierName ?? null,
-            quantity: "1",
-            unitPrice:
-              String(purchase?.unitPrice ?? sourceInventory.unitPrice ?? "") ||
-              null,
-            purchaseDate: today,
+          await assertInboundCapacity(tx, {
             inventoryId: sourceInventory.id,
-            cancelled: 0,
-            operatorName: workerName,
-          }));
-        }
-        await db
-          .update(inventoryItemLabels)
-          .set({ status: "stocked", receivedAt: label.receivedAt ?? now })
-          .where(eq(inventoryItemLabels.id, label.id));
-      } else if (input.outcome === "defective" || input.outcome === "junk") {
-        const isJunk = input.outcome === "junk";
-        if (counted && currentQuantity > 0) {
-          quantityDelta = -1;
-          await updateLocalInventory(sourceInventory.id, {
-            quantity: currentQuantity - 1,
+            zaicoInventoryId: sourceInventory.zaicoId,
+            purchaseHistoryKeys: purchase ? [purchase.zaicoId ?? purchase.id] : [],
+            managementNo: label.legacyManagementNo ?? purchase?.managementNo ?? sourceInventory.etc,
+            incoming: 1,
+            ordered: purchase?.quantity,
           });
         }
-        nextInventoryId = await createDefectiveInventory({
-          label,
-          sourceInventory,
-          destination: isJunk ? "junk" : "defective",
-        });
-        if (!counted) {
-          const historyZaicoId =
-            purchase?.zaicoId ??
-            purchase?.id ??
-            sourceInventory.zaicoId ??
-            sourceInventory.id;
-          purchaseHistoryId = insertIdFromResult(await createPurchaseHistory({
-            zaicoId: historyZaicoId,
-            kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
-            title: label.title,
-            category: isJunk ? "ジャンク売り" : "不良在庫",
-            supplier:
-              purchase?.supplierName ?? sourceInventory.supplierName ?? null,
-            quantity: "1",
-            unitPrice:
-              String(purchase?.unitPrice ?? sourceInventory.unitPrice ?? "") ||
-              null,
-            purchaseDate: today,
-            inventoryId: nextInventoryId,
-            cancelled: 0,
-            operatorName: workerName,
-          }));
+        const workerName = operatorName(
+          input.operatorName,
+          ctx.user.name ?? ctx.user.email
+        );
+        const today = new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        let nextInventoryId = sourceInventory.id;
+        let actionItemId: number | null = null;
+        let purchaseHistoryId: number | null = null;
+        let quantityDelta = 0;
+        const requestReplacement =
+          input.outcome === "stocked"
+            ? false
+            : (input.requestReplacement ?? input.outcome === "defective");
+        const defectPhotos = (input.defectPhotos ?? []) as DefectPhoto[];
+        if (
+          (input.outcome === "defective" || input.outcome === "junk") &&
+          defectPhotos.some(
+            photo => !photo.key.startsWith(`defective/${labelId}/`)
+          )
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "写真の商品IDと動作確認対象の商品IDが一致しません",
+          });
         }
-        await db
+
+        if (input.outcome === "stocked") {
+          if (!counted) {
+            quantityDelta = 1;
+            await tx.update(localInventories)
+              .set({ quantity: sql`${localInventories.quantity} + 1` })
+              .where(eq(localInventories.id, sourceInventory.id));
+            const historyZaicoId =
+              purchase?.zaicoId ??
+              purchase?.id ??
+              sourceInventory.zaicoId ??
+              sourceInventory.id;
+            purchaseHistoryId = insertIdFromResult(await tx.insert(purchaseHistories).values({
+              zaicoId: historyZaicoId,
+              kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
+              title: label.title,
+              category: purchase?.category ?? sourceInventory.category ?? null,
+              supplier:
+                purchase?.supplierName ?? sourceInventory.supplierName ?? null,
+              quantity: "1",
+              unitPrice:
+                String(purchase?.unitPrice ?? sourceInventory.unitPrice ?? "") ||
+                null,
+              purchaseDate: today,
+              inventoryId: sourceInventory.id,
+              cancelled: 0,
+              operatorName: workerName,
+            }));
+          }
+          await tx
+            .update(inventoryItemLabels)
+            .set({ status: "stocked", receivedAt: label.receivedAt ?? now })
+            .where(eq(inventoryItemLabels.id, label.id));
+        } else if (input.outcome === "defective" || input.outcome === "junk") {
+          const isJunk = input.outcome === "junk";
+          if (counted && currentQuantity > 0) {
+            quantityDelta = -1;
+            await tx.update(localInventories)
+              .set({ quantity: sql`${localInventories.quantity} - 1` })
+              .where(eq(localInventories.id, sourceInventory.id));
+          }
+          nextInventoryId = await createDefectiveInventory({
+            label,
+            sourceInventory,
+            destination: isJunk ? "junk" : "defective",
+          }, tx);
+          if (!counted) {
+            const historyZaicoId =
+              purchase?.zaicoId ??
+              purchase?.id ??
+              sourceInventory.zaicoId ??
+              sourceInventory.id;
+            purchaseHistoryId = insertIdFromResult(await tx.insert(purchaseHistories).values({
+              zaicoId: historyZaicoId,
+              kanriNo: label.legacyManagementNo ?? purchase?.managementNo ?? null,
+              title: label.title,
+              category: isJunk ? "ジャンク売り" : "不良在庫",
+              supplier:
+                purchase?.supplierName ?? sourceInventory.supplierName ?? null,
+              quantity: "1",
+              unitPrice:
+                String(purchase?.unitPrice ?? sourceInventory.unitPrice ?? "") ||
+                null,
+              purchaseDate: today,
+              inventoryId: nextInventoryId,
+              cancelled: 0,
+              operatorName: workerName,
+            }));
+          }
+          await tx
+            .update(inventoryItemLabels)
+            .set({
+              status: "stocked",
+              localInventoryId: nextInventoryId,
+              receivedAt: label.receivedAt ?? now,
+              // 検品で不良に落ちたものは常にジャンク扱い
+              listingKind: "junk" satisfies ListingKind,
+              defectTags: input.defectTags!.join(","),
+              defectNote: input.defectNote?.trim() || null,
+              defectPhotosJson: JSON.stringify(defectPhotos),
+              defectRecordedAt: now,
+              defectiveSheetSyncedAt: null,
+            })
+            .where(eq(inventoryItemLabels.id, label.id));
+          if (requestReplacement) {
+            actionItemId = await insertInspectionActionItem({
+              labelId,
+              title: label.title,
+              legacyManagementNo: label.legacyManagementNo,
+              createdBy: workerName,
+            }, tx);
+          }
+        } else {
+          if (counted && currentQuantity > 0) {
+            quantityDelta = -1;
+            await tx.update(localInventories)
+              .set({ quantity: sql`${localInventories.quantity} - 1` })
+              .where(eq(localInventories.id, sourceInventory.id));
+          }
+          await tx
+            .update(inventoryItemLabels)
+            .set({ status: "returned", receivedAt: label.receivedAt ?? now })
+            .where(eq(inventoryItemLabels.id, label.id));
+          if (requestReplacement) {
+            actionItemId = await insertInspectionActionItem({
+              labelId,
+              title: label.title,
+              legacyManagementNo: label.legacyManagementNo,
+              createdBy: workerName,
+            }, tx);
+          }
+        }
+
+        await tx
           .update(inventoryItemLabels)
           .set({
-            status: "stocked",
-            localInventoryId: nextInventoryId,
-            receivedAt: label.receivedAt ?? now,
-            // 検品で不良に落ちたものは常にジャンク扱い
-            listingKind: "junk" satisfies ListingKind,
-            defectTags: input.defectTags!.join(","),
-            defectNote: input.defectNote?.trim() || null,
-            defectPhotosJson: JSON.stringify(defectPhotos),
-            defectRecordedAt: now,
-            defectiveSheetSyncedAt: null,
+            inspectionOutcome: input.outcome,
+            replacementRequested: requestReplacement,
+            inspectionSourceInventoryId: sourceInventory.id,
+            inspectionInventoryId: nextInventoryId,
+            inspectionQuantityDelta: quantityDelta,
+            inspectionPurchaseHistoryId: purchaseHistoryId,
+            inspectionActionItemId: actionItemId,
+            inspectedAt: now,
+            inspectionCancelledAt: null,
+            inspectionCancelledBy: null,
           })
           .where(eq(inventoryItemLabels.id, label.id));
-        if (requestReplacement) {
-          actionItemId = await insertInspectionActionItem({
-            labelId,
-            title: label.title,
-            legacyManagementNo: label.legacyManagementNo,
-            createdBy: workerName,
-          });
-        }
-      } else {
-        if (counted && currentQuantity > 0) {
-          quantityDelta = -1;
-          await updateLocalInventory(sourceInventory.id, {
-            quantity: currentQuantity - 1,
-          });
-        }
-        await db
-          .update(inventoryItemLabels)
-          .set({ status: "returned", receivedAt: label.receivedAt ?? now })
-          .where(eq(inventoryItemLabels.id, label.id));
-        if (requestReplacement) {
-          actionItemId = await insertInspectionActionItem({
-            labelId,
-            title: label.title,
-            legacyManagementNo: label.legacyManagementNo,
-            createdBy: workerName,
-          });
-        }
-      }
 
-      await db
-        .update(inventoryItemLabels)
-        .set({
-          inspectionOutcome: input.outcome,
-          replacementRequested: requestReplacement,
-          inspectionSourceInventoryId: sourceInventory.id,
+        await recordInspection({
+          labelId,
+          outcome: input.outcome,
+          workerName,
+          actionItemId,
+          requestReplacement,
+          sourceInventoryId: sourceInventory.id,
           inspectionInventoryId: nextInventoryId,
-          inspectionQuantityDelta: quantityDelta,
-          inspectionPurchaseHistoryId: purchaseHistoryId,
-          inspectionActionItemId: actionItemId,
-          inspectedAt: now,
-          inspectionCancelledAt: null,
-          inspectionCancelledBy: null,
-        })
-        .where(eq(inventoryItemLabels.id, label.id));
-
-      await recordInspection({
-        labelId,
-        outcome: input.outcome,
-        workerName,
-        actionItemId,
-        requestReplacement,
-        sourceInventoryId: sourceInventory.id,
-        inspectionInventoryId: nextInventoryId,
-        quantityDelta,
-        purchaseHistoryId,
-        defectTags: input.defectTags,
-        photoCount: input.defectPhotos?.length,
+          quantityDelta,
+          purchaseHistoryId,
+          defectTags: input.defectTags,
+          photoCount: input.defectPhotos?.length,
+        }, tx);
+        return {
+          labelId,
+          outcome: input.outcome,
+          localInventoryId: nextInventoryId,
+          actionItemId,
+          inventoryCountChanged: quantityDelta !== 0,
+        };
       });
       if (input.outcome === "defective" || input.outcome === "junk") {
         setImmediate(() => {
@@ -2456,11 +2481,7 @@ export const inboundDeskRouter = router({
         });
       }
       return {
-        labelId,
-        outcome: input.outcome,
-        localInventoryId: nextInventoryId,
-        actionItemId,
-        inventoryCountChanged: input.outcome === "stocked" ? !counted : counted,
+        ...result,
         listingPreparation:
           input.outcome === "defective" || input.outcome === "junk"
             ? "queued"

@@ -1,14 +1,15 @@
 import { createHash, timingSafeEqual } from "crypto";
 import type { Express, Request, Response } from "express";
+import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   localInventories,
   inventoryItemLabels,
   localPurchases,
-  purchaseHistories,
 } from "../../drizzle/schema";
 import { createInventoryMemo, ensureInventoryItemLabels, getDb } from "../inventory/db";
+import { addInboundReceipt } from "../inventory/inboundAccounting";
 
 const gasPayloadSchema = z.object({
   row: z.record(z.string(), z.unknown()).optional(),
@@ -36,8 +37,8 @@ const stringKeys = {
 } as const;
 
 const numberKeys = {
-  inventoryId: ["inventoryId", "inventory_id", "在庫ID"],
   inventoryQuantity: ["inventoryQuantity", "inventory_quantity", "initialInventoryQuantity", "初期在庫数", "在庫数"],
+  inventoryId: ["inventoryId", "inventory_id", "在庫ID"],
   quantity: ["quantity", "qty", "数量", "入庫数", "発注数"],
   orderQuantity: ["orderQuantity", "order_quantity", "orderedQuantity", "ordered_quantity", "発注数量", "発注数"],
   unitPrice: ["unitPrice", "unit_price", "purchasePrice", "purchase_price", "price", "仕入単価", "単価"],
@@ -582,17 +583,9 @@ export function registerGasWebhookRoutes(app: Express) {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
-      const existingHistory = await db
-        .select({ id: purchaseHistories.id })
-        .from(purchaseHistories)
-        .where(and(eq(purchaseHistories.zaicoId, gasZaicoId), eq(purchaseHistories.cancelled, 0)))
-        .limit(1);
-      const alreadyReceived = existingHistory.length > 0;
-
       let inventoryId: number | null = null;
-      let previousQuantity = 0;
       const inventoryMatchManagementNo = primaryManagementNo(managementNo);
-      await retireDeletedInventoriesForManagementNo(db, inventoryMatchManagementNo, operatorName);
+      if (!markPurchased) await retireDeletedInventoriesForManagementNo(db, inventoryMatchManagementNo, operatorName);
 
       const inventoryWhere = inventoryMatchManagementNo
         ? and(
@@ -609,6 +602,51 @@ export function registerGasWebhookRoutes(app: Express) {
             .limit(1)
         : [];
 
+      if (markPurchased) {
+        const candidate = existingInventory[0];
+        if (!candidate || !createInventory) {
+          sendError(res, 409, "入庫前に対象商品を発注登録してください");
+          return;
+        }
+        const receipt = await db.transaction(async tx => {
+          const [inventory] = await tx.select().from(localInventories)
+            .where(eq(localInventories.id, candidate.id)).limit(1).for("update");
+          if (!inventory || inventory.isDeleted || primaryManagementNo(inventory.etc ?? "") !== inventoryMatchManagementNo) {
+            throw new TRPCError({ code: "CONFLICT", message: "入庫対象の在庫が変更されました" });
+          }
+          const [purchase] = await tx.select().from(localPurchases).where(and(
+            eq(localPurchases.localInventoryId, inventory.id), eq(localPurchases.managementNo, managementNo),
+          )).orderBy(desc(localPurchases.updatedAt)).limit(1).for("update");
+          if (!purchase || quantity !== purchase.quantity) {
+            throw new TRPCError({ code: "CONFLICT", message: "発注登録と入庫数量が一致しません" });
+          }
+          await addInboundReceipt(tx, {
+            inventoryId: inventory.id, zaicoInventoryId: inventory.zaicoId,
+            purchaseHistoryKeys: [gasZaicoId, purchase.id, purchase.zaicoId ?? purchase.id],
+            managementNo, incoming: quantity, ordered: purchase.quantity,
+          }, {
+            zaicoId: gasZaicoId, kanriNo: managementNo, title, category, supplier: supplierName,
+            unitPrice, purchaseDate: receivedDate, operatorName,
+          }, { sourceType: "gas-purchase-receive", sourceId: String(purchase.id), details: { sourceKey, purchaseId: purchase.id } });
+          await tx.update(localPurchases).set({ status: "purchased", receivedDate })
+            .where(eq(localPurchases.id, purchase.id));
+          const labels = await ensureInventoryItemLabels({
+            purchaseId: purchase.id, localInventoryId: inventory.id,
+            legacyManagementNo: managementNo, title, quantity, status: "received", sourceKey,
+          }, tx);
+          const itemLabels = labels.map(({ id, labelId, status, legacyManagementNo }) => ({
+            id, labelId, productId: labelId, status, legacyManagementNo,
+          }));
+          return { inventoryId: inventory.id, purchaseId: purchase.id, itemLabels };
+        });
+        res.json({
+          success: true, sourceKey, ...receipt, purchaseHistoryZaicoId: gasZaicoId,
+          historyInserted: true, alreadyReceived: false,
+          data: { inventoryId: receipt.inventoryId, purchase: { id: receipt.purchaseId, itemLabels: receipt.itemLabels } },
+        });
+        return;
+      }
+
       if (existingInventory[0]) {
         await recordGasFullRestoreSnapshot({
           inventory: existingInventory[0],
@@ -621,7 +659,6 @@ export function registerGasWebhookRoutes(app: Express) {
 
       if (existingInventory[0]) {
         inventoryId = existingInventory[0].id;
-        previousQuantity = existingInventory[0].quantity ?? 0;
         if (createInventory) {
           await db
             .update(localInventories)
@@ -629,9 +666,6 @@ export function registerGasWebhookRoutes(app: Express) {
               title,
               category,
               place,
-              quantity: markPurchased
-                ? alreadyReceived ? previousQuantity : previousQuantity + quantity
-                : inventoryQuantity,
               unit,
               unitPrice,
               etc: inventoryEtc,
@@ -650,7 +684,7 @@ export function registerGasWebhookRoutes(app: Express) {
           title,
           category,
           place,
-          quantity: markPurchased ? quantity : inventoryQuantity,
+          quantity: inventoryQuantity,
           unit,
           unitPrice,
           etc: inventoryEtc,
@@ -667,7 +701,7 @@ export function registerGasWebhookRoutes(app: Express) {
         quantity: String(quantity),
         unit_price: unitPrice,
         etc: inventoryEtc,
-        status: markPurchased ? "purchased" : "ordered",
+        status: "ordered",
         inventory_id: inventoryId,
         category,
       }]);
@@ -703,7 +737,7 @@ export function registerGasWebhookRoutes(app: Express) {
         });
 
         purchaseId = existingPurchase[0].id;
-        const nextStatus = markPurchased ? "purchased" : existingPurchase[0].status ?? "ordered";
+        const nextStatus = existingPurchase[0].status ?? "ordered";
         await db
           .update(localPurchases)
           .set({
@@ -717,7 +751,7 @@ export function registerGasWebhookRoutes(app: Express) {
             unitPrice,
             managementNo,
             purchaseDate,
-            receivedDate: nextStatus === "purchased" ? (markPurchased ? receivedDate : existingPurchase[0].receivedDate) : null,
+            receivedDate: nextStatus === "purchased" ? existingPurchase[0].receivedDate : null,
             shipDate,
             trackingNumber,
             carrier,
@@ -730,7 +764,7 @@ export function registerGasWebhookRoutes(app: Express) {
         const [result] = await db.insert(localPurchases).values({
           zaicoId: null,
           purchaseNum: purchaseNum || String(gasZaicoId),
-          status: markPurchased ? "purchased" : "ordered",
+          status: "ordered",
           itemsJson: purchaseItemsJson,
           localInventoryId: inventoryId,
           title,
@@ -739,7 +773,7 @@ export function registerGasWebhookRoutes(app: Express) {
           unitPrice,
           managementNo,
           purchaseDate,
-          receivedDate: markPurchased ? receivedDate : null,
+          receivedDate: null,
           shipDate,
           trackingNumber,
           carrier,
@@ -750,24 +784,6 @@ export function registerGasWebhookRoutes(app: Express) {
         purchaseId = Number((result as { insertId?: number }).insertId ?? 0) || null;
       }
 
-      let historyInserted = false;
-      if (markPurchased && !alreadyReceived) {
-        await db.insert(purchaseHistories).values({
-          zaicoId: gasZaicoId,
-          kanriNo: managementNo,
-          title,
-          category,
-          supplier: supplierName,
-          quantity: String(quantity),
-          unitPrice,
-          purchaseDate: receivedDate,
-          inventoryId,
-          cancelled: 0,
-          operatorName,
-        });
-        historyInserted = true;
-      }
-
       const itemLabels = purchaseId == null
         ? []
         : await ensureInventoryItemLabels({
@@ -776,7 +792,7 @@ export function registerGasWebhookRoutes(app: Express) {
             legacyManagementNo: managementNo,
             title,
             quantity,
-            status: markPurchased ? "received" : "ordered",
+            status: "ordered",
             sourceKey,
           });
       const responseItemLabels = itemLabels.map((label) => ({
@@ -793,8 +809,8 @@ export function registerGasWebhookRoutes(app: Express) {
         inventoryId,
         purchaseId,
         purchaseHistoryZaicoId: gasZaicoId,
-        historyInserted,
-        alreadyReceived,
+        historyInserted: false,
+        alreadyReceived: false,
         itemLabels: responseItemLabels,
         results: {
           inventory: inventoryId == null ? null : { id: inventoryId },
@@ -802,6 +818,10 @@ export function registerGasWebhookRoutes(app: Express) {
         },
       });
     } catch (error) {
+      if (error instanceof TRPCError && error.code === "CONFLICT") {
+        sendError(res, 409, error.message);
+        return;
+      }
       console.error("[GAS purchase webhook] failed", error);
       sendError(res, 500, error instanceof Error ? error.message : "Unknown error");
     }

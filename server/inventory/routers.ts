@@ -41,6 +41,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { aiInvestigationRouter } from "./aiInvestigation";
 import { actionItemsRouter } from "./actionItems";
 import { inboundDeskRouter } from "./inboundDesk";
+import { addInboundReceipt, assertInboundQuantity } from "./inboundAccounting";
 import { stocktakeRouter } from './stocktake';
 import { outboundBoxesRouter } from "./outboundBoxes";
 import { getReceiptAckSummary, markReceiptAckDone } from "./receiptAck";
@@ -4018,34 +4019,79 @@ export const inventoryRouter = router({
           // Zaico連携ON: Zaico APIに入庫処理を送信
           result = await completePurchase(input.purchaseId, input.purchaseDate, input.purchaseItems, operatorToken);
         } else {
-          // Zaico連携OFF: ローカルDBの発注ステータスをpurchasedに更新し、在庫数を増加する
-          // purchaseIdはzaicoId または id（zaicoIdがNULLの場合）として検索
-          const localPurchaseRows = await getLocalPurchases();
-          const localPurchase = localPurchaseRows.find(
-            (p) => p.zaicoId === input.purchaseId || p.id === input.purchaseId
-          );
-          if (localPurchase) {
-            await updateLocalPurchaseStatus(localPurchase.id, "purchased", input.purchaseDate);
-            await ensureInventoryItemLabels({
-              purchaseId: localPurchase.id,
-              localInventoryId: localPurchase.localInventoryId ?? input.purchaseItems[0]?.inventory_id ?? null,
-              legacyManagementNo: localPurchase.managementNo,
-              title: localPurchase.title ?? input.historyData?.title ?? "",
-              quantity: localPurchase.quantity ?? (Number(input.purchaseItems[0]?.quantity ?? 1) || 1),
-              status: "received",
-              sourceKey: localPurchase.managementNo ? `management:${localPurchase.managementNo}` : null,
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+          const { localInventories, localPurchases } = await import("../../drizzle/schema");
+          const purchase = (await getLocalPurchases()).find(row => row.zaicoId === input.purchaseId || row.id === input.purchaseId);
+          const entries = new Map<number, { quantity: number; unitPrice: string }>();
+          for (const item of input.purchaseItems) {
+            const inventory = await getLocalInventoryByZaicoIdOrId(item.inventory_id);
+            if (!inventory) throw new TRPCError({ code: "NOT_FOUND", message: "入庫対象の在庫が見つかりません" });
+            const quantity = Number(item.quantity);
+            assertInboundQuantity(0, quantity);
+            entries.set(inventory.id, {
+              quantity: quantity + (entries.get(inventory.id)?.quantity ?? 0),
+              unitPrice: item.unit_price,
             });
           }
-          // 在庫数を増加する
-          for (const item of input.purchaseItems) {
-            const localInv = await getLocalInventoryByZaicoIdOrId(item.inventory_id);
-            if (localInv) {
-              const addQty = parseInt(item.quantity, 10) || 1;
-              const newQty = (localInv.quantity ?? 0) + addQty;
-              await updateLocalInventory(localInv.id, { quantity: newQty });
+          if (!entries.size) throw new TRPCError({ code: "BAD_REQUEST", message: "入庫対象を指定してください" });
+          const workerName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
+          return db.transaction(async tx => {
+            const locked = [];
+            for (const id of [...entries.keys()].sort((a, b) => a - b)) {
+              const [inventory] = await tx.select().from(localInventories)
+                .where(eq(localInventories.id, id)).limit(1).for("update");
+              if (!inventory || inventory.isDeleted) {
+                throw new TRPCError({ code: "NOT_FOUND", message: "入庫対象の在庫が見つかりません" });
+              }
+              locked.push(inventory);
             }
-          }
-          result = { code: 200, status: "ok", message: "入庫処理完了（ローカルDB）" };
+            const [lockedPurchase] = purchase
+              ? await tx.select().from(localPurchases).where(eq(localPurchases.id, purchase.id)).limit(1).for("update")
+              : [];
+            const single = locked.length === 1;
+            for (const inventory of locked) {
+              const entry = entries.get(inventory.id)!;
+              if (single && lockedPurchase?.localInventoryId && lockedPurchase.localInventoryId !== inventory.id) {
+                throw new TRPCError({ code: "CONFLICT", message: "発注と入庫対象の在庫が一致しません" });
+              }
+              if (single && lockedPurchase?.quantity && entry.quantity < lockedPurchase.quantity) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "分割入庫は商品IDごとの入庫スキャンを使用してください" });
+              }
+              const managementNo = getInventoryManagementNo(inventory.etc) || lockedPurchase?.managementNo || input.historyData?.kanriNo || null;
+              await addInboundReceipt(tx, {
+                inventoryId: inventory.id,
+                zaicoInventoryId: inventory.zaicoId,
+                purchaseHistoryKeys: single ? [input.purchaseId, lockedPurchase?.id ?? input.purchaseId] : [],
+                managementNo,
+                incoming: entry.quantity,
+                ordered: single ? lockedPurchase?.quantity : null,
+              }, {
+                zaicoId: input.purchaseId,
+                kanriNo: managementNo,
+                title: inventory.title,
+                category: inventory.category ?? input.historyData?.category ?? null,
+                supplier: inventory.supplierName ?? input.historyData?.supplier ?? null,
+                unitPrice: (single ? input.historyData?.unitPrice : undefined) ?? entry.unitPrice,
+                purchaseDate: input.purchaseDate,
+                operatorName: workerName,
+              }, { sourceType: "purchase", sourceId: String(input.purchaseId), details: { purchaseId: input.purchaseId } });
+            }
+            if (lockedPurchase) {
+              await tx.update(localPurchases).set({ status: "purchased", receivedDate: input.purchaseDate })
+                .where(eq(localPurchases.id, lockedPurchase.id));
+              await ensureInventoryItemLabels({
+                purchaseId: lockedPurchase.id,
+                localInventoryId: lockedPurchase.localInventoryId ?? locked[0].id,
+                legacyManagementNo: lockedPurchase.managementNo,
+                title: lockedPurchase.title ?? locked[0].title,
+                quantity: lockedPurchase.quantity ?? entries.get(locked[0].id)!.quantity,
+                status: "received",
+                sourceKey: lockedPurchase.managementNo ? `management:${lockedPurchase.managementNo}` : null,
+              }, tx);
+            }
+            return { code: 200, status: "ok", message: "入庫処理完了（ローカルDB）" };
+          });
         }
 
         // 入庫履歴をDBに保存
@@ -7573,215 +7619,84 @@ export const inventoryRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
-        const { inventoryItemLabels: labelTbl } = await import("../../drizzle/schema");
-        const [label] = await db.select().from(labelTbl).where(eq(labelTbl.labelId, labelId)).limit(1);
-        if (!label) {
+        const { inventoryItemLabels: labelTbl, localInventories, localPurchases } = await import("../../drizzle/schema");
+        const [candidate] = await db.select().from(labelTbl).where(eq(labelTbl.labelId, labelId)).limit(1);
+        if (!candidate) {
           throw new TRPCError({ code: "NOT_FOUND", message: `商品ID ${labelId} が見つかりません` });
         }
 
-        const currentStatus = String(label.status ?? "").trim().toLowerCase();
-        const alreadyReceived = isReceivedLabelStatus(currentStatus);
-        const localInventoryId = label.localInventoryId ?? null;
-        const inventory = localInventoryId ? await getLocalInventoryByZaicoIdOrId(localInventoryId) : null;
-        const labelManagementNo = String(
-          label.legacyManagementNo ?? getInventoryManagementNo(inventory?.etc) ?? "",
-        ).trim();
-        let purchase: LocalPurchaseRow | null = label.purchaseId ? await getLocalPurchaseById(label.purchaseId) : null;
-        if (!purchase && localInventoryId) {
-          const candidatePurchases = (await getLocalPurchases()).filter((row) =>
-            localPurchaseMatchesInventoryLabel(row, localInventoryId, labelManagementNo),
-          );
-          purchase =
-            candidatePurchases.find((row) => row.status !== "purchased") ??
-            candidatePurchases[0] ??
-            null;
+        if (!candidate.localInventoryId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "入庫対象の在庫が見つかりません" });
         }
-        const today = new Date().toISOString().slice(0, 10);
-        const operatorName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
-
-        const markPurchaseReceivedIfReady = async () => {
-          if (!purchase || purchase.status === "purchased") return;
-          let labelsForPurchase = await db
-            .select()
-            .from(labelTbl)
-            .where(eq(labelTbl.purchaseId, purchase.id));
-          if (labelsForPurchase.length === 0 && purchase.localInventoryId) {
-            const inventoryLabels = await db
-              .select()
-              .from(labelTbl)
-              .where(eq(labelTbl.localInventoryId, purchase.localInventoryId));
-            labelsForPurchase = filterLabelsByManagementNo(
-              inventoryLabels,
-              String(purchase.managementNo ?? labelManagementNo ?? "").trim(),
-            );
-          } else {
-            labelsForPurchase = filterLabelsByManagementNo(
-              labelsForPurchase,
-              String(purchase.managementNo ?? labelManagementNo ?? "").trim(),
-            );
+        const fallbackPurchase = candidate.purchaseId ? null :
+          (await getLocalPurchases()).find(row => localPurchaseMatchesInventoryLabel(
+            row, candidate.localInventoryId!, candidate.legacyManagementNo ?? "",
+          ));
+        const workerName = resolveWorkOperatorName(input.operatorName, ctx.user?.name ?? ctx.user?.email ?? null);
+        return db.transaction(async tx => {
+          const [inventory] = await tx.select().from(localInventories)
+            .where(eq(localInventories.id, candidate.localInventoryId!)).limit(1).for("update");
+          const [label] = await tx.select().from(labelTbl)
+            .where(eq(labelTbl.id, candidate.id)).limit(1).for("update");
+          if (!inventory || inventory.isDeleted || label?.localInventoryId !== inventory.id) {
+            throw new TRPCError({ code: "CONFLICT", message: "入庫対象の在庫が変更されました" });
           }
-
-          const relevantLabels = labelsForPurchase.length > 0 ? labelsForPurchase : [label];
-          const requiredQuantity = Math.max(1, Math.floor(Number(purchase.quantity ?? 1)) || 1);
-          const receivedCount = relevantLabels.filter((row) => (
-            row.id === label.id || isReceivedLabelStatus(row.status)
-          )).length;
-          if (receivedCount >= Math.min(requiredQuantity, relevantLabels.length)) {
-            await updateLocalPurchaseStatus(purchase.id, "purchased", today);
-            purchase = { ...purchase, status: "purchased", receivedDate: today };
-          }
-        };
-
-        if (!alreadyReceived) {
-          const now = new Date();
-          await db
-            .update(labelTbl)
-            .set({ status: "received", receivedAt: label.receivedAt ?? now })
-            .where(eq(labelTbl.id, label.id));
-
-          if (inventory) {
-            await updateLocalInventory(inventory.id, { quantity: Number(inventory.quantity ?? 0) + 1 });
-          }
-
-          const historyZaicoId =
-            purchase?.zaicoId ??
-            purchase?.id ??
-            inventory?.zaicoId ??
-            inventory?.id ??
-            localInventoryId;
-          if (historyZaicoId) {
-            const historyManagementNo =
-              label.legacyManagementNo ?? purchase?.managementNo ?? getInventoryManagementNo(inventory?.etc) ?? null;
-            const historyTitle = label.title || purchase?.title || inventory?.title || labelId;
-            const historyCategory = purchase?.category ?? inventory?.category ?? null;
-            const historySupplier = purchase?.supplierName ?? inventory?.supplierName ?? null;
-            const historyUnitPrice =
-              purchase?.unitPrice == null
-                ? inventory?.unitPrice == null
-                  ? null
-                  : String(inventory.unitPrice)
-                : String(purchase.unitPrice);
-            await createPurchaseHistory({
-              zaicoId: historyZaicoId,
-              kanriNo: historyManagementNo,
-              title: historyTitle,
-              category: historyCategory,
-              supplier: historySupplier,
-              quantity: "1",
-              unitPrice: historyUnitPrice,
+          const purchaseId = label.purchaseId ?? fallbackPurchase?.id;
+          const [purchase] = purchaseId
+            ? await tx.select().from(localPurchases).where(eq(localPurchases.id, purchaseId)).limit(1).for("update")
+            : [];
+          const alreadyReceived = isReceivedLabelStatus(label.status);
+          if (!alreadyReceived) {
+            if (label.status !== "ordered") {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "入庫待ちの商品ではありません" });
+            }
+            const managementNo = label.legacyManagementNo ?? purchase?.managementNo ?? getInventoryManagementNo(inventory.etc);
+            const historyKey = purchase?.zaicoId ?? purchase?.id ?? inventory.zaicoId ?? inventory.id;
+            const today = new Date().toISOString().slice(0, 10);
+            await addInboundReceipt(tx, {
+              inventoryId: inventory.id,
+              zaicoInventoryId: inventory.zaicoId,
+              purchaseHistoryKeys: purchase ? [historyKey, purchase.id] : [],
+              managementNo,
+              incoming: 1,
+              ordered: purchase?.quantity,
+            }, {
+              zaicoId: historyKey,
+              kanriNo: managementNo,
+              title: label.title || purchase?.title || inventory.title,
+              category: purchase?.category ?? inventory.category,
+              supplier: purchase?.supplierName ?? inventory.supplierName,
+              unitPrice: String(purchase?.unitPrice ?? inventory.unitPrice ?? "") || null,
               purchaseDate: today,
-              inventoryId: inventory?.id ?? localInventoryId,
-              cancelled: 0,
-              operatorName,
-            });
-
-            await recordWorkLog({
-              workerName: operatorName,
-              category: "入庫登録",
-              status: "done",
-              startedAt: now,
-              endedAt: now,
-              quantity: 1,
-              memo: `商品ID: ${labelId}`,
-              createdBy: operatorName,
-              sourceType: "purchase-label",
-              sourceId: labelId,
-              detailsJson: JSON.stringify({
-                labelId,
-                purchaseId: purchase?.id ?? null,
-                inventoryId: inventory?.id ?? localInventoryId,
-                managementNo: historyManagementNo,
-              }),
-            });
-          }
-        } else {
-          const historyZaicoId =
-            purchase?.zaicoId ??
-            purchase?.id ??
-            inventory?.zaicoId ??
-            inventory?.id ??
-            localInventoryId;
-          if (historyZaicoId) {
-            const { purchaseHistories: purchaseHistoriesTbl } = await import("../../drizzle/schema");
-            const historyManagementNo =
-              label.legacyManagementNo ?? purchase?.managementNo ?? getInventoryManagementNo(inventory?.etc) ?? null;
-            const historyTitle = label.title || purchase?.title || inventory?.title || labelId;
-            const existingHistory = await db
-              .select({ id: purchaseHistoriesTbl.id })
-              .from(purchaseHistoriesTbl)
-              .where(
-                and(
-                  eq(purchaseHistoriesTbl.zaicoId, historyZaicoId),
-                  eq(purchaseHistoriesTbl.title, historyTitle),
-                  eq(purchaseHistoriesTbl.cancelled, 0),
-                ),
-              )
-              .limit(1);
-
-            if (existingHistory.length === 0) {
-              const now = new Date();
-              const receivedAt = label.receivedAt ? new Date(label.receivedAt) : now;
-              const purchaseDate = Number.isNaN(receivedAt.getTime()) ? today : receivedAt.toISOString().slice(0, 10);
-              const historyCategory = purchase?.category ?? inventory?.category ?? null;
-              const historySupplier = purchase?.supplierName ?? inventory?.supplierName ?? null;
-              const historyUnitPrice =
-                purchase?.unitPrice == null
-                  ? inventory?.unitPrice == null
-                    ? null
-                    : String(inventory.unitPrice)
-                  : String(purchase.unitPrice);
-
-              await createPurchaseHistory({
-                zaicoId: historyZaicoId,
-                kanriNo: historyManagementNo,
-                title: historyTitle,
-                category: historyCategory,
-                supplier: historySupplier,
-                quantity: "1",
-                unitPrice: historyUnitPrice,
-                purchaseDate,
-                inventoryId: inventory?.id ?? localInventoryId,
-                cancelled: 0,
-                operatorName,
-              });
-
-              await recordWorkLog({
-                workerName: operatorName,
-                category: "入庫登録",
-                status: "done",
-                startedAt: now,
-                endedAt: now,
-                quantity: 1,
-                memo: `商品ID: ${labelId} / 履歴補完`,
-                createdBy: operatorName,
-                sourceType: "purchase-label",
-                sourceId: labelId,
-                detailsJson: JSON.stringify({
-                  labelId,
-                  purchaseId: purchase?.id ?? null,
-                  inventoryId: inventory?.id ?? localInventoryId,
-                  managementNo: historyManagementNo,
-                  recoveredHistory: true,
-                }),
-              });
+              operatorName: workerName,
+            }, { sourceType: "purchase-label", sourceId: labelId, details: { labelId, purchaseId: purchase?.id ?? null } });
+            await tx.update(labelTbl).set({ status: "received", receivedAt: label.receivedAt ?? new Date() })
+              .where(eq(labelTbl.id, label.id));
+            if (purchase && purchase.status !== "purchased") {
+              let related = await tx.select().from(labelTbl).where(eq(labelTbl.purchaseId, purchase.id)).for("update");
+              if (!related.length) {
+                related = await tx.select().from(labelTbl).where(eq(labelTbl.localInventoryId, inventory.id)).for("update");
+              }
+              const relevant = filterLabelsByManagementNo(related, String(purchase.managementNo ?? managementNo ?? "").trim());
+              const required = Math.max(1, Math.floor(Number(purchase.quantity ?? 1)) || 1);
+              if (relevant.length && relevant.filter(row => isReceivedLabelStatus(row.status)).length >= Math.min(required, relevant.length)) {
+                await tx.update(localPurchases).set({ status: "purchased", receivedDate: today })
+                  .where(eq(localPurchases.id, purchase.id));
+              }
             }
           }
-        }
-
-        await markPurchaseReceivedIfReady();
-
-        const [updatedLabel] = await db.select().from(labelTbl).where(eq(labelTbl.id, label.id)).limit(1);
-        return {
-          labelId,
-          alreadyReceived,
-          status: updatedLabel?.status ?? (alreadyReceived ? label.status : "received"),
-          title: updatedLabel?.title ?? label.title,
-          legacyManagementNo: updatedLabel?.legacyManagementNo ?? label.legacyManagementNo,
-          assignedInvoiceNo: updatedLabel?.assignedInvoiceNo ?? label.assignedInvoiceNo ?? null,
-          purchaseId: updatedLabel?.purchaseId ?? label.purchaseId ?? purchase?.id ?? null,
-          localInventoryId: updatedLabel?.localInventoryId ?? label.localInventoryId,
-          inventoryQuantity: inventory ? Number(inventory.quantity ?? 0) + (alreadyReceived ? 0 : 1) : null,
-        };
+          return {
+            labelId,
+            alreadyReceived,
+            status: alreadyReceived ? label.status : "received",
+            title: label.title,
+            legacyManagementNo: label.legacyManagementNo,
+            assignedInvoiceNo: label.assignedInvoiceNo ?? null,
+            purchaseId: label.purchaseId ?? purchase?.id ?? null,
+            localInventoryId: inventory.id,
+            inventoryQuantity: Number(inventory.quantity ?? 0) + (alreadyReceived ? 0 : 1),
+          };
+        });
       }),
 
     /**

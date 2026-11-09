@@ -1362,7 +1362,7 @@ function mustKeepPurchaseLabel(label: InventoryItemLabel): boolean {
 }
 
 async function trimPurchaseLabelsToQuantity(
-  db: AppDatabase,
+  db: Pick<AppDatabase, "delete">,
   labels: InventoryItemLabel[],
   desiredQuantity: number,
 ): Promise<InventoryItemLabel[]> {
@@ -1421,7 +1421,7 @@ function isDuplicateLabelError(error: unknown): boolean {
 }
 
 async function insertInventoryLabelWithRetry(
-  db: AppDatabase,
+  db: Pick<AppDatabase, "insert" | "select">,
   values: Omit<InsertInventoryItemLabel, "id" | "labelId" | "createdAt" | "updatedAt">,
 ): Promise<InventoryItemLabel> {
   for (let attempt = 0; attempt < 30; attempt++) {
@@ -1552,58 +1552,65 @@ export async function ensureInventoryItemLabelsForInventory(input: {
   const localInventoryId = Number(input.localInventoryId);
   if (!Number.isFinite(localInventoryId) || localInventoryId <= 0) return [];
 
-  const desiredQuantity = normalizeLabelQuantity(input.quantity);
-  const status = input.status ?? "stocked";
-  const now = new Date();
-  const sourceKey = input.sourceKey?.trim() || `inventory:${localInventoryId}`;
-  const legacyManagementNo = input.legacyManagementNo?.trim() || null;
+  return db.transaction(async tx => {
+    // Re-read the inventory under the same lock used by inspection.
+    const [inventory] = await tx.select().from(localInventories)
+      .where(eq(localInventories.id, localInventoryId)).limit(1).for("update");
+    if (inventory?.isDeleted) return [];
+    const quantity = inventory ? normalizeLabelQuantity(inventory.quantity ?? 0) : null;
+    const desiredQuantity = quantity == null ? normalizeLabelQuantity(input.quantity) : Math.max(1, quantity);
+    const status = quantity == null ? input.status ?? "stocked" : quantity > 0 ? "stocked" : "ordered";
+    const now = new Date();
+    const sourceKey = input.sourceKey?.trim() || `inventory:${localInventoryId}`;
+    const legacyManagementNo = input.legacyManagementNo?.trim() || null;
 
-  const existing = await db
-    .select()
-    .from(inventoryItemLabels)
-    .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
-    .orderBy(desc(inventoryItemLabels.createdAt));
+    const existing = await tx
+      .select()
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
+      .orderBy(desc(inventoryItemLabels.createdAt)).for("update");
 
-  for (const label of existing) {
-    const currentStatus = String(label.status ?? "").trim().toLowerCase();
-    const nextStatus = currentStatus ? label.status : status;
-    const nextStatusText = String(nextStatus ?? "").trim().toLowerCase();
-    await db
-      .update(inventoryItemLabels)
-      .set({
+    for (const label of existing) {
+      const currentStatus = String(label.status ?? "").trim().toLowerCase();
+      const nextStatus = currentStatus ? label.status : status;
+      const nextStatusText = String(nextStatus ?? "").trim().toLowerCase();
+      await tx
+        .update(inventoryItemLabels)
+        .set({
+          localInventoryId,
+          legacyManagementNo,
+          title: input.title,
+          status: nextStatus,
+          sourceKey: label.sourceKey ?? sourceKey,
+          receivedAt: (nextStatusText === "stocked" || nextStatusText === "received") && !label.receivedAt ? now : label.receivedAt,
+        })
+        .where(eq(inventoryItemLabels.id, label.id));
+    }
+
+    const shouldCreateStockLabels = status === "stocked" || status === "received";
+    const countableLabelCount = shouldCreateStockLabels
+      ? existing.filter((label) => isStockInventoryLabel(label) || String(label.status ?? "").trim().toLowerCase() === "ordered").length
+      : existing.length;
+    const missingCount = Math.max(0, desiredQuantity - countableLabelCount);
+    for (let i = 0; i < missingCount; i++) {
+      await insertInventoryLabelWithRetry(tx, {
+        purchaseId: null,
         localInventoryId,
         legacyManagementNo,
         title: input.title,
-        status: nextStatus,
-        sourceKey: label.sourceKey ?? sourceKey,
-        receivedAt: (nextStatusText === "stocked" || nextStatusText === "received") && !label.receivedAt ? now : label.receivedAt,
-      })
-      .where(eq(inventoryItemLabels.id, label.id));
-  }
+        status,
+        sourceKey,
+        receivedAt: status === "received" || status === "stocked" ? now : null,
+        shippedAt: null,
+      });
+    }
 
-  const shouldCreateStockLabels = status === "stocked" || status === "received";
-  const countableLabelCount = shouldCreateStockLabels
-    ? existing.filter((label) => isStockInventoryLabel(label) || String(label.status ?? "").trim().toLowerCase() === "ordered").length
-    : existing.length;
-  const missingCount = Math.max(0, desiredQuantity - countableLabelCount);
-  for (let i = 0; i < missingCount; i++) {
-    await insertInventoryLabelWithRetry(db, {
-      purchaseId: null,
-      localInventoryId,
-      legacyManagementNo,
-      title: input.title,
-      status,
-      sourceKey,
-      receivedAt: status === "received" || status === "stocked" ? now : null,
-      shippedAt: null,
-    });
-  }
-
-  return db
-    .select()
-    .from(inventoryItemLabels)
-    .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
-    .orderBy(desc(inventoryItemLabels.createdAt));
+    return tx
+      .select()
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.localInventoryId, localInventoryId))
+      .orderBy(desc(inventoryItemLabels.createdAt));
+  });
 }
 
 export async function ensureInventoryItemLabels(input: {
@@ -1614,78 +1621,89 @@ export async function ensureInventoryItemLabels(input: {
   quantity: number;
   status?: InventoryItemLabelStatus;
   sourceKey?: string | null;
-}): Promise<InventoryItemLabel[]> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+}, executor?: Pick<AppDatabase, "select" | "update" | "insert" | "delete">): Promise<InventoryItemLabel[]> {
+  const ensure = async (tx: NonNullable<typeof executor>) => {
+    // Purchase issuance and inventory backfill must not both create the first label.
+    if (input.localInventoryId) {
+      await tx.select({ id: localInventories.id }).from(localInventories)
+        .where(eq(localInventories.id, input.localInventoryId)).limit(1).for("update");
+    }
+    await tx.select({ id: localPurchases.id }).from(localPurchases)
+      .where(eq(localPurchases.id, input.purchaseId)).limit(1).for("update");
 
-  const desiredQuantity = normalizeLabelQuantity(input.quantity);
-  const status = input.status ?? "ordered";
-  const now = new Date();
-  const sourceKey = input.sourceKey?.trim() || null;
-  const legacyManagementNo = input.legacyManagementNo?.trim() || null;
+    const desiredQuantity = normalizeLabelQuantity(input.quantity);
+    const status = input.status ?? "ordered";
+    const now = new Date();
+    const sourceKey = input.sourceKey?.trim() || null;
+    const legacyManagementNo = input.legacyManagementNo?.trim() || null;
 
-  const existingByPurchase = await db
-    .select()
-    .from(inventoryItemLabels)
-    .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
-    .orderBy(desc(inventoryItemLabels.createdAt));
-  let existing = existingByPurchase;
-
-  if (existing.length === 0 && sourceKey) {
-    existing = await db
+    const existingByPurchase = await tx
       .select()
       .from(inventoryItemLabels)
-      .where(eq(inventoryItemLabels.sourceKey, sourceKey))
-      .orderBy(desc(inventoryItemLabels.createdAt));
-  }
+      .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
+      .orderBy(desc(inventoryItemLabels.createdAt)).for("update");
+    let existing = existingByPurchase;
 
-  if (existing.length === 0 && legacyManagementNo) {
-    existing = await db
-      .select()
-      .from(inventoryItemLabels)
-      .where(eq(inventoryItemLabels.legacyManagementNo, legacyManagementNo))
-      .orderBy(desc(inventoryItemLabels.createdAt));
-  }
+    if (existing.length === 0 && sourceKey) {
+      existing = await tx
+        .select()
+        .from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.sourceKey, sourceKey))
+        .orderBy(desc(inventoryItemLabels.createdAt)).for("update");
+    }
 
-  if (existingByPurchase.length > 0) {
-    existing = await trimPurchaseLabelsToQuantity(db, existing, desiredQuantity);
-  }
+    if (existing.length === 0 && legacyManagementNo) {
+      existing = await tx
+        .select()
+        .from(inventoryItemLabels)
+        .where(eq(inventoryItemLabels.legacyManagementNo, legacyManagementNo))
+        .orderBy(desc(inventoryItemLabels.createdAt)).for("update");
+    }
 
-  for (const label of existing) {
-    const nextStatus = status === "received" && label.status === "ordered" ? "received" : label.status;
-    await db
-      .update(inventoryItemLabels)
-      .set({
+    if (existingByPurchase.length > 0) {
+      existing = await trimPurchaseLabelsToQuantity(tx, existing, desiredQuantity);
+    }
+
+    for (const label of existing) {
+      const nextStatus = status === "received" && label.status === "ordered" ? "received" : label.status;
+      await tx
+        .update(inventoryItemLabels)
+        .set({
+          purchaseId: input.purchaseId,
+          localInventoryId: input.localInventoryId ?? label.localInventoryId,
+          legacyManagementNo,
+          title: input.title,
+          status: nextStatus,
+          sourceKey,
+          receivedAt: nextStatus === "received" && !label.receivedAt ? now : label.receivedAt,
+        })
+        .where(eq(inventoryItemLabels.id, label.id));
+    }
+
+    const missingCount = Math.max(0, desiredQuantity - existing.length);
+    for (let i = 0; i < missingCount; i++) {
+      await insertInventoryLabelWithRetry(tx, {
         purchaseId: input.purchaseId,
-        localInventoryId: input.localInventoryId ?? label.localInventoryId,
+        localInventoryId: input.localInventoryId ?? null,
         legacyManagementNo,
         title: input.title,
-        status: nextStatus,
+        status,
         sourceKey,
-        receivedAt: nextStatus === "received" && !label.receivedAt ? now : label.receivedAt,
-      })
-      .where(eq(inventoryItemLabels.id, label.id));
-  }
+        receivedAt: status === "received" ? now : null,
+        shippedAt: null,
+      });
+    }
 
-  const missingCount = Math.max(0, desiredQuantity - existing.length);
-  for (let i = 0; i < missingCount; i++) {
-    await insertInventoryLabelWithRetry(db, {
-      purchaseId: input.purchaseId,
-      localInventoryId: input.localInventoryId ?? null,
-      legacyManagementNo,
-      title: input.title,
-      status,
-      sourceKey,
-      receivedAt: status === "received" ? now : null,
-      shippedAt: null,
-    });
-  }
-
-  return db
-    .select()
-    .from(inventoryItemLabels)
-    .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
-    .orderBy(desc(inventoryItemLabels.createdAt));
+    return tx
+      .select()
+      .from(inventoryItemLabels)
+      .where(eq(inventoryItemLabels.purchaseId, input.purchaseId))
+      .orderBy(desc(inventoryItemLabels.createdAt)).for("update");
+  };
+  if (executor) return ensure(executor);
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(ensure);
 }
 
 export async function upsertLocalInventory(data: InsertLocalInventory) {

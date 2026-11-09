@@ -16,7 +16,7 @@ GAS_WEBHOOK_SECRET=任意の長いランダム文字列
 POST https://invoice-site-bycodex.vercel.app/api/gas/purchase-order
 ```
 
-`/api/gas/purchase-order` は、デフォルトで「発注済み」として登録し、在庫数は増やしません。入庫数を直接増やす必要がある場合だけ `markPurchased: true` をpayloadに入れます。
+`/api/gas/purchase-order` は、デフォルトで「発注済み」として登録します。入庫数を直接増やす場合は、先に同じ管理番号で発注登録してから、発注数を指定して `/api/gas/purchase-receive` を呼ぶか、`markPurchased: true` を送ります。既存の有効な入庫履歴を含めて発注数を超える場合は HTTP 409 を返します。
 
 ## Apps Script sample
 
