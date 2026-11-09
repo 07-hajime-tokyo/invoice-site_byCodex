@@ -4,6 +4,7 @@ import {
   filterActiveInvoiceRollups,
   groupInboundBoxes,
   invoiceAllocation,
+  isInboundReceiptPending,
   matchInboundLabels,
   summarizeIncoming,
   type InboundInvoiceRollup,
@@ -28,6 +29,13 @@ function label(overrides: Partial<InboundLabel>): InboundLabel {
     ...overrides,
   };
 }
+
+it("requires receipt confirmation before showing a received label as ready for inspection", () => {
+  expect(isInboundReceiptPending(label({ status: "ordered" }))).toBe(true);
+  expect(isInboundReceiptPending(label({ status: "received", receiptConfirmed: false }))).toBe(true);
+  expect(isInboundReceiptPending(label({ status: "received", receiptConfirmed: true }))).toBe(false);
+  expect(isInboundReceiptPending(label({ status: "stocked" }))).toBe(false);
+});
 
 describe("matchInboundLabels", () => {
   const labels = [

@@ -23,6 +23,7 @@ import {
   type InboundInvoiceRollup,
   type InboundInvoiceSummary,
   type InboundLabel,
+  isInboundReceiptPending,
   type IncomingSummary,
 } from "@/inventory/lib/inboundDesk";
 import { trpc } from "@/lib/trpc";
@@ -317,20 +318,19 @@ function BacklogCloseCard({
     onError: error => toast.error(`失敗しました: ${error.message}`),
   });
 
-  const targets = useMemo(
-    () => pendingLabels.filter(label => (label.receivedAt ?? "") < `${cutoff}T00:00:00`),
-    [cutoff, pendingLabels]
-  );
-  const olderThanToday = pendingLabels.length - targets.length;
+  const countedLabels = pendingLabels.filter(label => label.inventoryCounted);
+  const cutoffTime = Date.parse(`${cutoff}T00:00:00+09:00`);
+  const targets = countedLabels.filter(label => label.receivedAt && Date.parse(label.receivedAt) < cutoffTime);
+  const olderThanToday = countedLabels.length - targets.length;
 
-  if (pendingLabels.length === 0) return null;
+  if (countedLabels.length === 0) return null;
 
   return (
     <section className="rounded-lg border border-amber-300 bg-amber-50/60 p-3">
       {!open ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-amber-900">
-            過去に荷受けしたぶんが検品待ちに残っています（現在 {pendingLabels.length}台）。
+            在庫計上済みの検品待ちが残っています（現在 {countedLabels.length}台）。
             遡って動作確認しないものは、まとめて外せます。
           </p>
           <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
@@ -982,8 +982,7 @@ function ReceivePhase({
               raw,
               outcome: "not-a-tracking",
               matches: [],
-              message: "これは商品IDです。この画面は配送伝票の追跡番号を読みます",
-              hint: "商品IDを読むのは「② 動作確認待ち」の画面です。",
+              message: "この商品IDは取引ハブに登録されていません",
             }
           : {
               raw,
@@ -1002,7 +1001,7 @@ function ReceivePhase({
       focusScanInput();
       return;
     }
-    const receivable = matches.filter(label => label.status === "ordered");
+    const receivable = matches.filter(isInboundReceiptPending);
     if (receivable.length === 0) {
       setLastScan({
         raw,
@@ -1047,11 +1046,8 @@ function ReceivePhase({
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <ScanLine className="h-5 w-5" />
-              配送伝票をスキャン
+              荷受けスキャン
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              追跡番号以外のバーコードは黙って無視します。読み取りだけでは在庫数は増えません。
-            </p>
           </div>
           <Button
             type="button"
@@ -1074,7 +1070,8 @@ function ReceivePhase({
             onKeyDown={event => {
               if (event.key === "Enter") void submitScan();
             }}
-            placeholder="配送伝票のバーコードをスキャン"
+            placeholder="追跡番号または商品ID"
+            aria-label="追跡番号または商品ID"
             autoComplete="off"
             className="h-12 font-mono text-base"
           />
@@ -2036,7 +2033,7 @@ export default function InboundDesk() {
 
   const labels = (snapshotQuery.data?.labels ?? []) as InboundLabel[];
   const pendingLabels = useMemo(
-    () => labels.filter(label => label.status === "received"),
+    () => labels.filter(label => label.status === "received" && label.receiptConfirmed),
     [labels]
   );
   const boxes = useMemo(

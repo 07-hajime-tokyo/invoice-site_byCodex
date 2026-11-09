@@ -37,7 +37,6 @@ const stringKeys = {
 
 const numberKeys = {
   inventoryId: ["inventoryId", "inventory_id", "在庫ID"],
-  inventoryQuantity: ["inventoryQuantity", "inventory_quantity", "initialInventoryQuantity", "初期在庫数", "在庫数"],
   quantity: ["quantity", "qty", "数量", "入庫数", "発注数"],
   orderQuantity: ["orderQuantity", "order_quantity", "orderedQuantity", "ordered_quantity", "発注数量", "発注数"],
   unitPrice: ["unitPrice", "unit_price", "purchasePrice", "purchase_price", "price", "仕入単価", "単価"],
@@ -547,8 +546,7 @@ export function registerGasWebhookRoutes(app: Express) {
       const operatorName = textField(payload, stringKeys.operatorName) || "Google Apps Script";
       const markPurchased = booleanField(payload, booleanKeys.markPurchased, defaultMarkPurchased);
       const createInventory = booleanField(payload, booleanKeys.createInventory, true);
-      const inventoryQuantity = numberField(payload, numberKeys.inventoryQuantity, null)
-        ?? (rawQuantity != null && rawQuantity >= 0 && orderQuantity != null ? rawQuantity : markPurchased ? quantity : 0);
+      const inventoryQuantity = markPurchased ? quantity : 0;
       const dryRun = booleanField(payload, booleanKeys.dryRun, false);
       const sourceManagementNo = textField(payload, stringKeys.managementNo);
       const sourceKey = makeSourceKey(payload, sourceManagementNo, purchaseNum);
@@ -631,7 +629,7 @@ export function registerGasWebhookRoutes(app: Express) {
               place,
               quantity: markPurchased
                 ? alreadyReceived ? previousQuantity : previousQuantity + quantity
-                : inventoryQuantity,
+                : previousQuantity,
               unit,
               unitPrice,
               etc: inventoryEtc,

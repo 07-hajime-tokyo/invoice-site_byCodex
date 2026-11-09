@@ -13,6 +13,7 @@ export type InboundLabel = {
   receivedAt: string | null;
   updatedAt: string;
   inventoryCounted: boolean;
+  receiptConfirmed?: boolean;
   /** 仕入れ行として入庫済みか。ラベルの status だけでは未着かどうか分からない。 */
   purchaseReceived?: boolean;
   /** 発注として存在するか。既存在庫へ後から貼ったラベルは仕入れ行を持たない。 */
@@ -29,6 +30,11 @@ export type InboundLabel = {
   marketFetchedAt?: string | null;
   defectiveSheetSyncedAt?: string | null;
 };
+
+export function isInboundReceiptPending(label: InboundLabel): boolean {
+  return label.status === "ordered" ||
+    (label.status === "received" && !label.receiptConfirmed);
+}
 
 export type InboundInvoiceSummary = {
   key: string;
