@@ -20,12 +20,11 @@ import {
   isTradeShipmentConfirmed,
   TRADE_SHIPMENT_CONFIRMATION_MEMO_KEY,
 } from "@shared/tradeStatus";
-import { invoiceNoFromDeliveryNo, invoiceNoFromManagementNo, normalizeAssignedInvoiceNo } from "@shared/invoiceKey";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { google } from "googleapis";
 import { getDb, upsertUser } from "./db";
-import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, whatsappConversations, whatsappMessages, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems, fedexShipments } from "../drizzle/schema";
+import { invoiceClients, invoices, invoiceItems, invoiceSettings, invoiceNumberHistory, whatsappChatHistory, whatsappConversations, whatsappMessages, chatKnowledge, aiChatMessages, chatConversations, tradeRecords, shipments, shipmentItems } from "../drizzle/schema";
 import { isOwnerSender, looksJapanese, makeDedupeKey, parseWhatsAppExport, translateMessages } from "./whatsappConversations";
 import { eq, desc, asc, or, like, and, gte, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 
@@ -886,14 +885,6 @@ type TradeRow = typeof tradeRecords.$inferSelect;
 type ShipmentRow = typeof shipments.$inferSelect;
 type ShipmentItemRow = typeof shipmentItems.$inferSelect;
 type RouterDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
-type ParsedFedexShipmentItem = {
-  productNameJa: string;
-  productNameEn: string;
-  quantity: number;
-  invoiceNo: string | null;
-  managementNo: string | null;
-};
-type FedexAllocationItem = ParsedFedexShipmentItem & { deliveryNo: string };
 
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
@@ -914,97 +905,6 @@ function getShipmentAllocationGroupKey(shipment: Pick<ShipmentRow, "id" | "track
   return trackingNumber ? `tracking:${trackingNumber}` : `shipment:${shipment.id}`;
 }
 
-function getDeliveryInvoiceNo(value: string | null | undefined): string | null {
-  return invoiceNoFromDeliveryNo(value);
-}
-
-function getFedexItemInvoiceNo(row: Record<string, unknown>): string | null {
-  return (
-    normalizeAssignedInvoiceNo(row.invoiceNo as string | null | undefined) ??
-    normalizeAssignedInvoiceNo(row.assignedInvoiceNo as string | null | undefined) ??
-    invoiceNoFromManagementNo(row.managementNo as string | null | undefined) ??
-    invoiceNoFromManagementNo(row.legacyManagementNo as string | null | undefined)
-  );
-}
-
-function parseFedexShipmentItems(value: string | null | undefined): ParsedFedexShipmentItem[] {
-  try {
-    const parsed = JSON.parse(value ?? "[]") as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const row = item as Record<string, unknown>;
-        const productNameJa = String(row.productNameJa ?? row.title ?? row.productNameEn ?? "").trim();
-        const productNameEn = String(row.productNameEn ?? productNameJa).trim();
-        const quantity = toNumber(row.quantity);
-        if (!productNameJa || quantity <= 0) return null;
-        return {
-          productNameJa,
-          productNameEn,
-          quantity,
-          invoiceNo: getFedexItemInvoiceNo(row),
-          managementNo: String(row.managementNo ?? row.legacyManagementNo ?? "").trim() || null,
-        };
-      })
-      .filter((item): item is ParsedFedexShipmentItem => item !== null);
-  } catch {
-    return [];
-  }
-}
-
-function addTradeQuantity(map: Map<number, number>, tradeId: number, quantity: number) {
-  if (!Number.isFinite(tradeId) || tradeId <= 0 || quantity <= 0) return;
-  map.set(tradeId, (map.get(tradeId) ?? 0) + quantity);
-}
-
-function allocateFedexItemsToTradeRows(
-  invoiceTrades: TradeRow[],
-  shipmentItems: FedexAllocationItem[],
-): Map<number, number> {
-  const allocated = new Map<number, number>();
-  const remainingByTradeId = new Map<number, number>();
-  const csvProducts = invoiceTrades
-    .map((trade) => ({
-      tradeId: Number(trade.id),
-      name: String(trade.productName ?? "").trim(),
-      qty: toNumber(trade.quantity),
-    }))
-    .filter((trade) => trade.tradeId > 0 && trade.name);
-
-  for (const trade of csvProducts) {
-    remainingByTradeId.set(trade.tradeId, trade.qty);
-  }
-
-  for (const item of shipmentItems) {
-    const shippedName = item.productNameJa || item.productNameEn;
-    const shippedNameKey = normalizeLooseText(shippedName);
-    let candidates = csvProducts.filter((product) => normalizeLooseText(product.name) === shippedNameKey);
-    if (candidates.length === 0) {
-      const suggestion = suggestCsvProduct(
-        shippedName,
-        `${item.deliveryNo} ${item.managementNo ?? ""}`,
-        csvProducts.map((product) => ({ name: product.name, qty: product.qty })),
-      );
-      if (!suggestion) continue;
-      candidates = csvProducts.filter((product) => product.name === suggestion.name);
-    }
-
-    const chosen =
-      candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) >= item.quantity) ??
-      candidates.find((product) => (remainingByTradeId.get(product.tradeId) ?? 0) > 0) ??
-      candidates[0];
-    if (!chosen) continue;
-
-    addTradeQuantity(allocated, chosen.tradeId, item.quantity);
-    remainingByTradeId.set(
-      chosen.tradeId,
-      Math.max(0, (remainingByTradeId.get(chosen.tradeId) ?? 0) - item.quantity),
-    );
-  }
-
-  return allocated;
-}
 
 function allocateQtyToTrades(
   trades: TradeRow[],
@@ -1036,111 +936,47 @@ function allocateQtyToTrades(
   return result;
 }
 
-type TradeShipmentRegistrationProgress = {
-  fedexRegisteredQtyByTradeId: Map<number, number>;
-  registeredQtyByTradeId: Map<number, number>;
-};
-
 async function getTradeShipmentRegistrationProgress(
   db: RouterDb,
   rows: TradeRow[],
-): Promise<TradeShipmentRegistrationProgress> {
-  const invoiceNos = Array.from(
-    new Set(
-      rows
-        .map((row) => Number(row.no ?? 0))
-        .filter((invoiceNo) => Number.isFinite(invoiceNo) && invoiceNo > 399),
-    ),
-  );
+): Promise<Map<number, number>> {
+  const tradeIds = rows
+    .filter((row) => (row.no ?? 0) > 399 && !isClosedTradeYear(row.paymentDate))
+    .map((row) => row.id);
+  if (tradeIds.length === 0) return new Map();
 
-  if (invoiceNos.length === 0) {
-    return {
-      fedexRegisteredQtyByTradeId: new Map(),
-      registeredQtyByTradeId: new Map(),
-    };
-  }
-  const invoiceNoSet = new Set(invoiceNos.map((invoiceNo) => String(invoiceNo)));
-  const fedexShipmentConditions = invoiceNos.flatMap((invoiceNo) => {
-    const key = String(invoiceNo);
-    return [
-      eq(fedexShipments.deliveryNo, key),
-      like(fedexShipments.deliveryNo, `${key}_%`),
-      like(fedexShipments.deliveryNo, `${key}-%`),
-      like(fedexShipments.itemsJson, `%\"invoiceNo\":\"${key}\"%`),
-      like(fedexShipments.itemsJson, `%\"assignedInvoiceNo\":\"${key}\"%`),
-    ];
-  });
+  // Only product lines explicitly selected in the trade page's shipment dialog count.
+  const totals = await db
+    .select({
+      tradeId: tradeRecords.id,
+      quantity: sql<string>`SUM(${shipmentItems.quantity})`,
+    })
+    .from(shipmentItems)
+    .innerJoin(shipments, eq(shipments.id, shipmentItems.shipmentId))
+    .innerJoin(tradeRecords, and(
+      eq(tradeRecords.id, shipmentItems.tradeRecordId),
+      eq(tradeRecords.no, shipmentItems.invoiceNo),
+    ))
+    .where(inArray(tradeRecords.id, tradeIds))
+    .groupBy(tradeRecords.id);
 
-  const [allTrades, allFedexRows] = await Promise.all([
-    db
-      .select()
-      .from(tradeRecords)
-      .where(inArray(tradeRecords.no, invoiceNos))
-      .orderBy(asc(tradeRecords.id)),
-    db
-      .select()
-      .from(fedexShipments)
-      .where(and(or(...fedexShipmentConditions), isNull(fedexShipments.cancelledAt)))
-      .orderBy(asc(fedexShipments.id)),
-  ]);
-
-  const tradesByInvoiceNo = new Map<string, TradeRow[]>();
-  for (const trade of allTrades) {
-    const invoiceNo = String(trade.no ?? "");
-    if (!invoiceNo) continue;
-    const trades = tradesByInvoiceNo.get(invoiceNo) ?? [];
-    trades.push(trade);
-    tradesByInvoiceNo.set(invoiceNo, trades);
-  }
-
-  const fedexItemsByInvoiceNo = new Map<string, FedexAllocationItem[]>();
-  for (const shipment of allFedexRows) {
-    const deliveryInvoiceNo = getDeliveryInvoiceNo(shipment.deliveryNo);
-    for (const item of parseFedexShipmentItems(shipment.itemsJson)) {
-      const invoiceNo = item.invoiceNo ?? deliveryInvoiceNo;
-      if (!invoiceNo || !invoiceNoSet.has(invoiceNo)) continue;
-      const items = fedexItemsByInvoiceNo.get(invoiceNo) ?? [];
-      items.push({ ...item, deliveryNo: shipment.deliveryNo });
-      fedexItemsByInvoiceNo.set(invoiceNo, items);
-    }
-  }
-
-  const fedexQtyByTradeId = new Map<number, number>();
-  for (const [invoiceNo, shipmentItems] of fedexItemsByInvoiceNo) {
-    const invoiceTrades = tradesByInvoiceNo.get(invoiceNo) ?? [];
-    const allocated = allocateFedexItemsToTradeRows(invoiceTrades, shipmentItems);
-    for (const [tradeId, quantity] of allocated) {
-      addTradeQuantity(fedexQtyByTradeId, tradeId, quantity);
-    }
-  }
-
-  const registeredQtyByTradeId = new Map<number, number>();
-  for (const [tradeId, quantity] of fedexQtyByTradeId) {
-    registeredQtyByTradeId.set(tradeId, quantity);
-  }
-
-  return {
-    fedexRegisteredQtyByTradeId: fedexQtyByTradeId,
-    registeredQtyByTradeId,
-  };
+  return new Map(totals.map(({ tradeId, quantity }) => [tradeId, toNumber(quantity)]));
 }
 
 function applyTradeShipmentRegistrationStatuses<T extends TradeRow>(
   rows: T[],
-  progress: TradeShipmentRegistrationProgress,
+  registeredQtyByTradeId: ReadonlyMap<number, number>,
   shipmentConfirmations: Map<string, string>,
 ) {
   return rows.map((row): T => {
     const invoiceNo = row.no == null ? null : Number(row.no);
     const tradeId = Number(row.id);
-    const fedexQty = progress.fedexRegisteredQtyByTradeId.get(tradeId) ?? 0;
     const status = deriveTradeShipmentRegistrationStatus({
       status: row.status,
       invoiceNo,
       paymentDate: row.paymentDate,
       orderedQty: toNumber(row.quantity),
-      registeredQty: progress.registeredQtyByTradeId.get(tradeId) ?? 0,
-      fedexRegisteredQty: fedexQty,
+      registeredQty: registeredQtyByTradeId.get(tradeId) ?? 0,
       shipmentConfirmed: isTradeShipmentConfirmed(row, shipmentConfirmations.get(`trade:${tradeId}`)),
     });
     return status === (row.status ?? "") ? row : { ...row, status };

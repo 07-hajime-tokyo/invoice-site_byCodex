@@ -21,7 +21,6 @@ describe("tradeStatus", () => {
     for (const registeredQty of [0, 4]) {
       expect(deriveTradeShipmentRegistrationStatus({
         status: "complete", invoiceNo: 400, orderedQty: 5, registeredQty,
-        fedexRegisteredQty: registeredQty,
         shipmentConfirmed: isTradeShipmentConfirmed(confirmedRow, confirmation),
       })).toBe("complete");
     }
@@ -77,57 +76,30 @@ describe("tradeStatus", () => {
         invoiceNo: 400,
         orderedQty: 10,
         registeredQty: 10,
-        fedexRegisteredQty: 10,
       }),
     ).toBe("complete");
   });
 
-  it("uses FedEx registration quantities over sheet remaining status", () => {
+  it("uses selected shipment quantities over sheet remaining status", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "remaining 1",
         invoiceNo: 419,
         orderedQty: 10,
         registeredQty: 10,
-        fedexRegisteredQty: 10,
       }),
     ).toBe("complete");
   });
 
-  it("shows simple remaining when FedEx registrations are short", () => {
+  it("shows simple remaining when registered quantities are short", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "complete",
         invoiceNo: 400,
         orderedQty: 6,
         registeredQty: 5,
-        fedexRegisteredQty: 5,
       }),
     ).toBe("\u6b8b1");
-  });
-
-  it("counts FedEx registration as shipment registration", () => {
-    expect(
-      deriveTradeShipmentRegistrationStatus({
-        status: "complete",
-        invoiceNo: 400,
-        orderedQty: 10,
-        registeredQty: 9,
-        fedexRegisteredQty: 10,
-      }),
-    ).toBe("complete");
-  });
-
-  it("does not count delivery-history-only quantities as shipment registration", () => {
-    expect(
-      deriveTradeShipmentRegistrationStatus({
-        status: "complete",
-        invoiceNo: 420,
-        orderedQty: 6,
-        registeredQty: 6,
-        fedexRegisteredQty: 0,
-      }),
-    ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b6\u53f0\uff09");
   });
 
   it("keeps invoice numbers through 399 complete even without site shipment registration", () => {
@@ -145,7 +117,6 @@ describe("tradeStatus", () => {
         invoiceNo: 399,
         orderedQty: 5,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("complete");
   });
@@ -157,7 +128,6 @@ describe("tradeStatus", () => {
         invoiceNo: 400,
         orderedQty: 5,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b5\u53f0\uff09");
   });
@@ -169,7 +139,6 @@ describe("tradeStatus", () => {
         invoiceNo: 419,
         orderedQty: 6,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("");
     expect(
@@ -178,19 +147,17 @@ describe("tradeStatus", () => {
         invoiceNo: 399,
         orderedQty: 5,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("complete");
   });
 
-  it("does not leak invoice-level FedEx registration into unrelated product rows", () => {
+  it("does not leak invoice-level shipment registration into unrelated product rows", () => {
     expect(
       deriveTradeShipmentRegistrationStatus({
         status: "\u6b8b6",
         invoiceNo: 419,
         orderedQty: 6,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("");
     expect(
@@ -199,7 +166,6 @@ describe("tradeStatus", () => {
         invoiceNo: 419,
         orderedQty: 6,
         registeredQty: 0,
-        fedexRegisteredQty: 0,
       }),
     ).toBe("\u767a\u9001\u767b\u9332\u672a\u5b8c\u4e86\uff08\u6b8b6\u53f0\uff09");
   });
@@ -211,7 +177,6 @@ describe("tradeStatus", () => {
         invoiceNo: 404,
         orderedQty: 5,
         registeredQty: 4,
-        fedexRegisteredQty: 4,
       }),
     ).toBe("\u6b8b1");
   });
@@ -223,7 +188,6 @@ describe("tradeStatus", () => {
         invoiceNo: 393,
         orderedQty: 6,
         registeredQty: 5,
-        fedexRegisteredQty: 5,
       }),
     ).toBe("\u6b8b1");
   });

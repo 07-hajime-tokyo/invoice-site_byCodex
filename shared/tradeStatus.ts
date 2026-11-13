@@ -63,7 +63,6 @@ export function deriveTradeShipmentRegistrationStatus(input: {
   paymentDate?: string | null;
   orderedQty: number;
   registeredQty: number;
-  fedexRegisteredQty?: number;
   shipmentConfirmed?: boolean;
 }) {
   if (input.shipmentConfirmed) return "complete";
@@ -72,7 +71,7 @@ export function deriveTradeShipmentRegistrationStatus(input: {
 
   const invoiceNo = Number(input.invoiceNo ?? 0);
   if (input.orderedQty <= 0) return currentStatus;
-  const effectiveRegisteredQty = Math.max(0, input.fedexRegisteredQty ?? input.registeredQty);
+  const effectiveRegisteredQty = Math.max(0, input.registeredQty);
   const hasSiteShipmentQty = effectiveRegisteredQty > 0;
   if (Number.isFinite(invoiceNo) && invoiceNo > 0 && invoiceNo <= 399 && !hasSiteShipmentQty) {
     return "complete";
