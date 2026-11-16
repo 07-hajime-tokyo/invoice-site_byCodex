@@ -92,7 +92,7 @@ async function readPreservedCounts(conn) {
 export async function applyReviewedTargets(conn, manifest, snapshotPath, isTiDB) {
   const batch = `shipped-zero:${randomUUID()}`;
   // TiDB needs a pessimistic transaction for SELECT ... FOR UPDATE to lock rows.
-  if (isTiDB) await conn.query("START TRANSACTION PESSIMISTIC");
+  if (isTiDB) await conn.query("BEGIN PESSIMISTIC");
   else await conn.beginTransaction();
   let committed = false;
   try {

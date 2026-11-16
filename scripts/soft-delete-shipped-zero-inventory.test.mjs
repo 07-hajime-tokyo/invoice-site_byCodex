@@ -27,7 +27,7 @@ function fixture(snapshot, { updateCount = 57, conflictingLabel = false, queried
   const calls = [];
   const connection = {
     async query(sql) {
-      if (sql.startsWith("START TRANSACTION")) {
+      if (sql === "BEGIN PESSIMISTIC") {
         calls.push("begin");
         return [];
       }
